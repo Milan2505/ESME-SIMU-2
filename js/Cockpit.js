@@ -21,7 +21,7 @@ import {
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote).
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
-const EYE = new Vector3(-0.3, 0, 0);
+const EYE = new Vector3(-0.3, 0.1, 0); // hauteur d'œil : on voit le sol par-dessus le tableau à ~12° sous l'horizon
 const PANEL = { width: 1.2, height: 0.4, y: -0.3, z: -0.75 };
 const CANVAS = { width: 1536, height: 512 };
 const PX_PER_M = CANVAS.width / PANEL.width;
@@ -542,6 +542,10 @@ class Cockpit {
         // à travers le pare-brise, on voit ce dos plein au lieu d'un trou
         add(new Mesh(new BoxGeometry(PANEL.width + 0.06, PANEL.height + 0.02, 0.2), plastic), 0, PANEL.y, PANEL.z - 0.105);
         add(new Mesh(new BoxGeometry(1.26, 0.05, 0.3), plastic), 0, -0.08, -0.88);
+        // Planche inclinée de l'avant de la casquette jusqu'au bas du pare-brise du modèle extérieur
+        // (y -0,24 / z -1,36 dans ce repère) : comble le vide vu à travers le pare-brise depuis l'extérieur
+        const deck = add(new Mesh(new BoxGeometry(1.3, 0.02, 0.43), plastic), 0, -0.17, -1.19);
+        deck.rotation.x = -Math.atan2(0.2, 0.38);
         add(new Mesh(new BoxGeometry(1.26, 0.42, 0.2), plastic), 0, -0.71, -0.86);
         const trim = new MeshStandardMaterial({ color: 0x8e877a, roughness: 0.9 });      // garnitures de porte
         const carpet = new MeshStandardMaterial({ color: 0x2c2a28, roughness: 1 });

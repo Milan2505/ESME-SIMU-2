@@ -146,11 +146,12 @@ aircraft.add(cockpit.group);
 
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
 const aircraftLights = new AircraftLights(aircraft);
-const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(18), 0.5, 2);
+const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(14), 0.6, 1.6);
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
 landingLight.position.set(-2.2, 1.12, -3);
-landingLight.target.position.set(-2.2, -6, -80);
+// Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
+landingLight.target.position.set(-1.2, -2.4, -80);
 aircraft.add(landingLight, landingLight.target);
 
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
@@ -473,7 +474,7 @@ function setWeather(name) {
     aircraftLights.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
     landingLight.visible = w.night >= 0.5;
-    landingLight.intensity = 6000;
+    landingLight.intensity = 12000;
 
     for (const button of document.querySelectorAll('#météo button')) {
         button.classList.toggle('actif', button.dataset.meteo === name);

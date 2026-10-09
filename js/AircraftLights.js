@@ -56,7 +56,7 @@ function createBeam() {
     const length = 45;
     const geometry = new ConeGeometry(7, length, 24, 1, true);
     geometry.translate(0, -length / 2, 0);        // sommet du cône au phare
-    geometry.rotateX(Math.PI / 2 - deg(4));       // pointe vers l'avant (-z), un peu vers le bas
+    geometry.rotateX(Math.PI / 2 - deg(2));       // pointe vers l'avant (-z), un peu vers le bas (comme le SpotLight)
     const material = new ShaderMaterial({
         uniforms: { uLength: { value: length } },
         vertexShader: /* glsl */`
