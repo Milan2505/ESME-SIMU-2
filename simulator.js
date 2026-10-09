@@ -163,21 +163,68 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     propeller.position.set(center.x, center.y, 0);
     // Ailerons, profondeur, direction et volets deviennent des pièces mobiles (aussi sur les copies du modèle)
     controlSurfaces = new ControlSurfaces(model, propeller);
-    model.traverse((child) => { child.castShadow = true; });
+    // Copie aux vitres opaques pour les avions garés et ceux des autres joueurs (ils n'ont pas d'intérieur)
+    const template = model.clone();
+    makeWindowsTransparent(model, propeller);
+    model.traverse((child) => { child.castShadow = child.material !== cabinGlass; }); // le soleil entre par les vitres
     aircraft.add(model);
     aircraftLights.setOccluder(model);
-    remotePlayers.setTemplate(model);
-    airport.addParkedPlanes(model);
+    remotePlayers.setTemplate(template);
+    airport.addParkedPlanes(template);
     rebuildObstacles(); // + les avions garés
     updateView();
 }, undefined, (error) => console.error(error));
+
+// Vitres de la cabine : dans le modèle, ce sont les triangles noirs au-dessus de y = 0,3
+// (en dessous : pneus et carénages). Ils deviennent du verre teinté, on voit l'intérieur à travers.
+const cabinGlass = new THREE.MeshStandardMaterial({
+    color: 0x1d2c35, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.3,
+    depthWrite: false, side: THREE.DoubleSide,
+});
+
+function makeWindowsTransparent(model, propeller) {
+    const blackMeshes = [];
+    model.traverse((child) => {
+        if (!child.isMesh || child.material.name !== 'Black') return;
+        for (let o = child; o; o = o.parent) if (o === propeller) return;
+        blackMeshes.push(child);
+    });
+    for (const mesh of blackMeshes) {
+        const geometry = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+        const position = geometry.attributes.position, normal = geometry.attributes.normal;
+        const parts = { opaque: { p: [], n: [] }, glass: { p: [], n: [] } };
+        for (let i = 0; i < position.count; i += 3) {
+            const y = (position.getY(i) + position.getY(i + 1) + position.getY(i + 2)) / 3;
+            const part = y > 0.3 ? parts.glass : parts.opaque;
+            for (let k = i; k < i + 3; k++) {
+                part.p.push(position.getX(k), position.getY(k), position.getZ(k));
+                part.n.push(normal.getX(k), normal.getY(k), normal.getZ(k));
+            }
+        }
+        if (!parts.glass.p.length) continue;
+        const build = ({ p, n }) => {
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+            g.setAttribute('normal', new THREE.Float32BufferAttribute(n, 3));
+            return g;
+        };
+        mesh.geometry = build(parts.opaque); // l'ancienne géométrie reste utilisée par la copie aux vitres opaques
+        const windows = new THREE.Mesh(build(parts.glass), cabinGlass);
+        windows.position.copy(mesh.position);
+        windows.quaternion.copy(mesh.quaternion);
+        windows.scale.copy(mesh.scale);
+        windows.renderOrder = 2;
+        mesh.parent.add(windows);
+    }
+}
 
 // Vue cabine / vue extérieure (bouton ou touche V)
 const viewButton = document.getElementById('vue');
 
 function updateView() {
     if (aircraftModel) aircraftModel.visible = chaseView;
-    cockpit.group.visible = !chaseView;
+    // L'intérieur reste affiché en vue extérieure : on le voit à travers les vitres
+    cockpit.setExterior(chaseView);
     camera.fov = chaseView ? CAM_FOV : COCKPIT_FOV;
     camera.updateProjectionMatrix();
     viewButton.textContent = chaseView ? '🎥 Vue cabine' : '🎥 Vue extérieure';
@@ -816,7 +863,8 @@ renderer.setAnimationLoop((time)=>{
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();
     controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps() );
-    if (!chaseView) cockpit.update( delta, cockpitState() );
+    // Instruments et manches animés en cabine, et en vue extérieure quand on est assez près pour les voir
+    if (!chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
     updateFog();
     updateStallWarning();
 

@@ -650,10 +650,23 @@ class Cockpit {
         windshieldGlass.renderOrder = 2;
         this.group.add(windshieldGlass);
 
+        // Éléments de la vue cabine seulement : en vue extérieure, la coque du modèle les remplace
+        // (aile, haubans, montants, plafond, cloison, vitres et pluie dépasseraient de la coque ou feraient doublon)
+        const cabinOnly = new Set([headliner, paint, this._glassMaterial, this.windshieldMaterial]);
         this.group.traverse((child) => {
             child.castShadow = false;
-            child.receiveShadow = false;
+            child.receiveShadow = true; // la coque fait de l'ombre à l'intérieur en vue extérieure
+            if (cabinOnly.has(child.material)) child.userData.cabinOnly = true;
         });
+    }
+
+    // exterior : vue extérieure (on voit l'intérieur à travers les vitres du modèle)
+    setExterior(exterior) {
+        this._exterior = exterior;
+        this.group.traverse((child) => {
+            if (child.userData.cabinOnly) child.visible = !exterior;
+        });
+        if (!exterior) this._windshield.visible = this.windshieldMaterial.uniforms.uIntensity.value > 0;
     }
 
     // Poutre de section carrée entre deux points (montants, haubans)
@@ -662,6 +675,7 @@ class Cockpit {
         const mesh = new Mesh(new BoxGeometry(thickness, length, thickness), material);
         mesh.position.copy(a).add(b).multiplyScalar(0.5);
         mesh.quaternion.copy(new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), b.clone().sub(a).normalize()));
+        mesh.userData.cabinOnly = true; // montants, encadrements, haubans : structure propre à la vue cabine
         this.group.add(mesh);
         return mesh;
     }
@@ -685,7 +699,7 @@ class Cockpit {
 
     setRain(intensity) {
         this.windshieldMaterial.uniforms.uIntensity.value = intensity;
-        this._windshield.visible = intensity > 0;
+        this._windshield.visible = intensity > 0 && !this._exterior;
     }
 
     // state : valeurs de PlaneControls (voir simulator.js)
