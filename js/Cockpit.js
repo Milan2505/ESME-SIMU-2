@@ -538,6 +538,9 @@ class Cockpit {
 
         // Tableau de bord, casquette anti-reflet et bas du tableau
         this.panel = add(new Mesh(new PlaneGeometry(PANEL.width, PANEL.height), this._panelMaterial), 0, PANEL.y, PANEL.z);
+        // Boîtier du tableau : le plan des instruments n'a qu'une face (vers le pilote) ; vu de l'extérieur,
+        // à travers le pare-brise, on voit ce dos plein au lieu d'un trou
+        add(new Mesh(new BoxGeometry(PANEL.width + 0.06, PANEL.height + 0.02, 0.2), plastic), 0, PANEL.y, PANEL.z - 0.105);
         add(new Mesh(new BoxGeometry(1.26, 0.05, 0.3), plastic), 0, -0.08, -0.88);
         add(new Mesh(new BoxGeometry(1.26, 0.42, 0.2), plastic), 0, -0.71, -0.86);
         const trim = new MeshStandardMaterial({ color: 0x8e877a, roughness: 0.9 });      // garnitures de porte
