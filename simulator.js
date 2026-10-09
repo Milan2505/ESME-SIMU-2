@@ -47,6 +47,10 @@ const ASSETS = {
     PLANE:    'asset/carpeXL',
 };
 const SOFT_OBJECTS = new Set(['FLOWER_Y', 'FLOWER_P']); // on passe au travers sans crash
+// Modèles très détaillés (le kart : plus de 100 000 faces) : dessinés seulement de près
+const DETAILED_OBJECTS = new Set(['KART', 'PLANE']);
+const DETAIL_DISTANCE = 600;
+const detailedObjects = [];
 const DEFAULT_SCALE = [10, 20, 10];
 
 // Ambiances du panneau Météo
@@ -86,7 +90,7 @@ const crashEffect = new CrashEffect();
 let weather = null;
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // au-delà de 2 : coûteux, sans gain visible
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer);
@@ -340,16 +344,18 @@ async function buildWorld() {
         const scale = ref ? [ref.scalex, ref.scaley, ref.scalez].map(Number) : DEFAULT_SCALE;
 
         loader.load(asset, (obj) => {
+            // Position, orientation et taille de chaque exemplaire
+            const placement = new THREE.Object3D();
+            const matrices = [];
             for (let i = 0; i < nombre; i++) {
-                const tmp = obj.clone();
                 const o = placed[i];
-
+                placement.rotation.set(0, 0, 0);
                 if (o) {
-                    tmp.scale.set(Number(o.scalex), Number(o.scaley), Number(o.scalez));
-                    tmp.position.set(Number(o.x), Number(o.y), Number(o.z));
-                    tmp.position.y += terrain.heightAt(tmp.position.x, tmp.position.z);
+                    placement.scale.set(Number(o.scalex), Number(o.scaley), Number(o.scalez));
+                    placement.position.set(Number(o.x), Number(o.y), Number(o.z));
+                    placement.position.y += terrain.heightAt(placement.position.x, placement.position.z);
                 } else {
-                    tmp.scale.set(...scale);
+                    placement.scale.set(...scale);
                     // Rien sur l'aérodrome (piste, parking, bâtiments)
                     let x, z;
                     do {
@@ -357,15 +363,30 @@ async function buildWorld() {
                         z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
                     } while (airport.contains(x, z, 30));
                     // Légèrement enfoncé pour ne pas flotter sur les pentes
-                    tmp.position.set(x, terrain.heightAt(x, z) - 0.5, z);
-                    tmp.rotation.y = Math.random() * Math.PI * 2;
+                    placement.position.set(x, terrain.heightAt(x, z) - 0.5, z);
+                    placement.rotation.y = Math.random() * Math.PI * 2;
                 }
-                tmp.traverse((child) => { child.castShadow = true; });
-                scene.add(tmp);
-                if (!SOFT_OBJECTS.has(type.codeType)) {
-                    tmp.updateMatrixWorld(true);
-                    controls.obstacles.push(new THREE.Box3().setFromObject(tmp));
-                }
+                placement.updateMatrix();
+                matrices.push(placement.matrix.clone());
+            }
+
+            // Instanciation : tous les exemplaires d'un même objet sont dessinés en un seul appel
+            // (au lieu d'un appel par objet et par matériau : des centaines d'appels en moins à chaque image)
+            obj.updateMatrixWorld(true);
+            const instanceMatrix = new THREE.Matrix4();
+            obj.traverse((child) => {
+                if (!child.isMesh) return;
+                const instances = new THREE.InstancedMesh(child.geometry, child.material, matrices.length);
+                matrices.forEach((matrix, i) => instances.setMatrixAt(i, instanceMatrix.multiplyMatrices(matrix, child.matrixWorld)));
+                instances.computeBoundingSphere();
+                instances.castShadow = !SOFT_OBJECTS.has(type.codeType); // les fleurs : ombre invisible, inutile
+                scene.add(instances);
+                if (DETAILED_OBJECTS.has(type.codeType)) detailedObjects.push(instances);
+            });
+
+            if (!SOFT_OBJECTS.has(type.codeType)) {
+                const box = new THREE.Box3().setFromObject(obj);
+                for (const matrix of matrices) controls.obstacles.push(box.clone().applyMatrix4(matrix));
             }
         });
     }
@@ -390,7 +411,9 @@ function setWeather(name) {
     cockpit.setNight(w.night);
     airport.setNight(w.night);
     for (const light of [...navLights, beacon, ...strobes]) light.scale.setScalar(0.35 + 0.45 * w.night);
-    landingLight.intensity = w.night >= 0.5 ? 6000 : 0;
+    // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
+    landingLight.visible = w.night >= 0.5;
+    landingLight.intensity = 6000;
 
     for (const button of document.querySelectorAll('#météo button')) {
         button.classList.toggle('actif', button.dataset.meteo === name);
@@ -634,7 +657,34 @@ function updateSounds() {
 const aircraftVelocity = new THREE.Vector3();
 const lastAircraftPosition = aircraft.position.clone();
 
+// Compteur de performances (touche P) : images par seconde, temps de calcul, appels de dessin, triangles
+const perfPanel = document.getElementById('perf');
+const perf = { frames: 0, time: 0, cpu: 0, calls: 0, triangles: 0, last: performance.now() };
+renderer.info.autoReset = false; // le post-traitement dessine en plusieurs passes : on compte l'image entière
+window.addEventListener('keydown', (event) => {
+    if (event.code === 'KeyP' && !event.repeat && !(event.target instanceof HTMLInputElement)) perfPanel.hidden = !perfPanel.hidden;
+});
+
+function updatePerf(cpuTime) {
+    perf.frames++;
+    perf.cpu += cpuTime;
+    perf.calls += renderer.info.render.calls;
+    perf.triangles += renderer.info.render.triangles;
+    renderer.info.reset();
+    const now = performance.now();
+    if (now - perf.last < 1000) return;
+    const n = perf.frames, elapsed = (now - perf.last) / 1000;
+    perfPanel.textContent = `${(n / elapsed).toFixed(0)} i/s  ·  JS ${(perf.cpu / n).toFixed(1)} ms/image
+`
+        + `${Math.round(perf.calls / n)} appels de dessin  ·  ${(perf.triangles / n / 1000).toFixed(0)} k triangles
+`
+        + `résolution ×${renderer.getPixelRatio().toFixed(2)}  ·  ${view.width}×${view.height}`;
+    perfPanel.dataset.fps = (n / elapsed).toFixed(1);
+    Object.assign(perf, { frames: 0, cpu: 0, calls: 0, triangles: 0, last: now });
+}
+
 renderer.setAnimationLoop(()=>{
+    const frameStart = performance.now();
     const delta = clock.getDelta();
 
     controls.update( delta );
@@ -655,6 +705,9 @@ renderer.setAnimationLoop(()=>{
     multiplayer.update( aircraft, controls.getThrottle() );
     remotePlayers.update( delta );
     clouds.update( camera );
+    for (const object of detailedObjects) {
+        object.visible = object.boundingSphere.distanceToPoint(camera.position) < DETAIL_DISTANCE;
+    }
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
     airport.update( delta, weather.wind );
@@ -669,4 +722,6 @@ renderer.setAnimationLoop(()=>{
     graphics.update( shadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     graphics.render();
+    graphics.adaptResolution();
+    updatePerf(performance.now() - frameStart);
 });

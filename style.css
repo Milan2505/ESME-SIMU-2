@@ -278,6 +278,22 @@ img{margin: 0px;
   #ecran:active {
     cursor: grabbing;
   }
+  /* Compteur de performances (touche P) */
+  #perf {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: start;
+    justify-self: start;
+    z-index: 2;
+    margin: 8px;
+    padding: 4px 8px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
+    color: #9f9;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 5px;
+    pointer-events: none;
+  }
   #alarme {
     grid-column: 4/15;
     grid-row: 10/17;

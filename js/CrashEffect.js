@@ -2,7 +2,6 @@ import {
     AdditiveBlending,
     CanvasTexture,
     Group,
-    PointLight,
     Sprite,
     SpriteMaterial,
     SRGBColorSpace,
@@ -30,7 +29,7 @@ function puffTexture() {
     return texture;
 }
 
-// Explosion au crash : boule de feu, lueur, puis panache de fumée noire
+// Explosion au crash : boule de feu lumineuse (halo du bloom), puis panache de fumée noire
 class CrashEffect {
     constructor() {
         this.group = new Group();
@@ -53,9 +52,6 @@ class CrashEffect {
             this.group.add(sprite);
             return sprite;
         });
-        this._light = new PointLight(0xff7a2a, 0, 150, 2);
-        this._light.position.y = 3;
-        this.group.add(this._light);
     }
 
     start(position) {
@@ -75,7 +71,6 @@ class CrashEffect {
 
     stop() {
         this.group.visible = false;
-        this._light.intensity = 0;
     }
 
     update(delta) {
@@ -98,8 +93,6 @@ class CrashEffect {
             sprite.scale.setScalar(4 + 20 * life);
             sprite.material.opacity = 0.75 * Math.min(1, local * 3) * (1 - life);
         }
-        // Lueur orangée qui faiblit en vacillant
-        this._light.intensity = Math.max(0, 3000 * (1 - t / 3)) * (0.75 + 0.25 * Math.sin(t * 40));
         if (t > SMOKE_DURATION + 3) this.stop();
     }
 }

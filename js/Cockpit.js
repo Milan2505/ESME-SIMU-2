@@ -8,7 +8,6 @@ import {
     Mesh,
     MeshStandardMaterial,
     PlaneGeometry,
-    PointLight,
     Quaternion,
     ShaderMaterial,
     SphereGeometry,
@@ -410,6 +409,7 @@ class Cockpit {
         this.group = new Group();
         this.eye = EYE.clone();
         this._time = 0;
+        this._sinceDraw = Infinity;
         this._smooth = { pitch: 0, roll: 0, yaw: 0, rpm: 0, slip: 0 };
 
         const canvas = document.createElement('canvas');
@@ -514,11 +514,6 @@ class Cockpit {
         this._windshield.renderOrder = 3;
         this.group.add(this._windshield);
 
-        // Éclairage de la cabine la nuit
-        this._light = new PointLight(0xffb070, 0, 2, 2);
-        this._light.position.set(0, 0.3, -0.3);
-        this.group.add(this._light);
-
         this.group.traverse((child) => {
             child.castShadow = false;
             child.receiveShadow = false;
@@ -537,7 +532,6 @@ class Cockpit {
 
     setNight(night) {
         this._panelMaterial.emissiveIntensity = 0.15 + 0.5 * night;
-        this._light.intensity = 0.35 * night;
     }
 
     setRain(intensity) {
@@ -567,7 +561,13 @@ class Cockpit {
         u.uTime.value = this._time;
         u.uSpeed.value = state.speed;
 
-        this._drawPanel(state);
+        // Le tableau de bord (canvas 1536×512, puis envoi à la carte graphique) est coûteux :
+        // ~25 fois par seconde suffit pour des aiguilles fluides
+        this._sinceDraw += delta;
+        if (this._sinceDraw >= 1 / 25) {
+            this._sinceDraw = 0;
+            this._drawPanel(state);
+        }
     }
 
     _drawPanel(state) {

@@ -2,7 +2,7 @@ import {
     ACESFilmicToneMapping,
     HalfFloatType,
     MathUtils,
-    PCFSoftShadowMap,
+    PCFShadowMap,
     Vector2,
     Vector3,
     WebGLRenderTarget
@@ -52,6 +52,12 @@ const GradeShader = {
 const SHADOW_SIZE = 120;        // demi-côté de la zone d'ombres autour de l'avion (m)
 const SUN_DISTANCE = 400;
 
+// Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
+const MIN_PIXEL_RATIO = 0.6;
+const PIXEL_RATIO_STEP = 0.2;
+const LOW_FPS = 45;             // en dessous : on baisse la résolution
+const HIGH_FPS = 57;            // au-dessus pendant plusieurs secondes : on la remonte
+
 // Ciel atmosphérique, ombres portées et post-traitement
 class Graphics {
     constructor(renderer, scene, camera, sunLight) {
@@ -61,7 +67,7 @@ class Graphics {
         renderer.toneMapping = ACESFilmicToneMapping;
         renderer.toneMappingExposure = 0.75;
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = PCFSoftShadowMap;
+        renderer.shadowMap.type = PCFShadowMap; // ombres filtrées, nettement moins coûteuses que PCFSoft
 
         // Ombres : la zone couverte suit l'avion
         sunLight.castShadow = true;
@@ -95,10 +101,44 @@ class Graphics {
         this.composer = new EffectComposer(renderer, target);
         this.composer.addPass(new RenderPass(scene, camera));
         this.bloom = new UnrealBloomPass(new Vector2(256, 256), 0.25, 0.4, 0.92);
+        // Halo calculé à mi-résolution : il est flou de toute façon, 4 fois moins de pixels à traiter
+        const setBloomSize = this.bloom.setSize.bind(this.bloom);
+        this.bloom.setSize = (width, height) => setBloomSize(Math.ceil(width / 2), Math.ceil(height / 2));
         this.composer.addPass(this.bloom);
         this.grade = new ShaderPass(GradeShader);
         this.composer.addPass(this.grade);
         this.composer.addPass(new OutputPass());
+
+        this.maxPixelRatio = renderer.getPixelRatio();
+        this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, holdUntil: 0 };
+    }
+
+    // À appeler à chaque image : ajuste la résolution selon les images par seconde mesurées
+    adaptResolution() {
+        const q = this._quality;
+        const now = performance.now();
+        q.frames++;
+        if (now - q.start < 1000) return;
+        const fps = (q.frames * 1000) / (now - q.start);
+        q.frames = 0;
+        q.start = now;
+        if (document.hidden || now < q.holdUntil) return;
+
+        const ratio = this.renderer.getPixelRatio();
+        q.goodSeconds = fps > HIGH_FPS ? q.goodSeconds + 1 : 0;
+        if (fps < LOW_FPS && ratio > MIN_PIXEL_RATIO) {
+            this.setPixelRatio(Math.max(MIN_PIXEL_RATIO, ratio - PIXEL_RATIO_STEP));
+            q.holdUntil = now + 2000;       // laisse le temps de mesurer le nouvel état
+        } else if (q.goodSeconds >= 4 && ratio < this.maxPixelRatio) {
+            this.setPixelRatio(Math.min(this.maxPixelRatio, ratio + PIXEL_RATIO_STEP));
+            q.goodSeconds = 0;
+            q.holdUntil = now + 2000;
+        }
+    }
+
+    setPixelRatio(ratio) {
+        this.renderer.setPixelRatio(ratio);
+        this.composer.setPixelRatio(ratio);
     }
 
     // atmosphere : { elevation, azimuth, turbidity, rayleigh } (degrés), ou null pour un ciel uni

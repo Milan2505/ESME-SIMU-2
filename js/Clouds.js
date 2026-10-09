@@ -96,7 +96,7 @@ class Clouds {
             };
             this.clouds.push(cloud);
 
-            const n = Math.round(width / 3.5);
+            const n = Math.round(width / 5); // moins de bouffées, un peu plus grosses : moins de superpositions à dessiner
             for (let p = 0; p < n; p++) {
                 // Point dans un demi-ellipsoïde : base plate, sommet bombé
                 const angle = Math.random() * Math.PI * 2;
@@ -107,7 +107,7 @@ class Clouds {
                 const dy = height * dome * Math.pow(Math.random(), 0.6);
                 puffs.push({
                     x: cloud.x + dx, y: cloud.y + dy, z: cloud.z + dz,
-                    size: random(0.16, 0.3) * width * (0.6 + 0.4 * dome),
+                    size: random(0.19, 0.34) * width * (0.6 + 0.4 * dome),
                     shade: 0.3 + 0.7 * Math.pow(dy / height, 0.7),
                     tile: Math.floor(Math.random() * 4),
                     rotation: Math.random() * Math.PI * 2,
@@ -182,7 +182,7 @@ class Clouds {
 
     update(camera) {
         // Tri du plus loin au plus proche (transparence correcte), pas à chaque image
-        if (this._frame++ % 6 === 0) {
+        if (this._frame++ % 10 === 0) {
             this._sort(camera.position.x, camera.position.y, camera.position.z);
         }
     }
