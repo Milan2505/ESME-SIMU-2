@@ -85,7 +85,9 @@ const view = document.getElementById('ecran');
 const camera = new THREE.PerspectiveCamera(CAM_FOV, view.clientWidth / view.clientHeight, CAM_NEAR, CAM_FAR);
 
 const scene = new THREE.Scene();
-const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: true });
+// Pas d'anticrénelage sur le canvas : il est fait dans les textures du post-traitement (Graphics.js). Le canvas ne
+// reçoit qu'une copie de l'image finale ; l'anticréneler calculait 4 échantillons par pixel pour rien (coûteux en plein écran)
+const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: false });
 const airport = new Airport();
 const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z) });
 const clouds = new Clouds();

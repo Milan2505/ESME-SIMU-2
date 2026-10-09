@@ -58,7 +58,7 @@ const MIN_PIXEL_RATIO = 0.6;
 // de l'écran. Sans ce plafond, le plein écran sur un grand écran HD calculait 3 à 4 fois plus de pixels.
 const PIXEL_BUDGET = 2.1e6;
 const PIXEL_RATIO_STEP = 0.2;
-const LOW_FPS = 0.75;           // sous 75 % des i/s visées : on baisse la résolution
+const LOW_FPS = 0.85;           // sous 85 % des i/s visées : on baisse la résolution
 const HIGH_FPS = 0.95;          // au-dessus de 95 % pendant plusieurs secondes : on la remonte
 
 // Ciel atmosphérique, ombres portées et post-traitement
@@ -102,6 +102,9 @@ class Graphics {
         const size = renderer.getDrawingBufferSize(new Vector2());
         const target = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4 });
         this.composer = new EffectComposer(renderer, target);
+        // La 2e texture ne reçoit que l'étalonnage (une image déjà lissée) : inutile de la multi-échantillonner.
+        // Les passes Grade et Output échangent chacune les textures : la scène est donc toujours dessinée dans la 1re.
+        this.composer.renderTarget2.samples = 0;
         this.composer.addPass(new RenderPass(scene, camera));
         this.bloom = new UnrealBloomPass(new Vector2(256, 256), 0.25, 0.4, 0.92);
         // Halo calculé à mi-résolution : il est flou de toute façon, 4 fois moins de pixels à traiter
@@ -131,11 +134,10 @@ class Graphics {
 
     // samples : 0 (sans), 2 ou 4 (MSAA)
     setAntialias(samples) {
-        for (const target of [this.composer.renderTarget1, this.composer.renderTarget2]) {
-            if (target.samples === samples) continue;
-            target.samples = samples;
-            target.dispose(); // recréée à la prochaine image avec le nouvel échantillonnage
-        }
+        const target = this.composer.renderTarget1; // celle où la scène est dessinée (voir constructeur)
+        if (target.samples === samples) return;
+        target.samples = samples;
+        target.dispose(); // recréée à la prochaine image avec le nouvel échantillonnage
     }
 
     setBloom(enabled) {
