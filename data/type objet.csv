@@ -1,0 +1,9 @@
+codeType;couleur;nombre
+TREE;green;100
+TREE_F;orange;50
+FLOWER_Y;yellow;200
+FLOWER_P;purple;200
+TENT;;10
+ROCK;;50
+KART;;1
+PLANE;;1

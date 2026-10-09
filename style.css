@@ -1,0 +1,571 @@
+
+body{font-family: Noto Sans, sans-serif;
+	font-size: 14px;
+	text-align: left ;
+	background-color:white;
+	list-style-position: inside;
+}
+
+table {border: 3px solid rgb(200,200,200);
+  letter-spacing: 1px;
+  font-size: 1rem;
+	border-color:#114E69;
+	border-radius: 5px;	  
+}
+
+h2,h3{font-family: Andale Mono, monospace;
+	font-weight: normal;
+	color: #0D75A3
+}
+
+p {text-indent: 50px;
+	text-align: justify;
+	color: Black
+}
+
+a {text-decoration: none;
+  color: #0D75A3
+}
+
+footer{
+	height: 80px;
+	text-align: center;
+	background-color: #F5F1C7;
+	border-top: 10px;
+	border-radius: 10px;
+	padding-top: 10px;
+	margin-top: 40px;
+}
+
+h1{font-family:Comic Sans MS, Comic Sans, cursive;
+	font-weight: bold;
+	color: #114E69
+
+}
+
+hr{background-color: #114E69;
+	height: 5px;
+	border-radius: 10px;
+}
+
+h4{font-family:DejaVu Sans Mono, monospace;
+	text-align:left;
+	color: black;
+}
+
+li{color: #0D75A3;
+}
+
+em{color: #0D75A3;
+}
+ 
+section{ padding: 80px 13% 70px;
+}
+
+img{margin: 0px;
+}
+
+.footer-content{
+	 background-color: #C3E6F5;
+	 border-radius: 10px;
+	 position: absolute;
+	 left:0;
+	 right:0;
+}
+	
+.footer-content ul {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	grid-gap: 0px;
+	grid-auto-rows: minmax(100px, auto);
+	height: 80px;
+    list-style-type: none;
+}
+
+.footer-content li{
+	display: grid;
+	margin: 0px;
+	color: #0D75A3;
+}
+
+.footer-content li a{
+	font-size: 20px;
+	color: #0D75A3;
+}
+
+.footer-content li a:hover{
+	text-decoration: underline;
+	color: #46697A;
+	transform: translate(0px,10%);
+}
+
+.footer-content img {
+	/*margin: -40px;*/
+	width: 80px;
+	height: 80px; 
+}
+
+.footer-content img:hover{
+	transform: translate(3px,10%);
+}
+
+.footer-content h3{
+	margin:0;
+	font-family:Comic Sans MS, Comic Sans, cursive;
+	font-size: 20px;
+	color: #114E69;
+}
+
+.footer-crédits{
+	
+	margin-top: 50px;
+	width: 400px;
+	background-color: #C3E6F5;
+	border-radius: 10px;
+	position: relative;
+  top: 0px;
+	left: 0px;
+	padding: 5px;
+}
+
+.footer-crédits h3{
+	margin: 2px;
+}
+
+.footer-crédits h4{
+	text-align: center;
+	margin: 5px;
+}
+
+
+#simulator {
+    display: grid;
+	  padding-top: 100px;
+    height: calc(100vw*9/16);
+    grid-template-columns:11fr 21fr 106fr 95fr 40fr 74fr 96fr 96fr 78fr 18fr 96fr 63fr 50fr 12fr 24fr 37fr 69fr 23fr 69fr 29fr; 
+    grid-template-rows:16fr 10fr 21fr 63fr 20fr 15fr 43fr 14fr 22fr 17fr 158fr 249fr 15fr 92fr 88fr 12fr;
+
+}
+
+ #titre {
+    grid-column: 3/5;
+    grid-row: 3/5;
+	  border: 3px solid;
+	  border-radius: 10px;
+	  background-color: #F5F1C7;
+  }
+  #profil {
+    grid-column: 13/16;
+    grid-row: 2/4;
+	  border: 3px solid;
+  }
+  #paramètre {
+    grid-column: 16/18;
+    grid-row: 2/4;
+	  border: 3px solid;
+  }
+  #online {
+    grid-column: 18/21;
+    grid-row: 2/4;
+	  border: 3px solid;
+  }
+  #séparation-gauche {
+    grid-column: 1/6;
+    grid-row: 7/9;
+	  border: 3px solid;
+  }
+  #initiation {
+    grid-column: 6/8;
+    grid-row: 7/9;
+	  border: 3px solid;
+  }
+  #solo {
+    grid-column: 8/10;
+    grid-row: 7/9;
+  	border: 3px solid;
+  }
+  #multi {
+    grid-column: 10/14;
+    grid-row: 7/9;
+	  border: 3px solid;
+    cursor: pointer;
+  }
+  #multi:hover {
+    background: #C3E6F5;
+  }
+  #multi h4 {
+    display: inline;
+  }
+  #multi-resume {
+    margin-left: 10px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
+    color: #114E69;
+  }
+
+  #multi-dialog {
+    min-width: 320px;
+    border: 3px solid #114E69;
+    border-radius: 10px;
+    font-family: DejaVu Sans Mono, monospace;
+  }
+  #multi-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+  }
+  #multi-dialog h3 {
+    margin-top: 0;
+  }
+  #multi-dialog input {
+    font-family: inherit;
+    padding: 4px;
+  }
+  #multi-code {
+    width: 7em;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  .multi-ligne {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  #multi-dialog button {
+    font-family: inherit;
+    background: #C3E6F5;
+    color: #114E69;
+    border: 2px solid #114E69;
+    border-radius: 5px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  #multi-dialog button:hover {
+    background: #114E69;
+    color: white;
+  }
+  #multi-statut {
+    text-indent: 0;
+    font-weight: bold;
+  }
+  #multi-statut.erreur {
+    color: #c0392b;
+  }
+  #multi-lien {
+    flex: 1;
+    font-size: 11px;
+  }
+  #multi-joueurs {
+    padding-left: 18px;
+  }
+  #libre {
+    grid-column: 14/17;
+    grid-row: 7/9;
+  	border: 3px solid;
+  }
+  #séparation-droite {
+    grid-column: 17/21;
+    grid-row: 7/9;
+  	border: 3px solid;
+  }
+  #ecran {
+    width: 100%;
+    height: 100%;
+    grid-column: 4/15;
+    grid-row: 10/13;
+  	border-radius: 10px;
+  }
+  #alarme {
+    grid-column: 4/15;
+    grid-row: 10/13;
+    align-self: start;
+    justify-self: center;
+    z-index: 2;
+    margin-top: 15px;
+    padding: 6px 20px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    background: #c0392b;
+    border-radius: 5px;
+    pointer-events: none;
+    visibility: hidden;
+  }
+  #alarme.actif {
+    visibility: visible;
+    animation: clignote 0.5s steps(1) infinite;
+  }
+  @keyframes clignote {
+    50% { opacity: 0; }
+  }
+  #commandes {
+    grid-column: 16/19;
+    grid-row: 10/12;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 6px 6px;
+    margin-bottom: 10px;
+    border: 3px solid;
+    border-radius: 10px;
+  }
+  #commandes h4 {
+    margin: 6px 0;
+  }
+  #commandes button {
+    padding: 3px 8px;
+    font-family: DejaVu Sans Mono, monospace;
+    background: #C3E6F5;
+    color: #114E69;
+    border: 2px solid #114E69;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  #commandes button:hover {
+    background: #114E69;
+    color: white;
+  }
+  #météo {
+    grid-column: 16/19;
+    grid-row: 12;
+	  border: 3px solid;
+  	border-radius: 10px;
+  }
+  #petit-cadran {
+    grid-column: 4/7;
+    grid-row: 13/17;
+  	border: 3px solid;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    container-type: size;
+  }
+
+  /* Instrument carré (sinon les images sont étirées en ovale) */
+  .horizon {
+    position: relative;
+    width: min(100cqw, 100cqh);
+    height: min(100cqw, 100cqh);
+    overflow: hidden;
+    border-radius: 50%;
+  }
+ #cadran-1 {
+    grid-column: 7;
+    grid-row: 13/15;
+	  border: 3px solid;
+  }
+  #cadran-2 {
+    grid-column: 7;
+    grid-row: 15/17;
+	  border: 3px solid;
+  }
+  #cadran-3 {
+    grid-column: 8;
+    grid-row: 13/15;
+    border: 3px solid;
+  }
+  #cadran-4 {
+    grid-column: 8;
+    grid-row: 15/17;
+  	border: 3px solid;
+  }
+  #cadran-5 {
+    grid-column: 9/11;
+    grid-row: 13/15;
+	  border: 3px solid;
+  }
+  #cadran-6 {
+    grid-column: 9/11;
+    grid-row: 15/17;
+  	border: 3px solid;
+  }
+  #cadran-7 {
+    grid-column: 11;
+    grid-row: 13/15;
+    border: 3px solid;
+  }
+  #cadran-8 {
+    grid-column: 11;
+    grid-row: 15/17;
+    border: 3px solid;
+  }
+   #gas {
+    grid-column: 12;
+    grid-row: 13/17;
+    border: 3px solid;
+  }
+   #mixture {
+    grid-column: 13/15;
+    grid-row: 13/17;
+    border: 3px solid;
+  }
+  
+  .circle {
+    position: relative;
+    box-sizing: border-box;
+    width: 90px;
+    height: 90px;
+    background: rgb(182, 182, 182);
+    border: 10px solid;
+    border-color: black;
+    border-radius: 50%;
+    margin: auto;
+    margin-top: 5px;
+    font-family: DejaVu Sans Mono, monospace;
+  }
+
+  .circle .nom {
+    position: absolute;
+    top: 8px;
+    width: 100%;
+    text-align: center;
+    font-size: 8px;
+  }
+
+  .circle .valeur {
+    position: absolute;
+    bottom: 8px;
+    width: 100%;
+    text-align: center;
+    font-size: 9px;
+    font-weight: bold;
+  }
+
+  .aiguille {
+    position: absolute;
+    left: 50%;
+    bottom: 50%;
+    width: 3px;
+    height: 42%;
+    background: #c0392b;
+    border-radius: 2px;
+    transform-origin: 50% 100%;
+    transform: translateX(-50%) rotate(0deg);
+  }
+
+  .circle:has(.aiguille)::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    background: black;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .manette {
+    --manette: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 10px;
+  }
+
+  .manette .rectangle {
+    position: relative;
+    flex: 1;
+    width: 50px;
+    margin: 5px auto;
+    background: rgb(182, 182, 182);
+  }
+
+  .manette .square {
+    position: absolute;
+    left: -5px;
+    bottom: 0;
+    width: 60px;
+    height: var(--manette);
+    background: black;
+  }
+
+  #mixture .square {
+    bottom: calc(100% - var(--manette));
+  }
+
+  #météo {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 6px 6px;
+  }
+
+  #météo h4 {
+    margin: 6px 0;
+  }
+
+  #météo button {
+    font-family: DejaVu Sans Mono, monospace;
+    background: #C3E6F5;
+    color: #114E69;
+    border: 2px solid #114E69;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  #météo button.actif {
+    background: #114E69;
+    color: white;
+  }
+
+  #background {
+    position: absolute;
+    top: -100%;
+    left: -100%;
+    width: 300%;
+    height: 300%;
+    z-index: 4
+  }
+
+  #cercle{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 6
+  }
+
+  #fond_cercle{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 8;
+  }
+  
+  #fleche{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+  }
+  
+  /* Plein écran : le cockpit entier (écran de vol + instruments) remplit l'écran */
+  #simulator:fullscreen {
+    padding: 10px 0 0;
+    height: 100vh;
+    box-sizing: border-box;
+    background: white;
+    grid-template-rows: 0 0 0 0 0 0 0 0 0 17fr 158fr 249fr 15fr 92fr 88fr 12fr;
+  }
+  #simulator:fullscreen > #titre,
+  #simulator:fullscreen > #profil,
+  #simulator:fullscreen > #paramètre,
+  #simulator:fullscreen > #online,
+  #simulator:fullscreen > #séparation-gauche,
+  #simulator:fullscreen > #initiation,
+  #simulator:fullscreen > #solo,
+  #simulator:fullscreen > #multi,
+  #simulator:fullscreen > #libre,
+  #simulator:fullscreen > #séparation-droite {
+    display: none;
+  }

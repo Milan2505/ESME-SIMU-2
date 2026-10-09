@@ -1,0 +1,12 @@
+cricket.wav et stall_voice.wav
+Source : projet FlightGear A320-family
+https://github.com/legoboyvdlp/A320-family (Sounds/Cockpit/)
+
+cessna_engine.wav et cessna_engine-idle.wav (engine.wav et engine-idle.wav à l'origine)
+Source : projet FlightGear c172p (Cessna 172P)
+https://github.com/c172p-team/c172p (Sounds/)
+
+Licence de ces fichiers : GNU General Public License v2.0 (GPL-2.0)
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.

@@ -1,0 +1,9 @@
+{
+  "name": "esme-fs",
+  "private": true,
+  "description": "ESME flight simulator - site statique + serveur multijoueur (Netlify Function)",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^11.1.4"
+  }
+}

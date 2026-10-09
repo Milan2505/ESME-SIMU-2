@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="stylesheet" type="text/css" href="style.css">
+    <title>Simulateur de vol</title>
+	<script type="importmap">
+		{
+		  "imports": {
+			  "three": "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js",
+			  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/"
+		    }
+		}
+	</script>
+</head>
+	
+<body>
+	<nav>
+	<div class="footer-content">
+	<ul>
+		<li><img src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="logo">
+		<li><h3>ESME flight simulator</h3>
+		<li><a href="index.html">Accueil</a>
+		<li><a href="manuel.html">Manuel</a>
+	</ul>
+	</div>
+	</nav>
+	
+	<main id="simulator">
+	<div id="titre">
+	<h3>ESME flight simulator</h3>
+	</div>
+	
+	<div id="profil">
+	<h4>Profil</h4>
+	</div>
+	
+	<div id="paramètre">
+	<h4>Paramètre</h4>
+	</div>
+	
+	<div id="online">
+	<h4>Online</h4>
+	</div>
+	
+	<div id="séparation-gauche"></div>
+	
+	<div id="initiation">
+	<h4>Initiation</h4>
+	</div>
+	
+	<div id="solo">
+	<h4>Solo</h4>
+	</div>
+	
+	<div id="multi" role="button" tabindex="0" title="Jouer à plusieurs">
+	<h4>Multijoueur</h4>
+	<span id="multi-resume">Hors ligne</span>
+	</div>
+	
+	<div id="libre">
+	<h4>Libre</h4>
+	</div>
+	
+	<div id="séparation-droite"></div>
+	
+	<canvas id="ecran" tabindex="0"></canvas>
+	<div id="alarme">DÉCROCHAGE</div>
+		
+	<div id="commandes">
+	<h4>Commandes</h4>
+		<button id="vue" title="Changer de vue (touche V)">🎥 Vue cabine</button>
+		<button id="reset" title="Revenir au point de départ (touche R)">↺ Réinitialiser</button>
+		<button id="plein-ecran" title="Plein écran (touche F)">⛶ Plein écran</button>
+	</div>
+
+	<div id="météo">
+	<h4>Météo</h4>
+	</div>
+	
+	<div id="petit-cadran">
+		<div class="horizon">
+			<img src="horizon_back.png" id="background">
+			<img src="horizon_circle.png" id="cercle">
+			<img src="horizon_frame.png" id="fond_cercle">
+			<img src="horizon_mech.png" id="fleche">
+		</div>
+	</div>
+
+	<div id="cadran-1" class="cadran">
+		<div class="circle">
+			<span class="nom">Vitesse</span>
+			<div class="aiguille"></div>
+			<span class="valeur"></span>
+		</div>
+	</div>
+	<div id="cadran-2" class="cadran">
+		<div class="circle">
+			<span class="nom">Altitude</span>
+			<div class="aiguille"></div>
+			<span class="valeur"></span>
+		</div>
+	</div>
+	<div id="cadran-3" class="cadran">
+		<div class="circle">
+			<span class="nom">Vario</span>
+			<div class="aiguille"></div>
+			<span class="valeur"></span>
+		</div>
+	</div>
+	<div id="cadran-4" class="cadran">
+		<div class="circle">
+			<span class="nom">Cap</span>
+			<div class="aiguille"></div>
+			<span class="valeur"></span>
+		</div>
+	</div>
+	<div id="cadran-5" class="cadran">
+		<div class="circle"></div>
+	</div>
+	<div id="cadran-6" class="cadran">
+		<div class="circle"></div>
+	</div>
+	<div id="cadran-7" class="cadran">
+		<div class="circle"></div>
+	</div>
+	<div id="cadran-8" class="cadran">
+		<div class="circle"></div>
+	</div>
+	<div id="gas" class="manette">
+		<span class="nom">Gaz</span>
+		<div class="rectangle">
+			<div class="square"></div>
+		</div>
+	</div>
+	
+	<div id="mixture" class="manette">
+		<span class="nom">Mélange</span>
+		<div class="rectangle">
+			<div class="square"></div>
+		</div>
+	</div>
+	</main>
+
+	<dialog id="multi-dialog">
+		<h3>Multijoueur</h3>
+		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>
+		<div class="multi-ligne">
+			<button id="multi-creer">Créer une partie privée</button>
+		</div>
+		<div class="multi-ligne">
+			<input id="multi-code" maxlength="6" placeholder="CODE" autocomplete="off">
+			<button id="multi-rejoindre">Rejoindre</button>
+		</div>
+		<p id="multi-statut">Hors ligne</p>
+		<div class="multi-ligne" id="multi-partage" hidden>
+			<input id="multi-lien" readonly>
+			<button id="multi-copier">Copier le lien</button>
+		</div>
+		<ul id="multi-joueurs"></ul>
+		<div class="multi-ligne">
+			<button id="multi-quitter">Quitter la partie</button>
+			<button id="multi-fermer">Fermer</button>
+		</div>
+	</dialog>
+	
+	<script type="module" src="simulator.js"></script>
+</body>
+</html>
