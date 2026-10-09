@@ -1,20 +1,28 @@
-// Multijoueur par un relais MQTT public (WebSocket sécurisé) : chaque joueur publie son état
+// Multijoueur par des relais MQTT publics (WebSocket sécurisé) : chaque joueur publie son état
 // plusieurs fois par seconde sur le "sujet" de la partie et reçoit celui des autres joueurs.
 // Aucun serveur à déployer : fonctionne depuis GitHub Pages ou n'importe quel hébergement statique.
-// Attention : le relais est public, les positions et pseudos des joueurs ne sont pas confidentiels.
+// Attention : les relais sont publics, les positions et pseudos des joueurs ne sont pas confidentiels.
+//
+// Robustesse :
+// - on se connecte à tous les relais à la fois et on publie sur chacun : deux joueurs se retrouvent
+//   même si l'un d'eux n'arrive pas à joindre un relais (les messages reçus en double sont ignorés) ;
+// - une "pulsation" envoie notre état chaque seconde même si l'onglet est en arrière-plan
+//   (le navigateur y suspend l'animation, donc update()) ;
+// - en rejoignant, on dit "bonjour" : les joueurs présents répondent aussitôt avec leur état.
 import mqtt from 'mqtt';
 
-// Relais essayés dans l'ordre (le suivant si le précédent ne répond pas)
 const BROKERS = [
     'wss://broker.hivemq.com:8884/mqtt',
     'wss://broker.emqx.io:8084/mqtt',
     'wss://test.mosquitto.org:8081/mqtt',
 ];
-const TOPIC_PREFIX = 'esme-fs/v1';  // sujets : esme-fs/v1/<CODE>/<id joueur>
+const TOPIC_PREFIX = 'esme-fs/v2';  // sujets : esme-fs/v2/<CODE>/<id joueur>
 
 const MIN_INTERVAL = 150;       // au plus ~7 messages par seconde (ms)
-const JOIN_TIMEOUT = 6000;      // sans nouvelles d'un joueur, la partie n'existe pas (ms)
-const STALE = 6000;             // un joueur silencieux depuis 6 s est retiré (ms)
+const HEARTBEAT = 1000;         // état renvoyé au moins chaque seconde, même onglet en arrière-plan (ms)
+const HELLO_REPEAT = 1500;      // en rejoignant, "bonjour" répété tant que personne n'a répondu (ms)
+const JOIN_TIMEOUT = 8000;      // sans réponse d'aucun joueur, la partie n'existe pas (ms)
+const STALE = 8000;             // un joueur silencieux depuis 8 s est retiré (ms)
 const MAX_PLAYERS = 16;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_PATTERN = /^[A-Z2-9]{6}$/;
@@ -43,25 +51,6 @@ function cleanState(state) {
     };
 }
 
-// Connexion à un relais ; échoue s'il ne répond pas
-function connectTo(url) {
-    return new Promise((resolve, reject) => {
-        const client = mqtt.connect(url, { connectTimeout: 5000, reconnectPeriod: 0, clean: true });
-        const fail = () => {
-            client.end(true);
-            reject(new Error(`Relais injoignable : ${url}`));
-        };
-        client.once('error', fail);
-        client.once('close', fail);
-        client.once('connect', () => {
-            client.removeListener('error', fail);
-            client.removeListener('close', fail);
-            client.options.reconnectPeriod = 2000; // reconnexion automatique une fois connecté
-            resolve(client);
-        });
-    });
-}
-
 class Multiplayer extends EventTarget {
     constructor() {
         super();
@@ -70,15 +59,21 @@ class Multiplayer extends EventTarget {
         this.code = null;
         this.players = new Map();     // id -> { name, p, q, v, t, age, receivedAt } (sans le joueur local)
         this.latency = 0.1;           // délai d'un message (s), ajouté à la prédiction des mouvements
-        this._client = null;
+        this._clients = [];           // connexions aux relais (connectées ou en cours de reconnexion)
         this._connecting = null;
         this._joined = false;
         this._joinTimer = 0;
+        this._helloTimer = 0;
         this._counting = false;
+        this._seq = 0;                // numéro de nos messages (pour ignorer les doublons chez les autres)
+        this._lastSeq = new Map();    // id joueur -> dernier numéro de message reçu
         this._lastSend = 0;
-        this._lastPurge = 0;
+        this._lastReply = 0;
         this._lastPosition = null;
         this._velocity = [0, 0, 0];
+        this._state = null;           // dernier état local, renvoyé par la pulsation
+
+        setInterval(() => this._heartbeat(), HEARTBEAT / 2);
     }
 
     // Lien direct vers la partie, à partager
@@ -102,17 +97,20 @@ class Multiplayer extends EventTarget {
         this._joined = false;
         this._status(create ? 'Création de la partie…' : `Connexion à la partie ${code}…`);
 
-        this._ensureClient().then((client) => {
+        this._connect().then(() => {
             if (this.code !== code) return;
-            client.subscribe(`${TOPIC_PREFIX}/${code}/+`, { qos: 0 }, (error) => {
-                if (this.code !== code) return;
-                if (error) return this._fail('Serveur multijoueur injoignable');
-                if (create) return this._confirmJoin();
-                // Rejoindre : la partie existe si l'on reçoit des nouvelles d'un de ses joueurs
-                this._joinTimer = setTimeout(() => {
-                    if (this.code === code && !this._joined) this._fail(`Aucune partie avec le code ${code}`);
-                }, JOIN_TIMEOUT);
-            });
+            for (const client of this._clients) client.subscribe(this._topic(code), { qos: 0 });
+            if (create) return this._confirmJoin();
+            // Rejoindre : on s'annonce ; la partie existe si un de ses joueurs répond
+            const hello = () => {
+                if (this.code !== code || this._joined) return;
+                this._publish({ hello: true, name: this.name });
+                this._helloTimer = setTimeout(hello, HELLO_REPEAT);
+            };
+            hello();
+            this._joinTimer = setTimeout(() => {
+                if (this.code === code && !this._joined) this._fail(`Aucune partie avec le code ${code} (vérifiez le code, et que le créateur est toujours en ligne)`);
+            }, JOIN_TIMEOUT);
         }).catch(() => {
             if (this.code === code) this._fail('Serveur multijoueur injoignable (vérifiez la connexion internet)');
         });
@@ -120,14 +118,15 @@ class Multiplayer extends EventTarget {
 
     leave() {
         if (!this.code) return;
-        const code = this.code;
-        if (this._joined) this._publish(code, { leave: true });
-        this._client?.unsubscribe(`${TOPIC_PREFIX}/${code}/+`);
+        if (this._joined) this._publish({ leave: true });
+        for (const client of this._clients) client.unsubscribe(this._topic(this.code));
         clearTimeout(this._joinTimer);
+        clearTimeout(this._helloTimer);
         this._counting = false;
         this.code = null;
         this._joined = false;
         this.players.clear();
+        this._lastSeq.clear();
         this._emitPlayers();
         this._status('Hors ligne');
     }
@@ -149,60 +148,82 @@ class Multiplayer extends EventTarget {
         }
         this._lastPosition = { x: object.position.x, y: object.position.y, z: object.position.z, time: now };
 
-        if (this._joined && now - this._lastSend >= MIN_INTERVAL) {
-            this._lastSend = now;
-            this._publish(this.code, {
-                name: this.name,
-                p: object.position.toArray().map(round),
-                q: object.quaternion.toArray().map(round),
-                v: this._velocity.map(round),
-                t: round(throttle),
-                sent: Math.round(now),
-            });
-        }
-
-        // Joueurs partis sans prévenir
-        if (now - this._lastPurge > 1000) {
-            this._lastPurge = now;
-            let changed = false;
-            for (const [id, player] of this.players) {
-                if (now - player.receivedAt > STALE) {
-                    this.players.delete(id);
-                    changed = true;
-                }
-            }
-            if (changed) this._emitPlayers();
-        }
+        this._state = {
+            name: this.name,
+            p: object.position.toArray().map(round),
+            q: object.quaternion.toArray().map(round),
+            v: this._velocity.map(round),
+            t: round(throttle),
+        };
+        if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
     }
 
     // private
 
-    _ensureClient() {
-        if (this._client) return Promise.resolve(this._client);
-        this._connecting ??= (async () => {
+    _topic(code) {
+        return `${TOPIC_PREFIX}/${code}/+`;
+    }
+
+    // Connexion à tous les relais en parallèle ; prêt dès que l'un d'eux répond
+    _connect() {
+        if (this._clients.some((client) => client.connected)) return Promise.resolve();
+        this._connecting ??= new Promise((resolve, reject) => {
+            let failures = 0;
             for (const url of BROKERS) {
-                try {
-                    const client = await connectTo(url);
-                    client.on('message', (topic, payload) => this._onMessage(topic, payload));
-                    client.on('offline', () => { if (this.code) this._status('Connexion perdue, reconnexion…', true); });
-                    client.on('connect', () => {
-                        // Reconnexion : on se réabonne à la partie en cours
-                        if (!this.code) return;
-                        client.subscribe(`${TOPIC_PREFIX}/${this.code}/+`, { qos: 0 });
-                        if (this._joined) this._status(`Partie privée ${this.code} : partagez le code ou le lien`);
-                    });
-                    this._client = client;
-                    return client;
-                } catch { /* relais suivant */ }
+                const client = mqtt.connect(url, { connectTimeout: 6000, reconnectPeriod: 3000, clean: true });
+                let everConnected = false;
+                client.on('connect', () => {
+                    everConnected = true;
+                    // (Re)connexion : abonnement à la partie en cours
+                    if (this.code) client.subscribe(this._topic(this.code), { qos: 0 });
+                    resolve();
+                });
+                client.on('message', (topic, payload) => this._onMessage(topic, payload));
+                client.on('error', () => {
+                    // Relais injoignable dès le départ : on l'abandonne
+                    if (everConnected) return;
+                    client.end(true);
+                    this._clients = this._clients.filter((c) => c !== client);
+                    if (++failures === BROKERS.length) {
+                        this._connecting = null;
+                        reject(new Error('Aucun relais joignable'));
+                    }
+                });
+                this._clients.push(client);
             }
-            this._connecting = null;
-            throw new Error('Aucun relais joignable');
-        })();
+        });
         return this._connecting;
     }
 
-    _publish(code, message) {
-        if (this._client?.connected) this._client.publish(`${TOPIC_PREFIX}/${code}/${this.id}`, JSON.stringify(message), { qos: 0 });
+    _publish(message) {
+        if (!this.code) return;
+        const payload = JSON.stringify({ ...message, n: ++this._seq, sent: Math.round(performance.now()) });
+        const topic = `${TOPIC_PREFIX}/${this.code}/${this.id}`;
+        for (const client of this._clients) {
+            if (client.connected) client.publish(topic, payload, { qos: 0 });
+        }
+    }
+
+    _sendState() {
+        if (!this._state) return;
+        this._lastSend = performance.now();
+        this._publish(this._state);
+    }
+
+    // Toutes les 0,5 s, même onglet en arrière-plan : renvoie l'état s'il n'est pas parti depuis 1 s,
+    // et retire les joueurs partis sans prévenir
+    _heartbeat() {
+        if (!this.code) return;
+        const now = performance.now();
+        if (this._joined && now - this._lastSend >= HEARTBEAT) this._sendState();
+        let changed = false;
+        for (const [id, player] of this.players) {
+            if (now - player.receivedAt > STALE) {
+                this.players.delete(id);
+                changed = true;
+            }
+        }
+        if (changed) this._emitPlayers();
     }
 
     _onMessage(topic, payload) {
@@ -216,13 +237,28 @@ class Multiplayer extends EventTarget {
         }
         const now = performance.now();
 
+        // Le même message arrive par chaque relais : on ne le traite qu'une fois
+        if (Number.isFinite(data.n)) {
+            if (data.n <= (this._lastSeq.get(id) ?? 0)) return;
+            this._lastSeq.set(id, data.n);
+        }
+
         // Notre propre message, renvoyé par le relais : mesure du délai
         if (id === this.id) {
             if (Number.isFinite(data.sent)) this.latency += ((now - data.sent) / 2000 - this.latency) * 0.2;
             return;
         }
         if (data.leave) {
+            this._lastSeq.delete(id);
             if (this.players.delete(id)) this._emitPlayers();
+            return;
+        }
+        // Un joueur arrive : on lui répond tout de suite avec notre état (sans attendre la prochaine image)
+        if (data.hello) {
+            if (this._joined && now - this._lastReply > 300) {
+                this._lastReply = now;
+                this._sendState();
+            }
             return;
         }
         const state = cleanState(data);
@@ -236,6 +272,7 @@ class Multiplayer extends EventTarget {
         if (!this._joined && !this._counting) {
             this._counting = true;
             clearTimeout(this._joinTimer);
+            clearTimeout(this._helloTimer);
             this._joinTimer = setTimeout(() => {
                 this._counting = false;
                 if (this.code !== code) return;
@@ -247,7 +284,10 @@ class Multiplayer extends EventTarget {
 
     _confirmJoin() {
         clearTimeout(this._joinTimer);
+        clearTimeout(this._helloTimer);
         this._joined = true;
+        this._counting = false;
+        this._sendState();
         this._status(`Partie privée ${this.code} : partagez le code ou le lien`);
     }
 
