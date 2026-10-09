@@ -225,6 +225,7 @@ function updateView() {
     if (aircraftModel) aircraftModel.visible = chaseView;
     // L'intérieur reste affiché en vue extérieure : on le voit à travers les vitres
     cockpit.setExterior(chaseView);
+    aircraftLights.setCabinView(!chaseView);
     camera.fov = chaseView ? CAM_FOV : COCKPIT_FOV;
     camera.updateProjectionMatrix();
     viewButton.textContent = chaseView ? '🎥 Vue cabine' : '🎥 Vue extérieure';

@@ -32,7 +32,7 @@ const LIGHTS = [
     { kind: 'strobe',  color: 0xf2f6ff, position: [-5.6, 1.05, -1.75],                                  size: 3.2 },
     { kind: 'strobe',  color: 0xf2f6ff, position: [5.55, 1.3, -1.75],                                   size: 3.2 },
     // Phare d'atterrissage dans le bord d'attaque de l'aile gauche : éblouissant vu de face, allumé de nuit
-    { kind: 'landing', color: 0xfff4dc, position: [-2.2, 1.12, -2.9],                                   size: 3.5, bulb: 0.09 },
+    { kind: 'landing', color: 0xfff4dc, position: [-2.2, 1.12, -2.83],                                  size: 3.5, bulb: 0.06 },
 ];
 const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 
@@ -109,7 +109,9 @@ class AircraftLights {
             }));
             flare.position.copy(position);
             this.group.add(bulb, flare);
-            return { ...def, position, bulb, flare, baseColor: flare.material.color.clone(), bulbColor: bulbMaterial.color.clone(), visibility: 1 };
+            // Feux portés par l'aile (bouts d'aile, phare) : recalés sur l'aile de la cabine en vue intérieure
+            const wing = Math.abs(def.position[0]) > 2;
+            return { ...def, wing, base: position.clone(), position, bulb, flare, baseColor: flare.material.color.clone(), bulbColor: bulbMaterial.color.clone(), visibility: 1 };
         });
         this.beam = createBeam();
         this.beam.position.set(-2.2, 1.12, -3);
@@ -122,10 +124,25 @@ class AircraftLights {
     setNight(night, landingLight = night >= 0.5) {
         this.night = night;
         this.landingLight = landingLight;
-        this.beam.visible = landingLight;
+        this.beam.visible = landingLight && !this._cabin;
     }
 
     // Le halo d'un feu masqué par l'avion lui-même (aile, fuselage) s'efface
+    // Vue cabine : l'aile modélisée dans la cabine (voir Cockpit.js) est 0,5 m plus en arrière et plus haute que
+    // celle du modèle extérieur ; les feux d'aile s'y recalent (bord d'attaque à z -2,28, extrados vers y 1,35)
+    setCabinView(cabin) {
+        for (const light of this.lights) {
+            if (!light.wing) continue;
+            light.position.copy(light.base);
+            if (cabin) light.position.set(light.base.x, 1.35, light.base.z + 0.5);
+            light.bulb.position.copy(light.position);
+        }
+        // Depuis la cabine, on serait sur le côté du cône du faisceau, tout près : il ferait un voile laiteux.
+        // On garde seulement la tache de lumière au sol (SpotLight)
+        this._cabin = cabin;
+        this.beam.visible = this.landingLight && !cabin;
+    }
+
     setOccluder(model) {
         this.occluder = model;
     }
