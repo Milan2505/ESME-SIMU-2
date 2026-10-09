@@ -21,6 +21,9 @@ import { Settings } from './js/Settings.js';
 import { AircraftLights } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
 
+// Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
+
 const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
 // Lumière renvoyée par le sol : vert-gris sourd (un vert pur teintait en vert le dessous des ailes et le ventre de l'avion)
@@ -50,7 +53,7 @@ const ASSETS = {
     ROCK:     'asset/rock_largeA',
     KART:     'asset/KarTech',
     PLANE:    'asset/carpeXL',
-    BIMOTEUR: 'asset/bimoteur',   // bimoteur Tinkercad, garé devant le 2e hangar
+    BIMOTEUR: 'asset/bimoteur',   // bimoteur DRAVION (Tinkercad), garé sur le parking de l'aéroport
 };
 const SOFT_OBJECTS = new Set(['FLOWER_Y', 'FLOWER_P']); // on passe au travers sans crash
 // Modèles très détaillés (le kart : plus de 100 000 faces) : dessinés seulement de près
@@ -146,7 +149,7 @@ const aircraftLights = new AircraftLights(aircraft);
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(18), 0.5, 2);
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
-landingLight.position.set(-2.2, 1.15, -3);
+landingLight.position.set(-2.2, 1.12, -3);
 landingLight.target.position.set(-2.2, -6, -80);
 aircraft.add(landingLight, landingLight.target);
 

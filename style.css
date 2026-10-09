@@ -77,13 +77,17 @@ img{margin: 0px;
 	display: grid;
 	grid-template-columns: repeat(4, 1fr);
 	grid-gap: 0px;
-	grid-auto-rows: minmax(100px, auto);
-	height: 80px;
+	grid-auto-rows: 100px;
+	height: 100px;
+	margin: 0;
+	padding: 0 20px;
+	align-items: center;
     list-style-type: none;
 }
 
 .footer-content li{
 	display: grid;
+	place-items: center;
 	margin: 0px;
 	color: #0D75A3;
 }
@@ -190,6 +194,21 @@ img{margin: 0px;
 	  border: 3px solid;
     cursor: pointer;
   }
+  /* Cases du bandeau : texte centré dans sa case */
+  #titre, #profil, #paramètre, #online, #initiation, #solo, #multi, #libre {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-align: center;
+  }
+  #titre h3, #profil h4, #paramètre h4, #online h4, #initiation h4, #solo h4, #multi h4, #libre h4 {
+    margin: 0;
+    text-align: center;
+  }
   #multi:hover,
   #paramètre:hover {
     background: #C3E6F5;
@@ -258,11 +277,7 @@ img{margin: 0px;
     background: #114E69;
     color: white;
   }
-  #multi h4 {
-    display: inline;
-  }
   #multi-resume {
-    margin-left: 10px;
     font-family: DejaVu Sans Mono, monospace;
     font-size: 11px;
     color: #114E69;

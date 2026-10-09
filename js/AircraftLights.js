@@ -1,10 +1,13 @@
 import {
     AdditiveBlending,
+    ConeGeometry,
+    DoubleSide,
     Group,
     MathUtils,
     Mesh,
     MeshBasicMaterial,
     Raycaster,
+    ShaderMaterial,
     SphereGeometry,
     Sprite,
     SpriteMaterial,
@@ -16,16 +19,20 @@ import { flareTexture } from './LightFlare.js';
 // Feux de navigation directionnels (règles OACI) : rouge à gauche et vert à droite visibles de l'avant
 // jusqu'à 110° sur leur côté, blanc de queue visible de l'arrière (les 140° restants).
 const deg = MathUtils.degToRad;
+// Le modèle n'est pas symétrique : le saumon gauche est plus bas (y 1,01 à 1,16, x -5,56)
+// que le droit (y 1,26 à 1,41, x 5,51). Bord d'attaque des saumons : z -2,78.
 const LIGHTS = [
-    // Bouts d'aile : au saillant avant, à moitié encastrés (bord d'attaque du saumon : x ±5,51, z -2,78)
-    { kind: 'nav',    color: 0xff2414, position: [-5.53, 1.33, -2.72], sector: [deg(-110), deg(0)],   size: 1.1 },
-    { kind: 'nav',    color: 0x18ff3c, position: [5.53, 1.33, -2.72],  sector: [deg(0), deg(110)],    size: 1.1 },
-    // Bout du cône de queue (modèle : z 6,52 -> 4,52 dans le repère avion), sous la gouverne de direction
-    { kind: 'nav',    color: 0xffffff, position: [-0.03, 1.2, 4.58],  sector: [deg(110), deg(250)],  size: 0.9 },
+    // Bouts d'aile : au saillant avant, à moitié encastrés
+    { kind: 'nav',     color: 0xff2414, position: [-5.58, 1.09, -2.72], sector: [deg(-110), deg(0)],  size: 1.1 },
+    { kind: 'nav',     color: 0x18ff3c, position: [5.53, 1.33, -2.72],  sector: [deg(0), deg(110)],   size: 1.1 },
+    // Feu de queue, encastré dans le bout du cône de queue (modèle : z 6,52 -> 4,52), sous la direction
+    { kind: 'nav',     color: 0xffffff, position: [-0.03, 1.2, 4.5],    sector: [deg(110), deg(250)], size: 0.8, bulb: 0.045 },
     // Sommet de la partie fixe de la dérive
-    { kind: 'beacon', color: 0xff1a0a, position: [-0.07, 3.5, 4.35],                                    size: 1.6 },
-    { kind: 'strobe', color: 0xf2f6ff, position: [-5.58, 1.3, -1.75],                                size: 3.2 },
-    { kind: 'strobe', color: 0xf2f6ff, position: [5.58, 1.3, -1.75],                                 size: 3.2 },
+    { kind: 'beacon',  color: 0xff1a0a, position: [-0.07, 3.5, 4.35],                                   size: 1.6 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.6, 1.05, -1.75],                                  size: 3.2 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [5.55, 1.3, -1.75],                                   size: 3.2 },
+    // Phare d'atterrissage dans le bord d'attaque de l'aile gauche : éblouissant vu de face, allumé de nuit
+    { kind: 'landing', color: 0xfff4dc, position: [-2.2, 1.12, -2.9],                                   size: 3.5, bulb: 0.09 },
 ];
 const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 
@@ -43,19 +50,58 @@ function sectorVisibility(azimuth, [start, end]) {
     return 1 - MathUtils.smoothstep(offset, half - SECTOR_FADE, half + SECTOR_FADE);
 }
 
+// Faisceau du phare d'atterrissage : cône de lumière additive qui s'estompe avec la distance,
+// visible la nuit (poussière, humidité de l'air). Légèrement incliné vers le sol.
+function createBeam() {
+    const length = 45;
+    const geometry = new ConeGeometry(7, length, 24, 1, true);
+    geometry.translate(0, -length / 2, 0);        // sommet du cône au phare
+    geometry.rotateX(Math.PI / 2 - deg(4));       // pointe vers l'avant (-z), un peu vers le bas
+    const material = new ShaderMaterial({
+        uniforms: { uLength: { value: length } },
+        vertexShader: /* glsl */`
+            varying float vAlong;
+            varying float vEdge;
+            void main() {
+                vAlong = length(position) / 45.0;
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                vec3 n = normalize(normalMatrix * normal);
+                vEdge = abs(dot(n, normalize(-mvPosition.xyz)));   // bords du cône plus transparents
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `,
+        fragmentShader: /* glsl */`
+            varying float vAlong;
+            varying float vEdge;
+            void main() {
+                float alpha = 0.16 * (1.0 - smoothstep(0.0, 1.0, vAlong)) * vEdge;
+                gl_FragColor = vec4(vec3(1.0, 0.96, 0.86) * alpha, 1.0);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        side: DoubleSide,
+    });
+    const beam = new Mesh(geometry, material);
+    beam.frustumCulled = false;
+    return beam;
+}
+
 class AircraftLights {
     constructor(parent) {
         this.parent = parent;
         this.group = new Group();
         this.night = 0;
+        this.landingLight = false;
         this.occluder = null;   // modèle de l'avion : un feu caché derrière lui n'a pas de halo
         this._lastTime = 0;
         this.lights = LIGHTS.map((def) => {
             const position = new Vector3(...def.position);
             // Ampoule (petite sphère très lumineuse, captée par le bloom)
             const bulbMaterial = new MeshBasicMaterial({ color: def.color });
-            bulbMaterial.color.multiplyScalar(4);
-            const bulb = new Mesh(new SphereGeometry(def.kind === 'strobe' ? 0.05 : 0.07, 10, 8), bulbMaterial);
+            bulbMaterial.color.multiplyScalar(2.5);
+            const bulb = new Mesh(new SphereGeometry(def.bulb ?? (def.kind === 'strobe' ? 0.05 : 0.07), 10, 8), bulbMaterial);
             bulb.position.copy(position);
             // Halo optique
             const flare = new Sprite(new SpriteMaterial({
@@ -65,12 +111,18 @@ class AircraftLights {
             this.group.add(bulb, flare);
             return { ...def, position, bulb, flare, baseColor: flare.material.color.clone(), bulbColor: bulbMaterial.color.clone(), visibility: 1 };
         });
+        this.beam = createBeam();
+        this.beam.position.set(-2.2, 1.12, -3);
+        this.beam.visible = false;
+        this.group.add(this.beam);
         parent.add(this.group);
     }
 
-    // night : 0 = jour (feux discrets), 1 = nuit (halos larges)
-    setNight(night) {
+    // night : 0 = jour (feux discrets), 1 = nuit (halos larges) ; landingLight : phare allumé
+    setNight(night, landingLight = night >= 0.5) {
         this.night = night;
+        this.landingLight = landingLight;
+        this.beam.visible = landingLight;
     }
 
     // Le halo d'un feu masqué par l'avion lui-même (aile, fuselage) s'efface
@@ -94,6 +146,10 @@ class AircraftLights {
             let intensity = 1;
             if (light.kind === 'nav') {
                 intensity = sectorVisibility(Math.atan2(toEye.x, -toEye.z), light.sector);
+            } else if (light.kind === 'landing') {
+                // Faisceau vers l'avant : éblouit quand on est dans l'axe, invisible de côté et de l'arrière
+                const facing = -toEye.z / Math.max(distance, 0.01);
+                intensity = this.landingLight ? Math.pow(Math.max(0, facing), 4) : 0;
             } else if (light.kind === 'beacon') {
                 // Faisceau tournant : éclat bref quand il balaie vers l'observateur
                 const azimuth = Math.atan2(toEye.x, -toEye.z);

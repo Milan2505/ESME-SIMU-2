@@ -184,9 +184,9 @@ class Airport {
     // Avions garés sur le parking : copies du Cessna du joueur, repeintes
     addParkedPlanes(model) {
         const spots = [
-            { x: 335, z: -70, color: 0xc0392b },
-            { x: 335, z: -40, color: 0x2e86c1 },
-            { x: 335, z: 55, color: 0xf1c40f },
+            { x: 338, z: -80, color: 0xc0392b },
+            { x: 338, z: -60, color: 0x2e86c1 },
+            { x: 338, z: -40, color: 0xf1c40f },
         ];
         for (const spot of spots) {
             const plane = model.clone();
@@ -306,7 +306,8 @@ class Airport {
         this._flat(new PlaneGeometry(APRON.maxX - APRON.minX, APRON.maxZ - APRON.minZ), surface(concrete),
             (APRON.minX + APRON.maxX) / 2, 0.015, (APRON.minZ + APRON.maxZ) / 2);
         // Marques de stationnement jaunes
-        for (const z of [-70, -40, 55]) {
+        // Places de stationnement (axe de chaque avion) : 3 Cessna, puis carpeXL et DRAVION (data/objet.csv)
+        for (const z of [-80, -60, -40, 15, 45]) {
             this._flat(new PlaneGeometry(26, 0.3), surface(null, 0xf2c200), 340, 0.03, z);
         }
     }
