@@ -2,6 +2,9 @@ import {
     BoxGeometry,
     CanvasTexture,
     Color,
+    Shape,
+    ShapeGeometry,
+    Vector2,
     CylinderGeometry,
     DoubleSide,
     Group,
@@ -425,6 +428,36 @@ function ilsIndicator(ctx, cx, cy, r, ils, time) {
     caption(ctx, cx, cy + r * 1.22, `${(ils.distance / 1000).toFixed(1)} km · idéal ${Math.round(ils.glideHeight)} m`, 13);
 }
 
+// --- Vitres ----------------------------------------------------------------------------
+
+// Verre légèrement teinté : presque invisible de face, de plus en plus réfléchissant aux angles rasants (Fresnel)
+const glassShader = {
+    vertexShader: /* glsl */`
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            vNormal = normalize(normalMatrix * normal);
+            vView = -mvPosition.xyz;
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `,
+    fragmentShader: /* glsl */`
+        uniform vec3 uTint;
+        uniform vec3 uReflect;
+        uniform float uLight;
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+            float facing = abs(dot(normalize(vNormal), normalize(vView)));
+            float fresnel = pow(1.0 - facing, 3.0);
+            vec3 color = mix(uTint * 0.6, uReflect, fresnel) * uLight;
+            gl_FragColor = vec4(color, 0.07 + 0.38 * fresnel);
+            #include <colorspace_fragment>
+        }
+    `,
+};
+
 // --- Pluie sur le pare-brise ---------------------------------------------------------
 
 const windshieldShader = {
@@ -507,19 +540,50 @@ class Cockpit {
         this.panel = add(new Mesh(new PlaneGeometry(PANEL.width, PANEL.height), this._panelMaterial), 0, PANEL.y, PANEL.z);
         add(new Mesh(new BoxGeometry(1.26, 0.05, 0.3), plastic), 0, -0.08, -0.88);
         add(new Mesh(new BoxGeometry(1.26, 0.42, 0.2), plastic), 0, -0.71, -0.86);
-        add(new Mesh(new BoxGeometry(1.3, 0.02, 2.1), plastic), 0, -0.9, 0.2);       // plancher
+        const trim = new MeshStandardMaterial({ color: 0x8e877a, roughness: 0.9 });      // garnitures de porte
+        const carpet = new MeshStandardMaterial({ color: 0x2c2a28, roughness: 1 });
+        add(new Mesh(new BoxGeometry(1.3, 0.02, 2.1), carpet), 0, -0.9, 0.2);         // plancher (moquette)
         add(new Mesh(new BoxGeometry(1.3, 0.05, 1.6), headliner), 0, 0.385, 0.38);   // plafond
         add(new Mesh(new BoxGeometry(1.3, 1.3, 0.04), headliner), 0, -0.25, 1.2);    // cloison arrière
+        add(new Mesh(new BoxGeometry(1.1, 0.12, 0.42), seat), 0, -0.6, 0.95);         // banquette arrière
+        add(new Mesh(new BoxGeometry(1.1, 0.5, 0.08), seat), 0, -0.32, 1.14);
+
+        // Vitres : pare-brise, vitres de porte et vitres arrière (verre teinté, reflets aux angles rasants)
+        this._glassMaterial = new ShaderMaterial({
+            uniforms: { uTint: { value: new Color(0x9ec3cf) }, uReflect: { value: new Color(0xdfe9f2) }, uLight: { value: 1 } },
+            vertexShader: glassShader.vertexShader,
+            fragmentShader: glassShader.fragmentShader,
+            transparent: true,
+            depthWrite: false,
+            side: DoubleSide,
+        });
+        // Contour d'une vitre latérale dans le plan (z, y), posée à la position x
+        const sideGlass = (x, outline) => {
+            const glass = new Mesh(new ShapeGeometry(new Shape(outline.map(([z, y]) => new Vector2(z, y)))), this._glassMaterial);
+            glass.geometry.rotateY(-Math.PI / 2); // plan (z, y) -> repère cabine
+            glass.position.x = x;
+            glass.renderOrder = 2;
+            this.group.add(glass);
+        };
+
         for (const side of [-1, 1]) {
-            add(new Mesh(new BoxGeometry(0.04, 0.6, 1.95), plastic), side * 0.65, -0.6, 0.2); // flancs sous les vitres
-            // Montants de pare-brise, de porte et cadre de vitre
+            // Portes : garniture, accoudoir, poignée
+            add(new Mesh(new BoxGeometry(0.04, 0.6, 1.95), trim), side * 0.65, -0.6, 0.2);
+            add(new Mesh(new BoxGeometry(0.08, 0.05, 0.55), plastic), side * 0.6, -0.4, 0.1);
+            add(new Mesh(new BoxGeometry(0.03, 0.03, 0.14), frame), side * 0.615, -0.33, -0.3);
+            // Montants de pare-brise, de porte, encadrements de vitre (bas et haut)
             this._beam(new Vector3(side * 0.6, -0.05, -0.98), new Vector3(side * 0.62, 0.37, -0.42), 0.06, frame);
             this._beam(new Vector3(side * 0.64, -0.3, 0.68), new Vector3(side * 0.62, 0.37, 0.78), 0.06, frame);
             this._beam(new Vector3(side * 0.64, -0.3, -0.78), new Vector3(side * 0.64, -0.3, 1.18), 0.04, frame);
-            // Aile haute, vue par les vitres latérales, et hauban
-            add(new Mesh(new BoxGeometry(4.9, 0.14, 1.5), paint), side * (0.65 + 2.45), 0.45, 0.35);
-            this._beam(new Vector3(side * 0.66, -0.78, 0.15), new Vector3(side * 2.7, 0.38, 0.3), 0.05, paint);
-            // Sièges
+            this._beam(new Vector3(side * 0.63, 0.36, -0.42), new Vector3(side * 0.63, 0.36, 1.18), 0.04, frame);
+            this._beam(new Vector3(side * 0.6, -0.05, -0.98), new Vector3(side * 0.64, -0.3, -0.78), 0.04, frame);
+            sideGlass(side * 0.645, [[-0.78, -0.3], [0.66, -0.3], [0.76, 0.36], [-0.42, 0.36], [-0.97, -0.05]]);
+            sideGlass(side * 0.645, [[0.8, -0.3], [1.18, -0.3], [1.18, 0.36], [0.8, 0.36]]);
+            // Aile haute posée sur le toit, bord d'attaque au-dessus du haut du pare-brise (comme sur un Cessna),
+            // vue par les vitres latérales, et hauban
+            add(new Mesh(new BoxGeometry(4.9, 0.14, 1.7), paint), side * (0.65 + 2.45), 0.45, 0.42);
+            this._beam(new Vector3(side * 0.66, -0.78, 0.15), new Vector3(side * 2.7, 0.38, 0.4), 0.05, paint);
+            // Sièges avant
             add(new Mesh(new BoxGeometry(0.46, 0.1, 0.48), seat), side * 0.3, -0.62, 0.3);
             const back = add(new Mesh(new BoxGeometry(0.46, 0.65, 0.09), seat), side * 0.3, -0.27, 0.6);
             back.rotation.x = -0.18;
@@ -580,6 +644,11 @@ class Cockpit {
         this._windshield.visible = false;
         this._windshield.renderOrder = 3;
         this.group.add(this._windshield);
+        const windshieldGlass = new Mesh(this._windshield.geometry, this._glassMaterial);
+        windshieldGlass.position.copy(this._windshield.position);
+        windshieldGlass.rotation.copy(this._windshield.rotation);
+        windshieldGlass.renderOrder = 2;
+        this.group.add(windshieldGlass);
 
         this.group.traverse((child) => {
             child.castShadow = false;
@@ -604,6 +673,7 @@ class Cockpit {
         const warm = Math.min(1, night * 2);
         this._panelMaterial.emissive.set(0xffffff).lerp(PANEL_NIGHT_LIGHT, warm);
         this._panelMaterial.emissiveIntensity = 0.5 + 0.4 * night;
+        this._glassMaterial.uniforms.uLight.value = 1 - 0.8 * night; // reflets du ciel bien plus faibles la nuit
     }
 
     // Clic sur le tableau de bord (coordonnées de texture du point touché) : renvoie le bouton cliqué

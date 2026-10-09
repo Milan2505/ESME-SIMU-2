@@ -23,6 +23,8 @@ import { ILS } from './js/ILS.js';
 
 const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
+// Lumière renvoyée par le sol : vert-gris sourd (un vert pur teintait en vert le dessous des ailes et le ventre de l'avion)
+const COLOR_GROUND_BOUNCE = 0x5d6450;
 const ROLL_SPEED = 0.3;
 const WORLD_SIZE = 1000;      // zone de placement aléatoire des objets
 const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (ms)
@@ -91,7 +93,7 @@ const storm = new Storm({ groundHeight: (x, z) => terrain.heightAt(x, z), sounds
 const cockpit = new Cockpit();
 const crashEffect = new CrashEffect();
 let weather = null;
-const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND);
+const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);

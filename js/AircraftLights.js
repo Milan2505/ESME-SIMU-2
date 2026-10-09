@@ -17,10 +17,13 @@ import { flareTexture } from './LightFlare.js';
 // jusqu'à 110° sur leur côté, blanc de queue visible de l'arrière (les 140° restants).
 const deg = MathUtils.degToRad;
 const LIGHTS = [
-    { kind: 'nav',    color: 0xff2414, position: [-5.62, 1.33, -2.62], sector: [deg(-110), deg(0)],   size: 1.1 },
-    { kind: 'nav',    color: 0x18ff3c, position: [5.62, 1.33, -2.62],  sector: [deg(0), deg(110)],    size: 1.1 },
-    { kind: 'nav',    color: 0xffffff, position: [0, 1.38, 5.2],      sector: [deg(110), deg(250)],  size: 0.9 },
-    { kind: 'beacon', color: 0xff1a0a, position: [0, 3.52, 4.45],                                    size: 1.6 },
+    // Bouts d'aile : au saillant avant, à moitié encastrés (bord d'attaque du saumon : x ±5,51, z -2,78)
+    { kind: 'nav',    color: 0xff2414, position: [-5.53, 1.33, -2.72], sector: [deg(-110), deg(0)],   size: 1.1 },
+    { kind: 'nav',    color: 0x18ff3c, position: [5.53, 1.33, -2.72],  sector: [deg(0), deg(110)],    size: 1.1 },
+    // Bout du cône de queue (modèle : z 6,52 -> 4,52 dans le repère avion), sous la gouverne de direction
+    { kind: 'nav',    color: 0xffffff, position: [-0.03, 1.2, 4.58],  sector: [deg(110), deg(250)],  size: 0.9 },
+    // Sommet de la partie fixe de la dérive
+    { kind: 'beacon', color: 0xff1a0a, position: [-0.07, 3.5, 4.35],                                    size: 1.6 },
     { kind: 'strobe', color: 0xf2f6ff, position: [-5.58, 1.3, -1.75],                                size: 3.2 },
     { kind: 'strobe', color: 0xf2f6ff, position: [5.58, 1.3, -1.75],                                 size: 3.2 },
 ];
@@ -60,7 +63,7 @@ class AircraftLights {
             }));
             flare.position.copy(position);
             this.group.add(bulb, flare);
-            return { ...def, position, bulb, flare, baseColor: flare.material.color.clone(), visibility: 1 };
+            return { ...def, position, bulb, flare, baseColor: flare.material.color.clone(), bulbColor: bulbMaterial.color.clone(), visibility: 1 };
         });
         parent.add(this.group);
     }
@@ -112,7 +115,8 @@ class AircraftLights {
             light.visibility += (target - light.visibility) * Math.min(1, delta * 20);
             intensity *= light.kind === 'strobe' ? target : light.visibility; // l'éclair d'un strobe est trop bref pour un fondu
 
-            light.bulb.visible = intensity > 0.02 || light.kind === 'nav';
+            // Ampoule toujours en place : sombre quand le feu ne nous éclaire pas (hors secteur, entre deux éclats)
+            light.bulb.material.color.copy(light.bulbColor).multiplyScalar(0.06 + 0.94 * Math.min(1, intensity * 1.5));
             light.flare.visible = intensity > 0.02;
             if (!light.flare.visible) continue;
             light.flare.position.copy(light.position).addScaledVector(toEye, FLARE_OFFSET / Math.max(distance, 0.01));

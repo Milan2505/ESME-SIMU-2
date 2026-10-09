@@ -20,7 +20,8 @@ const SURFACES = {
     flapLeft:     { region: [[-2.95, 1.0, -1.0], [-0.72, 1.5, 1.0]], hinge: [[-0.75, 1.2, 0.36], [-2.94, 1.24, 0.36]], down: [0, -1, 0] },
     flapRight:    { region: [[0.72, 1.0, -1.0], [2.95, 1.5, 1.0]],   hinge: [[0.75, 1.2, 0.36], [2.94, 1.24, 0.36]],   down: [0, -1, 0] },
     elevator:     { region: [[-2.4, 1.0, 4.8], [2.4, 1.45, 6.6]],    hinge: [[-2.3, 1.22, 5.8], [2.3, 1.22, 5.8]],     down: [0, -1, 0], minAbsX: 0.12 },
-    rudder:       { region: [[-0.15, 1.72, 4.8], [0.15, 3.5, 7.3]],  hinge: [[0, 1.7, 6.64], [0, 3.42, 6.6]],          down: [-1, 0, 0] },
+    // Direction : toute la partie grise arrière de la dérive (charnière le long du bord arrière de la bande rouge)
+    rudder:       { region: [[-0.21, 1.69, 5.9], [0.09, 3.5, 7.3]],  hinge: [[-0.06, 1.7, 6.05], [-0.06, 3.42, 6.62]],  down: [-1, 0, 0] },
 };
 
 // Débattements max (degrés)
