@@ -1,11 +1,12 @@
 {
     // Serveur local nécessaire : les modules JS et les fichiers data/asset ne se chargent pas en file://
+    // (sans cache, et qui refuse de démarrer si le port 8080 est déjà pris : voir serveur.py)
     "version": "2.0.0",
     "tasks": [
         {
             "label": "Serveur local",
             "type": "shell",
-            "command": "python -u -m http.server 8080",
+            "command": "python -u .vscode/serveur.py",
             "isBackground": true,
             "problemMatcher": {
                 "pattern": { "regexp": "^$" },
