@@ -105,7 +105,7 @@ function needle(ctx, cx, cy, length, angle, width = 7, color = '#f5f5f5') {
 }
 
 function caption(ctx, cx, cy, text, size = 16) {
-    ctx.fillStyle = '#bbb';
+    ctx.fillStyle = '#d4d6d9';
     ctx.font = `${size}px DejaVu Sans Mono, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -286,7 +286,7 @@ function headingIndicator(ctx, cx, cy, r, heading) {
 function variometer(ctx, cx, cy, r, vs) {
     bezel(ctx, cx, cy, r);
     const angleOf = (v) => deg(-90 + (MathUtils.clamp(v, -10, 10) / 10) * 170);
-    ticks(ctx, cx, cy, r, { from: angleOf(-10), to: angleOf(10), count: 20, every: 5, labels: (i) => String(Math.abs(i * 5 - 10)) });
+    ticks(ctx, cx, cy, r, { from: angleOf(-10), to: angleOf(10), count: 20, every: 5, labels: (i) => (i === 0 ? null : String(Math.abs(i * 5 - 10))) }); // un seul « 10 » (en haut)
     caption(ctx, cx + r * 0.2, cy - r * 0.32, 'MONTÉE', 13);
     caption(ctx, cx + r * 0.2, cy + r * 0.32, 'DESCENTE', 13);
     caption(ctx, cx + r * 0.25, cy, 'm/s', 15);
@@ -304,12 +304,12 @@ function tachometer(ctx, cx, cy, r, rpm) {
 }
 
 function annunciator(ctx, x, y, text, on, color) {
-    ctx.fillStyle = on ? color : '#2a2a2a';
+    ctx.fillStyle = on ? color : '#34363a';
     ctx.fillRect(x, y, 120, 38);
     ctx.strokeStyle = '#555';
     ctx.lineWidth = 3;
     ctx.strokeRect(x, y, 120, 38);
-    ctx.fillStyle = on ? '#111' : '#666';
+    ctx.fillStyle = on ? '#111' : '#a8acb2'; // éteint mais lisible
     ctx.font = 'bold 20px DejaVu Sans Mono, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -329,7 +329,7 @@ function flapIndicator(ctx, x, y, setting, position) {
     ctx.textBaseline = 'middle';
     for (let i = 0; i <= 3; i++) {
         const ty = y + 36 + i * 30;
-        ctx.fillStyle = i * 10 === setting ? '#fff' : '#888';
+        ctx.fillStyle = i * 10 === setting ? '#fff' : '#c4c8cc';
         ctx.fillText(`${i * 10}`, x + 34, ty);
         ctx.fillRect(x + 40, ty - 1, 10, 2);
     }
@@ -367,10 +367,10 @@ function ilsButton(ctx, b, ils) {
     const available = ils?.available, active = ils?.active;
     ctx.fillStyle = active ? '#1f7a33' : '#1c1d20';
     ctx.fillRect(b.x, b.y, b.width, b.height);
-    ctx.strokeStyle = active ? '#39ff6a' : available ? '#ffb000' : '#3a3a3a';
+    ctx.strokeStyle = active ? '#39ff6a' : available ? '#ffb000' : '#6a6e74';
     ctx.lineWidth = available ? 5 : 3;
     ctx.strokeRect(b.x, b.y, b.width, b.height);
-    ctx.fillStyle = active ? '#d9ffe0' : available ? '#ffb000' : '#555';
+    ctx.fillStyle = active ? '#d9ffe0' : available ? '#ffb000' : '#a8acb2';
     ctx.font = 'bold 30px DejaVu Sans Mono, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -492,7 +492,7 @@ class Cockpit {
         const paint = new MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 });
         const black = new MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
         this._panelMaterial = new MeshStandardMaterial({
-            map: this.panelTexture, emissiveMap: this.panelTexture, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.6,
+            map: this.panelTexture, emissiveMap: this.panelTexture, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6,
         });
 
         const add = (mesh, x, y, z) => {
@@ -527,7 +527,7 @@ class Cockpit {
         // Manches (yokes) : la colonne avance / recule, le volant tourne
         this._yokes = [-0.3, 0.3].map((x) => {
             const column = new Group();
-            column.position.set(x, -0.33, -0.75);
+            column.position.set(x, -0.475, -0.75); // sort sous les instruments, comme dans un vrai Cessna
             const shaft = new Mesh(new CylinderGeometry(0.018, 0.018, 0.4, 10), frame);
             shaft.rotation.x = Math.PI / 2;
             shaft.position.z = 0.1;
@@ -596,7 +596,8 @@ class Cockpit {
     }
 
     setNight(night) {
-        this._panelMaterial.emissiveIntensity = 0.15 + 0.5 * night;
+        // Tableau rétroéclairé : lisible même à l'ombre de la casquette en plein jour
+        this._panelMaterial.emissiveIntensity = 0.5 + 0.3 * night;
     }
 
     // Clic sur le tableau de bord (coordonnées de texture du point touché) : renvoie le bouton cliqué
