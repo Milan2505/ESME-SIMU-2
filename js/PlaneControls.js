@@ -1,5 +1,7 @@
 import {
 	Controls,
+	MathUtils,
+	Matrix4,
 	Quaternion,
 	Vector3
 } from 'three';
@@ -12,11 +14,32 @@ const _MAX_DELTA = 0.1;            // évite les sauts après un onglet en arri�
 const _MAX_BANK = Math.PI / 3;     // inclinaison max prise en compte pour le virage (60°)
 const _up = new Vector3( 0, 1, 0 );
 const _front = new Vector3( 0, 0, - 1 );
+const _xAxis = new Vector3( 1, 0, 0 );
 const _stallAxis = new Vector3();
 const _WING_DROP_MAX = Math.PI / 6;
 const _tmpQuaternion = new Quaternion();
 const _yawQuaternion = new Quaternion();
 const _gustTarget = new Vector3();
+const _normal = new Vector3();
+const _forward = new Vector3();
+const _back = new Vector3();
+const _right = new Vector3();
+const _planeUp = new Vector3();
+const _velocity = new Vector3();
+const _previousPosition = new Vector3();
+const _basis = new Matrix4();
+
+// Sol : au-delà de ces limites, le contact avec le sol est un crash
+const _CRASH_SINK = 6;                                // vitesse d'impact perpendiculaire au sol (m/s)
+const _CRASH_BANK = MathUtils.degToRad( 20 );         // inclinaison au toucher (une aile touche)
+const _CRASH_NOSE = MathUtils.degToRad( - 8 );        // nez trop bas : l'hélice et la roulette avant touchent
+const _CRASH_TAIL = MathUtils.degToRad( 22 );         // queue trop basse
+const _MIN_SLOPE_NORMAL = 0.85;                       // terrain trop pentu pour s'y poser
+const _MAX_GROUND_PITCH = MathUtils.degToRad( 14 );   // cabré max roues principales au sol
+const _GROUND_THRUST = 3;                             // accélération max au sol (m/s²)
+const _BRAKES = 5;                                    // décélération des freins (m/s²)
+const _ROLLING = { asphalt: 0.3, grass: 1.2 };        // résistance au roulement (m/s²)
+const _OBSTACLE_MARGIN = 3;                           // demi-envergure "utile" pour les obstacles (m)
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
 const _KEYS = {
@@ -24,6 +47,7 @@ const _KEYS = {
 	KeyA: 'rollLeft', KeyD: 'rollRight',
 	KeyQ: 'yawLeft', KeyE: 'yawRight',
 	Space: 'speedup', ControlLeft: 'speeddown', ShiftLeft: 'speeddown',
+	KeyB: 'brake',
 };
 
 class PlaneControls extends Controls {
@@ -39,11 +63,14 @@ class PlaneControls extends Controls {
 		this.throttleRate = 0.4;     // variation de la manette des gaz par seconde
 		this.inertia = 0.5;          // rapidité avec laquelle la vitesse suit les gaz
 		this.gravity = 9.81;         // accélération en piqué / décélération en montée
-		this.minAltitude = 1;        // hauteur mini au-dessus du sol
+		this.minAltitude = 1;        // hauteur du centre de l'avion au-dessus du sol, roues posées
 		this.groundHeight = () => 0; // relief : hauteur du sol en (x, z)
+		this.surfaceAt = () => 'grass'; // revêtement du sol en (x, z) : 'asphalt' ou 'grass'
+		this.obstacles = [];         // boîtes (Box3, repère monde) à ne pas percuter
 		this.turbulence = 0;         // 0 = air calme, 1 = tempête
 		this.stallSpeed = 12;        // en dessous, l'aile ne porte plus assez (décrochage)
 		this.stallRecovery = 1.15;   // marge de vitesse pour sortir du décrochage
+		this.rotateSpeed = 14;       // vitesse de rotation : l'avion peut quitter le sol
 		this.maxSink = 15;           // vitesse de chute max quand l'aile ne porte plus (m/s)
 		this.noseDrop = 0.8;         // abattée : vitesse à laquelle le nez tombe (rad/s)
 
@@ -56,6 +83,7 @@ class PlaneControls extends Controls {
 			rollLeft: 0, rollRight: 0,
 			speedup: 0, speeddown: 0,
 			yawLeft: 0, yawRight: 0,
+			brake: 0,
 		};
 		this.accel = 0;
 		this._rotationVector = new Vector3( 0, 0, 0 );
@@ -64,6 +92,8 @@ class PlaneControls extends Controls {
 		this._lastPosition = new Vector3();
 		this._savedPosition = object.position.clone();
 		this._savedQuaternion = object.quaternion.clone();
+		this._savedThrottle = this.throttle;
+		this._savedOnGround = false;
 		this._roll = 0;
 		this._pitch_rate = 0;
 		this._heading = 0;
@@ -72,6 +102,11 @@ class PlaneControls extends Controls {
 		this._lift = 1;              // 1 = portance normale, 0 = plus de portance
 		this._sinkSpeed = 0;
 		this._wingDrop = 0;          // aile qui tombe au décrochage (-1 gauche, 1 droite)
+		this._onGround = false;
+		this._groundYaw = 0;         // cap au sol (rad, + = vers la gauche)
+		this._groundPitch = 0;       // cabré au sol (rad), 0 = roulette avant posée
+		this._surface = 'grass';
+		this._crashed = false;
 
 		// event listeners
 		this._onKeyDown = onKeyDown.bind( this );
@@ -88,21 +123,39 @@ class PlaneControls extends Controls {
 		window.removeEventListener( 'blur', this._onBlur );
 	}
 
+	// Pose l'avion sur le sol à sa position actuelle (cap conservé), moteur au ralenti
+	placeOnGround() {
+		const front = _forward.copy( _front ).applyQuaternion( this.object.quaternion );
+		this._groundYaw = Math.atan2( - front.x, - front.z );
+		this._groundPitch = 0;
+		this._onGround = true;
+		this.throttle = 0;
+		this.movementSpeed = 0;
+		this._alignToGround();
+	}
+
 	// Mémorise la position actuelle comme point de départ (touche R)
 	saveState() {
 		this._savedPosition.copy( this.object.position );
 		this._savedQuaternion.copy( this.object.quaternion );
+		this._savedThrottle = this.throttle;
+		this._savedOnGround = this._onGround;
 	}
 
 	reset() {
 		this.object.position.copy( this._savedPosition );
 		this.object.quaternion.copy( this._savedQuaternion );
-		this.throttle = 0.3;
-		this.movementSpeed = this.throttle * this.maxSpeed;
+		this.throttle = this._savedThrottle;
+		this._onGround = this._savedOnGround;
+		this.movementSpeed = this._onGround ? 0 : this.throttle * this.maxSpeed;
+		_forward.copy( _front ).applyQuaternion( this.object.quaternion );
+		this._groundYaw = Math.atan2( - _forward.x, - _forward.z );
+		this._groundPitch = 0;
 		this._gust.set( 0, 0, 0 );
 		this._stalled = false;
 		this._lift = 1;
 		this._sinkSpeed = 0;
+		this._crashed = false;
 		this.dispatchEvent( _resetEvent );
 	}
 
@@ -114,18 +167,63 @@ class PlaneControls extends Controls {
 		if ( delta <= 0 ) return;
 
 		const object = this.object;
+		if ( this._crashed ) {
+			this._verticalSpeed = 0;
+			return;
+		}
 		const previousY = object.position.y;
+		_previousPosition.copy( object.position );
 		const cam_front = new Vector3( 0, 0, - 1 ).applyQuaternion( object.quaternion );
 
 		// Gaz : la vitesse tend vers la consigne, la pente accélère ou freine l'avion
 		this.throttle = Math.min( 1, Math.max( 0, this.throttle + this.accel * this.throttleRate * delta ) );
-		this.movementSpeed += (
-			( this.throttle * this.maxSpeed - this.movementSpeed ) * this.inertia
-			- this.gravity * cam_front.y
-		) * delta;
-		this.movementSpeed = Math.min( this.maxSpeed * 1.2, Math.max( this.minSpeed, this.movementSpeed ) );
+		let acceleration = ( this.throttle * this.maxSpeed - this.movementSpeed ) * this.inertia
+			- this.gravity * cam_front.y;
+
+		if ( this._onGround ) {
+			// Au sol : poussée limitée, roulement (plus fort dans l'herbe) et freins
+			this._surface = this.surfaceAt( object.position.x, object.position.z );
+			acceleration = Math.min( acceleration, _GROUND_THRUST )
+				- _ROLLING[ this._surface ] - this._moveState.brake * _BRAKES;
+			this.movementSpeed = Math.min( this.maxSpeed, Math.max( 0, this.movementSpeed + acceleration * delta ) );
+		} else {
+			this.movementSpeed += acceleration * delta;
+			this.movementSpeed = Math.min( this.maxSpeed * 1.2, Math.max( this.minSpeed, this.movementSpeed ) );
+		}
 
 		object.translateZ( - this.movementSpeed * delta );
+
+		if ( this._onGround ) {
+			this._updateGround( delta );
+		} else {
+			this._updateFlight( delta, cam_front );
+			this._checkTouchdown( delta );
+		}
+		this._checkObstacles();
+
+		// Valeurs pour les instruments
+		const front = new Vector3( 0, 0, - 1 ).applyQuaternion( object.quaternion );
+		const cam_up = _up.clone().applyQuaternion( object.quaternion );
+		const cam_right = front.clone().cross( cam_up );
+
+		this._pitch_rate = front.y / Math.max( _EPS, Math.sqrt( front.x * front.x + front.z * front.z ) );
+		this._roll = Math.atan2( cam_right.dot( _up ), cam_up.dot( _up ) );
+		this._heading = ( Math.atan2( front.x, - front.z ) * 180 / Math.PI + 360 ) % 360;
+		this._verticalSpeed = ( object.position.y - previousY ) / delta;
+
+		if (
+			this._lastPosition.distanceToSquared( object.position ) > _EPS ||
+			8 * ( 1 - this._lastQuaternion.dot( object.quaternion ) ) > _EPS
+		) {
+			this.dispatchEvent( _changeEvent );
+			this._lastQuaternion.copy( object.quaternion );
+			this._lastPosition.copy( object.position );
+		}
+	}
+
+	// En vol : décrochage, rafales, gouvernes et virage
+	_updateFlight( delta, cam_front ) {
+		const object = this.object;
 
 		// Décrochage : la portance chute avec la vitesse, l'avion s'enfonce et pique du nez
 		if ( ! this._stalled && this.movementSpeed < this.stallSpeed ) {
@@ -176,31 +274,117 @@ class PlaneControls extends Controls {
 		const bank = Math.min( _MAX_BANK, Math.max( - _MAX_BANK, this._roll ) );
 		_yawQuaternion.setFromAxisAngle( _up, Math.tan( bank ) * this.turnRate * this._lift * delta );
 		object.quaternion.premultiply( _yawQuaternion ).normalize();
+	}
 
-		// Sol
+	// Au sol : roulette de nez orientable, rotation au décollage, avion collé au relief
+	_updateGround( delta ) {
+		const object = this.object;
+		const speed = this.movementSpeed;
+		const input = this._rotationVector;
+
+		// Palonnier (et manche à basse vitesse) : moins d'autorité quand ça va vite
+		const steer = MathUtils.clamp( input.y + input.z * 0.5, - 1, 1 );
+		const authority = Math.min( 1, speed / 3 ) * ( 1 - 0.6 * Math.min( 1, speed / this.rotateSpeed ) );
+		this._groundYaw += steer * 0.6 * authority * delta;
+
+		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
+		if ( input.x > 0 && speed > this.rotateSpeed * 0.7 ) {
+			this._groundPitch += input.x * 0.4 * Math.min( 1, speed / this.rotateSpeed ) * delta;
+		} else {
+			this._groundPitch -= ( input.x < 0 ? 0.6 : 0.25 ) * delta;
+		}
+		this._groundPitch = MathUtils.clamp( this._groundPitch, 0, _MAX_GROUND_PITCH );
+
+		// Décollage : assez de vitesse et nez levé, l'avion monte dans l'axe de son nez
 		const floor = this.groundHeight( object.position.x, object.position.z ) + this.minAltitude;
-		if ( object.position.y < floor ) {
+		if ( speed >= this.rotateSpeed && this._groundPitch > MathUtils.degToRad( 3 ) && object.position.y >= floor ) {
+			this._onGround = false;
+			this._lift = 1;
+			this._sinkSpeed = 0;
+			this.dispatchEvent( { type: 'liftoff' } );
+			return;
+		}
+		this._alignToGround();
+	}
+
+	// Avion posé sur ses roues : altitude du sol, assiette suivant la pente du terrain
+	_alignToGround() {
+		const object = this.object;
+		object.position.y = this.groundHeight( object.position.x, object.position.z ) + this.minAltitude;
+		this._groundNormal( object.position.x, object.position.z, _normal );
+
+		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
+		_forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize();
+		_right.crossVectors( _forward, _normal ).normalize();
+		_back.copy( _forward ).negate();
+		object.quaternion.setFromRotationMatrix( _basis.makeBasis( _right, _normal, _back ) );
+		object.quaternion.multiply( _tmpQuaternion.setFromAxisAngle( _xAxis, this._groundPitch ) );
+	}
+
+	// Contact avec le sol en vol : atterrissage si l'avion arrive doucement, à plat et sur ses roues
+	_checkTouchdown( delta ) {
+		const object = this.object;
+		const floor = this.groundHeight( object.position.x, object.position.z ) + this.minAltitude;
+		if ( object.position.y >= floor ) return;
+
+		this._groundNormal( object.position.x, object.position.z, _normal );
+		_velocity.subVectors( object.position, _previousPosition ).divideScalar( delta );
+		const impact = - _velocity.dot( _normal );
+
+		_forward.copy( _front ).applyQuaternion( object.quaternion );
+		_right.copy( _xAxis ).applyQuaternion( object.quaternion );
+		_planeUp.copy( _up ).applyQuaternion( object.quaternion );
+		const bank = Math.asin( MathUtils.clamp( _right.dot( _normal ), - 1, 1 ) );
+		const pitch = Math.asin( MathUtils.clamp( _forward.dot( _normal ), - 1, 1 ) );
+
+		let reason = null;
+		if ( _planeUp.dot( _normal ) < 0 ) reason = 'Avion sur le dos';
+		else if ( _normal.y < _MIN_SLOPE_NORMAL ) reason = 'Collision avec le relief';
+		else if ( impact > _CRASH_SINK ) reason = `Impact trop violent (${impact.toFixed( 1 )} m/s)`;
+		else if ( Math.abs( bank ) > _CRASH_BANK ) reason = 'Une aile a touché le sol';
+		else if ( pitch < _CRASH_NOSE ) reason = 'L\'avion a touché du nez';
+		else if ( pitch > _CRASH_TAIL ) reason = 'La queue a touché le sol';
+
+		if ( reason ) {
 			object.position.y = floor;
+			this._crash( reason );
+			return;
 		}
 
-		// Valeurs pour les instruments
-		const front = new Vector3( 0, 0, - 1 ).applyQuaternion( object.quaternion );
-		const cam_up = _up.clone().applyQuaternion( object.quaternion );
-		const cam_right = front.clone().cross( cam_up );
+		// Atterrissage
+		this._onGround = true;
+		this._groundYaw = Math.atan2( - _forward.x, - _forward.z );
+		this._groundPitch = MathUtils.clamp( pitch, 0, _MAX_GROUND_PITCH );
+		this._stalled = false;
+		this._lift = 1;
+		this._sinkSpeed = 0;
+		this._gust.set( 0, 0, 0 );
+		this._alignToGround();
+		this.dispatchEvent( { type: 'touchdown', impact } );
+	}
 
-		this._pitch_rate = front.y / Math.max( _EPS, Math.sqrt( front.x * front.x + front.z * front.z ) );
-		this._roll = Math.atan2( cam_right.dot( _up ), cam_up.dot( _up ) );
-		this._heading = ( Math.atan2( front.x, - front.z ) * 180 / Math.PI + 360 ) % 360;
-		this._verticalSpeed = ( object.position.y - previousY ) / delta;
-
-		if (
-			this._lastPosition.distanceToSquared( object.position ) > _EPS ||
-			8 * ( 1 - this._lastQuaternion.dot( object.quaternion ) ) > _EPS
-		) {
-			this.dispatchEvent( _changeEvent );
-			this._lastQuaternion.copy( object.quaternion );
-			this._lastPosition.copy( object.position );
+	_checkObstacles() {
+		const position = this.object.position;
+		for ( const box of this.obstacles ) {
+			if ( box.distanceToPoint( position ) < _OBSTACLE_MARGIN ) {
+				this._crash( 'Collision avec un obstacle' );
+				return;
+			}
 		}
+	}
+
+	_crash( reason ) {
+		this._crashed = true;
+		this._stalled = false;
+		this.movementSpeed = 0;
+		this.throttle = 0;
+		this.dispatchEvent( { type: 'crash', reason } );
+	}
+
+	// Normale du terrain (différences finies sur le relief)
+	_groundNormal( x, z, target ) {
+		const h = this.groundHeight;
+		return target.set( h( x - 1, z ) - h( x + 1, z ), 2, h( x, z - 1 ) - h( x, z + 1 ) ).normalize();
 	}
 
 	// private
@@ -247,12 +431,30 @@ class PlaneControls extends Controls {
 	getThrottle() {
 		return this.throttle;
 	}
+	// Commandes du pilote : profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins
+	getInputs() {
+		return {
+			pitch: this._rotationVector.x,
+			roll: this._rotationVector.z,
+			yaw: this._rotationVector.y,
+			brake: this._moveState.brake,
+		};
+	}
 	isStalled() {
 		return this._stalled;
 	}
-	// Vrai un peu avant le décrochage, pour l'avertisseur sonore
+	// Vrai un peu avant le décrochage, pour l'avertisseur sonore (pas au sol)
 	isNearStall() {
-		return this.movementSpeed < this.stallSpeed * 1.2;
+		return ! this._onGround && ! this._crashed && this.movementSpeed < this.stallSpeed * 1.2;
+	}
+	isOnGround() {
+		return this._onGround;
+	}
+	isCrashed() {
+		return this._crashed;
+	}
+	getSurface() {
+		return this._surface;
 	}
 }
 

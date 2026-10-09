@@ -67,80 +67,20 @@
 	
 	<canvas id="ecran" tabindex="0"></canvas>
 	<div id="alarme">DÉCROCHAGE</div>
+	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
 		
 	<div id="commandes">
 	<h4>Commandes</h4>
 		<button id="vue" title="Changer de vue (touche V)">🎥 Vue cabine</button>
 		<button id="reset" title="Revenir au point de départ (touche R)">↺ Réinitialiser</button>
 		<button id="plein-ecran" title="Plein écran (touche F)">⛶ Plein écran</button>
+		<p class="aide">🖱 Glisser : tourner la caméra<br>Molette : zoom<br>Double-clic / C : recentrer<br>B : freins</p>
 	</div>
 
 	<div id="météo">
 	<h4>Météo</h4>
 	</div>
 	
-	<div id="petit-cadran">
-		<div class="horizon">
-			<img src="horizon_back.png" id="background">
-			<img src="horizon_circle.png" id="cercle">
-			<img src="horizon_frame.png" id="fond_cercle">
-			<img src="horizon_mech.png" id="fleche">
-		</div>
-	</div>
-
-	<div id="cadran-1" class="cadran">
-		<div class="circle">
-			<span class="nom">Vitesse</span>
-			<div class="aiguille"></div>
-			<span class="valeur"></span>
-		</div>
-	</div>
-	<div id="cadran-2" class="cadran">
-		<div class="circle">
-			<span class="nom">Altitude</span>
-			<div class="aiguille"></div>
-			<span class="valeur"></span>
-		</div>
-	</div>
-	<div id="cadran-3" class="cadran">
-		<div class="circle">
-			<span class="nom">Vario</span>
-			<div class="aiguille"></div>
-			<span class="valeur"></span>
-		</div>
-	</div>
-	<div id="cadran-4" class="cadran">
-		<div class="circle">
-			<span class="nom">Cap</span>
-			<div class="aiguille"></div>
-			<span class="valeur"></span>
-		</div>
-	</div>
-	<div id="cadran-5" class="cadran">
-		<div class="circle"></div>
-	</div>
-	<div id="cadran-6" class="cadran">
-		<div class="circle"></div>
-	</div>
-	<div id="cadran-7" class="cadran">
-		<div class="circle"></div>
-	</div>
-	<div id="cadran-8" class="cadran">
-		<div class="circle"></div>
-	</div>
-	<div id="gas" class="manette">
-		<span class="nom">Gaz</span>
-		<div class="rectangle">
-			<div class="square"></div>
-		</div>
-	</div>
-	
-	<div id="mixture" class="manette">
-		<span class="nom">Mélange</span>
-		<div class="rectangle">
-			<div class="square"></div>
-		</div>
-	</div>
 	</main>
 
 	<dialog id="multi-dialog">

@@ -270,12 +270,17 @@ img{margin: 0px;
     width: 100%;
     height: 100%;
     grid-column: 4/15;
-    grid-row: 10/13;
+    grid-row: 10/17;
   	border-radius: 10px;
+    touch-action: none; /* glisser = tourner la caméra */
+    cursor: grab;
+  }
+  #ecran:active {
+    cursor: grabbing;
   }
   #alarme {
     grid-column: 4/15;
-    grid-row: 10/13;
+    grid-row: 10/17;
     align-self: start;
     justify-self: center;
     z-index: 2;
@@ -294,12 +299,46 @@ img{margin: 0px;
     visibility: visible;
     animation: clignote 0.5s steps(1) infinite;
   }
+  #crash {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: start;
+    margin-top: 15px;
+    justify-self: center;
+    z-index: 2;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 30px;
+    font-family: DejaVu Sans Mono, monospace;
+    color: white;
+    background: rgba(20, 20, 20, 0.75);
+    border: 3px solid #c0392b;
+    border-radius: 10px;
+    pointer-events: none;
+  }
+  #crash strong {
+    font-size: 40px;
+    color: #ff5a4a;
+  }
+  #crash.actif {
+    display: flex;
+  }
+  #commandes .aide {
+    margin: 4px 0 0;
+    text-indent: 0;
+    text-align: left;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
+    color: #114E69;
+  }
   @keyframes clignote {
     50% { opacity: 0; }
   }
   #commandes {
     grid-column: 16/19;
-    grid-row: 10/12;
+    grid-row: 10/13;
     align-self: start;
     display: flex;
     flex-direction: column;
@@ -327,167 +366,11 @@ img{margin: 0px;
   }
   #météo {
     grid-column: 16/19;
-    grid-row: 12;
+    grid-row: 13/17;
+    align-self: start;
 	  border: 3px solid;
   	border-radius: 10px;
   }
-  #petit-cadran {
-    grid-column: 4/7;
-    grid-row: 13/17;
-  	border: 3px solid;
-    overflow: hidden;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    container-type: size;
-  }
-
-  /* Instrument carré (sinon les images sont étirées en ovale) */
-  .horizon {
-    position: relative;
-    width: min(100cqw, 100cqh);
-    height: min(100cqw, 100cqh);
-    overflow: hidden;
-    border-radius: 50%;
-  }
- #cadran-1 {
-    grid-column: 7;
-    grid-row: 13/15;
-	  border: 3px solid;
-  }
-  #cadran-2 {
-    grid-column: 7;
-    grid-row: 15/17;
-	  border: 3px solid;
-  }
-  #cadran-3 {
-    grid-column: 8;
-    grid-row: 13/15;
-    border: 3px solid;
-  }
-  #cadran-4 {
-    grid-column: 8;
-    grid-row: 15/17;
-  	border: 3px solid;
-  }
-  #cadran-5 {
-    grid-column: 9/11;
-    grid-row: 13/15;
-	  border: 3px solid;
-  }
-  #cadran-6 {
-    grid-column: 9/11;
-    grid-row: 15/17;
-  	border: 3px solid;
-  }
-  #cadran-7 {
-    grid-column: 11;
-    grid-row: 13/15;
-    border: 3px solid;
-  }
-  #cadran-8 {
-    grid-column: 11;
-    grid-row: 15/17;
-    border: 3px solid;
-  }
-   #gas {
-    grid-column: 12;
-    grid-row: 13/17;
-    border: 3px solid;
-  }
-   #mixture {
-    grid-column: 13/15;
-    grid-row: 13/17;
-    border: 3px solid;
-  }
-  
-  .circle {
-    position: relative;
-    box-sizing: border-box;
-    width: 90px;
-    height: 90px;
-    background: rgb(182, 182, 182);
-    border: 10px solid;
-    border-color: black;
-    border-radius: 50%;
-    margin: auto;
-    margin-top: 5px;
-    font-family: DejaVu Sans Mono, monospace;
-  }
-
-  .circle .nom {
-    position: absolute;
-    top: 8px;
-    width: 100%;
-    text-align: center;
-    font-size: 8px;
-  }
-
-  .circle .valeur {
-    position: absolute;
-    bottom: 8px;
-    width: 100%;
-    text-align: center;
-    font-size: 9px;
-    font-weight: bold;
-  }
-
-  .aiguille {
-    position: absolute;
-    left: 50%;
-    bottom: 50%;
-    width: 3px;
-    height: 42%;
-    background: #c0392b;
-    border-radius: 2px;
-    transform-origin: 50% 100%;
-    transform: translateX(-50%) rotate(0deg);
-  }
-
-  .circle:has(.aiguille)::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 8px;
-    height: 8px;
-    background: black;
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  .manette {
-    --manette: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    font-family: DejaVu Sans Mono, monospace;
-    font-size: 10px;
-  }
-
-  .manette .rectangle {
-    position: relative;
-    flex: 1;
-    width: 50px;
-    margin: 5px auto;
-    background: rgb(182, 182, 182);
-  }
-
-  .manette .square {
-    position: absolute;
-    left: -5px;
-    bottom: 0;
-    width: 60px;
-    height: var(--manette);
-    background: black;
-  }
-
-  #mixture .square {
-    bottom: calc(100% - var(--manette));
-  }
-
   #météo {
     display: flex;
     flex-direction: column;
@@ -513,43 +396,7 @@ img{margin: 0px;
     color: white;
   }
 
-  #background {
-    position: absolute;
-    top: -100%;
-    left: -100%;
-    width: 300%;
-    height: 300%;
-    z-index: 4
-  }
-
-  #cercle{
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 6
-  }
-
-  #fond_cercle{
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 8;
-  }
-  
-  #fleche{
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 10;
-  }
-  
-  /* Plein écran : le cockpit entier (écran de vol + instruments) remplit l'écran */
+  /* Plein écran : l'écran de vol et les panneaux remplissent l'écran */
   #simulator:fullscreen {
     padding: 10px 0 0;
     height: 100vh;

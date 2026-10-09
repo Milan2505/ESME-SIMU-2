@@ -34,9 +34,10 @@ class Terrain {
         snowHeight = 190,
         tile = 60,            // taille d'une répétition de texture (m)
         grassTint = 0x219313,
+        flatten = () => 1,    // facteur de relief en (x, z) : 0 = sol plat (aérodrome), 1 = relief normal
     } = {}) {
         this.noise = new ImprovedNoise();
-        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight });
+        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten });
 
         const geometry = new PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(- Math.PI / 2);
@@ -51,6 +52,8 @@ class Terrain {
 
     // Hauteur du sol au point (x, z), utilisée aussi pour poser les objets et pour les collisions
     heightAt(x, z) {
+        const relief = this.flatten(x, z);
+        if (relief <= 0) return 0;
         const r = Math.hypot(x, z);
 
         // Collines : bruit doux
@@ -71,8 +74,8 @@ class Terrain {
         }
         mountains /= total;
 
-        return hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
-            + mountains * this.mountainHeight * smoothstep(this.mountainStart, this.mountainFull, r);
+        return relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
+            + mountains * this.mountainHeight * smoothstep(this.mountainStart, this.mountainFull, r));
     }
 
     _createMaterial(renderer, { snowHeight, tile, grassTint }) {
