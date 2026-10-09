@@ -358,6 +358,71 @@ function radio(ctx, x, y, label, active, standby) {
     caption(ctx, x + 30, y + 36, label, 14);
 }
 
+// --- ILS ---------------------------------------------------------------------------
+
+const ILS_BUTTON = { x: 1305, y: 150, width: 110, height: 70 };
+
+// Bouton ILS : éteint hors de portée, cerclé d'orange quand disponible, vert quand actif
+function ilsButton(ctx, b, ils) {
+    const available = ils?.available, active = ils?.active;
+    ctx.fillStyle = active ? '#1f7a33' : '#1c1d20';
+    ctx.fillRect(b.x, b.y, b.width, b.height);
+    ctx.strokeStyle = active ? '#39ff6a' : available ? '#ffb000' : '#3a3a3a';
+    ctx.lineWidth = available ? 5 : 3;
+    ctx.strokeRect(b.x, b.y, b.width, b.height);
+    ctx.fillStyle = active ? '#d9ffe0' : available ? '#ffb000' : '#555';
+    ctx.font = 'bold 30px DejaVu Sans Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('ILS', b.x + b.width / 2, b.y + b.height / 2 - 6);
+    ctx.font = '13px DejaVu Sans Mono, monospace';
+    ctx.fillText(active ? `RWY ${ils.runway}` : available ? 'APPUYER' : '—', b.x + b.width / 2, b.y + b.height - 12);
+}
+
+// Indicateur ILS : aiguille verticale = localizer, horizontale = glide, drapeaux si pas de signal
+function ilsIndicator(ctx, cx, cy, r, ils, time) {
+    bezel(ctx, cx, cy, r);
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 2;
+    for (let i = -2; i <= 2; i++) {
+        if (i === 0) continue;
+        for (const [x, y] of [[cx + i * r * 0.32, cy], [cx, cy + i * r * 0.32]]) {
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+    ctx.strokeRect(cx - 9, cy - 9, 18, 18);
+    caption(ctx, cx, cy - r * 0.78, 'ILS', 13);
+
+    if (!ils?.active) {
+        ctx.fillStyle = '#c0392b';
+        ctx.fillRect(cx - r * 0.55, cy + r * 0.45, 46, 20);
+        ctx.fillRect(cx + r * 0.1, cy + r * 0.45, 46, 20);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('LOC', cx - r * 0.55 + 23, cy + r * 0.45 + 11);
+        ctx.fillText('GS', cx + r * 0.1 + 23, cy + r * 0.45 + 11);
+        return;
+    }
+    const range = r * 0.66;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#f5f5f5';
+    ctx.beginPath();
+    ctx.moveTo(cx + ils.localizer * range, cy - r * 0.8);
+    ctx.lineTo(cx + ils.localizer * range, cy + r * 0.8);
+    ctx.stroke();
+    if (ils.distance > 0) {
+        ctx.strokeStyle = '#ffd34d';
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.8, cy - ils.glideslope * range);
+        ctx.lineTo(cx + r * 0.8, cy - ils.glideslope * range);
+        ctx.stroke();
+    }
+    caption(ctx, cx, cy + r * 1.22, `${(ils.distance / 1000).toFixed(1)} km · idéal ${Math.round(ils.glideHeight)} m`, 13);
+}
+
 // --- Pluie sur le pare-brise ---------------------------------------------------------
 
 const windshieldShader = {
@@ -437,7 +502,7 @@ class Cockpit {
         };
 
         // Tableau de bord, casquette anti-reflet et bas du tableau
-        add(new Mesh(new PlaneGeometry(PANEL.width, PANEL.height), this._panelMaterial), 0, PANEL.y, PANEL.z);
+        this.panel = add(new Mesh(new PlaneGeometry(PANEL.width, PANEL.height), this._panelMaterial), 0, PANEL.y, PANEL.z);
         add(new Mesh(new BoxGeometry(1.26, 0.05, 0.3), plastic), 0, -0.08, -0.88);
         add(new Mesh(new BoxGeometry(1.26, 0.42, 0.2), plastic), 0, -0.71, -0.86);
         add(new Mesh(new BoxGeometry(1.3, 0.02, 2.1), plastic), 0, -0.9, 0.2);       // plancher
@@ -534,6 +599,13 @@ class Cockpit {
         this._panelMaterial.emissiveIntensity = 0.15 + 0.5 * night;
     }
 
+    // Clic sur le tableau de bord (coordonnées de texture du point touché) : renvoie le bouton cliqué
+    buttonAt(uv) {
+        const x = uv.x * CANVAS.width, y = (1 - uv.y) * CANVAS.height;
+        const b = ILS_BUTTON;
+        return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height ? 'ils' : null;
+    }
+
     setRain(intensity) {
         this.windshieldMaterial.uniforms.uIntensity.value = intensity;
         this._windshield.visible = intensity > 0;
@@ -598,7 +670,8 @@ class Cockpit {
         flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
 
         radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
-        radio(ctx, 960, 150, 'NAV1', '110.50', '113.90');
+        radio(ctx, 960, 150, 'NAV1', '110.30', '113.90');
+        ilsButton(ctx, ILS_BUTTON, state.ils);
         // Transpondeur
         radio(ctx, 960, 240, 'XPDR', '7000', 'ALT');
 
@@ -607,10 +680,8 @@ class Cockpit {
         caption(ctx, tx, ty - 34, 'GAZ', 16);
         caption(ctx, tx, ty + 30, `${Math.round(state.throttle * 100)} %`, 16);
 
-        // Boîte à gants côté passager
-        ctx.strokeStyle = '#1a1b1e';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(1230, 360, 260, 110);
+        // Indicateur ILS (à la place de la boîte à gants)
+        ilsIndicator(ctx, 1385, 400, 82, state.ils, this._time);
 
         this.panelTexture.needsUpdate = true;
     }

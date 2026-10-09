@@ -16,8 +16,12 @@ import {
     Points,
     PointsMaterial,
     RepeatWrapping,
-    SRGBColorSpace
+    Sprite,
+    SpriteMaterial,
+    SRGBColorSpace,
+    Vector3
 } from 'three';
+import { flareTexture } from './LightFlare.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
 // Tout est modélisé ici (pas de modèle externe) ; le relief est aplani autour (voir reliefFactor).
@@ -26,6 +30,8 @@ const TAXIWAY = { minX: 235, maxX: 300, minZ: -8, maxZ: 8 };
 const APRON = { minX: 300, maxX: 365, minZ: -95, maxZ: 95 };
 const FLAT_ZONE = { minX: 180, maxX: 440, minZ: -390, maxZ: 390, blend: 160 };
 const WIND_DIRECTION = 0; // le vent vient du nord (la manche à air pointe vers le sud)
+
+const _toEye = new Vector3();
 
 function smoothstep(edge0, edge1, x) {
     const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -67,44 +73,50 @@ function speckle(ctx, width, height, base, amount, count) {
     }
 }
 
-// Marquages OACI simplifiés : seuils "piano", numéros 36 / 18, axe discontinu, bords
+// Marquages OACI (piste de 30 m) : seuil "piano" de 8 bandes centrées, numéros 36 / 18,
+// plots de point d'aiming, axe discontinu, bandes de bord. Distances en mètres depuis chaque extrémité.
+const THRESHOLD_OFFSET = 6;      // début des bandes de seuil
+const AIMING_POINT = 150;        // point visé à l'atterrissage (PAPI et pente ILS calés dessus)
+
 function runwayTexture(maxAnisotropy) {
     const { width: w, length: l } = RUNWAY;
     return canvasTexture(256, 4096, (ctx, cw, ch) => {
         speckle(ctx, cw, ch, '#3b3c3e', 0.12, 60000);
-        ctx.setTransform(cw / w, 0, 0, ch / l, 0, 0); // dessin en mètres
+        ctx.setTransform(cw / w, 0, 0, ch / l, 0, 0); // dessin en mètres (haut du canvas = nord)
         ctx.fillStyle = '#e8e8e8';
-        // Bords
-        ctx.fillRect(1, 0, 0.9, l);
-        ctx.fillRect(w - 1.9, 0, 0.9, l);
-        // Axe : traits de 30 m, espaces de 20 m (hors zones de seuil)
-        for (let z = 70; z < l - 100; z += 50) ctx.fillRect(w / 2 - 0.45, z, 0.9, 30);
-        // Seuils : 8 bandes de chaque côté
-        for (const end of [6, l - 36]) {
-            for (let i = 0; i < 8; i++) {
-                const x = 2.5 + i * 1.6 + (i >= 4 ? 4.6 : 0);
-                ctx.fillRect(x, end, 1.0, 30);
+        // Bandes de bord (0,9 m)
+        ctx.fillRect(0.5, 0, 0.9, l);
+        ctx.fillRect(w - 1.4, 0, 0.9, l);
+
+        // Marquages d'une extrémité, en coordonnées "depuis le bout de piste" (y = 0 au bout, y croissant vers le centre)
+        const markings = (number) => {
+            // Seuil : 4 bandes de 1,5 m de chaque côté de l'axe, espacées de 1,5 m, longues de 30 m
+            for (let i = 0; i < 4; i++) {
+                ctx.fillRect(w / 2 - 3 - i * 3, THRESHOLD_OFFSET, 1.5, 30);
+                ctx.fillRect(w / 2 + 1.5 + i * 3, THRESHOLD_OFFSET, 1.5, 30);
             }
-        }
-        // Numéros de piste (36 au sud, lisible en roulant vers le nord ; 18 au nord, retourné)
-        ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const drawNumber = (text, z, flip) => {
+            // Numéro de piste (9 m de haut), lisible par l'avion qui arrive vers ce seuil
             ctx.save();
-            ctx.translate(w / 2, z);
-            if (flip) ctx.rotate(Math.PI);
-            ctx.scale(1, 1.6);
-            ctx.fillText(text, 0, 0);
+            ctx.translate(w / 2, THRESHOLD_OFFSET + 30 + 12 + 4.5);
+            ctx.rotate(Math.PI);
+            ctx.font = 'bold 9px DejaVu Sans Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(number, 0, 0);
             ctx.restore();
+            // Plots de point d'aiming : 2 rectangles de 4 × 45 m
+            ctx.fillRect(w / 2 - 6 - 4, AIMING_POINT - 10, 4, 45);
+            ctx.fillRect(w / 2 + 6, AIMING_POINT - 10, 4, 45);
         };
-        drawNumber('36', l - 55, false);
-        drawNumber('18', 55, true);
-        // Zones de toucher : deux paires de bandes
-        for (const z of [l - 160, 130]) {
-            ctx.fillRect(4, z, 2.5, 25);
-            ctx.fillRect(w - 6.5, z, 2.5, 25);
-        }
+        markings('18'); // extrémité nord : piste 18 (on y atterrit cap au sud)
+        ctx.save();
+        ctx.translate(w, l);
+        ctx.rotate(Math.PI); // extrémité sud : mêmes marquages, retournés
+        markings('36');      // piste 36 (on y atterrit cap au nord)
+        ctx.restore();
+
+        // Axe : traits de 30 m, espaces de 20 m, entre les deux numéros
+        for (let z = 75; z < l - 100; z += 50) ctx.fillRect(w / 2 - 0.45, z, 0.9, 30);
     }, { anisotropy: maxAnisotropy });
 }
 
@@ -117,23 +129,22 @@ function sockTexture() {
     });
 }
 
-// Glow rond pour les feux (points lumineux)
-function glowTexture() {
-    return canvasTexture(64, 64, (ctx, w, h) => {
-        const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-        g.addColorStop(0, 'rgba(255,255,255,1)');
-        g.addColorStop(0.25, 'rgba(255,255,255,0.8)');
-        g.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, w, h);
-    });
-}
-
 class Airport {
     constructor() {
         this.group = new Group();
         this.obstacles = [];         // boîtes à ne pas percuter (bâtiments, avions garés…)
         this.start = { x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15 }; // seuil sud, cap au nord
+        // Les deux sens d'atterrissage : seuil (bout de piste), direction d'atterrissage, point visé
+        this.runways = [
+            { name: '36', heading: 0, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z + RUNWAY.length / 2), direction: new Vector3(0, 0, -1) },
+            { name: '18', heading: 180, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z - RUNWAY.length / 2), direction: new Vector3(0, 0, 1) },
+        ];
+        for (const runway of this.runways) {
+            runway.aimPoint = runway.threshold.clone().addScaledVector(runway.direction, AIMING_POINT);
+            runway.left = new Vector3(runway.direction.z, 0, -runway.direction.x); // à gauche de l'avion qui atterrit
+        }
+        this.runwayLength = RUNWAY.length;
+        this._papi = [];
         this._night = 0;
         this._time = 0;
     }
@@ -160,6 +171,7 @@ class Airport {
         this._buildBuildings();
         this._buildWindsock();
         this._buildLights();
+        this._buildPapi();
         this.group.traverse((child) => {
             if (child.isMesh) {
                 child.receiveShadow = true;
@@ -200,12 +212,13 @@ class Airport {
     // night : 0 = jour, 1 = nuit (feux et fenêtres allumés)
     setNight(night) {
         this._night = night;
-        this.lightsMaterial.size = 1 + 1.5 * night;
+        this.lightsMaterial.size = 1.6 + 1.6 * night;
         this.lightsMaterial.color.setScalar(0.6 + 2.4 * night);
         for (const material of this._glowingMaterials) material.emissiveIntensity = 0.05 + 1.6 * night;
     }
 
-    update(delta, windStrength) {
+    update(delta, windStrength, camera) {
+        this._updatePapi(camera);
         this._time += delta;
         const t = this._time;
         // Manche à air : se gonfle avec le vent, flotte en rafales
@@ -214,6 +227,42 @@ class Airport {
         this._sock.rotation.z = Math.sin(t * 2.3) * 0.12 * (0.3 + windStrength);
         // Feu d'obstacle rouge clignotant en haut de la tour
         this._beacon.visible = Math.sin(t * Math.PI) > 0;
+    }
+
+    // PAPI : 4 feux à gauche de la piste, au niveau du point visé. Chaque feu est blanc si l'on est
+    // au-dessus de son angle, rouge en dessous : sur la bonne pente (3°), 2 blancs + 2 rouges.
+    _buildPapi() {
+        const housing = new MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.6 });
+        const angles = [3.5, 3.17, 2.83, 2.5]; // du feu le plus proche de la piste au plus éloigné
+        for (const runway of this.runways) {
+            angles.forEach((angle, i) => {
+                const position = runway.aimPoint.clone().addScaledVector(runway.left, RUNWAY.width / 2 + 15 + i * 9);
+                const box = new Mesh(new BoxGeometry(1.4, 0.7, 1.4), housing);
+                box.position.copy(position).setY(0.35);
+                const light = new Sprite(new SpriteMaterial({
+                    map: flareTexture(), blending: AdditiveBlending, transparent: true, depthWrite: false, fog: false,
+                }));
+                light.position.copy(position).setY(0.5).addScaledVector(runway.direction, -0.8);
+                this.group.add(box, light);
+                this._papi.push({ light, runway, angle: MathUtils.degToRad(angle) });
+            });
+        }
+    }
+
+    _updatePapi(camera) {
+        if (!camera) return;
+        for (const papi of this._papi) {
+            const toEye = _toEye.subVectors(camera.position, papi.light.position);
+            const before = -toEye.dot(papi.runway.direction);   // distance en amont du feu, dans l'axe d'approche
+            // Optique directionnelle : visible seulement depuis l'approche
+            const visible = before > 0 && Math.abs(toEye.dot(papi.runway.left)) < before * 0.6;
+            papi.light.visible = visible;
+            if (!visible) continue;
+            const elevation = Math.atan2(toEye.y, Math.hypot(toEye.x, toEye.z));
+            papi.light.material.color.set(elevation > papi.angle ? 0xffffff : 0xff2010).multiplyScalar(2 + 4 * this._night);
+            // Taille quasi constante à l'écran : reste visible de loin
+            papi.light.scale.setScalar(Math.max(2.5, toEye.length() * 0.012));
+        }
     }
 
     _flat(geometry, material, x, y, z, rotationY = 0) {
@@ -407,7 +456,7 @@ class Airport {
         geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
         geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
         this.lightsMaterial = new PointsMaterial({
-            size: 1.5, map: glowTexture(), vertexColors: true, transparent: true,
+            size: 1.5, map: flareTexture(), vertexColors: true, transparent: true,
             depthWrite: false, blending: AdditiveBlending,
         });
         this.group.add(new Points(geometry, this.lightsMaterial));

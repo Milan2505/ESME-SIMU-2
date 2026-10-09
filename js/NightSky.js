@@ -28,12 +28,16 @@ const fragmentShader = /* glsl */`
     uniform float uFlash;
     varying vec3 vDirection;
     #define PI 3.141592653589793
+    #define SKY_START 0.3
 
     void main() {
         vec3 d = normalize(vDirection);
         float elevation = asin(clamp(d.y, -1.0, 1.0));
         // Image équirectangulaire de l'hémisphère : bas = horizon, haut = zénith
-        vec2 uv = vec2(atan(d.z, d.x) / (2.0 * PI) + 0.5, clamp(elevation / (0.5 * PI), 0.0, 1.0));
+        // Le bas du panorama photographié contient des collines (silhouettes 2D) : on ne garde que le ciel
+        // au-dessus d'elles (SKY_START), étiré jusqu'à l'horizon. Le relief 3D du jeu fait le reste.
+        float v = SKY_START + (1.0 - SKY_START) * clamp(elevation / (0.5 * PI), 0.0, 1.0);
+        vec2 uv = vec2(atan(d.z, d.x) / (2.0 * PI) + 0.5, v);
         vec3 stars = texture2D(uMap, uv).rgb * uBrightness;
         // Fondu vers la brume de l'horizon (le relief et le brouillard prennent le relais)
         vec3 color = mix(uHorizon, stars, smoothstep(0.0, 0.18, d.y));

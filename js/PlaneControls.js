@@ -40,6 +40,7 @@ const _GROUND_THRUST = 3;                             // accélération max au s
 const _BRAKES = 5;                                    // décélération des freins (m/s²)
 const _ROLLING = { asphalt: 0.3, grass: 1.2 };        // résistance au roulement (m/s²)
 const _OBSTACLE_MARGIN = 3;                           // demi-envergure "utile" pour les obstacles (m)
+const _CONTROL_SMOOTHING = 0.5;                       // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
 const _FLAP_LEVELS = [ 0, 10, 20, 30 ];               // crans de volets (degrés)
 const _FLAP_RATE = 0.25;                              // vitesse de sortie des volets (course complète en 4 s)
 const _FLAP_STALL = 0.25;                             // volets sortis : décrochage 25 % plus lent
@@ -91,8 +92,10 @@ class PlaneControls extends Controls {
 			brake: 0,
 		};
 		this.accel = 0;
-		this._rotationVector = new Vector3( 0, 0, 0 );
+		this._rotationVector = new Vector3( 0, 0, 0 );   // touches enfoncées (-1, 0 ou 1)
+		this._controls = new Vector3( 0, 0, 0 );         // position réelle des gouvernes, qui suit les touches en douceur
 		this._gust = new Vector3( 0, 0, 0 );
+		this._gustTimer = 0;
 		this._lastQuaternion = new Quaternion();
 		this._lastPosition = new Vector3();
 		this._savedPosition = object.position.clone();
@@ -159,6 +162,7 @@ class PlaneControls extends Controls {
 		this._groundYaw = Math.atan2( - _forward.x, - _forward.z );
 		this._groundPitch = 0;
 		this._gust.set( 0, 0, 0 );
+		this._controls.set( 0, 0, 0 );
 		this._stalled = false;
 		this._lift = 1;
 		this._sinkSpeed = 0;
@@ -183,6 +187,9 @@ class PlaneControls extends Controls {
 		const previousY = object.position.y;
 		_previousPosition.copy( object.position );
 		const cam_front = new Vector3( 0, 0, - 1 ).applyQuaternion( object.quaternion );
+
+		// Gouvernes : suivent les touches progressivement (une touche n'est qu'un "tout ou rien")
+		this._controls.lerp( this._rotationVector, 1 - Math.exp( - delta / _CONTROL_SMOOTHING * 3 ) );
 
 		// Volets : se déplacent progressivement vers le cran demandé
 		const flapTarget = _FLAP_LEVELS[ this._flapLevel ] / _FLAP_LEVELS[ _FLAP_LEVELS.length - 1 ];
@@ -271,17 +278,22 @@ class PlaneControls extends Controls {
 
 		// Commandes (repère avion) + rafales de vent
 		if ( this.turbulence > 0 ) {
-			_gustTarget.set( Math.random() - 0.5, 0, Math.random() - 0.5 ).multiplyScalar( 2 * this.turbulence );
-			this._gust.lerp( _gustTarget, Math.min( 1, delta * 2 ) );
+			// Rafale : nouvelle direction toutes les 1 à 2,5 s, atteinte en douceur
+			this._gustTimer -= delta;
+			if ( this._gustTimer <= 0 ) {
+				_gustTarget.set( Math.random() - 0.5, 0, Math.random() - 0.5 ).multiplyScalar( 2 * this.turbulence );
+				this._gustTimer = 1 + Math.random() * 1.5;
+			}
+			this._gust.lerp( _gustTarget, 1 - Math.exp( - delta * 1.5 ) );
 		} else {
 			this._gust.set( 0, 0, 0 );
 		}
 		// Gouvernes moins efficaces quand l'aile décroche
 		const rotMult = delta * this.rollSpeed * ( 0.3 + 0.7 * this._lift );
 		_tmpQuaternion.set(
-			( this._rotationVector.x + this._gust.x ) * rotMult,
-			this._rotationVector.y * rotMult * 0.5,
-			( this._rotationVector.z + this._gust.z ) * rotMult,
+			( this._controls.x + this._gust.x ) * rotMult,
+			this._controls.y * rotMult * 0.5,
+			( this._controls.z + this._gust.z ) * rotMult,
 			1
 		).normalize();
 		object.quaternion.multiply( _tmpQuaternion );
@@ -296,7 +308,7 @@ class PlaneControls extends Controls {
 	_updateGround( delta ) {
 		const object = this.object;
 		const speed = this.movementSpeed;
-		const input = this._rotationVector;
+		const input = this._controls;
 
 		// Palonnier (et manche à basse vitesse) : moins d'autorité quand ça va vite
 		const steer = MathUtils.clamp( input.y + input.z * 0.5, - 1, 1 );
@@ -457,9 +469,9 @@ class PlaneControls extends Controls {
 	// Commandes du pilote : profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins
 	getInputs() {
 		return {
-			pitch: this._rotationVector.x,
-			roll: this._rotationVector.z,
-			yaw: this._rotationVector.y,
+			pitch: this._controls.x,
+			roll: this._controls.z,
+			yaw: this._controls.y,
 			brake: this._moveState.brake,
 		};
 	}

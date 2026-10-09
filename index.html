@@ -69,6 +69,11 @@
 	<canvas id="ecran" tabindex="0"></canvas>
 	<div id="alarme">DÉCROCHAGE</div>
 	<pre id="perf" hidden></pre>
+	<button id="ils-bouton" hidden title="Guidage ILS (touche I)">ILS</button>
+	<div id="ils-panneau" hidden>
+		<div class="ils-cadran"><div id="ils-loc"></div><div id="ils-gs"></div></div>
+		<pre id="ils-texte"></pre>
+	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
 		
 	<div id="commandes">
@@ -78,7 +83,7 @@
 		<button id="volets" title="Sortir un cran de volets (touches G / T)">🪽 Volets : 0°</button>
 		<button id="reset" title="Revenir au point de départ (touche R)">↺ Réinitialiser</button>
 		<button id="plein-ecran" title="Plein écran (touche F)">⛶ Plein écran</button>
-		<p class="aide">🖱 Glisser : tourner la caméra<br>Molette : zoom<br>Double-clic / C : recentrer<br>B : freins<br>G / T : volets<br>P : performances</p>
+		<p class="aide">🖱 Glisser : tourner la caméra<br>Molette : zoom<br>Double-clic / C : recentrer<br>B : freins<br>G / T : volets<br>I : ILS · P : performances</p>
 	</div>
 
 	<div id="météo">

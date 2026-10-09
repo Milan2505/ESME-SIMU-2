@@ -18,6 +18,8 @@ import { Cockpit } from './js/Cockpit.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
+import { AircraftLights } from './js/AircraftLights.js';
+import { ILS } from './js/ILS.js';
 
 const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
@@ -28,7 +30,7 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 // Avion du joueur : Cessna 172 low poly de Vojtěch Balák (Poly Pizza, CC-BY 3.0)
 const AIRCRAFT_MODEL = 'asset/cessna.glb';
 const WHEEL_HEIGHT = 1.25;                                  // centre de l'avion au-dessus du sol, roues posées
-const COCKPIT_POSITION = new THREE.Vector3(0, 0.9, -0.3);   // cabine (hauteur des yeux) dans le repère avion
+const COCKPIT_POSITION = new THREE.Vector3(0, 0.9, -1.85);  // cabine (hauteur des yeux) dans le repère avion, sous l'aile
 const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
 const CHASE_PITCH = Math.atan2(3.5, 15);                    // … et hauteur (angle au-dessus de l'avion)
@@ -137,35 +139,7 @@ cockpit.group.position.copy(COCKPIT_POSITION);
 aircraft.add(cockpit.group);
 
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
-function createGlowTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(0.2, 'rgba(255,255,255,0.7)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(canvas);
-}
-const glowTexture = createGlowTexture();
-function navLight(color, x, y, z) {
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: glowTexture, color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
-    }));
-    sprite.material.color.multiplyScalar(3);
-    sprite.position.set(x, y, z);
-    aircraft.add(sprite);
-    return sprite;
-}
-const navLights = [
-    navLight(0xff2020, -5.55, 1.1, -0.9),
-    navLight(0x20ff40, 5.55, 1.1, -0.9),
-    navLight(0xffffff, 0, 1.2, 5.1),
-];
-const beacon = navLight(0xff1010, 0, 3.5, 4.6);
-const strobes = [navLight(0xffffff, -5.6, 1.1, -0.6), navLight(0xffffff, 5.6, 1.1, -0.6)];
+const aircraftLights = new AircraftLights(aircraft);
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(18), 0.5, 2);
 landingLight.position.set(0, 0.3, -4);
 landingLight.target.position.set(0, -6, -80);
@@ -231,8 +205,10 @@ function recenterCamera() {
     updateCamera(0, true);
 }
 
+let dragDistance = 0;
 view.addEventListener('pointerdown', (event) => {
     drag = { x: event.clientX, y: event.clientY };
+    dragDistance = 0;
     view.setPointerCapture(event.pointerId);
     view.focus();
 });
@@ -240,6 +216,7 @@ view.addEventListener('pointermove', (event) => {
     if (!drag) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     drag = { x: event.clientX, y: event.clientY };
+    dragDistance += Math.abs(dx) + Math.abs(dy);
     if (chaseView) {
         orbit.yaw -= dx * ORBIT_SPEED;
         orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + dy * ORBIT_SPEED, -0.35, 1.45);
@@ -436,7 +413,7 @@ function setWeather(name) {
     cockpit.setRain(w.rain ?? 0);
     cockpit.setNight(w.night);
     airport.setNight(w.night);
-    for (const light of [...navLights, beacon, ...strobes]) light.scale.setScalar(0.35 + 0.45 * w.night);
+    aircraftLights.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
     landingLight.visible = w.night >= 0.5;
     landingLight.intensity = 6000;
@@ -658,15 +635,60 @@ function cockpitState() {
         onGround: controls.isOnGround(),
         crashed: controls.isCrashed(),
         stallWarning: controls.isNearStall(),
+        ils: { ...ils.state, active: ils.active },
     };
 }
 
-// Feux de l'avion : anticollision rouge (1 Hz) et double éclat blanc des strobes
-function updateAircraftLights(time) {
-    beacon.visible = (time % 1) < 0.12;
-    const strobe = time % 1.5;
-    for (const light of strobes) light.visible = strobe < 0.05 || (strobe > 0.15 && strobe < 0.2);
+// ILS : disponible près de la piste, dans l'axe d'approche. Bouton sur le tableau de bord en cabine,
+// bouton à l'écran en vue extérieure, touche I dans les deux cas.
+const ils = new ILS(airport.runways, airport.runwayLength);
+const ilsButton = document.getElementById('ils-bouton');
+const ilsPanel = document.getElementById('ils-panneau');
+const ilsLoc = document.getElementById('ils-loc');
+const ilsGs = document.getElementById('ils-gs');
+const ilsText = document.getElementById('ils-texte');
+
+function toggleIls() {
+    ils.toggle();
+    updateIls();
 }
+
+function updateIls() {
+    const state = ils.update(aircraft.position);
+    const showButton = chaseView && state.available && !controls.isCrashed();
+    ilsButton.hidden = !showButton;
+    ilsButton.classList.toggle('actif', ils.active);
+    if (showButton) ilsButton.textContent = ils.active ? `ILS ${state.runway} ✓` : `ILS ${state.runway} disponible`;
+
+    ilsPanel.hidden = !(chaseView && ils.active);
+    if (ilsPanel.hidden) return;
+    // Aiguilles : ±40 % de la taille du cadran en butée
+    ilsLoc.style.left = `${50 + state.localizer * 40}%`;
+    ilsGs.style.top = `${50 - state.glideslope * 40}%`;
+    ilsGs.hidden = state.distance <= 0;
+    ilsText.textContent = `Piste ${state.runway} · ${(state.distance / 1000).toFixed(1)} km\n`
+        + `Hauteur ${Math.round(state.height)} m (idéal ${Math.round(state.glideHeight)} m)\n${ils.advice()}`;
+}
+
+ilsButton.addEventListener('click', (event) => {
+    toggleIls();
+    event.currentTarget.blur(); // garde le clavier pour le pilotage
+});
+window.addEventListener('keydown', (event) => {
+    if (event.code === 'KeyI' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleIls();
+});
+
+// En cabine : clic (sans glisser) sur un bouton du tableau de bord
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+view.addEventListener('click', (event) => {
+    if (chaseView || dragDistance > 6) return;
+    const rect = view.getBoundingClientRect();
+    pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObject(cockpit.panel)[0];
+    if (hit && cockpit.buttonAt(hit.uv) === 'ils') toggleIls();
+});
 
 // Bruits de l'environnement : pluie (étouffée en cabine), roulement des pneus selon le revêtement
 function updateSounds() {
@@ -780,9 +802,10 @@ renderer.setAnimationLoop((time)=>{
     }
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
-    airport.update( delta, weather.wind );
+    airport.update( delta, weather.wind, camera );
     crashEffect.update( delta );
-    updateAircraftLights( clock.elapsedTime );
+    aircraftLights.update( camera, clock.elapsedTime );
+    updateIls();
     controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps() );
     if (!chaseView) cockpit.update( delta, cockpitState() );
     updateFog();

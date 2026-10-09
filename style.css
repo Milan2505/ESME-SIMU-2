@@ -343,6 +343,93 @@ img{margin: 0px;
   #ecran:active {
     cursor: grabbing;
   }
+  /* ILS en vue extérieure : bouton qui apparaît près de la piste, indicateur d'écart */
+  #ils-bouton {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: end;
+    justify-self: start;
+    z-index: 2;
+    margin: 12px;
+    padding: 8px 16px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 15px;
+    font-weight: bold;
+    color: #ffb000;
+    background: rgba(20, 20, 20, 0.75);
+    border: 3px solid #ffb000;
+    border-radius: 8px;
+    cursor: pointer;
+    animation: ils-dispo 1.2s ease-in-out infinite alternate;
+  }
+  #ils-bouton.actif {
+    color: #d9ffe0;
+    background: rgba(31, 122, 51, 0.85);
+    border-color: #39ff6a;
+    animation: none;
+  }
+  @keyframes ils-dispo {
+    to { box-shadow: 0 0 14px #ffb000; }
+  }
+  #ils-panneau {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: end;
+    justify-self: end;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin: 12px;
+    padding: 8px;
+    background: rgba(20, 20, 20, 0.75);
+    border-radius: 8px;
+    pointer-events: none;
+  }
+  #ils-panneau[hidden] {
+    display: none;
+  }
+  .ils-cadran {
+    position: relative;
+    width: 110px;
+    height: 110px;
+    border: 3px solid #555;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, transparent 5px, transparent 6px),
+      linear-gradient(#777, #777) center / 2px 70% no-repeat,
+      linear-gradient(#777, #777) center / 70% 2px no-repeat,
+      #0c0c0d;
+  }
+  #ils-loc, #ils-gs {
+    position: absolute;
+    transition: left 0.15s, top 0.15s;
+  }
+  #ils-loc {
+    top: 10%;
+    left: 50%;
+    width: 4px;
+    height: 80%;
+    margin-left: -2px;
+    background: #f5f5f5;
+  }
+  #ils-gs {
+    left: 10%;
+    top: 50%;
+    width: 80%;
+    height: 4px;
+    margin-top: -2px;
+    background: #ffd34d;
+  }
+  #ils-texte {
+    margin: 0;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
+    color: #eee;
+    text-align: center;
+  }
+
   /* Compteur de performances (touche P) */
   #perf {
     grid-column: 4/15;
