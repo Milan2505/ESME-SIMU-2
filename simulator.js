@@ -16,6 +16,7 @@ import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit } from './js/Cockpit.js';
 import { CrashEffect } from './js/CrashEffect.js';
+import { ControlSurfaces } from './js/ControlSurfaces.js';
 
 const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
@@ -85,6 +86,7 @@ const crashEffect = new CrashEffect();
 let weather = null;
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // au-delà de 2 : coûteux, sans gain visible
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer);
@@ -96,6 +98,7 @@ const aircraft = new THREE.Group();
 const controls = new PlaneControls( aircraft );
 let aircraftModel = null;
 let propeller = null;
+let controlSurfaces = null;
 let chaseView = true;
 const clock = new THREE.Clock();
 
@@ -104,7 +107,6 @@ controls.groundHeight = (x, z) => terrain.heightAt(x, z);
 controls.surfaceAt = (x, z) => airport.surfaceAt(x, z);
 controls.minAltitude = WHEEL_HEIGHT;
 
-renderer.setPixelRatio(window.devicePixelRatio);
 scene.fog = new THREE.Fog(0xffffff);
 terrain.mesh.receiveShadow = true;
 scene.add( terrain.mesh );
@@ -169,6 +171,8 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const center = new THREE.Box3().setFromObject(propeller).getCenter(new THREE.Vector3());
     propeller.traverse((child) => child.geometry?.translate(-center.x, -center.y, 0));
     propeller.position.set(center.x, center.y, 0);
+    // Ailerons, profondeur, direction et volets deviennent des pièces mobiles (aussi sur les copies du modèle)
+    controlSurfaces = new ControlSurfaces(model, propeller);
     model.traverse((child) => { child.castShadow = true; });
     aircraft.add(model);
     remotePlayers.setTemplate(model);
@@ -429,6 +433,20 @@ document.addEventListener('fullscreenchange', () => {
     fullscreenButton.textContent = document.fullscreenElement ? '⛶ Quitter le plein écran' : '⛶ Plein écran';
 });
 
+// Volets : le bouton sort un cran (rentre tout après le dernier), touches G / T
+const flapsButton = document.getElementById('volets');
+function updateFlapsButton() {
+    flapsButton.textContent = `🪽 Volets : ${controls.getFlapSetting()}°`;
+}
+flapsButton.addEventListener('click', (event) => {
+    const level = controls.getFlapLevel();
+    controls.setFlapLevel(level >= 3 ? 0 : level + 1);
+    event.currentTarget.blur(); // garde le clavier pour le pilotage
+});
+controls.addEventListener('flaps', updateFlapsButton);
+controls.addEventListener('reset', updateFlapsButton);
+updateFlapsButton();
+
 // Bouton de réinitialisation (équivalent à la touche R)
 document.getElementById('reset').addEventListener('click', (event) => {
     controls.reset();
@@ -535,7 +553,7 @@ const multiLien = document.getElementById('multi-lien');
 multiplayer.addEventListener('status', ({ detail }) => {
     multiStatut.textContent = detail.text;
     multiStatut.classList.toggle('erreur', detail.error);
-    multiResume.textContent = multiplayer.code ? `Partie ${multiplayer.code}` : 'Hors ligne';
+    updateMultiResume();
     multiPartage.hidden = !multiplayer.code;
     multiLien.value = multiplayer.link;
 });
@@ -565,11 +583,15 @@ multiplayer.addEventListener('players', () => {
         item.textContent = name;
         return item;
     }));
+    updateMultiResume();
+});
+
+function updateMultiResume() {
     const count = multiplayer.players.size;
     multiResume.textContent = multiplayer.code
         ? `Partie ${multiplayer.code} · ${count + 1} joueur${count ? 's' : ''}`
         : 'Hors ligne';
-});
+}
 
 // Instruments de la cabine : valeurs lues sur les commandes
 function cockpitState() {
@@ -582,6 +604,8 @@ function cockpitState() {
         pitchDeg: Math.atan(controls.getPitchRate()) * 180 / Math.PI,
         throttle: controls.getThrottle(),
         inputs: controls.getInputs(),
+        flapSetting: controls.getFlapSetting(),
+        flaps: controls.getFlaps(),
         onGround: controls.isOnGround(),
         crashed: controls.isCrashed(),
         stallWarning: controls.isNearStall(),
@@ -636,6 +660,7 @@ renderer.setAnimationLoop(()=>{
     airport.update( delta, weather.wind );
     crashEffect.update( delta );
     updateAircraftLights( clock.elapsedTime );
+    controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps() );
     if (!chaseView) cockpit.update( delta, cockpitState() );
     updateFog();
     updateStallWarning();

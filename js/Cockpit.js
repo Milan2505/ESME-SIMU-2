@@ -317,6 +317,32 @@ function annunciator(ctx, x, y, text, on, color) {
     ctx.fillText(text, x + 60, y + 20);
 }
 
+// Volets : graduations 0 / 10 / 20 / 30°, l'index suit la position réelle
+function flapIndicator(ctx, x, y, setting, position) {
+    ctx.fillStyle = '#151618';
+    ctx.fillRect(x, y, 76, 140);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, 76, 140);
+    caption(ctx, x + 38, y + 14, 'VOLETS', 13);
+    ctx.font = 'bold 15px DejaVu Sans Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 3; i++) {
+        const ty = y + 36 + i * 30;
+        ctx.fillStyle = i * 10 === setting ? '#fff' : '#888';
+        ctx.fillText(`${i * 10}`, x + 34, ty);
+        ctx.fillRect(x + 40, ty - 1, 10, 2);
+    }
+    const py = y + 36 + position * 90;
+    ctx.fillStyle = '#ff9f1a';
+    ctx.beginPath();
+    ctx.moveTo(x + 52, py);
+    ctx.lineTo(x + 68, py - 8);
+    ctx.lineTo(x + 68, py + 8);
+    ctx.fill();
+}
+
 function radio(ctx, x, y, label, active, standby) {
     ctx.fillStyle = '#151618';
     ctx.fillRect(x, y, 330, 70);
@@ -569,6 +595,7 @@ class Cockpit {
         annunciator(ctx, 730, 60, 'STALL', state.stallWarning && Math.sin(this._time * 20) > 0, '#ff3b2f');
         annunciator(ctx, 730, 110, 'FREINS', state.inputs.brake > 0 && state.onGround, '#ffb000');
         annunciator(ctx, 730, 160, 'SOL', state.onGround, '#39d353');
+        flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
 
         radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
         radio(ctx, 960, 150, 'NAV1', '110.50', '113.90');

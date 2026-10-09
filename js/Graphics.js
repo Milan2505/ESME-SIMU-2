@@ -1,9 +1,11 @@
 import {
     ACESFilmicToneMapping,
+    HalfFloatType,
     MathUtils,
     PCFSoftShadowMap,
     Vector2,
-    Vector3
+    Vector3,
+    WebGLRenderTarget
 } from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -86,7 +88,11 @@ class Graphics {
         scene.add(this.sky);
 
         // Post-traitement
-        this.composer = new EffectComposer(renderer);
+        // Anticrénelage : rendu multi-échantillonné (MSAA 4x). L'option "antialias" du renderer
+        // ne s'applique pas au post-traitement, qui dessine dans ses propres textures.
+        const size = renderer.getDrawingBufferSize(new Vector2());
+        const target = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4 });
+        this.composer = new EffectComposer(renderer, target);
         this.composer.addPass(new RenderPass(scene, camera));
         this.bloom = new UnrealBloomPass(new Vector2(256, 256), 0.25, 0.4, 0.92);
         this.composer.addPass(this.bloom);
@@ -115,6 +121,8 @@ class Graphics {
     }
 
     setSize(width, height) {
+        // Suit la densité de pixels de l'écran (sinon rendu flou / crénelé sur les écrans haute définition)
+        this.composer.setPixelRatio(this.renderer.getPixelRatio());
         this.composer.setSize(width, height);
     }
 

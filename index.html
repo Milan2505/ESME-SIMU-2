@@ -9,7 +9,8 @@
 		{
 		  "imports": {
 			  "three": "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js",
-			  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/"
+			  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/",
+			  "mqtt": "https://cdn.jsdelivr.net/npm/mqtt@5.14.1/dist/mqtt.esm.js"
 		    }
 		}
 	</script>
@@ -72,9 +73,10 @@
 	<div id="commandes">
 	<h4>Commandes</h4>
 		<button id="vue" title="Changer de vue (touche V)">🎥 Vue cabine</button>
+		<button id="volets" title="Sortir un cran de volets (touches G / T)">🪽 Volets : 0°</button>
 		<button id="reset" title="Revenir au point de départ (touche R)">↺ Réinitialiser</button>
 		<button id="plein-ecran" title="Plein écran (touche F)">⛶ Plein écran</button>
-		<p class="aide">🖱 Glisser : tourner la caméra<br>Molette : zoom<br>Double-clic / C : recentrer<br>B : freins</p>
+		<p class="aide">🖱 Glisser : tourner la caméra<br>Molette : zoom<br>Double-clic / C : recentrer<br>B : freins<br>G / T : volets</p>
 	</div>
 
 	<div id="météo">

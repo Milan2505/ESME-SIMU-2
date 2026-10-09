@@ -1,8 +1,0 @@
-# Déploiement sur Netlify : le site est servi tel quel (pas de build),
-# le serveur multijoueur est la fonction netlify/functions/room.mjs (adresse /api/room).
-[build]
-  publish = "."
-  command = "echo 'Pas de build : site statique'"
-
-[functions]
-  directory = "netlify/functions"

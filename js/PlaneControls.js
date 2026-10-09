@@ -40,6 +40,11 @@ const _GROUND_THRUST = 3;                             // accélération max au s
 const _BRAKES = 5;                                    // décélération des freins (m/s²)
 const _ROLLING = { asphalt: 0.3, grass: 1.2 };        // résistance au roulement (m/s²)
 const _OBSTACLE_MARGIN = 3;                           // demi-envergure "utile" pour les obstacles (m)
+const _FLAP_LEVELS = [ 0, 10, 20, 30 ];               // crans de volets (degrés)
+const _FLAP_RATE = 0.25;                              // vitesse de sortie des volets (course complète en 4 s)
+const _FLAP_STALL = 0.25;                             // volets sortis : décrochage 25 % plus lent
+const _FLAP_LIFT = 0.05;                              // portance supplémentaire (m/s de montée par m/s de vitesse)
+const _FLAP_DRAG = 0.25;                              // volets sortis : vitesse max réduite de 25 %
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
 const _KEYS = {
@@ -107,6 +112,8 @@ class PlaneControls extends Controls {
 		this._groundPitch = 0;       // cabré au sol (rad), 0 = roulette avant posée
 		this._surface = 'grass';
 		this._crashed = false;
+		this._flapLevel = 0;         // cran demandé (indice dans _FLAP_LEVELS)
+		this._flaps = 0;             // position réelle des volets : 0 = rentrés, 1 = sortis à fond
 
 		// event listeners
 		this._onKeyDown = onKeyDown.bind( this );
@@ -156,6 +163,8 @@ class PlaneControls extends Controls {
 		this._lift = 1;
 		this._sinkSpeed = 0;
 		this._crashed = false;
+		this._flapLevel = 0;
+		this._flaps = 0;
 		this.dispatchEvent( _resetEvent );
 	}
 
@@ -175,9 +184,13 @@ class PlaneControls extends Controls {
 		_previousPosition.copy( object.position );
 		const cam_front = new Vector3( 0, 0, - 1 ).applyQuaternion( object.quaternion );
 
-		// Gaz : la vitesse tend vers la consigne, la pente accélère ou freine l'avion
+		// Volets : se déplacent progressivement vers le cran demandé
+		const flapTarget = _FLAP_LEVELS[ this._flapLevel ] / _FLAP_LEVELS[ _FLAP_LEVELS.length - 1 ];
+		this._flaps += MathUtils.clamp( flapTarget - this._flaps, - _FLAP_RATE * delta, _FLAP_RATE * delta );
+
+		// Gaz : la vitesse tend vers la consigne (moins haute volets sortis), la pente accélère ou freine l'avion
 		this.throttle = Math.min( 1, Math.max( 0, this.throttle + this.accel * this.throttleRate * delta ) );
-		let acceleration = ( this.throttle * this.maxSpeed - this.movementSpeed ) * this.inertia
+		let acceleration = ( this.throttle * this.maxSpeed * ( 1 - _FLAP_DRAG * this._flaps ) - this.movementSpeed ) * this.inertia
 			- this.gravity * cam_front.y;
 
 		if ( this._onGround ) {
@@ -226,17 +239,20 @@ class PlaneControls extends Controls {
 		const object = this.object;
 
 		// Décrochage : la portance chute avec la vitesse, l'avion s'enfonce et pique du nez
-		if ( ! this._stalled && this.movementSpeed < this.stallSpeed ) {
+		const stallSpeed = this.getStallSpeed();
+		if ( ! this._stalled && this.movementSpeed < stallSpeed ) {
 			this._stalled = true;
 			this._wingDrop = Math.random() < 0.5 ? - 1 : 1;
-		} else if ( this._stalled && this.movementSpeed > this.stallSpeed * this.stallRecovery ) {
+		} else if ( this._stalled && this.movementSpeed > stallSpeed * this.stallRecovery ) {
 			this._stalled = false;
 		}
-		this._lift = this._stalled ? Math.min( 1, ( this.movementSpeed / this.stallSpeed ) ** 2 ) : 1;
+		this._lift = this._stalled ? Math.min( 1, ( this.movementSpeed / stallSpeed ) ** 2 ) : 1;
 		const loss = 1 - this._lift;
 
 		this._sinkSpeed += ( loss * this.maxSink - this._sinkSpeed ) * Math.min( 1, delta * 2 );
 		object.position.y -= this._sinkSpeed * delta;
+		// Volets : surcroît de portance, l'avion a tendance à monter
+		object.position.y += _FLAP_LIFT * this._flaps * this._lift * this.movementSpeed * delta;
 
 		if ( this._stalled ) {
 			// Abattée : le nez descend vers le sol (axe horizontal), jusqu'à ~35° de piqué
@@ -288,8 +304,10 @@ class PlaneControls extends Controls {
 		this._groundYaw += steer * 0.6 * authority * delta;
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
-		if ( input.x > 0 && speed > this.rotateSpeed * 0.7 ) {
-			this._groundPitch += input.x * 0.4 * Math.min( 1, speed / this.rotateSpeed ) * delta;
+		// (volets sortis : l'avion décolle plus tôt)
+		const rotateSpeed = this.rotateSpeed * ( 1 - _FLAP_STALL * this._flaps );
+		if ( input.x > 0 && speed > rotateSpeed * 0.7 ) {
+			this._groundPitch += input.x * 0.4 * Math.min( 1, speed / rotateSpeed ) * delta;
 		} else {
 			this._groundPitch -= ( input.x < 0 ? 0.6 : 0.25 ) * delta;
 		}
@@ -297,7 +315,7 @@ class PlaneControls extends Controls {
 
 		// Décollage : assez de vitesse et nez levé, l'avion monte dans l'axe de son nez
 		const floor = this.groundHeight( object.position.x, object.position.z ) + this.minAltitude;
-		if ( speed >= this.rotateSpeed && this._groundPitch > MathUtils.degToRad( 3 ) && object.position.y >= floor ) {
+		if ( speed >= rotateSpeed && this._groundPitch > MathUtils.degToRad( 3 ) && object.position.y >= floor ) {
 			this._onGround = false;
 			this._lift = 1;
 			this._sinkSpeed = 0;
@@ -395,6 +413,11 @@ class PlaneControls extends Controls {
 			if ( value ) this.reset();
 			return;
 		}
+		// Volets : G sort un cran, T rentre un cran
+		if ( event.code === 'KeyG' || event.code === 'KeyT' ) {
+			if ( value && ! event.repeat ) this.setFlapLevel( this._flapLevel + ( event.code === 'KeyG' ? 1 : - 1 ) );
+			return;
+		}
 
 		const action = _KEYS[ event.code ];
 		if ( action === undefined ) return;
@@ -445,7 +468,25 @@ class PlaneControls extends Controls {
 	}
 	// Vrai un peu avant le décrochage, pour l'avertisseur sonore (pas au sol)
 	isNearStall() {
-		return ! this._onGround && ! this._crashed && this.movementSpeed < this.stallSpeed * 1.2;
+		return ! this._onGround && ! this._crashed && this.movementSpeed < this.getStallSpeed() * 1.2;
+	}
+	// Vitesse de décrochage, plus faible volets sortis
+	getStallSpeed() {
+		return this.stallSpeed * ( 1 - _FLAP_STALL * this._flaps );
+	}
+	setFlapLevel( level ) {
+		this._flapLevel = MathUtils.clamp( level, 0, _FLAP_LEVELS.length - 1 );
+		this.dispatchEvent( { type: 'flaps', degrees: this.getFlapSetting() } );
+	}
+	getFlapLevel() {
+		return this._flapLevel;
+	}
+	// Cran demandé (degrés) et position réelle des volets (0 -> 1)
+	getFlapSetting() {
+		return _FLAP_LEVELS[ this._flapLevel ];
+	}
+	getFlaps() {
+		return this._flaps;
 	}
 	isOnGround() {
 		return this._onGround;
