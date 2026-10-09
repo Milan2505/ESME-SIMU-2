@@ -11,6 +11,7 @@ import {
     Group,
     MathUtils,
     Mesh,
+    MeshBasicMaterial,
     MeshStandardMaterial,
     PlaneGeometry,
     Points,
@@ -29,6 +30,11 @@ const RUNWAY = { x: 220, z: 0, length: 700, width: 30 };
 const TAXIWAY = { minX: 235, maxX: 300, minZ: -8, maxZ: 8 };
 const APRON = { minX: 300, maxX: 365, minZ: -95, maxZ: 95 };
 const FLAT_ZONE = { minX: 180, maxX: 440, minZ: -390, maxZ: 390, blend: 160 };
+// Mâts d'éclairage du parking (asset/light-square-cross, Kenney, CC0) : en bordure est, derrière la queue des
+// avions garés, entre le parking et les bâtiments. Le modèle mesure 0,6 m : à l'échelle 20, un mât de 12 m.
+const FLOODLIGHTS = { x: APRON.maxX - 2, z: [-90, -30, 30, 90], scale: 20 };
+const FLOODLIGHT_LAMPS = [[0.1875, 0], [-0.1875, 0], [0, 0.1875], [0, -0.1875]]; // bouts des 4 bras (repère du modèle)
+const FLOODLIGHT_LAMP_Y = 0.57;
 const WIND_DIRECTION = 0; // le vent vient du nord (la manche à air pointe vers le sud)
 
 const _toEye = new Vector3();
@@ -209,12 +215,63 @@ class Airport {
         }
     }
 
+    // Mâts d'éclairage du parking. La nuit : halo sur chaque projecteur et flaque de lumière au sol
+    // (simulées : de vraies lumières seraient calculées pour chaque pixel de la scène, très coûteux)
+    addFloodlights(model) {
+        model.traverse((child) => { if (child.isMesh) child.castShadow = true; });
+        const lamps = [];
+        for (const z of FLOODLIGHTS.z) {
+            const mast = model.clone();
+            mast.position.set(FLOODLIGHTS.x, 0, z);
+            mast.scale.setScalar(FLOODLIGHTS.scale);
+            this.group.add(mast);
+            // Obstacle : le mât seul (les bras sont trop haut pour un avion qui roule)
+            this.obstacles.push(new Box3(new Vector3(FLOODLIGHTS.x - 0.5, 0, z - 0.5), new Vector3(FLOODLIGHTS.x + 0.5, 12, z + 0.5)));
+            for (const [dx, dz] of FLOODLIGHT_LAMPS) {
+                lamps.push(FLOODLIGHTS.x + dx * FLOODLIGHTS.scale, FLOODLIGHT_LAMP_Y * FLOODLIGHTS.scale, z + dz * FLOODLIGHTS.scale);
+            }
+        }
+
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new Float32BufferAttribute(lamps, 3));
+        this._floodlightMaterial = new PointsMaterial({
+            size: 5, map: flareTexture(), color: 0xffd9a0, transparent: true,
+            depthWrite: false, blending: AdditiveBlending,
+        });
+        this._floodlightHalos = new Points(geometry, this._floodlightMaterial);
+        this.group.add(this._floodlightHalos);
+
+        // Flaque de lumière : disque dégradé posé sur le béton, un par mât
+        const pool = canvasTexture(128, 128, (ctx, w, h) => {
+            const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+            g.addColorStop(0, 'rgba(255,220,170,1)');
+            g.addColorStop(0.5, 'rgba(255,210,150,0.45)');
+            g.addColorStop(1, 'rgba(255,200,140,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, w, h);
+        });
+        this._poolMaterial = new MeshBasicMaterial({
+            map: pool, transparent: true, depthWrite: false, blending: AdditiveBlending,
+        });
+        for (const z of FLOODLIGHTS.z) {
+            this._flat(new PlaneGeometry(34, 34), this._poolMaterial, FLOODLIGHTS.x - 6, 0.04, z);
+        }
+        this.setNight(this._night);
+    }
+
     // night : 0 = jour, 1 = nuit (feux et fenêtres allumés)
     setNight(night) {
         this._night = night;
         this.lightsMaterial.size = 1.6 + 1.6 * night;
         this.lightsMaterial.color.setScalar(0.6 + 2.4 * night);
         for (const material of this._glowingMaterials) material.emissiveIntensity = 0.05 + 1.6 * night;
+        if (this._floodlightMaterial) {
+            // Allumés seulement quand il fait sombre (nuit, et un peu par temps d'orage)
+            this._floodlightHalos.visible = night > 0.2;
+            this._floodlightMaterial.color.set(0xffd9a0).multiplyScalar(1 + 2 * night);
+            this._poolMaterial.visible = night > 0.2;
+            this._poolMaterial.opacity = 0.4 * night;
+        }
     }
 
     update(delta, windStrength, camera) {

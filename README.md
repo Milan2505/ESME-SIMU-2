@@ -30,4 +30,5 @@ Les joueurs échangent leurs positions par un relais MQTT public (WebSocket séc
 
 - Cessna 172 low poly : Vojtěch Balák (Poly Pizza, CC-BY 3.0)
 - Textures du terrain et ciel de nuit : Poly Haven (CC0)
+- Mâts d'éclairage du parking : Kenney, City Kit Roads (CC0)
 - Sons : projets FlightGear c172p et A320-family (GPL-2.0), voir `asset/sounds/LICENSE.txt`

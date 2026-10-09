@@ -459,6 +459,12 @@ async function buildWorld() {
 
 buildWorld().catch((error) => console.error(error));
 
+// Mâts d'éclairage du parking de l'aéroport (Kenney City Kit Roads, CC0)
+loader.load('asset/light-square-cross', (obj) => {
+    airport.addFloodlights(obj);
+    rebuildObstacles();
+});
+
 // Panneau Météo
 function setWeather(name) {
     const w = weather = WEATHERS[name];
