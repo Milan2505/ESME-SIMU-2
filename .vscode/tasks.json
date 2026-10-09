@@ -16,6 +16,20 @@
                     "endsPattern": "Serving HTTP"
                 }
             }
+        },
+        {
+            // Edge avec port de débogage (9222) et profil séparé : le débogueur s'y attache (voir launch.json).
+            // Si cet Edge est déjà ouvert, le simulateur s'ouvre simplement dans un nouvel onglet.
+            "label": "Edge (débogage)",
+            "dependsOn": "Serveur local",
+            "type": "process",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile", "-Command",
+                "Start-Process msedge -ArgumentList '--remote-debugging-port=9222', '--user-data-dir=${env:LOCALAPPDATA}\\ESME-SIMU-debug', '--no-first-run', '--no-default-browser-check', 'http://localhost:8080'"
+            ],
+            "presentation": { "reveal": "silent" },
+            "problemMatcher": []
         }
     ]
 }

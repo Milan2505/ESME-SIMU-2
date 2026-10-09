@@ -1,18 +1,17 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    // F5 : démarre le serveur local, ouvre Edge sur le simulateur, puis y attache le débogueur.
+    // On s'attache à un Edge déjà ouvert plutôt que de le faire lancer par VS Code : avec Edge 154, le lancement
+    // direct échouait ("Unable to attach to browser" / "Could not find any debuggable target").
     "version": "0.2.0",
     "configurations": [
         {
             "name": "Launch Edge",
-            "request": "launch",
+            "request": "attach",
             "type": "msedge",
-            "url": "http://localhost:8080",
-            // Connexion par port plutôt que par "pipe" : le lanceur d'Edge passe la main à un autre processus
-            // et se termine aussitôt, ce qui faisait échouer l'attache ("Unable to attach to browser")
             "port": 9222,
-            "preLaunchTask": "Serveur local",
+            "urlFilter": "http://localhost:8080/*",
+            "timeout": 20000,
+            "preLaunchTask": "Edge (débogage)",
             "webRoot": "${workspaceFolder}"
         }
     ]
