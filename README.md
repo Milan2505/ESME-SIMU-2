@@ -6,15 +6,11 @@ Simulateur de vol (Cessna 172) dans le navigateur, en Three.js. Site 100 % stati
 
 ## Mise en ligne (GitHub Pages)
 
-Le site est publié automatiquement par le workflow `.github/workflows/static.yml` à chaque `push` sur `main`.
+Le site est publié par GitHub Pages directement depuis la branche `main` (réglage du dépôt :
+**Settings → Pages → Source : Deploy from a branch**, branche `main`, dossier `/ (root)`).
+Chaque `push` sur `main` met le site à jour en une à deux minutes (onglet **Actions** : « pages build and deployment »).
 
-À faire **une seule fois** dans le dépôt GitHub :
-
-1. **Settings** → **Pages**
-2. **Build and deployment** → **Source** : choisir **GitHub Actions**
-3. Onglet **Actions** → workflow « Deploy static content to Pages » → **Run workflow** (ou faire un nouveau `push`)
-
-Quand le workflow est vert, le lien du site apparaît dans **Settings → Pages** et dans le résumé du workflow.
+Le fichier vide `.nojekyll` demande à GitHub de publier les fichiers tels quels, sans les transformer.
 
 ## Lancer en local
 
