@@ -50,6 +50,7 @@ const ASSETS = {
     ROCK:     'asset/rock_largeA',
     KART:     'asset/KarTech',
     PLANE:    'asset/carpeXL',
+    BIMOTEUR: 'asset/bimoteur',   // bimoteur Tinkercad, garé devant le 2e hangar
 };
 const SOFT_OBJECTS = new Set(['FLOWER_Y', 'FLOWER_P']); // on passe au travers sans crash
 // Modèles très détaillés (le kart : plus de 100 000 faces) : dessinés seulement de près
