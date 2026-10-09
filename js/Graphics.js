@@ -55,8 +55,8 @@ const SUN_DISTANCE = 400;
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
 const MIN_PIXEL_RATIO = 0.6;
 const PIXEL_RATIO_STEP = 0.2;
-const LOW_FPS = 45;             // en dessous : on baisse la résolution
-const HIGH_FPS = 57;            // au-dessus pendant plusieurs secondes : on la remonte
+const LOW_FPS = 0.75;           // sous 75 % des i/s visées : on baisse la résolution
+const HIGH_FPS = 0.95;          // au-dessus de 95 % pendant plusieurs secondes : on la remonte
 
 // Ciel atmosphérique, ombres portées et post-traitement
 class Graphics {
@@ -110,7 +110,44 @@ class Graphics {
         this.composer.addPass(new OutputPass());
 
         this.maxPixelRatio = renderer.getPixelRatio();
+        this.autoResolution = true;
+        this.targetFps = 60;            // i/s visées (réglage "Images par seconde")
         this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, holdUntil: 0 };
+    }
+
+    // --- Réglages de qualité (menu Paramètres) ---
+
+    // resolution : 'auto' (adaptative) ou densité de pixels fixe (1 = un pixel calculé par pixel CSS)
+    setResolution(resolution) {
+        this.autoResolution = resolution === 'auto';
+        this.setPixelRatio(this.autoResolution ? this.maxPixelRatio : resolution);
+        this._quality.goodSeconds = 0;
+        this._quality.holdUntil = performance.now() + 2000;
+    }
+
+    // samples : 0 (sans), 2 ou 4 (MSAA)
+    setAntialias(samples) {
+        for (const target of [this.composer.renderTarget1, this.composer.renderTarget2]) {
+            if (target.samples === samples) continue;
+            target.samples = samples;
+            target.dispose(); // recréée à la prochaine image avec le nouvel échantillonnage
+        }
+    }
+
+    setBloom(enabled) {
+        this.bloom.enabled = enabled;
+    }
+
+    // size : 0 (sans ombres), 1024, 2048 ou 4096 (finesse de la carte d'ombres)
+    setShadows(size) {
+        const enabled = size > 0;
+        this.renderer.shadowMap.enabled = enabled;
+        this.sunLight.castShadow = enabled;
+        if (enabled && this.sunLight.shadow.mapSize.x !== size) {
+            this.sunLight.shadow.mapSize.set(size, size);
+            this.sunLight.shadow.map?.dispose();
+            this.sunLight.shadow.map = null; // recréée à la bonne taille
+        }
     }
 
     // À appeler à chaque image : ajuste la résolution selon les images par seconde mesurées
@@ -122,11 +159,11 @@ class Graphics {
         const fps = (q.frames * 1000) / (now - q.start);
         q.frames = 0;
         q.start = now;
-        if (document.hidden || now < q.holdUntil) return;
+        if (!this.autoResolution || document.hidden || now < q.holdUntil) return;
 
         const ratio = this.renderer.getPixelRatio();
-        q.goodSeconds = fps > HIGH_FPS ? q.goodSeconds + 1 : 0;
-        if (fps < LOW_FPS && ratio > MIN_PIXEL_RATIO) {
+        q.goodSeconds = fps > HIGH_FPS * this.targetFps ? q.goodSeconds + 1 : 0;
+        if (fps < LOW_FPS * this.targetFps && ratio > MIN_PIXEL_RATIO) {
             this.setPixelRatio(Math.max(MIN_PIXEL_RATIO, ratio - PIXEL_RATIO_STEP));
             q.holdUntil = now + 2000;       // laisse le temps de mesurer le nouvel état
         } else if (q.goodSeconds >= 4 && ratio < this.maxPixelRatio) {

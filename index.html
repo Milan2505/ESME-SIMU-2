@@ -37,7 +37,7 @@
 	<h4>Profil</h4>
 	</div>
 	
-	<div id="paramètre">
+	<div id="paramètre" role="button" tabindex="0" title="Qualité visuelle et performances">
 	<h4>Paramètre</h4>
 	</div>
 	
@@ -74,6 +74,7 @@
 	<div id="commandes">
 	<h4>Commandes</h4>
 		<button id="vue" title="Changer de vue (touche V)">🎥 Vue cabine</button>
+		<button id="qualite" title="Qualité visuelle et performances">⚙ Qualité</button>
 		<button id="volets" title="Sortir un cran de volets (touches G / T)">🪽 Volets : 0°</button>
 		<button id="reset" title="Revenir au point de départ (touche R)">↺ Réinitialiser</button>
 		<button id="plein-ecran" title="Plein écran (touche F)">⛶ Plein écran</button>
@@ -85,6 +86,15 @@
 	</div>
 	
 	</main>
+
+	<dialog id="reglages-dialog">
+		<h3>Paramètres graphiques</h3>
+		<p class="reglages-intro">Ordinateur qui rame ? Choisissez « Bas » ou « Moyen ». Les changements s'appliquent tout de suite.</p>
+		<div id="reglages-liste"></div>
+		<div class="multi-ligne">
+			<button id="reglages-fermer">Fermer</button>
+		</div>
+	</dialog>
 
 	<dialog id="multi-dialog">
 		<h3>Multijoueur</h3>

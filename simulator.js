@@ -17,6 +17,7 @@ import { Storm } from './js/Storm.js';
 import { Cockpit } from './js/Cockpit.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces } from './js/ControlSurfaces.js';
+import { Settings } from './js/Settings.js';
 
 const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
@@ -100,6 +101,9 @@ const loader = new Utils3dLoader();
 // Les commandes pilotent l'avion ; la caméra le suit (cabine ou vue extérieure)
 const aircraft = new THREE.Group();
 const controls = new PlaneControls( aircraft );
+// Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
+const decorGroups = [];
+let decorDensity = 1;
 let aircraftModel = null;
 let propeller = null;
 let controlSurfaces = null;
@@ -115,7 +119,7 @@ scene.fog = new THREE.Fog(0xffffff);
 terrain.mesh.receiveShadow = true;
 scene.add( terrain.mesh );
 scene.add( airport.build(renderer) );
-controls.obstacles.push(...airport.obstacles);
+rebuildObstacles();
 scene.add( nightSky.mesh );
 scene.add( clouds.mesh );
 scene.add( storm.rainMesh, storm.bolt );
@@ -181,7 +185,7 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     aircraft.add(model);
     remotePlayers.setTemplate(model);
     airport.addParkedPlanes(model);
-    controls.obstacles.push(...airport.obstacles.slice(-3));
+    rebuildObstacles(); // + les avions garés
     updateView();
 }, undefined, (error) => console.error(error));
 
@@ -324,6 +328,24 @@ new ResizeObserver(resize).observe(view);
 resize();
 
 // Construction de la scène à partir du modèle de données (data/)
+// Réglage "Arbres et décor" : n'affiche qu'une partie des exemplaires (ceux de objet.csv d'abord)
+function applyDecorDensity() {
+    for (const group of decorGroups) {
+        const count = Math.max(1, Math.round(group.total * decorDensity));
+        for (const mesh of group.meshes) mesh.count = count;
+    }
+    rebuildObstacles();
+}
+
+// Obstacles : bâtiments et avions de l'aéroport, et seulement le décor affiché (pas de crash contre un arbre invisible)
+function rebuildObstacles() {
+    controls.obstacles = [...airport.obstacles];
+    for (const group of decorGroups) {
+        const count = group.meshes[0]?.count ?? group.total;
+        controls.obstacles.push(...group.obstacles.slice(0, count));
+    }
+}
+
 async function buildWorld() {
     const [types, objets] = await Promise.all([
         loadCSV('data/type objet.csv'),
@@ -374,6 +396,7 @@ async function buildWorld() {
             // (au lieu d'un appel par objet et par matériau : des centaines d'appels en moins à chaque image)
             obj.updateMatrixWorld(true);
             const instanceMatrix = new THREE.Matrix4();
+            const group = { meshes: [], total: matrices.length, obstacles: [] };
             obj.traverse((child) => {
                 if (!child.isMesh) return;
                 const instances = new THREE.InstancedMesh(child.geometry, child.material, matrices.length);
@@ -382,12 +405,15 @@ async function buildWorld() {
                 instances.castShadow = !SOFT_OBJECTS.has(type.codeType); // les fleurs : ombre invisible, inutile
                 scene.add(instances);
                 if (DETAILED_OBJECTS.has(type.codeType)) detailedObjects.push(instances);
+                group.meshes.push(instances);
             });
 
             if (!SOFT_OBJECTS.has(type.codeType)) {
                 const box = new THREE.Box3().setFromObject(obj);
-                for (const matrix of matrices) controls.obstacles.push(box.clone().applyMatrix4(matrix));
+                group.obstacles = matrices.map((matrix) => box.clone().applyMatrix4(matrix));
             }
+            decorGroups.push(group);
+            applyDecorDensity();
         });
     }
 }
@@ -662,8 +688,44 @@ const perfPanel = document.getElementById('perf');
 const perf = { frames: 0, time: 0, cpu: 0, calls: 0, triangles: 0, last: performance.now() };
 renderer.info.autoReset = false; // le post-traitement dessine en plusieurs passes : on compte l'image entière
 window.addEventListener('keydown', (event) => {
-    if (event.code === 'KeyP' && !event.repeat && !(event.target instanceof HTMLInputElement)) perfPanel.hidden = !perfPanel.hidden;
+    if (event.code === 'KeyP' && !event.repeat && !(event.target instanceof HTMLInputElement)) settings.set('perf', !settings.values.perf);
 });
+
+// Paramètres graphiques : menu ouvert depuis la case "Paramètre" du bandeau ou le bouton ⚙ Qualité
+const settings = new Settings();
+const settingsDialog = document.getElementById('reglages-dialog');
+let fpsLimit = 0;   // 0 = pas de limite (fréquence de l'écran)
+
+function applySettings(values) {
+    fpsLimit = values.fps;
+    graphics.targetFps = values.fps || 60;
+    graphics.setResolution(values.resolution);
+    graphics.setAntialias(values.antialias);
+    graphics.setShadows(values.shadows);
+    graphics.setBloom(values.bloom);
+    clouds.setDetail(values.clouds);
+    terrain.setDetail(values.terrain);
+    decorDensity = values.decor;
+    applyDecorDensity();
+    perfPanel.hidden = !values.perf;
+}
+
+settings.buildForm(document.getElementById('reglages-liste'));
+settings.addEventListener('change', ({ detail }) => applySettings(detail));
+applySettings(settings.values);
+
+function openSettings() {
+    settingsDialog.showModal();
+}
+document.getElementById('paramètre').addEventListener('click', openSettings);
+document.getElementById('paramètre').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') openSettings();
+});
+document.getElementById('qualite').addEventListener('click', (event) => {
+    openSettings();
+    event.currentTarget.blur();
+});
+document.getElementById('reglages-fermer').addEventListener('click', () => settingsDialog.close());
 
 function updatePerf(cpuTime) {
     perf.frames++;
@@ -683,7 +745,15 @@ function updatePerf(cpuTime) {
     Object.assign(perf, { frames: 0, cpu: 0, calls: 0, triangles: 0, last: now });
 }
 
-renderer.setAnimationLoop(()=>{
+let nextFrameTime = 0;
+
+renderer.setAnimationLoop((time)=>{
+    // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
+    if (fpsLimit > 0) {
+        const interval = 1000 / fpsLimit;
+        if (time < nextFrameTime - 1.5) return;
+        nextFrameTime = Math.max(nextFrameTime + interval, time); // rattrape le retard sans s'emballer
+    }
     const frameStart = performance.now();
     const delta = clock.getDelta();
 

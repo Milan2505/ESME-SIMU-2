@@ -190,8 +190,73 @@ img{margin: 0px;
 	  border: 3px solid;
     cursor: pointer;
   }
-  #multi:hover {
+  #multi:hover,
+  #paramètre:hover {
     background: #C3E6F5;
+  }
+  #paramètre {
+    cursor: pointer;
+  }
+
+  /* Menu des paramètres graphiques */
+  #reglages-dialog {
+    min-width: 360px;
+    max-width: 520px;
+    border: 3px solid #114E69;
+    border-radius: 10px;
+    font-family: DejaVu Sans Mono, monospace;
+  }
+  #reglages-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+  }
+  #reglages-dialog h3 {
+    margin-top: 0;
+  }
+  .reglages-intro {
+    text-indent: 0;
+    font-size: 12px;
+  }
+  .reglage {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid #C3E6F5;
+  }
+  .reglage-principal {
+    font-weight: bold;
+    border-bottom: 2px solid #114E69;
+  }
+  .reglage-nom {
+    display: flex;
+    flex-direction: column;
+  }
+  .reglage-nom small {
+    font-weight: normal;
+    font-size: 10px;
+    color: #46697A;
+  }
+  .reglage select {
+    font-family: inherit;
+    padding: 3px;
+    border: 2px solid #114E69;
+    border-radius: 5px;
+    background: #C3E6F5;
+    color: #114E69;
+  }
+  #reglages-dialog button {
+    font-family: inherit;
+    background: #C3E6F5;
+    color: #114E69;
+    border: 2px solid #114E69;
+    border-radius: 5px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  #reglages-dialog button:hover {
+    background: #114E69;
+    color: white;
   }
   #multi h4 {
     display: inline;

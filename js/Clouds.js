@@ -22,17 +22,29 @@ const vertexShader = /* glsl */`
     attribute float aTile;
     attribute float aRotation;
     attribute float aRank;
+    attribute float aLod;
     uniform float uCoverage;
+    uniform float uDetail;
     varying vec2 vUv;
     varying float vShade;
     varying float vAlpha;
     #include <fog_pars_vertex>
 
     void main() {
+        // Bouffée inutile (nuage absent avec cette couverture, ou retirée par le réglage de qualité) :
+        // placée hors de l'écran, aucun pixel n'est calculé
+        if (aRank > uCoverage || aLod > uDetail) {
+            gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+            vAlpha = 0.0;
+            return;
+        }
+        // Moins de bouffées : chacune un peu plus grosse pour garder des nuages pleins
+        float size = aSize * mix(1.35, 1.0, uDetail);
+
         // Billboard : le quad fait toujours face à la caméra
         vec4 mvPosition = modelViewMatrix * vec4(aOffset, 1.0);
         float c = cos(aRotation), s = sin(aRotation);
-        mvPosition.xy += mat2(c, s, -s, c) * position.xy * aSize;
+        mvPosition.xy += mat2(c, s, -s, c) * position.xy * size;
 
         vec2 tile = vec2(mod(aTile, 2.0), floor(aTile / 2.0));
         vUv = (uv + tile) * 0.5;
@@ -40,7 +52,7 @@ const vertexShader = /* glsl */`
         vShade = aShade * (0.75 + 0.25 * uv.y);
         // Les bouffées s'effacent quand on passe au travers, et selon la couverture nuageuse
         float dist = -mvPosition.z;
-        vAlpha = smoothstep(aSize * 0.15, aSize * 0.8, dist) * step(aRank, uCoverage);
+        vAlpha = smoothstep(size * 0.15, size * 0.8, dist);
 
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -112,6 +124,7 @@ class Clouds {
                     tile: Math.floor(Math.random() * 4),
                     rotation: Math.random() * Math.PI * 2,
                     rank: cloud.rank,
+                    lod: Math.random(),   // gardée si lod < détail (réglage de qualité)
                 });
             }
         }
@@ -120,7 +133,7 @@ class Clouds {
         const geometry = new InstancedBufferGeometry();
         geometry.copy(new PlaneGeometry(1, 1));
         geometry.instanceCount = puffs.length;
-        const attributes = { aOffset: 3, aSize: 1, aShade: 1, aTile: 1, aRotation: 1, aRank: 1 };
+        const attributes = { aOffset: 3, aSize: 1, aShade: 1, aTile: 1, aRotation: 1, aRank: 1, aLod: 1 };
         for (const [name, size] of Object.entries(attributes)) {
             const attribute = new InstancedBufferAttribute(new Float32Array(puffs.length * size), size);
             attribute.setUsage(DynamicDrawUsage);
@@ -138,6 +151,7 @@ class Clouds {
                 uOpacity: { value: 0.9 },
                 uBrightness: { value: 1 },   // > 1 avec le tone mapping (rendu HDR)
                 uCoverage: { value: 0.5 },
+                uDetail: { value: 1 },       // part des bouffées dessinées (réglage de qualité)
             }]),
             vertexShader,
             fragmentShader,
@@ -166,8 +180,15 @@ class Clouds {
         this.material.uniforms.uBrightness.value = brightness;
     }
 
+    // Qualité des nuages : 0 = pas de nuages, 0 -> 1 = part des bouffées dessinées
+    setDetail(detail) {
+        this.mesh.visible = detail > 0;
+        this.material.uniforms.uDetail.value = detail;
+    }
+
     // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur), pour le "jour blanc"
     densityAt(position) {
+        if (!this.mesh.visible) return 0; // nuages désactivés : pas de "jour blanc"
         const coverage = this.material.uniforms.uCoverage.value;
         let density = 0;
         for (const c of this.clouds) {
@@ -204,6 +225,7 @@ class Clouds {
             attr.aTile.array[i] = p.tile;
             attr.aRotation.array[i] = p.rotation;
             attr.aRank.array[i] = p.rank;
+            attr.aLod.array[i] = p.lod;
         }
         for (const name in attr) {
             if (name.startsWith('a')) attr[name].needsUpdate = true;

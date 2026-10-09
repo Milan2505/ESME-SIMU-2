@@ -39,15 +39,26 @@ class Terrain {
         this.noise = new ImprovedNoise();
         Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten });
 
-        const geometry = new PlaneGeometry(size, size, segments, segments);
+        this.size = size;
+        this.mesh = new Mesh(this._createGeometry(segments), this._createMaterial(renderer, { snowHeight, tile, grassTint }));
+    }
+
+    // Finesse du maillage (réglage "Détail du sol") ; les collisions utilisent heightAt, indépendant du maillage
+    setDetail(segments) {
+        if (this.mesh.geometry.parameters?.widthSegments === segments) return;
+        this.mesh.geometry.dispose();
+        this.mesh.geometry = this._createGeometry(segments);
+    }
+
+    _createGeometry(segments) {
+        const geometry = new PlaneGeometry(this.size, this.size, segments, segments);
         geometry.rotateX(- Math.PI / 2);
         const position = geometry.attributes.position;
         for (let i = 0; i < position.count; i++) {
             position.setY(i, this.heightAt(position.getX(i), position.getZ(i)));
         }
         geometry.computeVertexNormals();
-
-        this.mesh = new Mesh(geometry, this._createMaterial(renderer, { snowHeight, tile, grassTint }));
+        return geometry;
     }
 
     // Hauteur du sol au point (x, z), utilisée aussi pour poser les objets et pour les collisions

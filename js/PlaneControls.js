@@ -501,7 +501,7 @@ class PlaneControls extends Controls {
 
 // Vrai quand le joueur tape dans un champ (pseudo, code de partie…)
 function isTyping( event ) {
-	return event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+	return event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
 }
 
 function onKeyDown( event ) {
