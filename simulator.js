@@ -358,6 +358,8 @@ function resize() {
     graphics.setSize(width, height);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    // Le canvas redimensionné est vide : on redessine tout de suite (sinon éclair noir jusqu'à l'image suivante)
+    if (weather) graphics.render();
 }
 new ResizeObserver(resize).observe(view);
 resize();
@@ -834,6 +836,9 @@ renderer.setAnimationLoop((time)=>{
         if (time < nextFrameTime - 1.5) return;
         nextFrameTime = Math.max(nextFrameTime + interval, time); // rattrape le retard sans s'emballer
     }
+    // Changement de résolution AVANT de dessiner : redimensionner le canvas l'efface ; fait après le dessin,
+    // l'image affichée était vide (éclair noir) jusqu'à l'image suivante
+    graphics.adaptResolution();
     const frameStart = performance.now();
     const delta = clock.getDelta();
 
@@ -874,6 +879,5 @@ renderer.setAnimationLoop((time)=>{
     graphics.update( shadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     graphics.render();
-    graphics.adaptResolution();
     updatePerf(performance.now() - frameStart);
 });

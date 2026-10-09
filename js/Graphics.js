@@ -116,7 +116,7 @@ class Graphics {
         this._cssSize = { width: 1, height: 1 };
         this.autoResolution = true;
         this.targetFps = 60;            // i/s visées (réglage "Images par seconde")
-        this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, holdUntil: 0 };
+        this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, holdUntil: 0, raisedAt: -Infinity, noRaiseUntil: 0 };
     }
 
     // --- Réglages de qualité (menu Paramètres) ---
@@ -170,10 +170,13 @@ class Graphics {
         if (fps < LOW_FPS * this.targetFps && ratio > MIN_PIXEL_RATIO) {
             this.setPixelRatio(Math.max(MIN_PIXEL_RATIO, ratio - PIXEL_RATIO_STEP));
             q.holdUntil = now + 2000;       // laisse le temps de mesurer le nouvel état
-        } else if (q.goodSeconds >= 4 && ratio < this._autoMaxRatio() - 0.01) {
+            // Remontée qui a fait rechuter les i/s : on ne réessaie pas avant 30 s (évite le yo-yo de résolution)
+            if (now - q.raisedAt < 6000) q.noRaiseUntil = now + 30000;
+        } else if (q.goodSeconds >= 8 && now > q.noRaiseUntil && ratio < this._autoMaxRatio() - 0.01) {
             this.setPixelRatio(Math.min(this._autoMaxRatio(), ratio + PIXEL_RATIO_STEP));
             q.goodSeconds = 0;
             q.holdUntil = now + 2000;
+            q.raisedAt = now;
         }
     }
 
