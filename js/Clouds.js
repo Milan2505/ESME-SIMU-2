@@ -71,7 +71,9 @@ const fragmentShader = /* glsl */`
     #include <fog_pars_fragment>
 
     void main() {
-        float alpha = texture2D(uMap, vUv).a * vAlpha * uOpacity;
+        // Bouffées plus opaques (nuages denses) : renforce les zones semi-transparentes, garde les bords doux
+        float a = texture2D(uMap, vUv).a;
+        float alpha = (1.0 - (1.0 - a) * (1.0 - a)) * vAlpha * uOpacity;
         if (alpha < 0.01) discard;
         gl_FragColor = vec4(mix(uDark, uLight, vShade) * uBrightness, alpha);
         #include <colorspace_fragment>
@@ -148,7 +150,7 @@ class Clouds {
                 uMap: { value: null },
                 uLight: { value: new Color(0xffffff) },
                 uDark: { value: new Color(0x8f9bb0) },
-                uOpacity: { value: 0.9 },
+                uOpacity: { value: 1 },
                 uBrightness: { value: 1 },   // > 1 avec le tone mapping (rendu HDR)
                 uCoverage: { value: 0.5 },
                 uDetail: { value: 1 },       // part des bouffées dessinées (réglage de qualité)
@@ -172,7 +174,7 @@ class Clouds {
     }
 
     // couverture : 0 = ciel dégagé, 1 = tous les nuages ; couleurs éclairée / ombre
-    setWeather({ coverage, light, dark, opacity = 0.9, brightness = 2 }) {
+    setWeather({ coverage, light, dark, opacity = 1, brightness = 2 }) {
         this.material.uniforms.uCoverage.value = coverage;
         this.material.uniforms.uLight.value.set(light);
         this.material.uniforms.uDark.value.set(dark);

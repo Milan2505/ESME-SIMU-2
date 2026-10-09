@@ -622,13 +622,14 @@ class Cockpit {
             return { column, wheel };
         });
 
-        // Manette des gaz (tirette noire au centre du tableau)
+        // Manette des gaz (tirette noire au centre du tableau) : le groupe est centré sur le bouton,
+        // la tige part du bouton et s'enfonce dans le tableau (plein gaz : enfoncée, réduit : tirée vers le pilote)
         this._throttle = new Group();
         const [tx, ty] = [-0.06, -0.46];
         this._throttle.position.set(tx, ty, PANEL.z);
         const rod = new Mesh(new CylinderGeometry(0.006, 0.006, 0.12, 8), new MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.8, roughness: 0.3 }));
         rod.rotation.x = Math.PI / 2;
-        rod.position.z = 0.06;
+        rod.position.z = -0.06;
         this._throttleKnob = new Mesh(new SphereGeometry(0.022, 16, 12), black);
         this._throttleKnob.scale.set(1, 1, 0.7);
         this._throttle.add(rod, this._throttleKnob);
@@ -776,7 +777,8 @@ class Cockpit {
         // Repère de la manette des gaz
         const [tx, ty] = this._throttleCanvas;
         caption(ctx, tx, ty - 34, 'GAZ', 16);
-        caption(ctx, tx, ty + 30, `${Math.round(state.throttle * 100)} %`, 16);
+        // À gauche du trou : vu de la place pilote, le bouton tiré se projette en dessous et un peu à droite
+        caption(ctx, tx - 62, ty, `${Math.round(state.throttle * 100)} %`, 16);
 
         // Indicateur ILS (à la place de la boîte à gants)
         ilsIndicator(ctx, 1385, 400, 82, state.ils, this._time);
