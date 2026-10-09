@@ -14,6 +14,7 @@ import {
 
 // 4 "bouffées" du pack Smoke Particle Assets de Kenney (CC0), regroupées en 2x2
 const PUFF_ATLAS = 'asset/textures/cloud_puffs.png';
+const PUFF_SPREAD = 0.75;   // étendue des bouffées dans un nuage (1 = largeur entière : morceaux plus espacés)
 
 const vertexShader = /* glsl */`
     attribute vec3 aOffset;
@@ -100,12 +101,14 @@ class Clouds {
 
         for (let i = 0; i < count; i++) {
             const width = random(minWidth, maxWidth);
-            const height = width * random(0.35, 0.6);
+            // Bouffées resserrées : réparties dans 75 % du volume, mais gardent la taille prévue pour le nuage
+            // entier -> elles se chevauchent davantage, le nuage paraît compact au lieu d'un amas de morceaux
+            const height = width * random(0.35, 0.6) * PUFF_SPREAD;
             const cloud = {
                 x: random(-radius, radius),
                 y: random(minBase, maxBase),
                 z: random(-radius, radius),
-                rx: width / 2, ry: height, rz: width / 2 * random(0.6, 1),
+                rx: width / 2 * PUFF_SPREAD, ry: height, rz: width / 2 * PUFF_SPREAD * random(0.6, 1),
                 rank: Math.random(),  // les nuages de rang < couverture sont visibles
             };
             this.clouds.push(cloud);
