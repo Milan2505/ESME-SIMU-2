@@ -1,6 +1,7 @@
 import {
     BoxGeometry,
     CanvasTexture,
+    Color,
     CylinderGeometry,
     DoubleSide,
     Group,
@@ -21,6 +22,7 @@ const EYE = new Vector3(-0.3, 0, 0);
 const PANEL = { width: 1.2, height: 0.4, y: -0.3, z: -0.75 };
 const CANVAS = { width: 1536, height: 512 };
 const PX_PER_M = CANVAS.width / PANEL.width;
+const PANEL_NIGHT_LIGHT = new Color(0xffbf45); // éclairage ambré des instruments
 
 // Position d'un point du tableau (repère cabine) en pixels du canvas
 function toCanvas(x, y) {
@@ -595,9 +597,13 @@ class Cockpit {
         return mesh;
     }
 
+    // night : 0 = jour, 0,5 = tempête, 1 = nuit
     setNight(night) {
-        // Tableau rétroéclairé : lisible même à l'ombre de la casquette en plein jour
-        this._panelMaterial.emissiveIntensity = 0.5 + 0.3 * night;
+        // Tableau rétroéclairé : blanc de jour (lisible à l'ombre de la casquette), ambré la nuit et
+        // en tempête, comme l'éclairage d'instruments d'un vrai avion (n'éblouit pas)
+        const warm = Math.min(1, night * 2);
+        this._panelMaterial.emissive.set(0xffffff).lerp(PANEL_NIGHT_LIGHT, warm);
+        this._panelMaterial.emissiveIntensity = 0.5 + 0.4 * night;
     }
 
     // Clic sur le tableau de bord (coordonnées de texture du point touché) : renvoie le bouton cliqué

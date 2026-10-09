@@ -141,8 +141,10 @@ aircraft.add(cockpit.group);
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
 const aircraftLights = new AircraftLights(aircraft);
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(18), 0.5, 2);
-landingLight.position.set(0, 0.3, -4);
-landingLight.target.position.set(0, -6, -80);
+// Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
+// (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
+landingLight.position.set(-2.2, 1.15, -3);
+landingLight.target.position.set(-2.2, -6, -80);
 aircraft.add(landingLight, landingLight.target);
 
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
@@ -157,6 +159,7 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     controlSurfaces = new ControlSurfaces(model, propeller);
     model.traverse((child) => { child.castShadow = true; });
     aircraft.add(model);
+    aircraftLights.setOccluder(model);
     remotePlayers.setTemplate(model);
     airport.addParkedPlanes(model);
     rebuildObstacles(); // + les avions garés
