@@ -58,7 +58,7 @@ function createBeam() {
     geometry.translate(0, -length / 2, 0);        // sommet du cône au phare
     geometry.rotateX(Math.PI / 2 - deg(2));       // pointe vers l'avant (-z), un peu vers le bas (comme le SpotLight)
     const material = new ShaderMaterial({
-        uniforms: { uLength: { value: length } },
+        uniforms: { uLength: { value: length }, uStrength: { value: 0.11 } },
         vertexShader: /* glsl */`
             varying float vAlong;
             varying float vEdge;
@@ -71,10 +71,12 @@ function createBeam() {
             }
         `,
         fragmentShader: /* glsl */`
+            uniform float uStrength;
             varying float vAlong;
             varying float vEdge;
             void main() {
-                float alpha = 0.16 * (1.0 - smoothstep(0.0, 1.0, vAlong)) * vEdge;
+                // Apparaît à partir de quelques mètres du phare (pas de voile laiteux près de l'ampoule), s'estompe au loin
+                float alpha = uStrength * smoothstep(0.02, 0.25, vAlong) * (1.0 - smoothstep(0.0, 1.0, vAlong)) * vEdge;
                 gl_FragColor = vec4(vec3(1.0, 0.96, 0.86) * alpha, 1.0);
             }
         `,
@@ -124,7 +126,7 @@ class AircraftLights {
     setNight(night, landingLight = night >= 0.5) {
         this.night = night;
         this.landingLight = landingLight;
-        this.beam.visible = landingLight && !this._cabin;
+        this.beam.visible = landingLight;
     }
 
     // Le halo d'un feu masqué par l'avion lui-même (aile, fuselage) s'efface
@@ -137,10 +139,10 @@ class AircraftLights {
             if (cabin) light.position.set(light.base.x, 1.35, light.base.z + 0.5);
             light.bulb.position.copy(light.position);
         }
-        // Depuis la cabine, on serait sur le côté du cône du faisceau, tout près : il ferait un voile laiteux.
-        // On garde seulement la tache de lumière au sol (SpotLight)
+        // Faisceau recalé avec le phare ; un peu plus discret vu de la cabine (on est tout près du cône)
         this._cabin = cabin;
-        this.beam.visible = this.landingLight && !cabin;
+        this.beam.position.set(-2.2, cabin ? 1.35 : 1.12, cabin ? -2.4 : -3);
+        this.beam.material.uniforms.uStrength.value = cabin ? 0.09 : 0.11;
     }
 
     setOccluder(model) {

@@ -54,6 +54,9 @@ const SUN_DISTANCE = 400;
 
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
 const MIN_PIXEL_RATIO = 0.6;
+// Résolution automatique : au plus ~2 millions de pixels calculés par image (Full HD), quelle que soit la taille
+// de l'écran. Sans ce plafond, le plein écran sur un grand écran HD calculait 3 à 4 fois plus de pixels.
+const PIXEL_BUDGET = 2.1e6;
 const PIXEL_RATIO_STEP = 0.2;
 const LOW_FPS = 0.75;           // sous 75 % des i/s visées : on baisse la résolution
 const HIGH_FPS = 0.95;          // au-dessus de 95 % pendant plusieurs secondes : on la remonte
@@ -110,6 +113,7 @@ class Graphics {
         this.composer.addPass(new OutputPass());
 
         this.maxPixelRatio = renderer.getPixelRatio();
+        this._cssSize = { width: 1, height: 1 };
         this.autoResolution = true;
         this.targetFps = 60;            // i/s visées (réglage "Images par seconde")
         this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, holdUntil: 0 };
@@ -120,7 +124,7 @@ class Graphics {
     // resolution : 'auto' (adaptative) ou densité de pixels fixe (1 = un pixel calculé par pixel CSS)
     setResolution(resolution) {
         this.autoResolution = resolution === 'auto';
-        this.setPixelRatio(this.autoResolution ? this.maxPixelRatio : resolution);
+        this.setPixelRatio(this.autoResolution ? this._autoMaxRatio() : resolution);
         this._quality.goodSeconds = 0;
         this._quality.holdUntil = performance.now() + 2000;
     }
@@ -166,11 +170,17 @@ class Graphics {
         if (fps < LOW_FPS * this.targetFps && ratio > MIN_PIXEL_RATIO) {
             this.setPixelRatio(Math.max(MIN_PIXEL_RATIO, ratio - PIXEL_RATIO_STEP));
             q.holdUntil = now + 2000;       // laisse le temps de mesurer le nouvel état
-        } else if (q.goodSeconds >= 4 && ratio < this.maxPixelRatio) {
-            this.setPixelRatio(Math.min(this.maxPixelRatio, ratio + PIXEL_RATIO_STEP));
+        } else if (q.goodSeconds >= 4 && ratio < this._autoMaxRatio() - 0.01) {
+            this.setPixelRatio(Math.min(this._autoMaxRatio(), ratio + PIXEL_RATIO_STEP));
             q.goodSeconds = 0;
             q.holdUntil = now + 2000;
         }
+    }
+
+    // Densité de pixels max en résolution automatique : celle de l'écran, dans la limite du budget de pixels
+    _autoMaxRatio() {
+        const { width, height } = this._cssSize;
+        return Math.max(MIN_PIXEL_RATIO, Math.min(this.maxPixelRatio, Math.sqrt(PIXEL_BUDGET / (width * height))));
     }
 
     setPixelRatio(ratio) {
@@ -198,7 +208,18 @@ class Graphics {
     }
 
     setSize(width, height) {
-        // Suit la densité de pixels de l'écran (sinon rendu flou / crénelé sur les écrans haute définition)
+        const grew = width * height > this._cssSize.width * this._cssSize.height * 1.2;
+        this._cssSize = { width, height };
+        if (this.autoResolution) {
+            // Agrandissement (plein écran) : on part directement du plafond du budget de pixels,
+            // puis l'adaptation aux i/s reprend après un court délai
+            const max = this._autoMaxRatio();
+            const ratio = grew ? max : Math.min(this.renderer.getPixelRatio(), max);
+            this.renderer.setPixelRatio(ratio);
+            this._quality.goodSeconds = 0;
+            this._quality.holdUntil = performance.now() + 1500;
+        }
+        // Suit la densité de pixels (sinon rendu flou / crénelé sur les écrans haute définition)
         this.composer.setPixelRatio(this.renderer.getPixelRatio());
         this.composer.setSize(width, height);
     }
