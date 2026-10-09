@@ -15,9 +15,9 @@ function flareTexture() {
 
     // Halo large et doux
     let g = ctx.createRadialGradient(c, c, 0, c, c, c);
-    g.addColorStop(0, 'rgba(255,255,255,0.55)');
-    g.addColorStop(0.15, 'rgba(255,255,255,0.18)');
-    g.addColorStop(0.45, 'rgba(255,255,255,0.05)');
+    g.addColorStop(0, 'rgba(255,255,255,0.45)');
+    g.addColorStop(0.12, 'rgba(255,255,255,0.12)');
+    g.addColorStop(0.4, 'rgba(255,255,255,0.025)');
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
@@ -38,16 +38,17 @@ function flareTexture() {
         ctx.fill();
         ctx.restore();
     };
-    for (let i = 0; i < 4; i++) ray((i * Math.PI) / 2, c * 0.95, 2.2, 0.5);
-    for (let i = 0; i < 4; i++) ray(Math.PI / 4 + (i * Math.PI) / 2, c * 0.45, 1.4, 0.3);
+    // (discrets : un vrai feu vu à l'œil nu n'a qu'une légère étoile)
+    for (let i = 0; i < 4; i++) ray((i * Math.PI) / 2, c * 0.55, 1.2, 0.16);
+    for (let i = 0; i < 4; i++) ray(Math.PI / 4 + (i * Math.PI) / 2, c * 0.25, 0.8, 0.06);
 
     // Traînée horizontale (reflet d'objectif)
     g = ctx.createLinearGradient(0, 0, size, 0);
     g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+    g.addColorStop(0.5, 'rgba(255,255,255,0.1)');
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
-    ctx.fillRect(0, c - 1.5, size, 3);
+    ctx.fillRect(size * 0.2, c - 1, size * 0.6, 2);
 
     // Noyau éclatant
     g = ctx.createRadialGradient(c, c, 0, c, c, size * 0.07);
