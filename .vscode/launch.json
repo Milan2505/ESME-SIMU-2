@@ -9,6 +9,9 @@
             "request": "launch",
             "type": "msedge",
             "url": "http://localhost:8080",
+            // Connexion par port plutôt que par "pipe" : le lanceur d'Edge passe la main à un autre processus
+            // et se termine aussitôt, ce qui faisait échouer l'attache ("Unable to attach to browser")
+            "port": 9222,
             "preLaunchTask": "Serveur local",
             "webRoot": "${workspaceFolder}"
         }
