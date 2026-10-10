@@ -36,6 +36,7 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 
 // Avion du joueur : Cessna 172 low poly de Vojtěch Balák (Poly Pizza, CC-BY 3.0)
 const AIRCRAFT_MODEL = 'asset/cessna.glb';
+const PROPELLER_SCALE = 0.97 / 1.51;                       // pales du modèle ramenées au rayon réel (0,97 m)
 const WHEEL_HEIGHT = 1.25;                                  // centre de l'avion au-dessus du sol, roues posées
 const COCKPIT_POSITION = new THREE.Vector3(0, 0.9, -1.85);  // cabine (hauteur des yeux) dans le repère avion, sous l'aile
 const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
@@ -163,11 +164,17 @@ aircraft.add(landingLight, landingLight.target);
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const model = aircraftModel = gltf.scene;
     model.position.z = -2; // centre l'avion sur l'aile (le modèle a son origine vers le nez)
+    lowerMainGear(model);
     propeller = model.getObjectByName('Propeller_Cone');
     // Recentre l'hélice sur son axe pour qu'elle tourne sans voilage
     const center = new THREE.Box3().setFromObject(propeller).getCenter(new THREE.Vector3());
     propeller.traverse((child) => child.geometry?.translate(-center.x, -center.y, 0));
     propeller.position.set(center.x, center.y, 0);
+    // Pales à la taille réelle : 1,51 m de rayon dans le modèle (hélice de 3 m, la pale du bas passait 32 cm sous
+    // la piste) ; celle d'un Cessna 172 fait 1,93 m de diamètre. Le cône (gris) garde sa taille
+    propeller.traverse((child) => {
+        if (child.isMesh && child.material.name === 'Black') child.geometry.scale(PROPELLER_SCALE, PROPELLER_SCALE, 1);
+    });
     // Ailerons, profondeur, direction et volets deviennent des pièces mobiles (aussi sur les copies du modèle)
     controlSurfaces = new ControlSurfaces(model, propeller);
     addWindowPillars(model);
@@ -184,6 +191,37 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     rebuildObstacles(); // + les avions garés
     updateView();
 }, undefined, (error) => console.error(error));
+
+// Train principal : dans le modèle, il est trop court. Avion posé (roulette de nez au sol), les roues principales
+// flottaient à 30 cm (droite) et 24 cm (gauche, le modèle n'est pas symétrique). On descend roues et carénages
+// d'un bloc, en étirant les jambes de train depuis leur attache au fuselage (x ~0,67) jusqu'à la roue (x ~1,35).
+// Zone du train : sous le fuselage (y < -0,3), autour de l'axe des roues (z -1,9 à -0,5, repère avion)
+const MAIN_GEAR_DROP = { right: 0.295, left: 0.23 };
+
+function lowerMainGear(model) {
+    model.updateMatrixWorld(true);
+    const point = new THREE.Vector3(), inverse = new THREE.Matrix4();
+    model.traverse((mesh) => {
+        if (!mesh.isMesh) return;
+        const position = mesh.geometry.attributes.position;
+        inverse.copy(mesh.matrixWorld).invert();
+        let changed = false;
+        for (let i = 0; i < position.count; i++) {
+            point.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);   // repère avion
+            if (point.y > -0.3 || point.z < -1.9 || point.z > -0.5) continue;
+            const reach = THREE.MathUtils.smoothstep(Math.abs(point.x), 0.7, 1.3);    // 0 à l'attache, 1 à la roue
+            if (reach <= 0) continue;
+            point.y -= reach * (point.x > 0 ? MAIN_GEAR_DROP.right : MAIN_GEAR_DROP.left);
+            point.applyMatrix4(inverse);
+            position.setXYZ(i, point.x, point.y, point.z);
+            changed = true;
+        }
+        if (!changed) return;
+        position.needsUpdate = true;
+        mesh.geometry.computeBoundingBox();
+        mesh.geometry.computeBoundingSphere();
+    });
+}
 
 // Montants extérieurs du vitrage (le modèle n'en a pas : vitres d'un seul tenant du pare-brise à l'arrière des portes) :
 // bord du pare-brise, avant et arrière de la porte, à la couleur du fuselage. Arêtes relevées sur les vitres du modèle
@@ -222,9 +260,14 @@ function setupPropellerBlur(propeller) {
     });
     propeller.updateWorldMatrix(true, true);
     const box = new THREE.Box3().setFromObject(propeller);
-    const size = box.getSize(new THREE.Vector3());
+    // Rayon réel des pales (la boîte englobante d'une pale en biais le sous-estime)
+    let radius = 0;
+    propeller.traverse((child) => {
+        const position = child.isMesh && child.geometry.attributes.position;
+        for (let i = 0; position && i < position.count; i++) radius = Math.max(radius, Math.hypot(position.getX(i), position.getY(i)));
+    });
     propellerDisc = new THREE.Mesh(
-        new THREE.CircleGeometry(Math.max(size.x, size.y) / 2, 48),
+        new THREE.CircleGeometry(radius, 48),
         new THREE.MeshBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
     );
     propellerDisc.position.z = propeller.worldToLocal(box.getCenter(new THREE.Vector3())).z;
@@ -1217,4 +1260,3 @@ renderer.setAnimationLoop((time)=>{
     graphics.render();
     updatePerf(performance.now() - frameStart);
 });
-window.__sim = { controls, aircraft, terrain, aircraftModel: () => aircraftModel }; // TEST-TEMP
