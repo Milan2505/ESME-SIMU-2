@@ -14,14 +14,14 @@ const CESSNA_172 = {
 	cl0: 0.4,                         // coefficient de portance à incidence nulle (calage de l'aile compris)
 	clAlpha: 4.6,                     // pente de portance (par radian d'incidence)
 	alphaStall: deg( 16 ),            // incidence de décrochage
-	cd0: 0.036,                       // traînée de forme (train fixe compris)
+	cd0: 0.032,                       // traînée de forme (train caréné)
 	inducedDrag: 0.06,                // traînée induite : k·CL² (aile d'allongement 7,5)
 	stallDrag: 0.15,                  // aile décrochée : traînée en plus
 	sideForce: 0.6,                   // force latérale du fuselage en dérapage (par radian)
 
 	// Moteur et hélice
 	staticThrust: 3400,               // poussée plein gaz à l'arrêt (N) : accélération franche au décollage
-	power: 85000,                     // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
+	power: 110000,                    // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse ; croisière ~125 kt
 	                                  // (pleine poussée jusqu'à ~80 km/h, puis montée ~4 m/s, assiette ~10°)
 	windmillDrag: 0.012,              // hélice au ralenti : elle freine l'avion (finesse ~9 en plané)
 
@@ -54,12 +54,12 @@ const CESSNA_172 = {
 
 	// Trim : tab de la gouverne de profondeur, en degrés (+ = à cabrer). Manche lâché, l'avion revient à l'incidence
 	// que fixe le tab, donc à une vitesse. Réglé pour rester au-dessus du second régime (vitesse de puissance
-	// minimale ~55 kt) : 20° (décollage) -> ~74 kt, meilleure montée ; 0° -> ~110 kt, croisière
-	trimTabMin: deg( - 4 ),           // à piquer à fond : ~125 kt en légère descente
-	trimTabMax: deg( 28 ),            // à cabrer à fond : ~67 kt (volets rentrés)
+	// minimale ~55 kt) : 20° (décollage) -> ~90 kt en montée (75 kt volets 10°) ; 0° -> ~125 kt, croisière
+	trimTabMin: deg( - 4 ),           // à piquer à fond : ~135 kt
+	trimTabMax: deg( 28 ),            // à cabrer à fond : ~80 kt (volets rentrés)
 	takeoffTrim: deg( 20 ),           // repère décollage
-	trimAlphaZero: deg( - 0.8 ),      // incidence tenue tab à 0°
-	trimAlphaPerTab: 0.26,            // incidence tenue en plus par degré de tab à cabrer
+	trimAlphaZero: deg( - 1.7 ),      // incidence tenue tab à 0° : ~125 kt
+	trimAlphaPerTab: 0.152,           // incidence tenue en plus par degré de tab à cabrer : +20° -> ~90 kt
 	liftoffReleaseTime: 6,            // aide "envol en douceur" : le nez se rend en ~6 s après l'envol
 
 	// Au sol
