@@ -15,6 +15,8 @@ const OPTIONS = {
                   choices: [[0, 'Désactivées'], [1024, 'Basses'], [2048, 'Moyennes'], [4096, 'Hautes']] },
     clouds:     { label: 'Nuages', hint: 'Très coûteux en brouillard et en tempête',
                   choices: [[0, 'Désactivés'], [0.5, 'Légers'], [1, 'Complets']] },
+    cloudLayer: { label: 'Couche nuageuse', hint: 'Plafond continu des météos Nuageux et Tempête',
+                  choices: [[false, 'Désactivée'], [true, 'Activée']] },
     terrain:    { label: 'Détail du sol', hint: 'Finesse du relief (collines, montagnes)',
                   choices: [[128, 'Bas'], [256, 'Moyen'], [384, 'Haut'], [512, 'Très haut']] },
     decor:      { label: 'Arbres et décor', hint: 'Part des arbres, fleurs, rochers affichés',
@@ -39,10 +41,10 @@ const OPTIONS = {
 const FLIGHT_DEFAULTS = { rotationAuto: false, stallProtection: false, smoothLiftoff: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
-    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, terrain: 128, decor: 0.25, bloom: false },
-    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, terrain: 256, decor: 0.5,  bloom: true },
-    haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   terrain: 384, decor: 1,    bloom: true },
-    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   terrain: 512, decor: 1,    bloom: true },
+    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, decor: 0.25, bloom: false },
+    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, decor: 0.5,  bloom: true },
+    haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, decor: 1,    bloom: true },
+    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   cloudLayer: true,  terrain: 512, decor: 1,    bloom: true },
 };
 const DEFAULT_PRESET = 'haut';
 const CUSTOM = 'perso';

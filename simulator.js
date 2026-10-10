@@ -5,6 +5,7 @@ import { PlaneControls } from './js/PlaneControls.js';
 import { loadCSV } from './js/DataLoader.js';
 import { Terrain } from './js/Terrain.js';
 import { Clouds } from './js/Clouds.js';
+import { CloudLayer } from './js/CloudLayer.js';
 import { StallWarning } from './js/StallWarning.js';
 import { EngineSound } from './js/EngineSound.js';
 import { SoundEffects } from './js/SoundEffects.js';
@@ -91,7 +92,13 @@ const WEATHERS = {
                   night: 0, wind: 0.35,
                   atmosphere: { elevation: 40, azimuth: 150, turbidity: 2, rayleigh: 3, fog: 0x8fb4d6 },
                   clouds: { coverage: 0.45, light: 0xffffff, dark: 0x8f9bb0 } },
-    nuit:       { label: 'Nuit',       sky: 0x0b1a2e, fogNear: 300, fogFar: 1600, hemi: 0.18, sun: 0.35, turbulence: 0,
+    // Ciel couvert : ciel gris uniforme (pas de ciel bleu), soleil voilé, tous les nuages aux dessous gris, un peu de vent
+    nuageux:    { label: 'Nuageux',    sky: 0x9ba5ae, fogNear: 220, fogFar: 1500, hemi: 1.15, sun: 0.7, turbulence: 0.35,
+                  night: 0, wind: 0.55,
+                  clouds: { coverage: 1, light: 0xdfe3e7, dark: 0x5f6873, opacity: 1, brightness: 1.4 },
+                  // Plafond continu (stratus) vers 1 000 ft, quelques trouées
+                  overcast: { base: 320, top: 390, coverage: 0.86, scale: 900 } },
+    nuit:      { label: 'Nuit',       sky: 0x0b1a2e, fogNear: 300, fogFar: 1600, hemi: 0.18, sun: 0.35, turbulence: 0,
                   night: 1, stars: 1, wind: 0.2, sunColor: 0x9fb4e8, moon: { elevation: 35, azimuth: 220 },
                   clouds: { coverage: 0.15, light: 0x2c3650, dark: 0x0e1422, opacity: 0.6, brightness: 1 } },
     brouillard: { label: 'Brouillard', sky: 0xbfc9ca, fogNear: 10,  fogFar: 220,  hemi: 1.0, sun: 0.6, turbulence: 0.2,
@@ -99,7 +106,8 @@ const WEATHERS = {
                   clouds: { coverage: 0.8, light: 0xe5e8e8, dark: 0xaab7b8 } },
     tempete:    { label: 'Tempête',    sky: 0x3b4444, fogNear: 40,  fogFar: 450,  hemi: 0.4, sun: 0.2, turbulence: 1,
                   night: 0.5, wind: 1, rain: 1, lightning: true,
-                  clouds: { coverage: 1, light: 0x7f8c8d, dark: 0x2c3e50, opacity: 1, brightness: 1.2 } },
+                  clouds: { coverage: 1, light: 0x7f8c8d, dark: 0x2c3e50, opacity: 1, brightness: 1.2 },
+                  overcast: { base: 240, top: 330, coverage: 0.95, scale: 700 } },
 };
 
 const view = document.getElementById('ecran');
@@ -112,6 +120,7 @@ const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: false });
 const airport = new Airport();
 const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z) });
 const clouds = new Clouds();
+const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
 const stallWarning = new StallWarning();
 const engineSound = new EngineSound();
@@ -154,7 +163,7 @@ scene.add( terrain.mesh );
 scene.add( airport.build(renderer) );
 rebuildObstacles();
 scene.add( nightSky.mesh );
-scene.add( clouds.mesh );
+scene.add( clouds.mesh, cloudLayer.mesh );
 scene.add( storm.rainMesh, storm.bolt );
 scene.add( crashEffect.group );
 scene.add( hemiLight );
@@ -631,6 +640,7 @@ function setWeather(name) {
     sunLight.color.set(w.sunColor ?? COLOR_LIGHT);
     controls.turbulence = w.turbulence;
     clouds.setWeather(w.clouds);
+    cloudLayer.setWeather(w.overcast ?? null, w.clouds);
     nightSky.setVisibility(w.stars ?? 0, w.sky);
     storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false });
     cockpit.setRain(w.rain ?? 0);
@@ -783,14 +793,19 @@ const cloudFogColor = new THREE.Color();
 const flashColor = new THREE.Color(0xc8d0ff);
 const shadowCenter = new THREE.Vector3();
 
+const ABOVE_CLOUDS_SKY = new THREE.Color(0x6f9fd2), ABOVE_CLOUDS_FOG = new THREE.Color(0xc4d4e3);
+
 function updateFog() {
-    const density = clouds.densityAt(camera.position);
+    const density = Math.max(clouds.densityAt(camera.position), cloudLayer.densityAt(camera.position));
+    // Au-dessus de la couche nuageuse : ciel bleu et vue dégagée (sur 60 m après le sommet de la couche)
+    const above = cloudLayer.mesh.visible ? THREE.MathUtils.smoothstep(camera.position.y, weather.overcast.top, weather.overcast.top + 60) : 0;
     cloudFogColor.set(weather.clouds.light);
-    scene.fog.color.set(weather.atmosphere?.fog ?? weather.sky).lerp(cloudFogColor, density).lerp(flashColor, storm.flash * 0.6);
-    scene.background.set(weather.sky).lerp(flashColor, storm.flash * 0.6);
-    scene.fog.near = THREE.MathUtils.lerp(weather.fogNear, 0, density);
-    scene.fog.far = THREE.MathUtils.lerp(weather.fogFar, 30, density);
-    hemiLight.intensity = weather.hemi + storm.flash * 2.5;
+    scene.fog.color.set(weather.atmosphere?.fog ?? weather.sky).lerp(ABOVE_CLOUDS_FOG, above)
+        .lerp(cloudFogColor, density).lerp(flashColor, storm.flash * 0.6);
+    scene.background.set(weather.sky).lerp(ABOVE_CLOUDS_SKY, above).lerp(flashColor, storm.flash * 0.6);
+    scene.fog.near = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogNear, 600, above), 0, density);
+    scene.fog.far = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogFar, 2800, above), 30, density);
+    hemiLight.intensity = weather.hemi + 0.5 * above + storm.flash * 2.5;
 }
 
 // Multijoueur : fenêtre ouverte depuis la case "Multijoueur" du bandeau
@@ -1179,6 +1194,7 @@ function applySettings(values) {
     graphics.setShadows(values.shadows);
     graphics.setBloom(values.bloom);
     clouds.setDetail(values.clouds);
+    cloudLayer.setEnabled(values.cloudLayer);
     terrain.setDetail(values.terrain);
     decorDensity = values.decor;
     applyDecorDensity();
@@ -1273,6 +1289,7 @@ renderer.setAnimationLoop((time)=>{
         if (!onlineMenu.querySelector('.menu-contenu').hidden) updateOnlineList();
     }
     clouds.update( camera );
+    cloudLayer.update( delta, camera, weather.wind );
     for (const object of detailedObjects) {
         object.visible = object.boundingSphere.distanceToPoint(camera.position) < DETAIL_DISTANCE;
     }
