@@ -906,7 +906,7 @@ class Cockpit {
         this._throttleKnob.userData.control = 'throttle';
         // Manette de mixture : bouton rouge moleté, sous le compte-tours (tirée = appauvrie, à fond = étouffoir)
         this._mixture = new Group();
-        const [mxm, mym] = [0.02, -0.49];
+        const [mxm, mym] = [0.04, ty];   // même hauteur que la manette des gaz, à sa droite
         this._mixture.position.set(mxm, mym, PANEL.z);
         const mixtureRod = rod.clone();
         const red = new MeshStandardMaterial({ color: 0xc62d1f, roughness: 0.5 });
@@ -1136,11 +1136,11 @@ class Cockpit {
         }
         headingIndicator(ctx, px, bottom, r, this._gyro.heading);
         variometer(ctx, px + col, bottom, r, state.verticalSpeed * FT * 60);
-        tachometer(ctx, 790, bottom - 10, 72, this._smooth.rpm);
+        tachometer(ctx, 790, bottom - 40, 72, this._smooth.rpm);   // remonté : place pour l'étiquette de la mixture
         // Manette de mixture (rouge), sous le compte-tours
         const [mx, my] = this._mixtureCanvas;
-        caption(ctx, mx + 54, my - 4, 'MIXTURE', 13);
-        caption(ctx, mx + 54, my + 13, `${Math.round(sys.mixture * 100)} %`, 13);
+        // Étiquette au-dessus du bouton, comme celle des gaz (dessous, le bouton en relief la cache vu du siège)
+        caption(ctx, mx - 12, my - 34, `MIXTURE ${Math.round(sys.mixture * 100)} %`, 14);
 
         // Alarme de décrochage : petite LED rouge à gauche de l'anémomètre, clignote un peu avant le décrochage
         stallLed(ctx, px - col - r - 34, top - 30, state.stallWarning && Math.sin(this._time * 20) > 0);
