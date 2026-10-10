@@ -258,8 +258,9 @@ class Airport {
             map: pool, transparent: true, depthWrite: false, blending: AdditiveBlending,
             polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
         });
+        // Centrée sous le mât (les 4 projecteurs éclairent tout autour)
         for (const z of FLOODLIGHTS.z) {
-            this._flat(new PlaneGeometry(34, 34), this._poolMaterial, FLOODLIGHTS.x - 6, 0.04, z);
+            this._flat(new PlaneGeometry(34, 34), this._poolMaterial, FLOODLIGHTS.x, 0.04, z);
         }
         this.setNight(this._night);
     }
