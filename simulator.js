@@ -1646,7 +1646,16 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('keyup', (event) => {
     if (event.code in mixtureKeys) mixtureKeys[event.code] = 0;
 });
-window.addEventListener('blur', () => { mixtureKeys.KeyU = mixtureKeys.KeyY = 0; });
+window.addEventListener('blur', () => { mixtureKeys.KeyU = mixtureKeys.KeyY = 0; panelLightsKey = 0; });
+// Éclairage des instruments au clavier : L éclaircit, Maj + L assombrit, tant que la touche est tenue (course entière en ~2 s)
+const PANEL_LIGHTS_RATE = 0.5;
+let panelLightsKey = 0, panelLightsTravel = 0;
+window.addEventListener('keydown', (event) => {
+    if (event.code === 'KeyL' && !isTypingTarget(event.target)) panelLightsKey = event.shiftKey ? -1 : 1;
+});
+window.addEventListener('keyup', (event) => {
+    if (event.code === 'KeyL') panelLightsKey = 0;
+});
 
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
@@ -1689,6 +1698,16 @@ renderer.setAnimationLoop((time)=>{
     // Systèmes : moteur, carburant, électricité ; le modèle de vol en reçoit la puissance et l'alimentation des volets
     const mixtureInput = mixtureKeys.KeyU - mixtureKeys.KeyY;
     if (mixtureInput && !choosingSpawn) systems.setMixture(systems.mixture + mixtureInput * MIXTURE_RATE * Math.min(delta, 0.1));
+    if (panelLightsKey && !choosingSpawn) {
+        const before = systems.panelLights;
+        systems.setPanelLights(before + panelLightsKey * PANEL_LIGHTS_RATE * Math.min(delta, 0.1));
+        // Un cran du rhéostat entendu tous les 10 %
+        panelLightsTravel += Math.abs(systems.panelLights - before);
+        if (panelLightsTravel >= 0.1) {
+            panelLightsTravel = 0;
+            sounds.click(chaseView ? 0.15 : 0.3);
+        }
+    }
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
