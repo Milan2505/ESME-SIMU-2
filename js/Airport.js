@@ -55,7 +55,7 @@ const STANDS = [-80, -60, -40, -20, 15, 45, 75];
 // Noms des places (peints au sol, donnés par la tour) : N1 à N4 au nord du parking, H1 à H3 devant les hangars
 const STAND_NAMES = ['N1', 'N2', 'N3', 'N4', 'H1', 'H2', 'H3'];
 // Identité de l'aérodrome pour la tour de contrôle (code OACI fictif, en LF comme les terrains français)
-const AERODROME = { icao: 'LFXE', name: 'ESME', tower: '118.300', taxiway: 'A' };
+const AERODROME = { icao: 'LFXE', name: 'ESME', taxiway: 'A', frequencies: { ground: '121.875', tower: '118.300', approach: '120.450' } };
 const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 // Balise VOR de l'aérodrome (VOR conventionnel : abri, plan réflecteur circulaire, antenne centrale), au nord-est
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
@@ -568,7 +568,13 @@ class Airport {
         }
     }
 
-    update(delta, windStrength, camera) {
+    // windDirection : d'où vient le vent (°, 0 = nord) ; la manche à air s'oriente sous le vent
+    update(delta, windStrength, camera, windDirection = WIND_DIRECTION) {
+        if (this._sockPivot) {
+            const target = -windDirection * Math.PI / 180;
+            const diff = Math.atan2(Math.sin(target - this._sockPivot.rotation.y), Math.cos(target - this._sockPivot.rotation.y));
+            this._sockPivot.rotation.y += diff * Math.min(1, delta * 1.5);
+        }
         this._updatePapi(camera);
         this._time += delta;
         const t = this._time;
@@ -908,7 +914,8 @@ class Airport {
         // Pivot en haut du mât, la manche pend vers le bas sans vent et s'oriente sous le vent
         const pivot = new Group();
         pivot.position.set(255, 5.9, -300);
-        pivot.rotation.y = WIND_DIRECTION;
+        pivot.rotation.y = -WIND_DIRECTION * Math.PI / 180;
+        this._sockPivot = pivot;
         this._sock = new Group();
         // Tronc de cône ouvert : large à l'entrée (mât), étroit au bout, axe vers +z (le sud)
         const cone = new CylinderGeometry(0.18, 0.45, 3.5, 12, 1, true);

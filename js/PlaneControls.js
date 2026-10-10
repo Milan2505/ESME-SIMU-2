@@ -216,6 +216,10 @@ class PlaneControls extends Controls {
 	getSpeed() {
 		return this.model.airspeed;
 	}
+	// Vitesse lue à l'anémomètre : au sol, vent de face compris
+	getIndicatedSpeed() {
+		return this.model.indicatedSpeed;
+	}
 	getAltitude() {
 		return this.object.position.y;
 	}

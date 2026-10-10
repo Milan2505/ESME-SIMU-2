@@ -26,6 +26,7 @@ import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
 import { ATC } from './js/ATC.js';
+import { Wind } from './js/Wind.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -141,7 +142,9 @@ const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT, trimAirframe });
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
-const atc = new ATC({ airport, sounds, registration: 'F-HESM', aircraftType: 'Cessna 172' });
+// Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
+const wind = new Wind();
+const atc = new ATC({ airport, wind, sounds, registration: 'F-HESM', aircraftType: 'Cessna 172' });
 const radio = new Radio(multiplayer);
 
 const loader = new Utils3dLoader();
@@ -1365,7 +1368,8 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyM' && !event.repeat && !isTypingTarget(event.target)) toggleMap();
 });
 
-// --- Tour de contrôle : fenêtre (bouton "Tour" du bandeau), messages au choix selon la phase du vol ----------
+// --- Contrôle aérien : fenêtre (bouton "Tour" du bandeau), fréquences Sol / Tour / Approche, messages au choix
+// selon la phase du vol, personnes à bord, transpondeur ------------------------------------------------------
 const atcPanel = document.getElementById('atc');
 const atcButton = document.getElementById('atc-bouton');
 const atcJournal = document.getElementById('atc-journal');
@@ -1373,14 +1377,13 @@ const atcChoices = document.getElementById('atc-choix');
 const atcSubtitle = document.getElementById('atc-sous-titre');
 const atcVoiceButton = document.getElementById('atc-voix');
 const atcAtisButton = document.getElementById('atc-atis');
-const ATC_SPEAKERS = { pilot: 'VOUS', atc: 'TOUR', atis: 'ATIS' };
-{
-    const { icao, name, tower } = airport.aerodrome;
-    document.getElementById('atc-titre').textContent = `${icao} · ${name} Tour`;
-    document.getElementById('atc-frequence').textContent = `TWR ${tower}`;
-    document.getElementById('atc-indicatif').textContent = atc.registration;
-    atcButton.textContent = `Tour · ${tower}`;
-}
+const atcCom = document.getElementById('atc-com');
+const atcPersons = document.getElementById('atc-bord');
+const atcTransponder = document.getElementById('atc-xpdr');
+const atcSquawk = document.getElementById('atc-code-demande');
+const ATC_SHORT = { ground: 'SOL', tower: 'TOUR', approach: 'APP' };
+document.getElementById('atc-indicatif').textContent = atc.registration;
+atcButton.textContent = `Tour · ${airport.aerodrome.frequencies.tower}`;
 window.speechSynthesis?.getVoices();   // charge la liste des voix à l'avance
 
 function toggleAtc(open = atcPanel.hidden) {
@@ -1408,27 +1411,74 @@ function setAtcVoice(on) {
 }
 atcVoiceButton.addEventListener('click', () => { setAtcVoice(!atc.voice); view.focus(); });
 atcAtisButton.addEventListener('click', () => { sounds.unlock(); atc.playAtis(); view.focus(); });
+
+// Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée
+atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
+    const button = document.createElement('button');
+    button.dataset.station = id;
+    button.title = `Afficher ${name} sur la radio`;
+    const label = document.createElement('strong');
+    label.textContent = name.split(' ').slice(1).join(' ');
+    const value = document.createElement('span');
+    value.textContent = frequency;
+    button.append(label, value);
+    button.addEventListener('click', () => { atc.setFrequency(id); view.focus(); });
+    return button;
+}));
+
+// Personnes à bord (annoncées au premier contact)
+atcPersons.addEventListener('change', () => {
+    atc.setPersons(Number(atcPersons.value));
+    try { localStorage.setItem('atc-bord', String(atc.persons)); } catch { /* stockage indisponible */ }
+    view.focus();
+});
+
+// Transpondeur : 4 chiffres de 0 à 7, validés par Entrée ou en quittant la case
+function applyTransponder() {
+    const ok = atc.setTransponder(atcTransponder.value.trim());
+    atcTransponder.classList.toggle('erreur', !ok);
+    if (!ok) atcTransponder.value = atc.transponder;
+}
+atcTransponder.addEventListener('change', applyTransponder);
+atcTransponder.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        applyTransponder();
+        view.focus();
+    }
+});
+
 {
-    let lang = 'fr', voice = true;
+    let lang = 'fr', voice = true, persons = 2;
     try {
         lang = localStorage.getItem('atc-langue') ?? 'fr';
         voice = localStorage.getItem('atc-voix') !== '0';
+        persons = Number(localStorage.getItem('atc-bord') ?? 2);
     } catch { /* stockage indisponible */ }
     setAtcLanguage(lang);
     setAtcVoice(voice);
+    atc.setPersons(persons);
+    atcPersons.value = String(atc.persons);
 }
 
 function renderAtc() {
+    const { icao, name, frequencies } = airport.aerodrome;
+    const station = atc.stations.find((st) => st.id === atc.freq);
+    atcButton.textContent = `${station.name.split(' ').slice(1).join(' ')} · ${frequencies[atc.freq]}`;
     if (atcPanel.hidden) return;
+    document.getElementById('atc-titre').textContent = `${icao} · ${station.name}`;
+    document.getElementById('atc-frequence').textContent = frequencies[atc.freq];
+    for (const button of atcCom.children) button.classList.toggle('actif', button.dataset.station === atc.freq);
+    if (document.activeElement !== atcTransponder) atcTransponder.value = atc.transponder;
+    atcSquawk.textContent = atc.squawk && atc.squawk !== atc.transponder ? `demandé : ${atc.squawk}` : '';
     document.getElementById('atc-etat').textContent = atc.status;
     atcAtisButton.textContent = `Écouter l'ATIS · ${atc.atisLetter}`;
     atcAtisButton.disabled = atc.busy;
-    atcJournal.replaceChildren(...atc.log.slice(-8).map(({ from, text }) => {
+    atcJournal.replaceChildren(...atc.log.slice(-8).map(({ from, text, station: who }) => {
         const item = document.createElement('li');
         item.className = `atc-${from}`;
-        const who = document.createElement('b');
-        who.textContent = ATC_SPEAKERS[from];
-        item.append(who, ' ', text);
+        const label = document.createElement('b');
+        label.textContent = from === 'pilot' ? 'VOUS' : from === 'atis' ? 'ATIS' : from === 'info' ? 'COM' : who;
+        item.append(label, ' ', text);
         return item;
     }));
     atcJournal.scrollTop = atcJournal.scrollHeight;
@@ -1439,10 +1489,8 @@ function renderAtc() {
         return p;
     };
     if (atc.busy) atcChoices.replaceChildren(note('Émission en cours…'));
-    else if (!atc.options.length) atcChoices.replaceChildren(note(choosingSpawn ? 'Choisissez un point de départ.'
-        : 'Rien à transmettre pour le moment : les messages proposés suivent la phase du vol.'));
     else {
-        atcChoices.replaceChildren(...atc.options.map((option) => {
+        const children = atc.options.map((option) => {
             const button = document.createElement('button');
             if (option.id === 'readback') button.className = 'atc-collationner';
             if (option.id === 'sayAgain') button.className = 'atc-repetez';
@@ -1457,17 +1505,34 @@ function renderAtc() {
                 view.focus();
             });
             return button;
-        }));
+        });
+        // Rien à dire sur cette fréquence : celle qui gère l'avion à cet endroit
+        if (atc.suggestion) {
+            const target = atc.stations.find((st) => st.id === atc.suggestion);
+            const button = document.createElement('button');
+            button.className = 'atc-frequence-conseil';
+            const label = document.createElement('strong');
+            label.textContent = 'Changer de fréquence';
+            const phrase = document.createElement('span');
+            phrase.textContent = `Ici, c'est ${target.name} qui vous gère : afficher ${target.frequency}`;
+            button.append(label, phrase);
+            button.addEventListener('click', () => { atc.setFrequency(target.id); view.focus(); });
+            children.unshift(button);
+        }
+        if (!children.length) children.push(note(choosingSpawn ? 'Choisissez un point de départ.'
+            : 'Rien à transmettre pour le moment : les messages proposés suivent la phase du vol.'));
+        atcChoices.replaceChildren(...children);
     }
 }
 atc.addEventListener('change', renderAtc);
 
-// Sous-titre de l'émission en cours ; la fenêtre s'ouvre d'elle-même quand la tour attend un collationnement
+// Sous-titre de l'émission en cours ; la fenêtre s'ouvre d'elle-même quand un contrôleur attend un collationnement
 let atcSubtitleTimer = 0;
-atc.addEventListener('transmit', ({ from, text, on }) => {
+atc.addEventListener('transmit', ({ from, text, station, on }) => {
     clearTimeout(atcSubtitleTimer);
     if (on) {
-        atcSubtitle.textContent = `${ATC_SPEAKERS[from]} : ${text}`;
+        const who = from === 'pilot' ? 'VOUS' : from === 'atis' ? 'ATIS' : ATC_SHORT[station];
+        atcSubtitle.textContent = `${who} : ${text}`;
         atcSubtitle.className = `atc-${from}`;
         atcSubtitle.hidden = false;
     } else {
@@ -1504,7 +1569,7 @@ updateOnlineList();
 // Instruments de la cabine : valeurs lues sur les commandes
 function cockpitState() {
     return {
-        speed: controls.getSpeed(),
+        speed: controls.getIndicatedSpeed(),
         altitude: controls.getAltitude() - WHEEL_HEIGHT,
         verticalSpeed: controls.getVerticalSpeed(),
         heading: controls.getHeading(),
@@ -1802,6 +1867,8 @@ renderer.setAnimationLoop((time)=>{
     const frameStart = performance.now();
     const delta = clock.getDelta();
 
+    wind.update();
+    controls.model.wind.copy(wind.vector);
     if (!choosingSpawn) controls.update( delta );
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
@@ -1866,7 +1933,7 @@ renderer.setAnimationLoop((time)=>{
     }
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
-    airport.update( delta, weather.wind, camera );
+    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction );
     airport.updateHangars( delta, aircraft.position );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );

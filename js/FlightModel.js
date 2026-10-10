@@ -73,6 +73,8 @@ class FlightModel extends EventDispatcher {
 		this.surface = 'grass';
 		this._angularVelocity = new Vector3(); // repère avion (rad/s) : x tangage (+ = cabrer), y lacet, z roulis (+ = gauche)
 		this._wind = new Vector3();      // rafales (repère monde, m/s)
+		this.wind = new Vector3();       // vent moyen de la météo (repère monde, m/s), voir Wind.js
+		this.indicatedSpeed = 0;         // vitesse lue à l'anémomètre (au sol : roulage + vent de face)
 		this._gustRoll = 0;
 		this._gustRollTarget = 0;
 		this._gustTimer = 0;
@@ -238,9 +240,9 @@ class FlightModel extends EventDispatcher {
 		_right.copy( _xAxis ).applyQuaternion( quaternion );
 
 		// Vent relatif : incidence (dans le plan de symétrie de l'avion) et dérapage
-		_air.subVectors( this.velocity, this._wind );
+		_air.subVectors( this.velocity, this._wind ).sub( this.wind );
 		const speed = Math.max( 0.1, _air.length() );
-		this.airspeed = speed;
+		this.airspeed = this.indicatedSpeed = speed;
 		const alpha = Math.atan2( - _air.dot( _planeUp ), _air.dot( _forward ) );
 		const beta = Math.asin( MathUtils.clamp( _air.dot( _right ) / speed, - 1, 1 ) );
 		this.alpha = alpha;
@@ -326,17 +328,22 @@ class FlightModel extends EventDispatcher {
 		const input = this.controls;
 		this.surface = this.surfaceAt( object.position.x, object.position.z );
 
-		let speed = this.airspeed;
-		const pressure = 0.5 * AIR_DENSITY * speed * speed * A.wingArea;
+		let speed = this.airspeed;       // au sol : vitesse de roulage
+		// Vent de face (ou arrière) : il s'ajoute à la vitesse de l'air sur l'aile (décollage plus court face au vent)
+		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
+		const headwind = - ( this.wind.x * _forward.x + this.wind.z * _forward.z );
+		let air = Math.max( 0, speed + headwind );
+		const pressure = 0.5 * AIR_DENSITY * air * air * A.wingArea;
 		const lift = this._liftCoefficient( this._groundPitch );
 		const wheelLoad = Math.max( 0, 1 - lift * pressure / ( A.mass * GRAVITY ) );
 		// Pente de la piste dans l'axe de roulage (sans le cabré de l'avion) : > 0 en montée
 		this._groundNormal( object.position.x, object.position.z, _normal );
 		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
 		const slope = _forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize().y;
-		speed += ( ( this._thrust( speed ) - this._dragCoefficient( lift ) * pressure ) / A.mass - GRAVITY * slope ) * dt;
+		speed += ( ( this._thrust( air ) - this._dragCoefficient( lift ) * pressure ) / A.mass - GRAVITY * slope ) * dt;
 		speed -= ( A.rolling[ this.surface ] + input.brake * A.brakes ) * wheelLoad * dt;
 		this.airspeed = speed = Math.max( 0, speed );
+		this.indicatedSpeed = air = Math.max( 0, speed + headwind );
 
 		// Palonnier (et manche à basse vitesse) : moins d'autorité quand ça va vite
 		const steer = MathUtils.clamp( input.yaw + input.roll * 0.5, - 1, 1 );
@@ -346,9 +353,9 @@ class FlightModel extends EventDispatcher {
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
 		// Aide "rotation automatique" : manche au neutre, le trim lève doucement le nez jusqu'à son assiette
 		const trimPitch = MathUtils.clamp( this.trimAlpha(), 0, A.maxGroundPitch );
-		if ( input.pitch > 0 && speed > this.rotateSpeed * 0.85 ) {
-			this._groundPitch += input.pitch * 0.12 * Math.min( 1, ( speed / this.rotateSpeed ) ** 2 ) * dt; // ~7°/s
-		} else if ( this.assists.rotation && Math.abs( input.pitch ) < 0.05 && speed > this.rotateSpeed && this._groundPitch < trimPitch ) {
+		if ( input.pitch > 0 && air > this.rotateSpeed * 0.85 ) {
+			this._groundPitch += input.pitch * 0.12 * Math.min( 1, ( air / this.rotateSpeed ) ** 2 ) * dt; // ~7°/s
+		} else if ( this.assists.rotation && Math.abs( input.pitch ) < 0.05 && air > this.rotateSpeed && this._groundPitch < trimPitch ) {
 			this._groundPitch = Math.min( trimPitch, this._groundPitch + 0.06 * dt );
 		} else {
 			this._groundPitch -= ( input.pitch < 0 ? 0.6 : 0.25 ) * ( 0.3 + 0.7 * wheelLoad ) * dt;

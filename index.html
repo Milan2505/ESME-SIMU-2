@@ -168,7 +168,17 @@
 		</div>
 		<div class="atc-infos">
 			<span>Indicatif <b id="atc-indicatif"></b> · Cessna 172</span>
-			<button id="atc-atis" title="Bulletin météo de l'aérodrome (à écouter avant le premier contact)">ATIS</button>
+			<label title="Annoncé au premier contact">À bord
+				<select id="atc-bord"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+			</label>
+		</div>
+		<div id="atc-com" title="Radio COM : fréquence écoutée"></div>
+		<div class="atc-infos">
+			<label title="Code à 4 chiffres (0 à 7) donné par le contrôleur ; Entrée pour valider">Transpondeur
+				<input id="atc-xpdr" maxlength="4" inputmode="numeric" autocomplete="off" value="7000">
+			</label>
+			<span id="atc-code-demande"></span>
+			<button id="atc-atis" title="Bulletin météo de l'aérodrome (lettre à annoncer au premier contact)">ATIS</button>
 		</div>
 		<p id="atc-etat"></p>
 		<ol id="atc-journal"></ol>
