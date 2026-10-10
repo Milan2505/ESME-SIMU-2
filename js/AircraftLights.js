@@ -227,6 +227,7 @@ class AircraftLights {
         this.group = new Group();
         this.night = 0;
         this.landingLight = false;
+        this.switches = null;   // interrupteurs (avion du joueur) ; null : tous les feux allumés, phare la nuit
         this.occluder = null;   // modèle de l'avion : un feu caché derrière lui n'a pas de halo
         this._lastTime = 0;
         this.lights = LIGHTS.map((def) => {
@@ -269,6 +270,14 @@ class AircraftLights {
         for (const light of this.tipLights) light.visible = landingLight;
     }
 
+    // Interrupteurs de la cabine : { nav, beacon, strobe, land }
+    setSwitches(switches) {
+        this.switches = switches;
+        this.landingLight = switches.land;
+        this.beam.visible = switches.land && this.night >= 0.5;
+        for (const light of this.tipLights) light.visible = this.night >= 0.5 && (switches.nav || switches.strobe);
+    }
+
     // Le halo d'un feu masqué par l'avion lui-même (aile, fuselage) s'efface
     // Vue cabine : l'aile modélisée dans la cabine (voir Cockpit.js) est 0,5 m plus en arrière et plus haute que
     // celle du modèle extérieur ; les feux d'aile s'y recalent (bord d'attaque à z -2,28, extrados vers y 1,35)
@@ -301,17 +310,22 @@ class AircraftLights {
         const beaconPhase = (time % 1) * Math.PI * 2;      // anticollision : un tour par seconde
         const strobe = time % 1.4;                          // strobes : double éclat toutes les 1,4 s
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
+        const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight };
         for (const light of this.tipLights) {
-            if (strobeOn) light.color.setRGB(1, 1, 1);
+            const flash = strobeOn && sw.strobe;
+            if (flash) light.color.setRGB(1, 1, 1);
             else light.color.copy(light.userData.navColor);
-            light.intensity = strobeOn ? STROBE_FLASH : NAV_GLOW;
+            light.intensity = flash ? STROBE_FLASH : sw.nav ? NAV_GLOW : 0;
         }
 
         for (const light of this.lights) {
             const toEye = _eye.clone().sub(light.position);
             const distance = toEye.length();
             let intensity = 1;
-            if (light.kind === 'nav') {
+            const enabled = light.kind === 'landing' ? sw.land : sw[light.kind];
+            if (!enabled) {
+                intensity = 0;
+            } else if (light.kind === 'nav') {
                 intensity = sectorVisibility(Math.atan2(toEye.x, -toEye.z), light.sector);
             } else if (light.kind === 'landing') {
                 // Faisceau vers l'avant : éblouit quand on est dans l'axe, invisible de côté et de l'arrière
@@ -343,7 +357,7 @@ class AircraftLights {
             let glow = 0.1 + 3 * Math.min(1, intensity * 1.5);
             // Feu de navigation vu hors de son secteur (de l'arrière, règle OACI : pas de halo) : le verre reste
             // allumé, plus faiblement, la nuit
-            if (light.kind === 'nav') glow = Math.max(glow, 0.1 + 0.9 * this.night);
+            if (light.kind === 'nav' && sw.nav) glow = Math.max(glow, 0.1 + 0.9 * this.night);
             for (const material of light.glows) material.emissiveIntensity = glow;
             light.flare.visible = intensity > 0.02;
             if (!light.flare.visible) continue;

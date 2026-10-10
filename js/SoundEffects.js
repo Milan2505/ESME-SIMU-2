@@ -62,6 +62,27 @@ class SoundEffects {
         loop.source.playbackRate.setTargetAtTime(rate, now, 0.2);
     }
 
+    // Clic d'un interrupteur ou d'un bouton de la cabine (bruit court et sec, synthétisé)
+    click() {
+        if (!this._audio) return;
+        const audio = this._audio;
+        if (!this._clickBuffer) {
+            const length = Math.round(audio.sampleRate * 0.03);
+            this._clickBuffer = audio.createBuffer(1, length, audio.sampleRate);
+            const data = this._clickBuffer.getChannelData(0);
+            for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (length * 0.12));
+        }
+        const source = audio.createBufferSource();
+        const filter = audio.createBiquadFilter();
+        const gain = audio.createGain();
+        source.buffer = this._clickBuffer;
+        filter.type = 'bandpass';
+        filter.frequency.value = 2400 + Math.random() * 600;
+        gain.gain.value = 0.5;
+        source.connect(filter).connect(gain).connect(this._master);
+        source.start();
+    }
+
     // Son ponctuel, éventuellement retardé (tonnerre : le son arrive après l'éclair)
     play(name, { volume = 1, delay = 0, rate = 1 } = {}) {
         if (!this._buffers) return;

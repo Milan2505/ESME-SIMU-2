@@ -128,15 +128,16 @@ class EngineSound {
         listener.upZ.setValueAtTime(e[6], now);
     }
 
-    // throttle : 0 -> 1 ; volume : 0 -> 1 (plus faible en cabine qu'à l'extérieur, par ex.)
-    update(throttle, volume = 1) {
+    // throttle : 0 -> 1 ; volume : 0 -> 1 (plus faible en cabine qu'à l'extérieur, par ex.) ;
+    // rate : régime relatif (démarreur : bien plus lent)
+    update(throttle, volume = 1, rate = 1) {
         if (!this._loops) return;
         const now = this._audio.currentTime;
         const { idle, full } = this._loops;
         mixLoops(this._loops, throttle, volume, now);
         // Le régime monte avec les gaz
-        idle.source.playbackRate.setTargetAtTime(0.9 + 0.3 * throttle, now, 0.2);
-        full.source.playbackRate.setTargetAtTime(0.8 + 0.3 * throttle, now, 0.2);
+        idle.source.playbackRate.setTargetAtTime((0.9 + 0.3 * throttle) * rate, now, 0.2);
+        full.source.playbackRate.setTargetAtTime((0.8 + 0.3 * throttle) * rate, now, 0.2);
     }
 }
 

@@ -56,6 +56,8 @@ class FlightModel extends EventDispatcher {
 		// Commandes du pilote
 		this.controls = { pitch: 0, roll: 0, yaw: 0, brake: 0 }; // profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins
 		this.throttle = 0.3;             // 0 -> 1
+		this.enginePower = 1;            // puissance disponible (0 = moteur arrêté), voir Systems.js
+		this.flapsPowered = true;        // moteur électrique des volets alimenté
 		this.trim = aircraft.takeoffTrim; // tab de profondeur (rad, + = à cabrer)
 		this.flapLevel = 0;              // cran demandé (indice dans aircraft.flapLevels)
 
@@ -128,7 +130,7 @@ class FlightModel extends EventDispatcher {
 
 		// Volets : se déplacent progressivement vers le cran demandé
 		const flapTarget = A.flapLevels[ this.flapLevel ] / A.flapLevels[ A.flapLevels.length - 1 ];
-		this.flaps += MathUtils.clamp( flapTarget - this.flaps, - A.flapRate * delta, A.flapRate * delta );
+		if ( this.flapsPowered ) this.flaps += MathUtils.clamp( flapTarget - this.flaps, - A.flapRate * delta, A.flapRate * delta );
 		this._updateGusts( delta );
 
 		// Physique en petits pas réguliers : même comportement quelle que soit la fréquence d'images
@@ -212,14 +214,14 @@ class FlightModel extends EventDispatcher {
 
 	// Poussée de l'hélice (N) : limitée à l'arrêt, puis à puissance constante (elle baisse avec la vitesse)
 	_thrust( speed ) {
-		return this.throttle * Math.min( this.aircraft.staticThrust, this.aircraft.power / Math.max( 1, speed ) );
+		return this.throttle * this.enginePower * Math.min( this.aircraft.staticThrust, this.aircraft.power / Math.max( 1, speed ) );
 	}
 
 	// Coefficient de traînée : forme + volets + induite (réduite près du sol) + hélice au ralenti + aile décrochée
 	_dragCoefficient( lift, groundEffect = 1 ) {
 		const A = this.aircraft;
 		return A.cd0 + A.flapDrag * this.flaps + A.inducedDrag * lift * lift * groundEffect
-			+ A.windmillDrag * ( 1 - this.throttle ) + ( this.stalled ? A.stallDrag : 0 );
+			+ A.windmillDrag * ( 1 - this.throttle * this.enginePower ) + ( this.stalled ? A.stallDrag : 0 );
 	}
 
 	// --- En vol ---

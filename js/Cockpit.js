@@ -20,16 +20,22 @@ import {
     SRGBColorSpace,
     Vector3
 } from 'three';
+import { Hotspots, drawSubpanel, drawEngineGauges, drawAnnunciators, drawPedestal, drawFuelSelector } from './PanelControls.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote).
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
 const EYE = new Vector3(-0.3, 0.1, 0); // hauteur d'œil : on voit le sol par-dessus le tableau à ~12° sous l'horizon
-const PANEL = { width: 1.2, height: 0.4, y: -0.3, z: -0.75 };
+// Tableau : instruments en haut (0,4 m), sous-panneau d'interrupteurs en bas (0,14 m), comme dans un Cessna 172
+const PANEL = { width: 1.2, height: 0.54, y: -0.37, z: -0.75 };
 // Manches : colonne au ras du tableau (comme dans un Cessna), course poussé / tiré et rotation du volant
 const YOKE_Z = -0.75;
 const YOKE_TRAVEL = 0.1;          // m de chaque côté du neutre
 const YOKE_TURN = Math.PI / 2;    // 90° de chaque côté
-const CANVAS = { width: 1536, height: 512 };
+const CANVAS = { width: 1536, height: 691 };
+const SUBPANEL_TOP = 512;          // début du sous-panneau dans le canvas (px)
+// Pupitre central (molette de trim, robinet carburant) et sélecteur de réservoir au plancher : 1 280 px par mètre
+const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.765, z: -0.598 };
+const FUEL_PLATE = { width: 0.2, height: 0.156, x: 0, y: -0.884, z: -0.45 };
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
 const FT = 1 / 0.3048;    // m -> pieds
@@ -406,7 +412,7 @@ function trimIndicator(ctx, x, y, trimDeg, takeoffDeg, [minDeg, maxDeg], trimKno
     ctx.fillText(`${Math.round(trimKnots)} KT`, x + 38, y + h + 39);
 }
 
-function radio(ctx, x, y, label, active, standby) {
+function radio(ctx, x, y, label, active, standby, powered = true) {
     ctx.fillStyle = '#151618';
     ctx.fillRect(x, y, 330, 70);
     ctx.strokeStyle = '#444';
@@ -418,7 +424,7 @@ function radio(ctx, x, y, label, active, standby) {
     ctx.font = 'bold 26px DejaVu Sans Mono, monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${active}  ${standby}`, x + 70, y + 36);
+    if (powered) ctx.fillText(`${active}  ${standby}`, x + 70, y + 36);
     caption(ctx, x + 30, y + 36, label, 14);
 }
 
@@ -738,6 +744,10 @@ class Cockpit {
         this._time = 0;
         this._sinceDraw = Infinity;
         this._smooth = { pitch: 0, roll: 0, yaw: 0, rpm: 0, slip: 0 };
+        this._night = 0;
+        this._gyro = null;
+        this.clickables = [];                         // surfaces et boutons cliquables (voir controlAt)
+        this._hotspots = { panel: new Hotspots() };
 
         const canvas = document.createElement('canvas');
         canvas.width = CANVAS.width;
@@ -765,6 +775,8 @@ class Cockpit {
 
         // Tableau de bord, casquette anti-reflet et bas du tableau
         this.panel = add(new Mesh(new PlaneGeometry(PANEL.width, PANEL.height), this._panelMaterial), 0, PANEL.y, PANEL.z);
+        this.panel.userData.surface = 'panel';
+        this.clickables.push(this.panel);
         // Boîtier du tableau : le plan des instruments n'a qu'une face (vers le pilote) ; vu de l'extérieur,
         // à travers le pare-brise, on voit ce dos plein au lieu d'un trou
         add(new Mesh(new BoxGeometry(PANEL.width + 0.06, PANEL.height + 0.02, 0.2), plastic), 0, PANEL.y, PANEL.z - 0.105);
@@ -864,6 +876,47 @@ class Cockpit {
         this._throttle.add(rod, this._throttleKnob);
         this.group.add(this._throttle);
         this._throttleCanvas = toCanvas(tx, ty);
+        this._throttleKnob.userData.control = 'throttle';
+        // Manette de mixture : bouton rouge moleté, sous le compte-tours (tirée = appauvrie, à fond = étouffoir)
+        this._mixture = new Group();
+        const [mxm, mym] = [0.02, -0.49];
+        this._mixture.position.set(mxm, mym, PANEL.z);
+        const mixtureRod = rod.clone();
+        const red = new MeshStandardMaterial({ color: 0xc62d1f, roughness: 0.5 });
+        const mixtureKnob = new Mesh(new SphereGeometry(0.02, 16, 12), red);
+        mixtureKnob.scale.set(1, 1, 0.7);
+        mixtureKnob.userData.control = 'mixture';
+        const ridges = new Mesh(new CylinderGeometry(0.027, 0.027, 0.012, 10), red);
+        ridges.rotation.x = Math.PI / 2;
+        ridges.position.z = -0.006;
+        this._mixture.add(mixtureRod, mixtureKnob, ridges);
+        this.group.add(this._mixture);
+        this._mixtureCanvas = toCanvas(mxm, mym);
+        this.clickables.push(this._throttleKnob, mixtureKnob);
+
+        // Pupitre central (molette de trim, robinet carburant) et sélecteur de réservoir au plancher
+        this._sideMaterials = [];
+        const canvasPlane = (spec, name) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(spec.width * PX_PER_M);
+            canvas.height = Math.round(spec.height * PX_PER_M);
+            const texture = new CanvasTexture(canvas);
+            texture.colorSpace = SRGBColorSpace;
+            texture.anisotropy = 8;
+            const material = new MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.4, roughness: 0.6 });
+            this._sideMaterials.push(material);
+            const mesh = new Mesh(new PlaneGeometry(spec.width, spec.height), material);
+            mesh.userData.surface = name;
+            this.clickables.push(mesh);
+            this._hotspots[name] = new Hotspots();
+            return { mesh, ctx: canvas.getContext('2d'), texture };
+        };
+        add(new Mesh(new BoxGeometry(0.22, 0.25, 0.16), plastic), 0, PEDESTAL.y, PEDESTAL.z - 0.082);
+        this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
+        add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);
+        this._fuelPlate = canvasPlane(FUEL_PLATE, 'fuel');
+        this._fuelPlate.mesh.rotation.x = -Math.PI / 2;
+        add(this._fuelPlate.mesh, FUEL_PLATE.x, FUEL_PLATE.y, FUEL_PLATE.z);
 
         // Pare-brise : film d'eau et gouttes en cas de pluie
         const start = new Vector3(0, -0.05, -0.98), end = new Vector3(0, 0.37, -0.42);
@@ -923,19 +976,30 @@ class Cockpit {
         // en tempête, comme l'éclairage d'instruments d'un vrai avion (n'éblouit pas)
         const warm = Math.min(1, night * 2);
         this._panelMaterial.emissive.set(0xffffff).lerp(PANEL_NIGHT_LIGHT, warm);
-        this._panelMaterial.emissiveIntensity = 0.5 + 0.4 * night;
+        this._night = night;
         this._glassMaterial.uniforms.uLight.value = 1 - 0.8 * night; // reflets du ciel bien plus faibles la nuit
     }
 
-    // Clic sur le tableau de bord (coordonnées de texture du point touché) : renvoie le bouton cliqué
-    buttonAt(uv) {
-        const x = uv.x * CANVAS.width, y = (1 - uv.y) * CANVAS.height;
-        const b = ILS_BUTTON;
-        if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) return 'ils';
-        // Bouton OBS : moitié gauche -1°, moitié droite +1°
-        const k = OBS_KNOB;
-        if (Math.hypot(x - k.x, y - k.y) <= k.r + 6) return x < k.x ? 'obs-' : 'obs+';
-        return null;
+    // Commande sous un point touché par un rayon (intersection three.js avec this.clickables) :
+    // { id, side (-1 gauche / 1 droite), vertical (-1 haut / 1 bas) } ou null
+    controlAt(hit) {
+        const object = hit.object;
+        if (object.userData.control) return { id: object.userData.control, side: 0, vertical: hit.uv && hit.uv.y > 0.5 ? -1 : 1 };
+        const surface = object.userData.surface;
+        if (!surface || !hit.uv) return null;
+        const canvas = surface === 'panel' ? CANVAS : this[surface === 'pedestal' ? '_pedestal' : '_fuelPlate'].ctx.canvas;
+        return this._hotspots[surface].at(hit.uv.x * canvas.width, (1 - hit.uv.y) * canvas.height);
+    }
+
+    _drawPedestal(state) {
+        const trim = { deg: state.trim, min: state.trimLimits[0], max: state.trimLimits[1], takeoff: state.takeoffTrim };
+        const p = this._pedestal, f = this._fuelPlate;
+        this._hotspots.pedestal.clear();
+        drawPedestal(p.ctx, this._hotspots.pedestal, p.ctx.canvas.width, p.ctx.canvas.height, state.systems, trim);
+        p.texture.needsUpdate = true;
+        this._hotspots.fuel.clear();
+        drawFuelSelector(f.ctx, this._hotspots.fuel, f.ctx.canvas.width, f.ctx.canvas.height, state.systems);
+        f.texture.needsUpdate = true;
     }
 
     setRain(intensity) {
@@ -951,8 +1015,7 @@ class Cockpit {
         s.pitch += (state.inputs.pitch - s.pitch) * k;
         s.roll += (state.inputs.roll - s.roll) * k;
         s.yaw += (state.inputs.yaw - s.yaw) * k;
-        const rpm = state.crashed ? 0 : 750 + state.throttle * 1950 + state.speed * 4;
-        s.rpm += (rpm - s.rpm) * (1 - Math.exp(-3 * delta));
+        s.rpm += ((state.crashed ? 0 : state.systems.rpm) - s.rpm) * (1 - Math.exp(-6 * delta));
         s.slip += (-s.yaw * 0.6 - s.slip) * (1 - Math.exp(-4 * delta));
 
         for (const yoke of this._yokes) {
@@ -960,6 +1023,10 @@ class Cockpit {
             yoke.wheel.rotation.z = s.roll * YOKE_TURN;                // volant tourné jusqu'à 90°
         }
         this._throttle.position.z = PANEL.z + 0.02 + (1 - state.throttle) * 0.08;
+        this._mixture.position.z = PANEL.z + 0.02 + (1 - state.systems.mixture) * 0.08;
+        // Éclairage des instruments : rhéostat, alimentation électrique
+        this._panelMaterial.emissiveIntensity = 0.12 + (0.38 + 0.4 * this._night) * state.systems.panelLighting;
+        for (const material of this._sideMaterials) material.emissiveIntensity = this._panelMaterial.emissiveIntensity;
 
         const u = this.windshieldMaterial.uniforms;
         u.uTime.value = this._time;
@@ -971,13 +1038,16 @@ class Cockpit {
         if (this._sinceDraw >= 1 / 25) {
             this._sinceDraw = 0;
             this._drawPanel(state);
+            this._drawPedestal(state);
         }
     }
 
     _drawPanel(state) {
         const ctx = this._ctx;
         const { width: w, height: h } = CANVAS;
+        const sys = state.systems;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this._hotspots.panel.clear();
 
         // Fond du tableau (gris anthracite, légères vis)
         const g = ctx.createLinearGradient(0, 0, 0, h);
@@ -989,12 +1059,23 @@ class Cockpit {
         const r = 88, col = 190, [px] = toCanvas(EYE.x, 0);
         const top = 132, bottom = 368;
         airspeed(ctx, px - col, top, r, state.speed * KT);
-        attitude(ctx, px, top, r, state.roll, state.pitchDeg);
+        // Gyroscopes entraînés par la dépression (pompe du moteur) : figés moteur arrêté
+        if (sys.vacuum || !this._gyro) this._gyro = { roll: state.roll, pitch: state.pitchDeg, heading: state.heading };
+        attitude(ctx, px, top, r, this._gyro.roll, this._gyro.pitch);
         altimeter(ctx, px + col, top, r, state.altitude * FT);
-        turnCoordinator(ctx, px - col, bottom, r, state.roll, this._smooth.slip);
-        headingIndicator(ctx, px, bottom, r, state.heading);
+        turnCoordinator(ctx, px - col, bottom, r, sys.turnCoordinatorPowered ? state.roll : 0, this._smooth.slip);
+        if (!sys.turnCoordinatorPowered) {
+            ctx.fillStyle = '#c0392b';
+            ctx.fillRect(px - col - 24, bottom + r * 0.38, 48, 18);
+            caption(ctx, px - col, bottom + r * 0.38 + 9, 'OFF', 13);
+        }
+        headingIndicator(ctx, px, bottom, r, this._gyro.heading);
         variometer(ctx, px + col, bottom, r, state.verticalSpeed * FT * 60);
         tachometer(ctx, 790, bottom - 10, 72, this._smooth.rpm);
+        // Manette de mixture (rouge), sous le compte-tours
+        const [mx, my] = this._mixtureCanvas;
+        caption(ctx, mx + 54, my - 4, 'MIXTURE', 13);
+        caption(ctx, mx + 54, my + 13, `${Math.round(sys.mixture * 100)} %`, 13);
 
         annunciator(ctx, 730, 60, 'STALL', state.stallWarning && Math.sin(this._time * 20) > 0, '#ff3b2f');
         annunciator(ctx, 730, 110, 'FREINS', state.inputs.brake > 0 && state.onGround, '#ffb000');
@@ -1002,11 +1083,18 @@ class Cockpit {
         flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
         trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimLimits, state.trimSpeed * KT);
 
-        radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
-        radio(ctx, 960, 150, 'NAV1', state.vor?.frequency ?? '113.50', '110.30');
-        ilsButton(ctx, ILS_BUTTON, state.ils);
+        const avionics = sys.avionicsPowered;
+        radio(ctx, 960, 60, 'COM1', '118.30', '121.50', avionics);
+        radio(ctx, 960, 150, 'NAV1', state.vor?.frequency ?? '113.50', '110.30', avionics);
+        ilsButton(ctx, ILS_BUTTON, avionics ? state.ils : null);
+        this._hotspots.panel.rect('ils', ILS_BUTTON.x, ILS_BUTTON.y, ILS_BUTTON.width, ILS_BUTTON.height);
         // Transpondeur
-        radio(ctx, 960, 240, 'XPDR', '7000', 'ALT');
+        radio(ctx, 960, 240, 'XPDR', '7000', 'ALT', avionics);
+        // Instruments moteur et panneau d'alarmes (sous les radios)
+        drawEngineGauges(ctx, 960, 372, sys);
+        drawAnnunciators(ctx, 960, 438, 330, sys, this._time);
+        // Sous-panneau : interrupteurs, disjoncteurs, volets
+        drawSubpanel(ctx, this._hotspots.panel, SUBPANEL_TOP, w, h - SUBPANEL_TOP, sys, { level: state.flapLevel, position: state.flaps });
 
         // Repère de la manette des gaz
         const [tx, ty] = this._throttleCanvas;
@@ -1015,8 +1103,9 @@ class Cockpit {
         caption(ctx, tx - 62, ty, `${Math.round(state.throttle * 100)} %`, 16);
 
         // Indicateur ILS (à la place de la boîte à gants)
-        vorIndicator(ctx, VOR_GAUGE.x, VOR_GAUGE.y, VOR_GAUGE.r, state.vor);
-        ilsIndicator(ctx, 1385, 400, 82, state.ils, this._time);
+        vorIndicator(ctx, VOR_GAUGE.x, VOR_GAUGE.y, VOR_GAUGE.r, avionics ? state.vor : null);
+        this._hotspots.panel.circle('obs', OBS_KNOB.x, OBS_KNOB.y, OBS_KNOB.r + 6);
+        ilsIndicator(ctx, 1385, 400, 82, avionics ? state.ils : null, this._time);
 
         this.panelTexture.needsUpdate = true;
     }

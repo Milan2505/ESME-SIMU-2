@@ -17,6 +17,7 @@ import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
 import { VOR } from './js/VOR.js';
+import { Systems } from './js/Systems.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
@@ -143,6 +144,8 @@ const loader = new Utils3dLoader();
 // Les commandes pilotent l'avion ; la caméra le suit (cabine ou vue extérieure)
 const aircraft = new THREE.Group();
 const controls = new PlaneControls( aircraft );
+// Systèmes de l'avion (électricité, moteur, carburant, feux) commandés depuis la cabine
+const systems = new Systems();
 // Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
 const decorGroups = [];
 let decorDensity = 1;
@@ -191,6 +194,23 @@ landingLight.position.set(-2.2, 1.12, -3);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
 landingLight.target.position.set(-1.2, -2.4, -80);
 airframe.add(landingLight, landingLight.target);
+// Feu de roulage, à côté du phare dans le bord d'attaque gauche : faisceau large, vers le sol devant l'avion
+const taxiLight = new THREE.SpotLight(0xfff3d6, 5000, 120, THREE.MathUtils.degToRad(32), 0.7, 1.6);
+taxiLight.position.set(-2.0, 1.12, -3);
+taxiLight.target.position.set(-1.5, -6, -40);
+taxiLight.visible = false;
+airframe.add(taxiLight, taxiLight.target);
+
+// Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
+// verraient pas et chaque lumière alourdit le rendu)
+function applyLights() {
+    const lights = systems.lights;
+    const dark = (weather?.night ?? 0) >= 0.5;
+    aircraftLights.setSwitches(lights);
+    landingLight.visible = lights.land && dark;
+    taxiLight.visible = lights.taxi && dark;
+}
+systems.addEventListener('change', applyLights);
 
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const model = aircraftModel = gltf.scene;
@@ -321,7 +341,7 @@ function setupPropellerBlur(propeller) {
 
 function updatePropeller(delta) {
     if (!propeller) return;
-    const spin = controls.isCrashed() ? 0 : 20 + 80 * controls.getThrottle(); // rad/s
+    const spin = controls.isCrashed() ? 0 : systems.rpm / 2700 * 100; // rad/s (vitesse d'affichage, pas réelle)
     propeller.rotation.z += spin * delta;
     const blur = THREE.MathUtils.clamp((spin - 30) / 40, 0, 1);
     propellerDisc.material.opacity = 0.15 * blur; // à peine visible, comme une vraie hélice lancée
@@ -437,13 +457,16 @@ view.addEventListener('pointermove', (event) => {
     }
 });
 for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, () => { drag = null; });
-view.addEventListener('dblclick', recenterCamera);
+view.addEventListener('dblclick', (event) => {
+    if (!controlAt(event)) recenterCamera(); // double-clic sur une commande : pas de recentrage
+});
 view.addEventListener('wheel', (event) => {
     event.preventDefault();
-    // En cabine, molette sur le bouton OBS du VOR : tourne la route (au lieu du zoom)
-    if (!chaseView && obsUnderPointer(event)) {
-        vor.turnCourse((event.deltaY < 0 ? 1 : -1) * (event.shiftKey ? 10 : 1));
-        return;
+    // En cabine, molette sur une commande (bouton, manette, molette de trim) : la tourne (au lieu du zoom)
+    const control = controlAt(event);
+    if (control) {
+        const up = event.deltaY < 0 ? 1 : -1;
+        if (useControl(control, control.id === 'trimWheel' ? -up : up, true, event.shiftKey)) return;
     }
     const zoom = Math.sign(event.deltaY) * 0.1;
     if (chaseView) {
@@ -456,6 +479,10 @@ view.addEventListener('wheel', (event) => {
 
 // Après une réinitialisation (bouton ou touche R), la caméra se replace d'un coup
 controls.addEventListener('reset', () => {
+    // Retour au point de départ : avion prêt à voler (moteur tournant, réservoirs remplis)
+    systems.reset();
+    systems.switches.land = systems.switches.taxi = (weather?.night ?? 0) >= 0.5;
+    applyLights();
     aircraft.updateMatrixWorld();
     updateCamera(0, true);
     crashEffect.stop();
@@ -652,9 +679,12 @@ function setWeather(name) {
     cockpit.setNight(w.night);
     airport.setNight(w.night);
     aircraftLights.setNight(w.night);
+    applyLights();
     remotePlayers.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
-    landingLight.visible = w.night >= 0.5;
+    // De nuit, le pilote allume phare et feu de roulage (interrupteurs LAND / TAXI, modifiables en cabine)
+    systems.switches.land = systems.switches.taxi = w.night >= 0.5;
+    systems.dispatchEvent(new Event('change'));
     landingLight.intensity = 12000;
 
     for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
@@ -1121,6 +1151,8 @@ function cockpitState() {
         stallWarning: controls.isNearStall(),
         ils: { ...ils.state, active: ils.active },
         vor: vor.state,
+        systems,
+        flapLevel: controls.getFlapLevel(),
     };
 }
 
@@ -1198,30 +1230,66 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyI' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleIls();
 });
 
-// Bouton du tableau de bord sous le pointeur (cabine)
-function panelButtonAt(event) {
-    const rect = view.getBoundingClientRect();
-    pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
-    raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObject(cockpit.panel)[0];
-    return hit ? cockpit.buttonAt(hit.uv) : null;
-}
-function obsUnderPointer(event) {
-    return String(panelButtonAt(event)).startsWith('obs');
-}
-
-// En cabine : clic (sans glisser) sur un bouton du tableau de bord
+// Commande de la cabine sous le pointeur : { id, side, vertical } (voir Cockpit.controlAt)
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-view.addEventListener('click', (event) => {
-    if (chaseView || dragDistance > 6) return;
+function controlAt(event) {
+    if (chaseView) return null;
     const rect = view.getBoundingClientRect();
     pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObject(cockpit.panel)[0];
-    const button = hit && cockpit.buttonAt(hit.uv);
-    if (button === 'ils') toggleIls();
-    if (button === 'obs-' || button === 'obs+') vor.turnCourse((button === 'obs-' ? -1 : 1) * (event.shiftKey ? 10 : 1));
+    const hit = raycaster.intersectObjects(cockpit.clickables, false)[0];
+    return hit ? cockpit.controlAt(hit) : null;
+}
+function obsUnderPointer(event) {
+    return controlAt(event)?.id === 'obs';
+}
+
+// Action d'une commande : clic (step = côté cliqué : -1 / +1) ou molette (step = -1 / +1). fine : Maj (pas plus grand)
+function useControl(control, step, wheel = false, fine = false) {
+    const { id } = control;
+    const trimStep = THREE.MathUtils.degToRad(fine ? 5 : 1);
+    if (id === 'ils') toggleIls();
+    else if (id === 'obs') vor.turnCourse(step * (fine ? 10 : 1));
+    else if (id === 'mags') systems.turnMagnetos(step);
+    else if (id.startsWith('switch:') || id.startsWith('breaker:')) {
+        if (wheel) return false;
+        systems.toggle(id.split(':')[1]);
+    } else if (id === 'panelLights') systems.setPanelLights(systems.panelLights + step * 0.1);
+    else if (id.startsWith('flaps:')) {
+        if (wheel) controls.setFlapLevel(THREE.MathUtils.clamp(controls.getFlapLevel() + step, 0, 3));
+        else controls.setFlapLevel(Number(id.split(':')[1]));
+    } else if (id === 'throttle') controls.throttle = THREE.MathUtils.clamp(controls.throttle + step * (fine ? 0.02 : 0.1), 0, 1);
+    else if (id === 'mixture') systems.setMixture(systems.mixture + step * (fine ? 0.02 : 0.1));
+    else if (id === 'trimWheel') {
+        const [min, max] = controls.getTrimLimits().map(THREE.MathUtils.degToRad);
+        controls.trim = THREE.MathUtils.clamp(controls.trim + step * trimStep, min, max);
+    } else if (id === 'fuelShutoff') {
+        if (wheel) return false;
+        systems.toggleFuelShutoff();
+    } else if (id === 'fuelSelector') systems.turnFuelSelector(step);
+    else return false;
+    sounds.click();
+    return true;
+}
+
+// En cabine : clic (sans glisser) sur une commande. Boutons rotatifs : côté gauche = moins, côté droit = plus ;
+// manettes (gaz, mixture) et molette de trim : moitié haute = pousser / piquer, moitié basse = tirer / cabrer
+view.addEventListener('click', (event) => {
+    if (dragDistance > 6) return;
+    const control = controlAt(event);
+    if (!control) return;
+    const vertical = ['throttle', 'mixture'].includes(control.id) ? -control.vertical
+        : control.id === 'trimWheel' ? control.vertical : control.side;
+    useControl(control, vertical || 1, false, event.shiftKey);
+});
+// Main au-dessus d'une commande : curseur "main"
+view.addEventListener('pointermove', (event) => {
+    if (drag || chaseView) {
+        if (!drag) view.style.cursor = '';
+        return;
+    }
+    view.style.cursor = controlAt(event) ? 'pointer' : '';
 });
 
 // Bruits de l'environnement : pluie (étouffée en cabine), roulement des pneus selon le revêtement
@@ -1342,9 +1410,14 @@ renderer.setAnimationLoop((time)=>{
     updateCamera( delta );
 
     updatePropeller( delta );
-    engineSound.update(controls.getThrottle(), controls.isCrashed() ? 0 : chaseView ? 1 : 0.7);
+    // Systèmes : moteur, carburant, électricité ; le modèle de vol en reçoit la puissance et l'alimentation des volets
+    if (!controls.isCrashed()) systems.update(delta, controls.getThrottle(), controls.getSpeed());
+    controls.model.enginePower = systems.power;
+    controls.model.flapsPowered = systems.flapsPowered;
+    const engineVolume = controls.isCrashed() ? 0 : (chaseView ? 1 : 0.7) * THREE.MathUtils.clamp(systems.rpm / 600, 0, 1);
+    engineSound.update(controls.getThrottle() * systems.power, engineVolume, systems.running ? 1 : 0.45);
     updateSounds();
-    multiplayer.update( aircraft, controls.getThrottle(), { crashed: controls.isCrashed(), crashes: crashCount } );
+    multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount } );
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
