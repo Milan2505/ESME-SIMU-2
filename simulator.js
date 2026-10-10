@@ -1554,7 +1554,7 @@ function updateSounds() {
     lastFlaps = flaps;
     sounds.setLoop('flapMotor', moving ? (chaseView ? 0.25 : 0.7) : 0, 1);
     // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
-    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.05 : 0.22) : 0, 1.7);
+    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.015 : 0.07) : 0, 1.7);
 }
 
 const aircraftVelocity = new THREE.Vector3();
