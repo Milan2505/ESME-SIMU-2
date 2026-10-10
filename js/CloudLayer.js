@@ -1,6 +1,7 @@
 import {
+    BackSide,
     Color,
-    DoubleSide,
+    FrontSide,
     Group,
     Mesh,
     PlaneGeometry,
@@ -37,6 +38,8 @@ const fragmentShader = /* glsl */`
     uniform vec2 uDrift;
     uniform float uOpacity;
     uniform float uBrightness;
+    uniform float uTop;          // 1 : dessus (éclairé par le soleil), 0 : dessous
+    uniform vec2 uSun;           // direction du soleil (plan horizontal)
     varying vec3 vWorld;
     #include <fog_pars_fragment>
 
@@ -60,15 +63,47 @@ const fragmentShader = /* glsl */`
         return value;
     }
 
+    float fbm3(vec2 p) {
+        float value = 0.0, amplitude = 0.5;
+        for (int o = 0; o < 3; o++) {
+            value += amplitude * noise(p);
+            p = p * 2.07 + vec2(5.3, 11.7);
+            amplitude *= 0.5;
+        }
+        return value;
+    }
+    // Moutonnement ("coton") : grosses boursouflures (~400 m), bosses (~120 m) et petits flocons (~35 m)
+    float wool(vec2 p) {
+        return fbm3(p / 400.0) * 0.45 + fbm3(p / 120.0 + 7.7) * 0.35 + fbm3(p / 35.0 + 3.1) * 0.2;
+    }
+
     void main() {
-        float n = fbm((vWorld.xz + uDrift) / uScale);
-        // Couverture : 1 = plafond presque continu ; bords des trouées adoucis
-        float cloud = smoothstep(1.0 - uCoverage - 0.08, 1.0 - uCoverage + 0.18, n);
+        vec2 p = vWorld.xz + uDrift;
+        float n = fbm(p / uScale);
+        // Détail estompé au loin (sinon il scintille). Distance calculée ici : le plan n'a que 4 sommets, à plus de 3 km
+        float detail = 1.0 - smoothstep(900.0, 2600.0, distance(vWorld, cameraPosition));
+        float w = wool(p);
+        // Couverture : 1 = plafond presque continu ; bords des trouées effilochés par le moutonnement
+        float edge = n + (w - 0.5) * 0.22 * detail;
+        float cloud = smoothstep(1.0 - uCoverage - 0.06, 1.0 - uCoverage + 0.14, edge);
         float alpha = cloud * uOpacity;
         if (alpha < 0.01) discard;
-        // Plus épais (plus sombre dessous) là où le bruit est fort
-        vec3 color = mix(uColor, uShadow, smoothstep(0.38, 0.78, n)) * uBrightness;
-        gl_FragColor = vec4(color, alpha);
+        // Relief des bosses éclairé par le soleil : pente vers le soleil claire, versant opposé et creux sombres
+        float slope = (w - wool(p + uSun * 15.0)) * 14.0;
+        float hollow = smoothstep(0.3, 0.7, w);
+        vec3 color;
+        if (uTop > 0.5) {
+            // Dessus : sommets des bosses blancs, creux gris, versant au soleil éclairé, versant opposé dans l'ombre
+            float light = 0.45 + 0.55 * hollow + slope;
+            color = mix(uShadow, uColor, clamp(mix(0.8, light, detail), 0.0, 1.08));
+        } else {
+            // Dessous : plus sombre là où la couche est épaisse (sous les bosses), plus clair dans les creux
+            float thick = smoothstep(0.35, 0.8, n) * 0.45 + hollow * 0.55 * detail;
+            color = mix(uColor, uShadow, clamp(thick - slope * 0.5 * detail, 0.0, 1.0));
+        }
+        // Bord des trouées plus clair (nuage mince)
+        color = mix(color, uColor, (1.0 - cloud) * 0.5);
+        gl_FragColor = vec4(color * uBrightness, alpha);
         #include <colorspace_fragment>
         #include <fog_fragment>
     }
@@ -116,12 +151,13 @@ function createMaterial() {
             uDrift: { value: [0, 0] },
             uOpacity: { value: 0.97 },
             uBrightness: { value: 1 },
+            uTop: { value: 0 },
+            uSun: { value: [0.5, -0.866] },     // soleil au sud-est (azimut 150°), comme le jour
         }]),
         vertexShader,
         fragmentShader,
         transparent: true,
         depthWrite: false,
-        side: DoubleSide,
         fog: true,
     });
 }
@@ -136,6 +172,10 @@ class CloudLayer {
         const geometry = new PlaneGeometry(SIZE, SIZE).rotateX(-Math.PI / 2);
         this.bottom = new Mesh(geometry, createMaterial());
         this.top = new Mesh(geometry, createMaterial());
+        // Chaque surface n'est dessinée que du côté où on la voit (deux fois moins de calcul)
+        this.bottom.material.side = BackSide;   // vue d'en dessous
+        this.top.material.side = FrontSide;     // vue d'au-dessus
+        this.top.material.uniforms.uTop.value = 1;
         for (const plane of [this.bottom, this.top]) {
             plane.frustumCulled = false;
             plane.renderOrder = 1;
@@ -159,7 +199,7 @@ class CloudLayer {
         };
         // Dessous gris (ombre du nuage) ; dessus éclairé par le soleil
         set(this.bottom, new Color(dark).lerp(new Color(light), 0.6), new Color(dark).multiplyScalar(0.85), 0.9);
-        set(this.top, light, new Color(light).lerp(new Color(dark), 0.3), 0.97);
+        set(this.top, light, new Color(light).lerp(new Color(dark), 0.55), 0.97);
         this.bottom.position.y = config.base;
         this.top.position.y = config.top;
     }
