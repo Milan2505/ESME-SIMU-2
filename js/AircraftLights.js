@@ -6,12 +6,14 @@ import {
     Color,
     ConeGeometry,
     CylinderGeometry,
+    ExtrudeGeometry,
     DoubleSide,
     Group,
     MathUtils,
     Mesh,
     MeshStandardMaterial,
     Raycaster,
+    Shape,
     ShaderMaterial,
     SphereGeometry,
     Sprite,
@@ -27,16 +29,17 @@ const deg = MathUtils.degToRad;
 // Le modèle n'est pas symétrique : le saumon gauche est plus bas (y 1,01 à 1,16, x -5,56)
 // que le droit (y 1,26 à 1,41, x 5,51). Bord d'attaque des saumons : z -2,78.
 const LIGHTS = [
-    // Bouts d'aile : au saillant avant, dépassant du saumon (x -5,56 / 5,51)
-    { kind: 'nav',     color: 0xff2414, position: [-5.6, 1.09, -2.72],  sector: [deg(-110), deg(0)],  size: 1.1 },
-    { kind: 'nav',     color: 0x18ff3c, position: [5.55, 1.33, -2.72],  sector: [deg(0), deg(110)],   size: 1.1 },
+    // Bouts d'aile : verre en amande encastré dans la face extérieure du saumon (x -5,56 / 5,51), à l'avant
+    // (bord d'attaque à z -2,78), tourné vers l'extérieur et un peu vers l'avant
+    { kind: 'nav',     color: 0xff2414, position: [-5.57, 1.08, -2.63],  sector: [deg(-110), deg(0)],  size: 1.1 },
+    { kind: 'nav',     color: 0x18ff3c, position: [5.52, 1.33, -2.63],   sector: [deg(0), deg(110)],   size: 1.1 },
     // Feu de queue, encastré dans le bout du cône de queue (modèle : z 6,52 -> 4,52), sous la direction
     { kind: 'nav',     color: 0xffffff, position: [-0.03, 1.2, 4.5],    sector: [deg(110), deg(250)], size: 0.8 },
     // Sommet de la partie fixe de la dérive
     { kind: 'beacon',  color: 0xff1a0a, position: [-0.07, 3.5, 4.35],                                   size: 1.6 },
-    // Strobes intégrés au bloc de bout d'aile, derrière le feu de navigation (comme les blocs Whelen des Cessna récents)
-    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.6, 1.09, -2.5],                                   size: 3.2 },
-    { kind: 'strobe',  color: 0xf2f6ff, position: [5.55, 1.33, -2.5],                                   size: 3.2 },
+    // Strobes : dans le même bloc que le feu de navigation (diode blanche côté saumon), comme sur un vrai Cessna
+    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.575, 1.08, -2.61],                                size: 3.2 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [5.525, 1.33, -2.61],                                 size: 3.2 },
     // Phare d'atterrissage dans le bord d'attaque de l'aile gauche (z -2,869 à cet endroit) : éblouissant vu de face, allumé de nuit
     { kind: 'landing', color: 0xfff4dc, position: [-2.2, 1.12, -2.872],                                  size: 3.5 },
 ];
@@ -45,9 +48,10 @@ const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 // --- Luminaires (modélisés d'après ceux d'un Cessna 172) -------------------------------------
 // Chaque feu a un boîtier et un verre teinté ; le verre s'illumine (émissif, capté par le halo) quand le feu
 // éclaire l'observateur, et reste coloré éteint, comme un vrai verre de feu. Repère du luminaire = repère avion.
-const housingMaterial = new MeshStandardMaterial({ color: 0xd9dcdf, roughness: 0.35, metalness: 0.3 });   // carénage peint
 const metalMaterial = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.25, metalness: 0.85 });   // socle, réflecteur
 const blackMaterial = new MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7 });
+// Enjoliveur argenté (pas tout à fait métallique : sans carte d'environnement, un métal pur paraît noir)
+const chromeMaterial = new MeshStandardMaterial({ color: 0xd4d8dc, roughness: 0.22, metalness: 0.55 });
 
 // Verre teinté qui s'allume : couleur du verre éclaircie, transparent, émissif à la couleur du feu
 function lensMaterial(color, opacity = 0.75) {
@@ -55,6 +59,51 @@ function lensMaterial(color, opacity = 0.75) {
         color: new Color(color).lerp(new Color(0xffffff), 0.08), emissive: color, emissiveIntensity: 0.1,
         roughness: 0.08, metalness: 0, transparent: true, opacity, depthWrite: false,
     });
+}
+
+// Contour en amande (pointu aux deux bouts), largeur w, hauteur h, centré
+function almond(w, h) {
+    const shape = new Shape();
+    shape.moveTo(-w / 2, 0);
+    shape.quadraticCurveTo(0, h, w / 2, 0);
+    shape.quadraticCurveTo(0, -h, -w / 2, 0);
+    return shape;
+}
+
+// Diodes de strobe logées dans le bloc du feu de navigation, par côté (-1 gauche, 1 droite) : le strobe y fait clignoter la sienne
+const strobeLeds = new Map();
+
+// Feu encastré en amande, tourné vers -z : enjoliveur chromé, verre bombé, diode derrière le verre.
+// strobeSide : 0 = une seule diode ; -1 / 1 = diode du feu côté intérieur et diode blanche de strobe côté saumon
+function addAlmondLight(group, glows, w, h, color, opacity, strobeSide = 0) {
+    const bezelShape = almond(w + 0.022, h + 0.016);
+    bezelShape.holes.push(almond(w, h));
+    const bezelGeometry = new ExtrudeGeometry(bezelShape, {
+        depth: 0.006, bevelEnabled: true, bevelThickness: 0.003, bevelSize: 0.003, bevelSegments: 2, curveSegments: 20,
+    });
+    bezelGeometry.rotateY(Math.PI);                         // extrudé vers -z (vers l'avant de la surface)
+    const bezel = new Mesh(bezelGeometry, chromeMaterial);
+    bezel.castShadow = true;
+    // Verre bombé : demi-ellipsoïde qui sort à peine de l'enjoliveur
+    const glass = new Mesh(new SphereGeometry(1, 28, 14), lensMaterial(color, opacity));
+    glass.scale.set(w * 0.47, h * 0.42, 0.012);
+    glass.renderOrder = 1;
+    // Diode (bloc lumineux) visible à travers le verre
+    const ledMaterial = new MeshStandardMaterial({ color: 0x333333, emissive: color, emissiveIntensity: 0.1, roughness: 0.4 });
+    const ledWidth = strobeSide ? w * 0.22 : w * 0.38;
+    const led = new Mesh(new BoxGeometry(ledWidth, h * 0.32, 0.006), ledMaterial);
+    led.position.set(-strobeSide * w * 0.13, 0, -0.002);
+    const base = new Mesh(new BoxGeometry(w * 0.6, h * 0.5, 0.004), blackMaterial);  // fond du logement
+    base.position.z = 0.001;
+    group.add(base, led, glass, bezel);
+    glows.push(glass.material, ledMaterial);
+    if (strobeSide) {
+        const strobeMaterial = new MeshStandardMaterial({ color: 0xcfd4d8, emissive: 0xf2f6ff, emissiveIntensity: 0.1, roughness: 0.3 });
+        const strobe = new Mesh(new BoxGeometry(w * 0.16, h * 0.28, 0.006), strobeMaterial);
+        strobe.position.set(strobeSide * w * 0.15, 0, -0.002);
+        group.add(strobe);
+        strobeLeds.set(strobeSide, strobeMaterial);
+    }
 }
 
 function createFixture(def) {
@@ -77,15 +126,11 @@ function createFixture(def) {
     };
     const side = Math.sign(def.position[0]);
     if (def.kind === 'nav' && Math.abs(def.position[0]) > 2) {
-        // Bout d'aile : carénage profilé le long de l'aile, verre en goutte à l'avant (rouge à gauche, vert à droite)
-        const pod = part(new CapsuleGeometry(0.05, 0.22, 6, 14), housingMaterial, 0, 0, 0.18);
-        pod.rotation.x = Math.PI / 2;
-        pod.scale.set(1, 1, 0.75);                          // aplati comme le saumon
-        const drop = lens(new SphereGeometry(0.055, 20, 14), lensMaterial(def.color, 0.85));
-        drop.scale.set(0.95, 0.78, 1.7);                    // goutte allongée vers l'avant
-        const seal = part(new CylinderGeometry(0.052, 0.052, 0.012, 16), blackMaterial, 0, 0, 0.075);  // joint
-        seal.rotation.x = Math.PI / 2;
-        seal.scale.set(1, 1, 0.78);
+        // Bout d'aile : feu en amande encastré à l'avant du saumon, comme sur les Cessna 172 récents (verre teinté
+        // rouge à gauche, vert à droite) ; allongé dans le sens de la corde, tourné vers l'extérieur et 20° vers l'avant.
+        // Diode du feu à l'avant, diode du strobe derrière
+        addAlmondLight(group, glows, 0.15, 0.05, def.color, 0.6, side);
+        group.rotation.y = -side * deg(70);
     } else if (def.kind === 'nav') {
         // Feu de queue : petit verre blanc au bout du cône de queue, sur une embase
         part(new CylinderGeometry(0.032, 0.036, 0.04, 14), metalMaterial, 0, 0, -0.03).rotation.x = Math.PI / 2;
@@ -96,9 +141,9 @@ function createFixture(def) {
         part(new CylinderGeometry(0.035, 0.05, 0.035, 16), metalMaterial, 0, -0.06, 0);
         lens(new CapsuleGeometry(0.03, 0.045, 6, 16), lensMaterial(def.color, 0.8), 0, -0.005, 0);
     } else if (def.kind === 'strobe') {
-        // Strobe : verre clair cylindrique sur le flanc extérieur du carénage de bout d'aile
-        const glass = lens(new CapsuleGeometry(0.02, 0.05, 4, 12), lensMaterial(def.color, 0.5), side * 0.03, 0, 0);
-        glass.rotation.x = Math.PI / 2;
+        // Strobe : pas de luminaire à lui, il fait éclater sa diode dans le bloc du feu de navigation
+        const led = strobeLeds.get(side);
+        if (led) glows.push(led);
     } else {
         // Phare d'atterrissage : capot transparent affleurant le bord d'attaque, réflecteur et ampoule derrière
         // (le bord d'attaque est plein : réflecteur et ampoule juste devant lui, sous le capot)
@@ -212,8 +257,9 @@ class AircraftLights {
         for (const light of this.lights) {
             if (!light.wing) continue;
             light.position.copy(light.base);
-            // Au nez du bord d'attaque arrondi (cabine : z -2,28)
-            if (cabin) light.position.set(light.base.x, 1.35, light.kind === 'landing' ? -2.28 : light.base.z + 0.44);
+            // Phare au nez du bord d'attaque arrondi de la cabine (z -2,28) ; feux de bout d'aile sur ses saumons (x ±5,55)
+            if (cabin && light.kind === 'landing') light.position.set(light.base.x, 1.35, -2.285);
+            else if (cabin) light.position.set(Math.sign(light.base.x) * 5.555, 1.35, light.base.z + 0.5);
             light.bulb.position.copy(light.position);
         }
         // Faisceau recalé avec le phare ; un peu plus discret vu de la cabine (on est tout près du cône)

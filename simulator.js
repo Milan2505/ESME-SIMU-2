@@ -37,7 +37,8 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 // Avion du joueur : Cessna 172 low poly de Vojtěch Balák (Poly Pizza, CC-BY 3.0)
 const AIRCRAFT_MODEL = 'asset/cessna.glb';
 const PROPELLER_SCALE = 0.97 / 1.51;                       // pales du modèle ramenées au rayon réel (0,97 m)
-const WHEEL_HEIGHT = 1.25;                                  // centre de l'avion au-dessus du sol, roues posées
+const NOSE_GEAR_EXTENSION = 0.18;                           // tige du train avant allongée (trop courte dans le modèle)
+const WHEEL_HEIGHT = 1.25 + NOSE_GEAR_EXTENSION;            // centre de l'avion au-dessus du sol, roues posées
 const COCKPIT_POSITION = new THREE.Vector3(0, 0.9, -1.85);  // cabine (hauteur des yeux) dans le repère avion, sous l'aile
 const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
@@ -164,7 +165,7 @@ aircraft.add(landingLight, landingLight.target);
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const model = aircraftModel = gltf.scene;
     model.position.z = -2; // centre l'avion sur l'aile (le modèle a son origine vers le nez)
-    lowerMainGear(model);
+    lowerGear(model);
     propeller = model.getObjectByName('Propeller_Cone');
     // Recentre l'hélice sur son axe pour qu'elle tourne sans voilage
     const center = new THREE.Box3().setFromObject(propeller).getCenter(new THREE.Vector3());
@@ -187,18 +188,32 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
     remotePlayers.setTemplate(template);
-    airport.addParkedPlanes(template);
+    airport.addParkedPlanes(template, WHEEL_HEIGHT);
     rebuildObstacles(); // + les avions garés
     updateView();
 }, undefined, (error) => console.error(error));
 
-// Train principal : dans le modèle, il est trop court. Avion posé (roulette de nez au sol), les roues principales
-// flottaient à 30 cm (droite) et 24 cm (gauche, le modèle n'est pas symétrique). On descend roues et carénages
-// d'un bloc, en étirant les jambes de train depuis leur attache au fuselage (x ~0,67) jusqu'à la roue (x ~1,35).
-// Zone du train : sous le fuselage (y < -0,3), autour de l'axe des roues (z -1,9 à -0,5, repère avion)
-const MAIN_GEAR_DROP = { right: 0.295, left: 0.23 };
+// Train d'atterrissage : dans le modèle, il est trop court.
+// - Train avant : tige de 24 cm à peine entre le fuselage et le carénage de roue ; allongée de NOSE_GEAR_EXTENSION
+//   (carénage et roue descendent d'un bloc, l'attache au fuselage, y -0,72, reste en place)
+// - Train principal : avion posé sur la roulette de nez, les roues flottaient à 30 cm (droite) et 24 cm (gauche, le
+//   modèle n'est pas symétrique) ; descendu d'autant, plus l'allongement du train avant, en étirant les jambes depuis
+//   leur attache au fuselage (x ~0,67) jusqu'à la roue (x ~1,35)
+const MAIN_GEAR_DROP = { right: 0.295 + NOSE_GEAR_EXTENSION, left: 0.23 + NOSE_GEAR_EXTENSION };
 
-function lowerMainGear(model) {
+// Déplacement vertical d'un point du train (repère avion), 0 ailleurs
+function gearDrop(point) {
+    // Train avant : sous le fuselage, autour de la roue (x ±0,15, z -3,7 à -3,1)
+    if (Math.abs(point.x) < 0.15 && point.z > -3.7 && point.z < -3.1 && point.y < -0.74) {
+        return NOSE_GEAR_EXTENSION * (1 - THREE.MathUtils.smoothstep(point.y, -0.9, -0.74));
+    }
+    // Train principal : sous le fuselage (y < -0,3), autour de l'axe des roues (z -1,9 à -0,5)
+    if (point.y > -0.3 || point.z < -1.9 || point.z > -0.5) return 0;
+    const reach = THREE.MathUtils.smoothstep(Math.abs(point.x), 0.7, 1.3);   // 0 à l'attache, 1 à la roue
+    return reach * (point.x > 0 ? MAIN_GEAR_DROP.right : MAIN_GEAR_DROP.left);
+}
+
+function lowerGear(model) {
     model.updateMatrixWorld(true);
     const point = new THREE.Vector3(), inverse = new THREE.Matrix4();
     model.traverse((mesh) => {
@@ -208,10 +223,9 @@ function lowerMainGear(model) {
         let changed = false;
         for (let i = 0; i < position.count; i++) {
             point.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);   // repère avion
-            if (point.y > -0.3 || point.z < -1.9 || point.z > -0.5) continue;
-            const reach = THREE.MathUtils.smoothstep(Math.abs(point.x), 0.7, 1.3);    // 0 à l'attache, 1 à la roue
-            if (reach <= 0) continue;
-            point.y -= reach * (point.x > 0 ? MAIN_GEAR_DROP.right : MAIN_GEAR_DROP.left);
+            const drop = gearDrop(point);
+            if (drop <= 0) continue;
+            point.y -= drop;
             point.applyMatrix4(inverse);
             position.setXYZ(i, point.x, point.y, point.z);
             changed = true;

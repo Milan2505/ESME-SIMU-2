@@ -190,7 +190,7 @@ class Airport {
     }
 
     // Avions garés sur le parking : copies du Cessna du joueur, repeintes
-    addParkedPlanes(model) {
+    addParkedPlanes(model, wheelHeight) {
         const spots = [
             { x: 338, z: -80, color: 0xc0392b },
             { x: 338, z: -60, color: 0x2e86c1 },
@@ -208,7 +208,7 @@ class Airport {
                 }
             });
             const holder = new Group();
-            holder.position.set(spot.x, 1.24, spot.z); // roues posées sur le parking
+            holder.position.set(spot.x, wheelHeight - 0.01, spot.z); // roues posées sur le parking
             holder.rotation.y = Math.PI / 2;           // nez vers la piste (ouest)
             holder.add(plane);
             this.group.add(holder);
