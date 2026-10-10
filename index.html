@@ -116,6 +116,11 @@
 		<button id="carte-bouton" class="menu-titre" aria-pressed="false" title="Carte avec les joueurs (touche M)">Carte</button>
 	</div>
 	
+	<!-- Tour de contrôle : fenêtre des messages radio -->
+	<div id="atc-case">
+		<button id="atc-bouton" class="menu-titre" aria-pressed="false" title="Tour de contrôle : messages radio avec le contrôleur">Tour</button>
+	</div>
+
 	<div id="météo" class="menu">
 		<button class="menu-titre" aria-expanded="false">Météo : <span id="météo-actuelle">Jour</span> <span class="menu-fleche">▾</span></button>
 		<div class="menu-contenu" hidden>
@@ -149,6 +154,26 @@
 	</div>
 
 	<div id="radio-indicateur" hidden></div>
+	<div id="atc-sous-titre" hidden></div>
+	<div id="atc" hidden>
+		<div class="carte-entete">
+			<strong id="atc-titre">Tour</strong>
+			<span class="carte-aide" id="atc-frequence"></span>
+			<span class="atc-langues">
+				<button data-langue="fr" title="Phraséologie française (DGAC)">FR</button>
+				<button data-langue="en" title="Phraséologie anglaise (OACI)">EN</button>
+			</span>
+			<button id="atc-voix" aria-pressed="true" title="Lire les messages à voix haute">Voix ✓</button>
+			<button id="atc-fermer" title="Fermer">×</button>
+		</div>
+		<div class="atc-infos">
+			<span>Indicatif <b id="atc-indicatif"></b> · Cessna 172</span>
+			<button id="atc-atis" title="Bulletin météo de l'aérodrome (à écouter avant le premier contact)">ATIS</button>
+		</div>
+		<p id="atc-etat"></p>
+		<ol id="atc-journal"></ol>
+		<div id="atc-choix"></div>
+	</div>
 	<div id="carte" hidden>
 		<div class="carte-entete">
 			<strong>Carte</strong>

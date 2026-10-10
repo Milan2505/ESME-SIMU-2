@@ -86,6 +86,30 @@ class SoundEffects {
         source.start();
     }
 
+    // "Pschht" de radio : ouverture / fermeture du squelch (tour de contrôle)
+    squelch(volume = 0.25, duration = 0.12) {
+        if (!this._audio) return;
+        const audio = this._audio;
+        if (!this._noiseBuffer) {
+            const length = Math.round(audio.sampleRate * 0.4);
+            this._noiseBuffer = audio.createBuffer(1, length, audio.sampleRate);
+            const data = this._noiseBuffer.getChannelData(0);
+            for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+        }
+        const source = audio.createBufferSource();
+        const filter = audio.createBiquadFilter();
+        const gain = audio.createGain();
+        source.buffer = this._noiseBuffer;
+        filter.type = 'bandpass';
+        filter.frequency.value = 2200;
+        filter.Q.value = 0.8;
+        const now = audio.currentTime;
+        gain.gain.setValueAtTime(volume, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        source.connect(filter).connect(gain).connect(this._master);
+        source.start(now, 0, duration + 0.02);
+    }
+
     // Son ponctuel, éventuellement retardé (tonnerre : le son arrive après l'éclair)
     play(name, { volume = 1, delay = 0, rate = 1 } = {}) {
         if (!this._buffers) return;

@@ -25,6 +25,7 @@ import { AircraftLights } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
+import { ATC } from './js/ATC.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -139,6 +140,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : tr
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT, trimAirframe });
+// Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
+const atc = new ATC({ airport, sounds, registration: 'F-HESM', aircraftType: 'Cessna 172' });
 const radio = new Radio(multiplayer);
 
 const loader = new Utils3dLoader();
@@ -729,6 +732,7 @@ function setWeather(name) {
     sunLight.color.set(w.sunColor ?? COLOR_LIGHT);
     controls.turbulence = w.turbulence;
     clouds.setWeather(w.clouds);
+    atc.setWeather(name, w);
     cloudLayer.setWeather(w.overcast ?? null, w.clouds);
     nightSky.setVisibility(w.stars ?? 0, w.sky);
     storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false, clouds: w.overcast ?? null });
@@ -1064,6 +1068,7 @@ function spawnUnderPointer(event) {
 // État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
 function applySpawnState() {
     systems.reset();
+    atc.reset(currentSpawn);
     if (currentSpawn.cold) {
         systems.coldAndDark();
         controls.throttle = 0;
@@ -1359,6 +1364,133 @@ document.getElementById('carte-canvas').addEventListener('wheel', (event) => {
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyM' && !event.repeat && !isTypingTarget(event.target)) toggleMap();
 });
+
+// --- Tour de contrôle : fenêtre (bouton "Tour" du bandeau), messages au choix selon la phase du vol ----------
+const atcPanel = document.getElementById('atc');
+const atcButton = document.getElementById('atc-bouton');
+const atcJournal = document.getElementById('atc-journal');
+const atcChoices = document.getElementById('atc-choix');
+const atcSubtitle = document.getElementById('atc-sous-titre');
+const atcVoiceButton = document.getElementById('atc-voix');
+const atcAtisButton = document.getElementById('atc-atis');
+const ATC_SPEAKERS = { pilot: 'VOUS', atc: 'TOUR', atis: 'ATIS' };
+{
+    const { icao, name, tower } = airport.aerodrome;
+    document.getElementById('atc-titre').textContent = `${icao} · ${name} Tour`;
+    document.getElementById('atc-frequence').textContent = `TWR ${tower}`;
+    document.getElementById('atc-indicatif').textContent = atc.registration;
+    atcButton.textContent = `Tour · ${tower}`;
+}
+window.speechSynthesis?.getVoices();   // charge la liste des voix à l'avance
+
+function toggleAtc(open = atcPanel.hidden) {
+    atcPanel.hidden = !open;
+    atcButton.setAttribute('aria-pressed', String(open));
+    if (open) renderAtc();
+    view.focus();
+}
+atcButton.addEventListener('click', () => toggleAtc());
+document.getElementById('atc-fermer').addEventListener('click', () => toggleAtc(false));
+
+function setAtcLanguage(lang) {
+    atc.setLanguage(lang);
+    for (const button of document.querySelectorAll('[data-langue]')) button.classList.toggle('actif', button.dataset.langue === atc.lang);
+    try { localStorage.setItem('atc-langue', atc.lang); } catch { /* stockage indisponible */ }
+}
+for (const button of document.querySelectorAll('[data-langue]')) {
+    button.addEventListener('click', () => { setAtcLanguage(button.dataset.langue); view.focus(); });
+}
+function setAtcVoice(on) {
+    atc.setVoice(on);
+    atcVoiceButton.setAttribute('aria-pressed', String(on));
+    atcVoiceButton.textContent = on ? 'Voix ✓' : 'Voix ✗';
+    try { localStorage.setItem('atc-voix', on ? '1' : '0'); } catch { /* stockage indisponible */ }
+}
+atcVoiceButton.addEventListener('click', () => { setAtcVoice(!atc.voice); view.focus(); });
+atcAtisButton.addEventListener('click', () => { sounds.unlock(); atc.playAtis(); view.focus(); });
+{
+    let lang = 'fr', voice = true;
+    try {
+        lang = localStorage.getItem('atc-langue') ?? 'fr';
+        voice = localStorage.getItem('atc-voix') !== '0';
+    } catch { /* stockage indisponible */ }
+    setAtcLanguage(lang);
+    setAtcVoice(voice);
+}
+
+function renderAtc() {
+    if (atcPanel.hidden) return;
+    document.getElementById('atc-etat').textContent = atc.status;
+    atcAtisButton.textContent = `Écouter l'ATIS · ${atc.atisLetter}`;
+    atcAtisButton.disabled = atc.busy;
+    atcJournal.replaceChildren(...atc.log.slice(-8).map(({ from, text }) => {
+        const item = document.createElement('li');
+        item.className = `atc-${from}`;
+        const who = document.createElement('b');
+        who.textContent = ATC_SPEAKERS[from];
+        item.append(who, ' ', text);
+        return item;
+    }));
+    atcJournal.scrollTop = atcJournal.scrollHeight;
+    const note = (text) => {
+        const p = document.createElement('p');
+        p.className = 'atc-attente';
+        p.textContent = text;
+        return p;
+    };
+    if (atc.busy) atcChoices.replaceChildren(note('Émission en cours…'));
+    else if (!atc.options.length) atcChoices.replaceChildren(note(choosingSpawn ? 'Choisissez un point de départ.'
+        : 'Rien à transmettre pour le moment : les messages proposés suivent la phase du vol.'));
+    else {
+        atcChoices.replaceChildren(...atc.options.map((option) => {
+            const button = document.createElement('button');
+            if (option.id === 'readback') button.className = 'atc-collationner';
+            if (option.id === 'sayAgain') button.className = 'atc-repetez';
+            const label = document.createElement('strong');
+            label.textContent = option.label;
+            const phrase = document.createElement('span');
+            phrase.textContent = option.message.text;
+            button.append(label, phrase);
+            button.addEventListener('click', () => {
+                sounds.unlock();
+                atc.choose(option.id);
+                view.focus();
+            });
+            return button;
+        }));
+    }
+}
+atc.addEventListener('change', renderAtc);
+
+// Sous-titre de l'émission en cours ; la fenêtre s'ouvre d'elle-même quand la tour attend un collationnement
+let atcSubtitleTimer = 0;
+atc.addEventListener('transmit', ({ from, text, on }) => {
+    clearTimeout(atcSubtitleTimer);
+    if (on) {
+        atcSubtitle.textContent = `${ATC_SPEAKERS[from]} : ${text}`;
+        atcSubtitle.className = `atc-${from}`;
+        atcSubtitle.hidden = false;
+    } else {
+        atcSubtitleTimer = setTimeout(() => { atcSubtitle.hidden = true; }, 1500);
+        if (from === 'atc' && atcPanel.hidden && atc.pending) toggleAtc(true);
+    }
+});
+
+const _atcForward = new THREE.Vector3();
+function updateAtc(delta) {
+    _atcForward.set(0, 0, -1).applyQuaternion(aircraft.quaternion);
+    const ground = terrain.heightAt(aircraft.position.x, aircraft.position.z);
+    atc.update(delta, {
+        position: aircraft.position,
+        heading: (Math.atan2(_atcForward.x, -_atcForward.z) * 180 / Math.PI + 360) % 360,
+        onGround: controls.isOnGround(),
+        agl: Math.max(0, aircraft.position.y - WHEEL_HEIGHT - ground) / 0.3048,
+        speed: controls.getSpeed(),
+        engine: systems.running,
+        active: !choosingSpawn && !controls.isCrashed(),
+        traffic: multiplayer.code ? remotePlayers.list() : [],
+    });
+}
 
 // Lien d'invitation : index.html?partie=CODE rejoint directement la partie
 const invitation = new URLSearchParams(location.search).get('partie');
@@ -1685,6 +1817,7 @@ renderer.setAnimationLoop((time)=>{
     }
     updateHeadTarget( delta );
     updateSpawnMarkers();
+    updateAtc( delta );
     updateCamera( delta );
     // Molette de trim (touches W / X, ou à la souris) : un cran entendu tous les 0,6°
     trimTravel += Math.abs(controls.getTrim() - lastTrim);

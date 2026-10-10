@@ -52,6 +52,10 @@ const TURN_PADS = [1, -1].map((end) => {
 // Places de stationnement : axe de chaque avion garé (3 Cessna, carpeXL, DRAVION : data/objet.csv), x du nez
 // Places 1 à 7 ; occupées : 1, 2, 3 (Cessna), 5 (carpeXL), 6 (DRAVION) ; libres : 4 et 7 (départs au parking)
 const STANDS = [-80, -60, -40, -20, 15, 45, 75];
+// Noms des places (peints au sol, donnés par la tour) : N1 à N4 au nord du parking, H1 à H3 devant les hangars
+const STAND_NAMES = ['N1', 'N2', 'N3', 'N4', 'H1', 'H2', 'H3'];
+// Identité de l'aérodrome pour la tour de contrôle (code OACI fictif, en LF comme les terrains français)
+const AERODROME = { icao: 'LFXE', name: 'ESME', tower: '118.300', taxiway: 'A' };
 const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 // Balise VOR de l'aérodrome (VOR conventionnel : abri, plan réflecteur circulaire, antenne centrale), au nord-est
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
@@ -260,7 +264,7 @@ function apronTexture(maxAnisotropy) {
             ctx.font = 'bold 4px DejaVu Sans, Arial, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(String(i + 1), 0, 0);
+            ctx.fillText(STAND_NAMES[i], 0, 0);
             ctx.restore();
         });
         // Route de service (véhicules), entre les places et les hangars : deux lignes blanches discontinues
@@ -390,8 +394,8 @@ class Airport {
         this.spawns = [
             { id: 'rwy36', name: 'Piste 36', detail: 'Seuil sud, face au nord · prêt à décoller', x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15, heading: 0, cold: false },
             { id: 'rwy18', name: 'Piste 18', detail: 'Seuil nord, face au sud · prêt à décoller', x: RUNWAY.x, z: RUNWAY.z - RUNWAY.length / 2 + 15, heading: Math.PI, cold: false },
-            { id: 'stand4', name: 'Parking · place 4', detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[3], heading: Math.PI / 2, cold: true },
-            { id: 'stand7', name: 'Parking · place 7', detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[6], heading: Math.PI / 2, cold: true },
+            { id: 'stand4', name: `Parking ${STAND_NAMES[3]}`, detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[3], heading: Math.PI / 2, cold: true, stand: STAND_NAMES[3] },
+            { id: 'stand7', name: `Parking ${STAND_NAMES[6]}`, detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[6], heading: Math.PI / 2, cold: true, stand: STAND_NAMES[6] },
         ];
         // Les deux sens d'atterrissage : seuil (bout de piste), direction d'atterrissage, point visé
         this.runways = [
@@ -403,6 +407,9 @@ class Airport {
             runway.left = new Vector3(runway.direction.z, 0, -runway.direction.x); // à gauche de l'avion qui atterrit
         }
         this.runwayLength = RUNWAY.length;
+        // Tour de contrôle (ATC.js) : identité du terrain, places (libres : celles des départs au parking)
+        this.aerodrome = { ...AERODROME, holdingX: HOLDING_X,
+            stands: STANDS.map((z, i) => ({ name: STAND_NAMES[i], x: 336, z, free: i === 3 || i === 6 })) };
         // Balise VOR (antenne à 6,5 m de haut)
         this.vor = { ...VOR_STATION, y: 6.5 };
         // Contours pour la carte (MapView.js)
@@ -429,6 +436,26 @@ class Airport {
     surfaceAt(x, z) {
         return inside(RUNWAY_RECT, x, z) || inside(TAXIWAY, x, z) || inside(APRON, x, z) || inside(HANGAR_APRON, x, z)
             || TURN_PADS.some((pad) => inside(pad, x, z)) || HANGARS.some((h) => inside(h, x, z)) ? 'asphalt' : 'grass';
+    }
+
+    // Zone de l'aérodrome pour la tour : 'runway' (piste et raquettes), 'entry' (entre le point d'attente et la
+    // piste), 'taxiway', 'apron' (parking, hangars) ou 'grass'
+    zoneAt(x, z) {
+        if (inside(RUNWAY_RECT, x, z) || TURN_PADS.some((pad) => inside(pad, x, z))) return 'runway';
+        if (inside(LEAD_ON, x, z) || (inside(TAXIWAY, x, z) && x < HOLDING_X)) return 'entry';
+        if (inside(TAXIWAY, x, z)) return 'taxiway';
+        if (inside(APRON, x, z) || inside(HANGAR_APRON, x, z) || HANGARS.some((h) => inside(h, x, z))) return 'apron';
+        return 'grass';
+    }
+
+    // Nom de la place de parking où se trouve l'avion (null hors des places)
+    standAt(x, z) {
+        if (x < 318 || x > 360) return null;
+        let best = null, bestDistance = 10;
+        STANDS.forEach((sz, i) => {
+            if (Math.abs(z - sz) < bestDistance) [best, bestDistance] = [STAND_NAMES[i], Math.abs(z - sz)];
+        });
+        return best;
     }
 
     build(renderer) {
