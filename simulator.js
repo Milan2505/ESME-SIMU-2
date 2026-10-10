@@ -793,19 +793,30 @@ const flashColor = new THREE.Color(0xc8d0ff);
 const shadowCenter = new THREE.Vector3();
 
 const ABOVE_CLOUDS_SKY = new THREE.Color(0x6f9fd2), ABOVE_CLOUDS_FOG = new THREE.Color(0xc4d4e3);
+const ABOVE_CLOUDS_SUN = 2.0, ABOVE_CLOUDS_HEMI = 1.2;   // plein jour au-dessus de la nappe, même par temps d'orage
+const _sunColor = new THREE.Color(), _white = new THREE.Color(COLOR_LIGHT);
 
 function updateFog() {
     const density = Math.max(clouds.densityAt(camera.position), cloudLayer.densityAt(camera.position));
-    // Au-dessus de la couche nuageuse : ciel bleu et vue dégagée (sur 60 m après le sommet de la couche)
-    const above = cloudLayer.mesh.visible ? THREE.MathUtils.smoothstep(camera.position.y, weather.overcast.top, weather.overcast.top + 60) : 0;
+    // Au-dessus de la couche nuageuse : ciel bleu, vue dégagée et plein soleil (sur 60 m après le sommet de la couche)
+    const above = cloudLayer.mesh.visible ? THREE.MathUtils.smoothstep(camera.position.y, weather.overcast.top + 20, weather.overcast.top + 90) : 0;
+    // Éclairs : sous les nuages, tout le ciel s'éclaire ; au-dessus, seule la nappe s'illumine par l'intérieur
+    const flash = storm.flash * (1 - above);
+    cloudLayer.setFlash(storm.flash, storm.strikeAt.x, storm.strikeAt.z);
+    storm.bolt.visible &&= above < 0.5;
     cloudFogColor.set(weather.clouds.light);
     scene.fog.color.set(weather.atmosphere?.fog ?? weather.sky).lerp(ABOVE_CLOUDS_FOG, above)
-        .lerp(cloudFogColor, density).lerp(flashColor, storm.flash * 0.6);
-    scene.background.set(weather.sky).lerp(ABOVE_CLOUDS_SKY, above).lerp(flashColor, storm.flash * 0.6);
+        .lerp(cloudFogColor, density).lerp(flashColor, flash * 0.6);
+    scene.background.set(weather.sky).lerp(ABOVE_CLOUDS_SKY, above).lerp(flashColor, flash * 0.6);
     scene.fog.near = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogNear, 600, above), 0, density);
     scene.fog.far = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogFar, 2800, above), 30, density);
-    hemiLight.intensity = weather.hemi + 0.5 * above + storm.flash * 2.5;
+    hemiLight.intensity = THREE.MathUtils.lerp(weather.hemi, ABOVE_CLOUDS_HEMI, above) + flash * 2.5;
+    sunLight.intensity = THREE.MathUtils.lerp(weather.sun, ABOVE_CLOUDS_SUN, above);
+    sunLight.color.copy(_sunColor.set(weather.sunColor ?? COLOR_LIGHT).lerp(_white, above));
+    // Bouffées qui dépassent de la nappe : en plein soleil au-dessus (sinon gris d'orage)
+    clouds.setColors(cloudLight.set(weather.clouds.light).lerp(_white, above), cloudDark.set(weather.clouds.dark).lerp(ABOVE_CLOUDS_SHADE, above));
 }
+const cloudLight = new THREE.Color(), cloudDark = new THREE.Color(), ABOVE_CLOUDS_SHADE = new THREE.Color(0x9aa6b6);
 
 // Multijoueur : fenêtre ouverte depuis la case "Multijoueur" du bandeau
 const multiDialog = document.getElementById('multi-dialog');

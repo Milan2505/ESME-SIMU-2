@@ -185,6 +185,12 @@ class Clouds {
         this.material.uniforms.uBrightness.value = brightness;
     }
 
+    // Couleurs éclairée / ombre (changées en cours de vol : au-dessus de la nappe nuageuse, plein soleil)
+    setColors(light, dark) {
+        this.material.uniforms.uLight.value.copy(light);
+        this.material.uniforms.uDark.value.copy(dark);
+    }
+
     // Qualité des nuages : 0 = pas de nuages, 0 -> 1 = part des bouffées dessinées
     setDetail(detail) {
         this.mesh.visible = detail > 0;

@@ -7,42 +7,26 @@ import {
     PlaneGeometry,
     ShaderMaterial,
     UniformsLib,
-    UniformsUtils
+    UniformsUtils,
+    Vector2,
+    Vector3
 } from 'three';
 
-// Couche nuageuse continue (stratus) pour les ciels couverts : un plafond gris, percé de quelques trouées, qui suit
-// la caméra (le motif, lui, reste fixe au sol et dérive lentement avec le vent). Deux surfaces : le dessous, gris
-// sombre, et le dessus, blanc, vu quand on passe au-dessus ; entre les deux, on est dans le nuage ("jour blanc").
-// Bien moins coûteux que des milliers de bouffées : deux grands plans, un bruit calculé par pixel.
+// Couche nuageuse continue (stratus / nappe d'orage) pour les ciels couverts. Vraie nappe en relief : deux surfaces
+// maillées (dessus et dessous) déformées par un bruit, avec des bosses de 100 à 400 m qui dépassent vraiment (silhouette
+// à l'horizon, parallaxe), et des trouées où dessus et dessous se rejoignent (parois). Le maillage suit la caméra par
+// pas de maille (le relief reste fixe au sol et dérive lentement avec le vent).
+// Entre les deux surfaces, on est dans le nuage ("jour blanc", voir densityAt).
 
-const SIZE = 6000;          // côté des plans (m) : jusqu'à la limite de la vue (caméra : 3000 m)
+const SIZE = 6000;          // côté du maillage (m) : jusqu'à la limite de la vue (caméra : 3000 m)
+const SEGMENTS = 160;       // mailles resserrées près de la caméra (~9 m) et larges au loin (~65 m), voir le vertex shader
+const SNAP = 10;            // pas de déplacement du maillage avec la caméra (m)
 const OCTAVES = 5;
 
-const vertexShader = /* glsl */`
-    varying vec3 vWorld;
-    #include <fog_pars_vertex>
-    void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vWorld = world.xyz;
-        vec4 mvPosition = viewMatrix * world;
-        gl_Position = projectionMatrix * mvPosition;
-        #include <fog_vertex>
-    }
-`;
-
-const fragmentShader = /* glsl */`
-    uniform vec3 uColor;
-    uniform vec3 uShadow;
+const noiseGLSL = /* glsl */`
     uniform float uCoverage;
     uniform float uScale;
     uniform vec2 uDrift;
-    uniform float uOpacity;
-    uniform float uBrightness;
-    uniform float uTop;          // 1 : dessus (éclairé par le soleil), 0 : dessous
-    uniform vec2 uSun;           // direction du soleil (plan horizontal)
-    varying vec3 vWorld;
-    #include <fog_pars_fragment>
-
     float hash(vec2 p) {
         p = fract(p * vec2(123.34, 456.21));
         p += dot(p, p + 45.32);
@@ -62,7 +46,6 @@ const fragmentShader = /* glsl */`
         }
         return value;
     }
-
     float fbm3(vec2 p) {
         float value = 0.0, amplitude = 0.5;
         for (int o = 0; o < 3; o++) {
@@ -72,44 +55,118 @@ const fragmentShader = /* glsl */`
         }
         return value;
     }
-    // Moutonnement ("coton") : grosses boursouflures (~400 m), bosses (~120 m) et petits flocons (~35 m)
-    float wool(vec2 p) {
-        return fbm3(p / 400.0) * 0.45 + fbm3(p / 120.0 + 7.7) * 0.35 + fbm3(p / 35.0 + 3.1) * 0.2;
+    // Relief : grosses boursouflures (~400 m) et bosses (~120 m)
+    float bumps(vec2 p) {
+        return fbm3(p / 400.0) * 0.6 + fbm3(p / 120.0 + 7.7) * 0.4;
+    }
+    // Présence du nuage (0 = trouée, 1 = nappe)
+    float cover(vec2 p, float b) {
+        float n = fbm(p / uScale) + (b - 0.5) * 0.2;
+        return smoothstep(1.0 - uCoverage - 0.06, 1.0 - uCoverage + 0.16, n);
+    }
+`;
+
+const vertexShader = /* glsl */`
+    uniform float uBase;
+    uniform float uTop;
+    uniform float uSide;        // 1 : dessus, -1 : dessous
+    varying vec3 vWorld;
+    varying vec3 vNormal;
+    varying float vCover;
+    varying float vBumps;
+    ${noiseGLSL}
+    #include <fog_pars_vertex>
+
+    // Hauteur de la surface au point p (monde, dérive comprise). Dessus : bosses au-dessus du sommet moyen ;
+    // dessous : plafond ondulé. Dans les trouées, les deux surfaces se rejoignent au milieu de l'épaisseur (parois)
+    float surface(vec2 p, out float c, out float b) {
+        b = bumps(p);
+        c = cover(p, b);
+        float thick = uTop - uBase;
+        float middle = uBase + thick * 0.45;
+        if (uSide > 0.0) return mix(middle, uTop + (b - 0.5) * thick * 2.4, c);
+        return mix(middle, uBase - (b - 0.35) * thick * 0.5, c);
+    }
+
+    // Hauteur d'un point voisin : même présence du nuage (elle varie lentement), seul le relief est recalculé
+    float neighbour(vec2 p, float c) {
+        float b = bumps(p);
+        float thick = uTop - uBase;
+        float middle = uBase + thick * 0.45;
+        if (uSide > 0.0) return mix(middle, uTop + (b - 0.5) * thick * 2.4, c);
+        return mix(middle, uBase - (b - 0.35) * thick * 0.5, c);
     }
 
     void main() {
-        vec2 p = vWorld.xz + uDrift;
-        float n = fbm(p / uScale);
-        // Détail estompé au loin (sinon il scintille). Distance calculée ici : le plan n'a que 4 sommets, à plus de 3 km
-        float detail = 1.0 - smoothstep(900.0, 2600.0, distance(vWorld, cameraPosition));
-        float w = wool(p);
-        // Couverture : 1 = plafond presque continu ; bords des trouées effilochés par le moutonnement
-        float edge = n + (w - 0.5) * 0.22 * detail;
-        float cloud = smoothstep(1.0 - uCoverage - 0.06, 1.0 - uCoverage + 0.14, edge);
-        float alpha = cloud * uOpacity;
+        // Mailles resserrées au centre (près de la caméra), élargies au bord : x -> 0,25 x + 0,75 x²
+        vec2 t = position.xz / ${SIZE / 2}.0;
+        vec2 warped = sign(t) * (0.25 * abs(t) + 0.75 * t * t) * ${SIZE / 2}.0;
+        vec4 world = modelMatrix * vec4(warped.x, 0.0, warped.y, 1.0);
+        vec2 p = world.xz + uDrift;
+        float c, b;
+        world.y = surface(p, c, b);
+        // Normale par différences finies (vers l'extérieur du nuage)
+        float hx = neighbour(p + vec2(10.0, 0.0), c);
+        float hz = neighbour(p + vec2(0.0, 10.0), c);
+        vNormal = normalize(vec3(world.y - hx, 10.0, world.y - hz)) * uSide;
+        vCover = c;
+        vBumps = b;
+        vWorld = world.xyz;
+        vec4 mvPosition = viewMatrix * world;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+    }
+`;
+
+const fragmentShader = /* glsl */`
+    uniform vec3 uColor;
+    uniform vec3 uShadow;
+    uniform vec3 uSun;
+    uniform float uSide;
+    uniform float uOpacity;
+    uniform float uBrightness;
+    uniform float uFlash;        // éclair en cours (0 -> 1)
+    uniform vec2 uFlashAt;       // position de l'éclair (x, z)
+    varying vec3 vWorld;
+    varying vec3 vNormal;
+    varying float vCover;
+    varying float vBumps;
+    ${noiseGLSL}
+    #include <fog_pars_fragment>
+
+    void main() {
+        float alpha = smoothstep(0.02, 0.35, vCover) * uOpacity;
         if (alpha < 0.01) discard;
-        // Relief des bosses éclairé par le soleil : pente vers le soleil claire, versant opposé et creux sombres
-        float slope = (w - wool(p + uSun * 15.0)) * 14.0;
-        float hollow = smoothstep(0.3, 0.7, w);
+        vec2 p = vWorld.xz + uDrift;
+        // Petits flocons (~35 m) dans l'ombrage, estompés au loin (sinon ils scintillent)
+        float detail = 1.0 - smoothstep(600.0, 2200.0, distance(vWorld, cameraPosition));
+        float fine = fbm3(p / 35.0 + 3.1);
+        vec3 normal = normalize(vNormal);
+        vec3 toCamera = normalize(cameraPosition - vWorld);
         vec3 color;
-        if (uTop > 0.5) {
-            // Dessus : sommets des bosses blancs, creux gris, versant au soleil éclairé, versant opposé dans l'ombre
-            float light = 0.45 + 0.55 * hollow + slope;
-            color = mix(uShadow, uColor, clamp(mix(0.8, light, detail), 0.0, 1.08));
+        if (uSide > 0.0) {
+            // Dessus : éclairé par le soleil, creux et versants opposés dans l'ombre, bords lumineux à contre-jour
+            float lambert = clamp(dot(normal, uSun), 0.0, 1.0);
+            float light = 0.25 + 0.8 * lambert + (fine - 0.5) * 0.35 * detail;
+            light *= mix(0.7, 1.0, smoothstep(0.25, 0.75, vBumps));
+            color = mix(uShadow, uColor, clamp(light, 0.0, 1.05));
+            float rim = pow(1.0 - clamp(dot(normal, toCamera), 0.0, 1.0), 4.0) * clamp(dot(-toCamera, uSun) + 0.3, 0.0, 1.0);
+            color += uColor * rim * 0.2;
         } else {
-            // Dessous : plus sombre là où la couche est épaisse (sous les bosses), plus clair dans les creux
-            float thick = smoothstep(0.35, 0.8, n) * 0.45 + hollow * 0.55 * detail;
-            color = mix(uColor, uShadow, clamp(thick - slope * 0.5 * detail, 0.0, 1.0));
+            // Dessous : sombre là où la nappe est épaisse (sous les bosses), plus clair dans les creux et près des trouées
+            float thick = smoothstep(0.3, 0.8, vBumps) * vCover;
+            color = mix(uColor, uShadow, clamp(thick + (0.5 - fine) * 0.25 * detail, 0.0, 1.0));
         }
-        // Bord des trouées plus clair (nuage mince)
-        color = mix(color, uColor, (1.0 - cloud) * 0.5);
+        // Éclair : la nappe s'illumine de l'intérieur autour de l'impact
+        float glow = uFlash * exp(-distance(vWorld.xz, uFlashAt) / 450.0);
+        color += vec3(0.75, 0.8, 1.0) * glow * (uSide > 0.0 ? 0.8 : 1.4);
         gl_FragColor = vec4(color * uBrightness, alpha);
         #include <colorspace_fragment>
         #include <fog_fragment>
     }
 `;
 
-// Même bruit qu'en GLSL (approché), pour savoir si la caméra est dans une trouée
+// Même bruit qu'en GLSL (approché), pour savoir si la caméra est dans le nuage
 function fract(x) {
     return x - Math.floor(x);
 }
@@ -126,12 +183,12 @@ function noise(x, y) {
     const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
     return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
 }
-function fbm(x, y) {
+function fbm(x, y, octaves = OCTAVES, k = 2.03, ox = 17.1, oy = 9.4) {
     let value = 0, amplitude = 0.5;
-    for (let o = 0; o < OCTAVES; o++) {
+    for (let o = 0; o < octaves; o++) {
         value += amplitude * noise(x, y);
-        x = x * 2.03 + 17.1;
-        y = y * 2.03 + 9.4;
+        x = x * k + ox;
+        y = y * k + oy;
         amplitude *= 0.5;
     }
     return value;
@@ -141,23 +198,29 @@ function smoothstep(edge0, edge1, x) {
     return t * t * (3 - 2 * t);
 }
 
-function createMaterial() {
+function createMaterial(side) {
     return new ShaderMaterial({
         uniforms: UniformsUtils.merge([UniformsLib.fog, {
             uColor: { value: new Color() },
             uShadow: { value: new Color() },
             uCoverage: { value: 0.85 },
             uScale: { value: 900 },
-            uDrift: { value: [0, 0] },
-            uOpacity: { value: 0.97 },
+            uDrift: { value: new Vector2() },
+            uBase: { value: 300 },
+            uTop: { value: 380 },
+            uSide: { value: side },
+            uSun: { value: new Vector3(0.43, 0.64, -0.64).normalize() },   // soleil au sud-est, comme le jour
+            uOpacity: { value: 0.98 },
             uBrightness: { value: 1 },
-            uTop: { value: 0 },
-            uSun: { value: [0.5, -0.866] },     // soleil au sud-est (azimut 150°), comme le jour
+            uFlash: { value: 0 },
+            uFlashAt: { value: new Vector2() },
         }]),
         vertexShader,
         fragmentShader,
         transparent: true,
-        depthWrite: false,
+        // Écrit sa profondeur : les bouffées de nuages et la pluie cachées par la nappe ne passent plus au travers
+        depthWrite: true,
+        side: side > 0 ? FrontSide : BackSide,   // chaque surface n'est dessinée que du côté où on la voit
         fog: true,
     });
 }
@@ -168,17 +231,13 @@ class CloudLayer {
         this.mesh.visible = false;
         this.enabled = true;    // réglage de qualité
         this.config = null;     // couche de la météo en cours (null : pas de couche)
-        this._drift = [0, 0];
-        const geometry = new PlaneGeometry(SIZE, SIZE).rotateX(-Math.PI / 2);
-        this.bottom = new Mesh(geometry, createMaterial());
-        this.top = new Mesh(geometry, createMaterial());
-        // Chaque surface n'est dessinée que du côté où on la voit (deux fois moins de calcul)
-        this.bottom.material.side = BackSide;   // vue d'en dessous
-        this.top.material.side = FrontSide;     // vue d'au-dessus
-        this.top.material.uniforms.uTop.value = 1;
+        this._drift = new Vector2();
+        const geometry = new PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS).rotateX(-Math.PI / 2);
+        this.top = new Mesh(geometry, createMaterial(1));
+        this.bottom = new Mesh(geometry, createMaterial(-1));
         for (const plane of [this.bottom, this.top]) {
             plane.frustumCulled = false;
-            plane.renderOrder = 1;
+            plane.renderOrder = 0;   // avant les bouffées (renderOrder 1) : celles qu'elle cache sont écartées
             this.mesh.add(plane);
         }
     }
@@ -195,13 +254,13 @@ class CloudLayer {
             u.uShadow.value.set(shadow);
             u.uCoverage.value = config.coverage;
             u.uScale.value = config.scale ?? 900;
+            u.uBase.value = config.base;
+            u.uTop.value = config.top;
             u.uBrightness.value = gain;
         };
-        // Dessous gris (ombre du nuage) ; dessus éclairé par le soleil
+        // Dessus éclairé par le soleil (au-dessus de l'orage aussi : c'est le plein jour là-haut) ; dessous gris
+        set(this.top, 0xf4f6f8, new Color(0x8794a5).lerp(new Color(dark), 0.2), 0.97);
         set(this.bottom, new Color(dark).lerp(new Color(light), 0.6), new Color(dark).multiplyScalar(0.85), 0.9);
-        set(this.top, light, new Color(light).lerp(new Color(dark), 0.55), 0.97);
-        this.bottom.position.y = config.base;
-        this.top.position.y = config.top;
     }
 
     setEnabled(enabled) {
@@ -209,26 +268,45 @@ class CloudLayer {
         this._apply();
     }
 
+    // Éclair : flash (0 -> 1) et position (x, z) de l'impact
+    setFlash(flash, x = 0, z = 0) {
+        for (const plane of [this.top, this.bottom]) {
+            plane.material.uniforms.uFlash.value = flash;
+            plane.material.uniforms.uFlashAt.value.set(x, z);
+        }
+    }
+
     // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur), pour le "jour blanc"
     densityAt(position) {
         if (!this.mesh.visible) return 0;
         const { base, top, coverage, scale = 900 } = this.config;
-        if (position.y < base - 15 || position.y > top + 15) return 0;
-        const n = fbm((position.x + this._drift[0]) / scale, (position.z + this._drift[1]) / scale);
-        const cloud = smoothstep(1 - coverage - 0.08, 1 - coverage + 0.18, n);
-        // Plus dense au milieu de l'épaisseur, fondu sur 15 m aux bords
-        const depth = Math.min(position.y - base + 15, top + 15 - position.y) / 30;
-        return cloud * Math.min(1, depth);
+        const thick = top - base;
+        if (position.y < base - thick * 0.6 || position.y > top + thick * 0.9) return 0;
+        const px = position.x + this._drift.x, pz = position.z + this._drift.y;
+        const b = fbm(px / 400, pz / 400, 3, 2.07, 5.3, 11.7) * 0.6
+            + fbm(px / 120 + 7.7, pz / 120 + 7.7, 3, 2.07, 5.3, 11.7) * 0.4;
+        const c = smoothstep(1 - coverage - 0.06, 1 - coverage + 0.16, fbm(px / scale, pz / scale) + (b - 0.5) * 0.2);
+        // Entre les deux surfaces (mêmes formules que le shader), fondu sur 15 m
+        const middle = base + thick * 0.45;
+        const upper = middle + (top + (b - 0.5) * thick * 2.4 - middle) * c;
+        const lower = middle + (base - (b - 0.35) * thick * 0.5 - middle) * c;
+        return c * smoothstep(-5, 10, Math.min(position.y - lower, upper - position.y));
+    }
+
+    // Altitude du dessus de la nappe (moyenne), pour savoir si la caméra est au-dessus
+    get topAltitude() {
+        return this.config ? this.config.top : Infinity;
     }
 
     // wind : 0 -> 1 (le vent vient du nord : la couche dérive vers le sud)
     update(delta, camera, wind) {
         if (!this.mesh.visible) return;
-        this._drift[1] -= wind * 6 * delta;
-        // Les plans suivent la caméra (le motif reste attaché au sol, voir uDrift)
-        this.mesh.position.x = camera.position.x;
-        this.mesh.position.z = camera.position.z;
-        for (const plane of [this.bottom, this.top]) plane.material.uniforms.uDrift.value = this._drift;
+        this._drift.y -= wind * 6 * delta;
+        // Le maillage suit la caméra (par pas de 10 m : près de la caméra, ses sommets retombent sur les mêmes points
+        // du monde ; au loin, les mailles sont larges mais le relief aussi, il ne bouge pas visiblement)
+        this.mesh.position.x = Math.round(camera.position.x / SNAP) * SNAP;
+        this.mesh.position.z = Math.round(camera.position.z / SNAP) * SNAP;
+        for (const plane of [this.bottom, this.top]) plane.material.uniforms.uDrift.value.copy(this._drift);
     }
 
     _apply() {

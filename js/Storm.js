@@ -58,6 +58,7 @@ class Storm {
         this.rain = 0;               // intensité de la pluie (0 -> 1)
         this.lightning = false;
         this.flash = 0;              // éclat de l'éclair en cours (0 -> 1), pour l'éclairage de la scène
+        this.strikeAt = new Vector3(); // point d'impact du dernier éclair
         this.cloudBase = null;       // base des nuages (m) : pas de pluie au-dessus de la couche
         this.cloudTop = null;
 
@@ -181,6 +182,7 @@ class Storm {
         // L'éclair part de la base des nuages
         const top = this.cloudBase !== null ? random(this.cloudBase, this.cloudBase + 30) : random(260, 340);
         const bottom = this.groundHeight(x, z);
+        this.strikeAt.set(x, bottom, z);
 
         const positions = [];
         // Tracé principal en zigzag, avec quelques branches
