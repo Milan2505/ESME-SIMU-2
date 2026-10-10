@@ -1,53 +1,129 @@
 import {
     ACESFilmicToneMapping,
+    BackSide,
+    CubeCamera,
     HalfFloatType,
     MathUtils,
+    Mesh,
     PCFShadowMap,
+    Scene,
+    ShaderMaterial,
+    SphereGeometry,
     Vector2,
     Vector3,
+    WebGLCubeRenderTarget,
     WebGLRenderTarget
 } from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-// Vignettage + étalonnage léger, et voile rouge sur les bords pendant le décrochage
-const GradeShader = {
-    uniforms: {
-        tDiffuse: { value: null },
-        uVignette: { value: 0.35 },    // assombrissement des bords
-        uSaturation: { value: 1.1 },
-        uAlarm: { value: 0 },          // 0 -> 1 : intensité du voile rouge
-    },
+// Halo lumineux (bloom) dont le résultat reste dans sa propre texture (quart de résolution) : il est ajouté
+// à l'image dans la passe finale. L'original le recollait dans la texture de la scène (multi-échantillonnée) :
+// une passe plein écran en MSAA 4x et une seconde résolution MSAA à chaque image.
+class BloomPass extends UnrealBloomPass {
+    get texture() {
+        return this.renderTargetsHorizontal[0].texture;
+    }
+
+    render(renderer, writeBuffer, readBuffer) {
+        renderer.getClearColor(this._oldClearColor);
+        this.oldClearAlpha = renderer.getClearAlpha();
+        const oldAutoClear = renderer.autoClear;
+        renderer.autoClear = false;
+        renderer.setClearColor(this.clearColor, 0);
+
+        // 1. Zones lumineuses
+        this.highPassUniforms.tDiffuse.value = readBuffer.texture;
+        this.highPassUniforms.luminosityThreshold.value = this.threshold;
+        this.fsQuad.material = this.materialHighPassFilter;
+        renderer.setRenderTarget(this.renderTargetBright);
+        renderer.clear();
+        this.fsQuad.render(renderer);
+
+        // 2. Flou à résolutions décroissantes
+        let input = this.renderTargetBright;
+        for (let i = 0; i < this.nMips; i++) {
+            const material = this.separableBlurMaterials[i];
+            this.fsQuad.material = material;
+            material.uniforms.colorTexture.value = input.texture;
+            material.uniforms.direction.value = UnrealBloomPass.BlurDirectionX;
+            renderer.setRenderTarget(this.renderTargetsHorizontal[i]);
+            renderer.clear();
+            this.fsQuad.render(renderer);
+            material.uniforms.colorTexture.value = this.renderTargetsHorizontal[i].texture;
+            material.uniforms.direction.value = UnrealBloomPass.BlurDirectionY;
+            renderer.setRenderTarget(this.renderTargetsVertical[i]);
+            renderer.clear();
+            this.fsQuad.render(renderer);
+            input = this.renderTargetsVertical[i];
+        }
+
+        // 3. Assemblage des niveaux, dans this.texture
+        this.fsQuad.material = this.compositeMaterial;
+        this.compositeMaterial.uniforms.bloomStrength.value = this.strength;
+        this.compositeMaterial.uniforms.bloomRadius.value = this.radius;
+        this.compositeMaterial.uniforms.bloomTintColors.value = this.bloomTintColors;
+        renderer.setRenderTarget(this.renderTargetsHorizontal[0]);
+        renderer.clear();
+        this.fsQuad.render(renderer);
+
+        renderer.setClearColor(this._oldClearColor, this.oldClearAlpha);
+        renderer.autoClear = oldAutoClear;
+    }
+}
+
+// Passe finale unique : halo + étalonnage (vignettage, saturation, voile rouge du décrochage) + tone mapping
+// et sRGB (OutputPass). Une seule passe plein écran au lieu de trois.
+class FinalPass extends OutputPass {
+    constructor(bloomTexture) {
+        super();
+        Object.assign(this.uniforms, {
+            tBloom: { value: bloomTexture },
+            uBloom: { value: 1 },          // 0 : halo désactivé
+            uVignette: { value: 0.35 },    // assombrissement des bords
+            uSaturation: { value: 1.1 },
+            uAlarm: { value: 0 },          // 0 -> 1 : intensité du voile rouge
+        });
+        this.material.fragmentShader = this.material.fragmentShader
+            .replace('uniform sampler2D tDiffuse;', /* glsl */`uniform sampler2D tDiffuse;
+                uniform sampler2D tBloom;
+                uniform float uBloom;
+                uniform float uVignette;
+                uniform float uSaturation;
+                uniform float uAlarm;`)
+            .replace('gl_FragColor = texture2D( tDiffuse, vUv );', /* glsl */`gl_FragColor = texture2D( tDiffuse, vUv );
+                if (uBloom > 0.0) gl_FragColor.rgb += texture2D( tBloom, vUv ).rgb;
+
+                float luma = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+                gl_FragColor.rgb = mix(vec3(luma), gl_FragColor.rgb, uSaturation);
+                float edge = smoothstep(0.35, 0.85, length(vUv - 0.5) * 1.4);
+                gl_FragColor.rgb *= 1.0 - uVignette * edge;
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.8, 0.05, 0.05) * max(luma, 0.4), uAlarm * edge);`);
+    }
+}
+
+// Ciel pré-calculé : simple lecture dans la cubemap (le shader atmosphérique est coûteux par pixel)
+const SkyDomeShader = {
     vertexShader: /* glsl */`
-        varying vec2 vUv;
+        varying vec3 vDirection;
         void main() {
-            vUv = uv;
+            vDirection = position;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            gl_Position.z = gl_Position.w; // au fond : caché (sans calcul) derrière le relief déjà dessiné
         }
     `,
     fragmentShader: /* glsl */`
-        uniform sampler2D tDiffuse;
-        uniform float uVignette;
-        uniform float uSaturation;
-        uniform float uAlarm;
-        varying vec2 vUv;
-
+        uniform samplerCube tSky;
+        varying vec3 vDirection;
         void main() {
-            vec4 color = texture2D(tDiffuse, vUv);
-            float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-            color.rgb = mix(vec3(luma), color.rgb, uSaturation);
-
-            float edge = smoothstep(0.35, 0.85, length(vUv - 0.5) * 1.4);
-            color.rgb *= 1.0 - uVignette * edge;
-            color.rgb = mix(color.rgb, vec3(0.8, 0.05, 0.05) * max(luma, 0.4), uAlarm * edge);
-            gl_FragColor = color;
+            gl_FragColor = vec4(textureCube(tSky, vDirection).rgb, 1.0);
         }
     `,
 };
+const SKY_CUBE_SIZE = 512;      // côté d'une face de la cubemap du ciel
 
 const SHADOW_SIZE = 120;        // demi-côté de la zone d'ombres autour de l'avion (m)
 const SUN_DISTANCE = 400;
@@ -83,7 +159,8 @@ class Graphics {
         sunLight.shadow.normalBias = 0.3;
         scene.add(sunLight.target);
 
-        // Ciel : diffusion atmosphérique (Rayleigh / Mie)
+        // Ciel : diffusion atmosphérique (Rayleigh / Mie). Il ne dépend que de la météo : calculé une fois
+        // dans une cubemap (voir setAtmosphere), la scène n'affiche qu'un dôme qui lit cette texture.
         this.sky = new Sky();
         this.sky.scale.setScalar(2500); // doit rester dans le champ de la caméra (far)
         const skyMaterial = this.sky.material;
@@ -94,7 +171,18 @@ class Graphics {
         skyMaterial.fragmentShader = skyMaterial.fragmentShader
             .replace('void main() {', 'uniform float uSkyExposure;\nvoid main() {')
             .replace('gl_FragColor = vec4( retColor, 1.0 );', 'gl_FragColor = vec4( retColor * uSkyExposure, 1.0 );');
-        scene.add(this.sky);
+        this.skyScene = new Scene().add(this.sky);
+        const skyTarget = new WebGLCubeRenderTarget(SKY_CUBE_SIZE, { type: HalfFloatType });
+        this.skyCamera = new CubeCamera(1, 5000, skyTarget);
+        this.skyDome = new Mesh(new SphereGeometry(2000, 32, 16), new ShaderMaterial({
+            ...SkyDomeShader,
+            uniforms: { tSky: { value: skyTarget.texture } },
+            side: BackSide,
+            depthWrite: false,
+        }));
+        this.skyDome.frustumCulled = false;
+        this.skyDome.renderOrder = 1; // après le décor opaque : seuls les pixels de ciel visibles sont calculés
+        scene.add(this.skyDome);
 
         // Post-traitement
         // Anticrénelage : rendu multi-échantillonné (MSAA 4x). L'option "antialias" du renderer
@@ -102,18 +190,17 @@ class Graphics {
         const size = renderer.getDrawingBufferSize(new Vector2());
         const target = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4 });
         this.composer = new EffectComposer(renderer, target);
-        // La 2e texture ne reçoit que l'étalonnage (une image déjà lissée) : inutile de la multi-échantillonner.
-        // Les passes Grade et Output échangent chacune les textures : la scène est donc toujours dessinée dans la 1re.
+        // Aucune passe n'échange les textures (la passe finale dessine à l'écran) : la scène est toujours
+        // dessinée dans la 1re, la 2e ne sert pas -> pas de multi-échantillonnage pour elle.
         this.composer.renderTarget2.samples = 0;
         this.composer.addPass(new RenderPass(scene, camera));
-        this.bloom = new UnrealBloomPass(new Vector2(256, 256), 0.25, 0.4, 0.92);
+        this.bloom = new BloomPass(new Vector2(256, 256), 0.25, 0.4, 0.92);
         // Halo calculé à mi-résolution : il est flou de toute façon, 4 fois moins de pixels à traiter
         const setBloomSize = this.bloom.setSize.bind(this.bloom);
         this.bloom.setSize = (width, height) => setBloomSize(Math.ceil(width / 2), Math.ceil(height / 2));
         this.composer.addPass(this.bloom);
-        this.grade = new ShaderPass(GradeShader);
-        this.composer.addPass(this.grade);
-        this.composer.addPass(new OutputPass());
+        this.final = new FinalPass(this.bloom.texture);
+        this.composer.addPass(this.final);
 
         this.maxPixelRatio = renderer.getPixelRatio();
         this._cssSize = { width: 1, height: 1 };
@@ -142,6 +229,7 @@ class Graphics {
 
     setBloom(enabled) {
         this.bloom.enabled = enabled;
+        this.final.uniforms.uBloom.value = enabled ? 1 : 0;
     }
 
     // size : 0 (sans ombres), 1024, 2048 ou 4096 (finesse de la carte d'ombres)
@@ -199,17 +287,18 @@ class Graphics {
         this.sunDirection.setFromSphericalCoords(
             1, MathUtils.degToRad(90 - sun.elevation), MathUtils.degToRad(sun.azimuth)
         );
-        this.sky.visible = Boolean(atmosphere);
+        this.skyDome.visible = Boolean(atmosphere);
         if (atmosphere) {
             const uniforms = this.sky.material.uniforms;
             uniforms.turbidity.value = atmosphere.turbidity;
             uniforms.rayleigh.value = atmosphere.rayleigh;
             uniforms.sunPosition.value.copy(this.sunDirection);
+            this.skyCamera.update(this.renderer, this.skyScene);
         }
     }
 
     setAlarm(level) {
-        this.grade.uniforms.uAlarm.value = level;
+        this.final.uniforms.uAlarm.value = level;
     }
 
     setSize(width, height) {
@@ -231,7 +320,7 @@ class Graphics {
 
     // shadowCenter : point autour duquel calculer les ombres (le sol sous l'avion)
     update(shadowCenter) {
-        this.sky.position.copy(this.camera.position);
+        this.skyDome.position.copy(this.camera.position);
         this.sunLight.target.position.copy(shadowCenter);
         this.sunLight.position.copy(shadowCenter).addScaledVector(this.sunDirection, SUN_DISTANCE);
     }

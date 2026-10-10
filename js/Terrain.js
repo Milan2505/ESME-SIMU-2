@@ -96,7 +96,7 @@ class Terrain {
             const texture = loader.load(url);
             texture.colorSpace = SRGBColorSpace;
             texture.wrapS = texture.wrapT = RepeatWrapping;
-            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy()); // au-delà : coûteux en plein écran (6 lectures de texture par pixel), gain à peine visible
             textures[name] = texture;
         }
 
@@ -133,16 +133,14 @@ class Terrain {
                     varying vec3 vTerrainPos;
                     varying vec3 vTerrainNormal;
 
-                    // Deux échelles mélangées pour casser la répétition vue de haut
-                    vec3 terrainSample(sampler2D tex, vec2 uv) {
-                        return mix(texture2D(tex, uv).rgb, texture2D(tex, uv * 0.13).rgb, 0.5);
+                    // Deux échelles mélangées pour casser la répétition vue de haut.
+                    // Dérivées explicites (textureGrad) : la lecture peut se faire dans un "if"
+                    vec3 terrainSample(sampler2D tex, vec2 uv, vec2 dx, vec2 dy) {
+                        return mix(textureGrad(tex, uv, dx, dy).rgb, textureGrad(tex, uv * 0.13, dx * 0.13, dy * 0.13).rgb, 0.5);
                     }`)
                 .replace('#include <map_fragment>', `
                     vec2 terrainUv = vTerrainPos.xz / uTile;
-                    vec3 grass = terrainSample(tGrass, terrainUv);
-                    grass = mix(grass, grass * uGrassTint * 2.5, 0.6);
-                    vec3 rock = terrainSample(tRock, terrainUv);
-                    vec3 snow = terrainSample(tSnow, terrainUv);
+                    vec2 uvDx = dFdx(terrainUv), uvDy = dFdy(terrainUv);
 
                     float slope = 1.0 - normalize(vTerrainNormal).y;
                     float rockAmount = clamp(smoothstep(0.12, 0.3, slope)
@@ -150,7 +148,17 @@ class Terrain {
                     float snowAmount = smoothstep(uSnowHeight, uSnowHeight + 40.0, vTerrainPos.y)
                         * (1.0 - smoothstep(0.35, 0.6, slope));
 
-                    vec3 terrainColor = mix(mix(grass, rock, rockAmount), snow, snowAmount);
+                    // Herbe / roche / neige : chaque texture n'est lue que là où elle est visible
+                    // (la plaine ne lit que l'herbe : 2 lectures au lieu de 6)
+                    float grassWeight = (1.0 - rockAmount) * (1.0 - snowAmount);
+                    float rockWeight = rockAmount * (1.0 - snowAmount);
+                    vec3 terrainColor = vec3(0.0);
+                    if (grassWeight > 0.0) {
+                        vec3 grass = terrainSample(tGrass, terrainUv, uvDx, uvDy);
+                        terrainColor += grassWeight * mix(grass, grass * uGrassTint * 2.5, 0.6);
+                    }
+                    if (rockWeight > 0.0) terrainColor += rockWeight * terrainSample(tRock, terrainUv, uvDx, uvDy);
+                    if (snowAmount > 0.0) terrainColor += snowAmount * terrainSample(tSnow, terrainUv, uvDx, uvDy);
                     diffuseColor.rgb *= terrainColor;`);
         };
         return material;

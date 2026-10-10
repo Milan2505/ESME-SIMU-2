@@ -29,7 +29,7 @@ const PRESETS = {
     bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, terrain: 128, decor: 0.25, bloom: false },
     moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, terrain: 256, decor: 0.5,  bloom: true },
     haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   terrain: 384, decor: 1,    bloom: true },
-    ultra: { label: 'Ultra', fps: 0,  resolution: 1.5,    antialias: 4, shadows: 4096, clouds: 1,   terrain: 512, decor: 1,    bloom: true },
+    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   terrain: 512, decor: 1,    bloom: true },
 };
 const DEFAULT_PRESET = 'haut';
 const CUSTOM = 'perso';
