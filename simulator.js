@@ -428,7 +428,53 @@ const orbit = { yaw: 0, pitch: CHASE_PITCH, distance: CHASE_DISTANCE };
 const head = { yaw: 0, pitch: 0 };
 let drag = null;
 
+// Vues de la cabine sur les touches chiffrées : point visé (repère cabine, comme Cockpit.js) et champ de vision
+const CABIN_VIEWS = {
+    1: { label: 'Devant', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
+    2: { label: 'Instruments de vol', target: [-0.3, -0.3, -0.75], fov: 46 },
+    3: { label: 'Magnétos et master', target: [-0.5, -0.64, -0.75], fov: 32 },
+    4: { label: 'Interrupteurs et disjoncteurs', target: [0.03, -0.56, -0.75], fov: 36 },
+    5: { label: 'Volets et éclairage', target: [0.46, -0.57, -0.75], fov: 34 },
+    6: { label: 'Radios, VOR et moteur', target: [0.33, -0.3, -0.75], fov: 44 },
+    7: { label: 'Gaz et mixture', target: [-0.01, -0.47, -0.75], fov: 34 },
+    8: { label: 'Pupitre (trim, robinet)', target: [0, -0.765, -0.6], fov: 38 },
+    9: { label: 'Sélecteur de réservoir', target: [0, -0.884, -0.45], fov: 38 },
+    0: { label: 'Aile gauche', yaw: 1.35, pitch: 0.05, fov: COCKPIT_FOV },
+};
+let headTarget = null;   // vue en cours de rejointe (glissement doux)
+
+function setCabinViewPreset(number) {
+    const preset = CABIN_VIEWS[number];
+    if (!preset) return;
+    if (chaseView) toggleView();
+    let { yaw, pitch } = preset;
+    if (preset.target) {
+        const [tx, ty, tz] = preset.target;
+        const dx = tx - cockpit.eye.x, dy = ty - cockpit.eye.y, dz = tz - cockpit.eye.z;
+        yaw = Math.atan2(-dx, -dz);
+        pitch = Math.atan2(dy, Math.hypot(dx, dz)) - COCKPIT_TILT;
+    }
+    headTarget = { yaw, pitch, fov: preset.fov };
+}
+
+function updateHeadTarget(delta) {
+    if (!headTarget || chaseView) return;
+    const k = 1 - Math.exp(-8 * delta);
+    head.yaw += (headTarget.yaw - head.yaw) * k;
+    head.pitch += (headTarget.pitch - head.pitch) * k;
+    camera.fov += (headTarget.fov - camera.fov) * k;
+    camera.updateProjectionMatrix();
+    if (Math.abs(headTarget.yaw - head.yaw) + Math.abs(headTarget.pitch - head.pitch) + Math.abs(headTarget.fov - camera.fov) / 100 < 0.002) headTarget = null;
+}
+
+window.addEventListener('keydown', (event) => {
+    if (event.repeat || isTypingTarget(event.target)) return;
+    const match = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
+    if (match) setCabinViewPreset(Number(match[1]));
+});
+
 function recenterCamera() {
+    headTarget = null;
     Object.assign(orbit, { yaw: 0, pitch: CHASE_PITCH, distance: CHASE_DISTANCE });
     Object.assign(head, { yaw: 0, pitch: 0 });
     camera.fov = chaseView ? CAM_FOV : COCKPIT_FOV;
@@ -448,6 +494,7 @@ view.addEventListener('pointermove', (event) => {
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     drag = { x: event.clientX, y: event.clientY };
     dragDistance += Math.abs(dx) + Math.abs(dy);
+    if (dx || dy) headTarget = null;   // la souris reprend la main sur une vue préréglée
     if (chaseView) {
         orbit.yaw -= dx * ORBIT_SPEED;
         orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + dy * ORBIT_SPEED, -0.35, 1.45);
@@ -481,6 +528,7 @@ view.addEventListener('wheel', (event) => {
 controls.addEventListener('reset', () => {
     // Retour au point de départ : avion prêt à voler (moteur tournant, réservoirs remplis)
     systems.reset();
+    controls.parkingBrake = systems.brake = false;
     systems.switches.land = systems.switches.taxi = (weather?.night ?? 0) >= 0.5;
     applyLights();
     aircraft.updateMatrixWorld();
@@ -1257,7 +1305,8 @@ function useControl(control, step, wheel = false, fine = false) {
         systems.toggle(id.split(':')[1]);
     } else if (id === 'panelLights') systems.setPanelLights(systems.panelLights + step * 0.1);
     else if (id.startsWith('flaps:')) {
-        if (wheel) controls.setFlapLevel(THREE.MathUtils.clamp(controls.getFlapLevel() + step, 0, 3));
+        // Molette ou levier 3D (moitié haute : rentrer, basse : sortir) : un cran ; échelle : cran cliqué
+        if (wheel || id === 'flaps:lever') controls.setFlapLevel(THREE.MathUtils.clamp(controls.getFlapLevel() + (wheel ? -step : step), 0, 3));
         else controls.setFlapLevel(Number(id.split(':')[1]));
     } else if (id === 'throttle') controls.throttle = THREE.MathUtils.clamp(controls.throttle + step * (fine ? 0.02 : 0.1), 0, 1);
     else if (id === 'mixture') systems.setMixture(systems.mixture + step * (fine ? 0.02 : 0.1));
@@ -1268,8 +1317,12 @@ function useControl(control, step, wheel = false, fine = false) {
         if (wheel) return false;
         systems.toggleFuelShutoff();
     } else if (id === 'fuelSelector') systems.turnFuelSelector(step);
-    else return false;
-    sounds.click();
+    else if (id === 'brake') {
+        if (wheel) return false;
+        controls.parkingBrake = !controls.parkingBrake;
+        systems.brake = controls.parkingBrake;
+    } else return false;
+    if (id !== 'trimWheel') sounds.click(); // la molette de trim fait ses crans d'elle-même (voir la boucle)
     return true;
 }
 
@@ -1280,7 +1333,7 @@ view.addEventListener('click', (event) => {
     const control = controlAt(event);
     if (!control) return;
     const vertical = ['throttle', 'mixture'].includes(control.id) ? -control.vertical
-        : control.id === 'trimWheel' ? control.vertical : control.side;
+        : ['trimWheel', 'flaps:lever'].includes(control.id) ? control.vertical : control.side;
     useControl(control, vertical || 1, false, event.shiftKey);
 });
 // Main au-dessus d'une commande : curseur "main"
@@ -1380,6 +1433,7 @@ function updatePerf(cpuTime) {
 }
 
 let nextFrameTime = 0;
+let lastTrim = controls.getTrim(), trimTravel = 0;
 
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
@@ -1407,7 +1461,15 @@ renderer.setAnimationLoop((time)=>{
         const wheelLoad = Math.max(0.15, 1 - (speed / (controls.rotateSpeed * 1.5)) ** 2);
         shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
     }
+    updateHeadTarget( delta );
     updateCamera( delta );
+    // Molette de trim (touches W / X, ou à la souris) : un cran entendu tous les 0,6°
+    trimTravel += Math.abs(controls.getTrim() - lastTrim);
+    lastTrim = controls.getTrim();
+    if (trimTravel >= 0.6) {
+        trimTravel = 0;
+        sounds.click(0.22);
+    }
 
     updatePropeller( delta );
     // Systèmes : moteur, carburant, électricité ; le modèle de vol en reçoit la puissance et l'alimentation des volets

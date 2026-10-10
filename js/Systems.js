@@ -172,12 +172,20 @@ class Systems extends EventTarget {
         return [left > 0, left > 0 || right > 0, right > 0][this.fuelSelector];
     }
 
-    // Puissance du moteur (0 -> 1) : magnétos (une seule : légère perte), mixture
+    // Une seule magnéto (L ou R) : combustion moins complète, ~100 tr/min de moins (essai magnétos avant le décollage)
+    get singleMagneto() {
+        return this.magnetos === 1 || this.magnetos === 2;
+    }
+
+    // Richesse du mélange : 1 plein riche, baisse quand on appauvrit trop
+    get _mixturePower() {
+        return this.mixture >= 0.7 ? 1 : 0.55 + 0.45 * Math.max(0, (this.mixture - 0.1) / 0.6);
+    }
+
+    // Puissance du moteur (0 -> 1) : magnétos (une seule : ~4 % de moins), mixture
     get power() {
         if (!this.running) return 0;
-        const magnetos = this.magnetos >= 3 ? 1 : 0.95;
-        const mixture = this.mixture >= 0.7 ? 1 : 0.55 + 0.45 * Math.max(0, (this.mixture - 0.1) / 0.6);
-        return magnetos * mixture;
+        return (this.singleMagneto ? 0.96 : 1) * this._mixturePower;
     }
 
     // Débit carburant (gal/h)
@@ -235,7 +243,7 @@ class Systems extends EventTarget {
             this.battery = Math.max(0, Math.min(1, this.battery + (this.alternatorOn ? 1 / 600 : -load / BATTERY_LIFE) * delta));
         }
         // Régime : moteur (gaz, mixture) ou hélice entraînée par le vent relatif / le démarreur
-        const target = this.running ? 750 + 1950 * throttle * this.power + airspeed * 4
+        const target = this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
             : starting && this.switches.masterBat && this.battery > 0.05 ? 280 : airspeed * 18;
         this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
     }

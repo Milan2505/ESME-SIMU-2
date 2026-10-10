@@ -6,7 +6,25 @@
 import { BREAKERS, TOGGLES, MAGNETOS, TANK_CAPACITY } from './Systems.js';
 
 const deg = (d) => d * Math.PI / 180;
+const SOCKETS_ONLY = true;
 const FONT = 'DejaVu Sans, Arial, sans-serif';
+
+// Position des commandes (px des canvas ; sous-panneau : y depuis son haut). Les commandes elles-mêmes sont en 3D
+// (Controls3D.js) ; les canvas n'en dessinent que le logement, les inscriptions et les échelles
+const LAYOUT = {
+    mags: { x: 78, y: 112, r: 30, angles: [-70, -38, -8, 24, 58] },
+    master: { x: 150, y: 40, w: 34, h: 92 },
+    avionics: { x: 262, w: 44 },
+    breakers: { x0: 468, step: 70, y: 50 },
+    toggles: { x0: 672, step: 58, y: 128 },
+    panelLights: { x: 1380, y: 140 },
+    flaps: { x: 1222, y: 32, h: 120 },
+    pulls: { cabinAir1: { x: 1380, y: 62, color: 0x9a9da2 }, altStatic: { x: 1470, y: 62, color: 0xd23a2a } },
+    elt: { x: 1470, y: 140 },
+    trimWheel: { x: 30, y: 30, w: 46, h: 230 },
+    fuelShutoff: { x: 192, y: 258 },
+    fuelSelector: { y: 18 },     // centre : décalage vertical depuis le milieu de la plaque
+};
 
 // Zones cliquables d'un canvas : { id, x, y, w, h } (rectangle) ou { id, cx, cy, r } (disque)
 class Hotspots {
@@ -61,6 +79,7 @@ function knob(ctx, x, y, r, angle = null, color = '#9a9da2') {
     ctx.beginPath();
     ctx.arc(x, y, r + 4, 0, Math.PI * 2);
     ctx.fill();
+    if (SOCKETS_ONLY) return;   // bouton en 3D : seulement son logement
     const g = ctx.createRadialGradient(x - r * 0.4, y - r * 0.4, r * 0.1, x, y, r);
     g.addColorStop(0, '#f2f2f2');
     g.addColorStop(0.5, color);
@@ -85,6 +104,7 @@ function toggleSwitch(ctx, x, y, on) {
     ctx.beginPath();
     ctx.arc(x, y, 15, 0, Math.PI * 2);
     ctx.fill();
+    if (SOCKETS_ONLY) return;
     const g = ctx.createRadialGradient(x - 4, y - 4, 2, x, y, 13);
     g.addColorStop(0, '#e6e6e6');
     g.addColorStop(1, '#6d7075');
@@ -110,6 +130,14 @@ function toggleSwitch(ctx, x, y, on) {
 
 // Disjoncteur : enclenché (enfoncé) ou sorti (collerette blanche visible)
 function breaker(ctx, x, y, amps, on) {
+    if (SOCKETS_ONLY) {
+        ctx.fillStyle = '#050505';
+        ctx.beginPath();
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        label(ctx, `${amps} A`, x, y + 22, 8, '#b8bbc0');
+        return;
+    }
     if (!on) {
         ctx.fillStyle = '#f0f0f0';
         ctx.beginPath();
@@ -130,6 +158,7 @@ function breaker(ctx, x, y, amps, on) {
 function rocker(ctx, x, y, w, h, on, colors) {
     ctx.fillStyle = '#0b0b0c';
     ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    if (SOCKETS_ONLY) return;
     const [top, bottom] = on ? [colors.pressed, colors.raised] : [colors.raised, colors.pressed];
     ctx.fillStyle = top;
     ctx.fillRect(x, y, w, h / 2);
@@ -156,15 +185,16 @@ function drawSubpanel(ctx, hotspots, top, width, height, systems, flaps) {
     // Magnétos : clé sur 5 positions (OFF R L BOTH START)
     const mx = 78, my = top + 112, mr = 30;
     label(ctx, 'MAGNETOS', mx, top + 22, 11);
-    const positions = [-70, -38, -8, 24, 58];
+    const positions = LAYOUT.mags.angles;
     MAGNETOS.forEach((name, i) => {
         const a = deg(positions[i]);
         label(ctx, name, mx + Math.sin(a) * (mr + 22), my - Math.cos(a) * (mr + 22), 10, i === s.magnetos ? '#ffd34d' : '#e8e8e8');
     });
     knob(ctx, mx, my, mr, null, '#8e9196');
-    // Clé
+    // Clé (en 3D)
     const ka = deg(positions[s.magnetos]);
-    ctx.save();
+    if (!SOCKETS_ONLY) ctx.save();
+    else { ctx.save(); ctx.globalAlpha = 0; }
     ctx.translate(mx, my);
     ctx.rotate(ka);
     ctx.fillStyle = '#2b2b2e';
@@ -250,11 +280,7 @@ function drawSubpanel(ctx, hotspots, top, width, height, systems, flaps) {
     // Fente et levier (suit le cran demandé)
     ctx.fillStyle = '#050505';
     ctx.fillRect(fx + 70, fy, 8, fh);
-    const ly2 = fy + (flaps.level * fh) / 4 + fh / 8;
-    ctx.fillStyle = '#d2d4d7';
-    ctx.fillRect(fx + 62, ly2 - 9, 44, 18);
-    ctx.fillStyle = '#9a9da2';
-    ctx.fillRect(fx + 62, ly2 + 4, 44, 5);
+    // (levier en 3D)
     // Index de position réelle (les volets mettent quelques secondes à sortir)
     ctx.fillStyle = '#ff9f1a';
     const iy = fy + flaps.position * (fh * 3 / 4) + fh / 8;
@@ -385,7 +411,7 @@ function drawPedestal(ctx, hotspots, w, h, systems, trim) {
     ctx.fillStyle = '#0a0a0b';
     ctx.fillRect(wx - 6, wy - 6, ww + 12, wh + 12);
     const offset = ((trim.deg * 7) % 30 + 30) % 30;
-    for (let y = wy - 30 + offset; y < wy + wh; y += 30) {
+    for (let y = wy - 30 + offset; !SOCKETS_ONLY && y < wy + wh; y += 30) {
         if (y < wy - 8) continue;
         const g = ctx.createLinearGradient(wx, y, wx, y + 22);
         g.addColorStop(0, '#5a5c60');
@@ -399,6 +425,12 @@ function drawPedestal(ctx, hotspots, w, h, systems, trim) {
     label(ctx, 'NOSE\nDOWN', wx + ww / 2, 14, 9);
     label(ctx, 'NOSE\nUP', wx + ww / 2, h - 30, 9);
     hotspots.rect('trimWheel', wx - 6, wy - 6, ww + 12, wh + 12);
+    // Repère de la manette de frein (sur le flanc gauche du pupitre)
+    ctx.save();
+    ctx.translate(11, 145);
+    ctx.rotate(-Math.PI / 2);
+    label(ctx, systems.brake ? 'FREIN SERRÉ' : 'FREIN', 0, 0, 9, systems.brake ? '#ff6a4a' : '#b8bbc0');
+    ctx.restore();
     // Repère de trim (TAKE OFF)
     const sx = 96, s0 = 50, s1 = 250;
     ctx.fillStyle = '#050505';
@@ -457,6 +489,7 @@ function drawFuelSelector(ctx, hotspots, w, h, systems) {
     // Poignée blanche effilée, tournée vers le réservoir choisi
     const angle = deg([-90, 0, 90][systems.fuelSelector]);
     ctx.save();
+    if (SOCKETS_ONLY) ctx.globalAlpha = 0;   // poignée en 3D
     ctx.translate(cx, cy);
     ctx.rotate(angle);
     ctx.fillStyle = '#f2f2f2';
@@ -476,4 +509,4 @@ function drawFuelSelector(ctx, hotspots, w, h, systems) {
     hotspots.rect('fuelSelector', 0, 0, w, h);
 }
 
-export { Hotspots, drawSubpanel, drawEngineGauges, drawAnnunciators, drawPedestal, drawFuelSelector };
+export { LAYOUT, Hotspots, drawSubpanel, drawEngineGauges, drawAnnunciators, drawPedestal, drawFuelSelector };

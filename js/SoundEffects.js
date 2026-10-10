@@ -63,7 +63,7 @@ class SoundEffects {
     }
 
     // Clic d'un interrupteur ou d'un bouton de la cabine (bruit court et sec, synthétisé)
-    click() {
+    click(volume = 0.5) {
         if (!this._audio) return;
         const audio = this._audio;
         if (!this._clickBuffer) {
@@ -78,7 +78,7 @@ class SoundEffects {
         source.buffer = this._clickBuffer;
         filter.type = 'bandpass';
         filter.frequency.value = 2400 + Math.random() * 600;
-        gain.gain.value = 0.5;
+        gain.gain.value = volume;
         source.connect(filter).connect(gain).connect(this._master);
         source.start();
     }

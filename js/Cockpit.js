@@ -20,6 +20,7 @@ import {
     SRGBColorSpace,
     Vector3
 } from 'three';
+import { Controls3D } from './Controls3D.js';
 import { Hotspots, drawSubpanel, drawEngineGauges, drawAnnunciators, drawPedestal, drawFuelSelector } from './PanelControls.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote).
@@ -326,6 +327,32 @@ function tachometer(ctx, cx, cy, r, rpm) {
     ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(3500), count: 35, every: 5, labels: (i) => String(i * 5), size: 18 });
     caption(ctx, cx, cy + r * 0.35, 'RPM ×100', 13);
     needle(ctx, cx, cy, r * 0.85, angleOf(rpm), 6);
+}
+
+function stallLed(ctx, x, y, on) {
+    ctx.fillStyle = '#0b0b0c';
+    ctx.beginPath();
+    ctx.arc(x, y, 13, 0, Math.PI * 2);
+    ctx.fill();
+    const g = ctx.createRadialGradient(x - 3, y - 3, 1, x, y, 9);
+    g.addColorStop(0, on ? '#ffd0c8' : '#7a2a24');
+    g.addColorStop(0.5, on ? '#ff2a1a' : '#4a1512');
+    g.addColorStop(1, on ? '#a80f05' : '#2a0b09');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.fill();
+    if (on) {
+        // Halo autour de la LED allumée
+        const halo = ctx.createRadialGradient(x, y, 8, x, y, 26);
+        halo.addColorStop(0, 'rgba(255, 60, 40, 0.55)');
+        halo.addColorStop(1, 'rgba(255, 60, 40, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(x, y, 26, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    caption(ctx, x, y + 24, 'STALL', 11);
 }
 
 function annunciator(ctx, x, y, text, on, color) {
@@ -913,10 +940,37 @@ class Cockpit {
         };
         add(new Mesh(new BoxGeometry(0.22, 0.25, 0.16), plastic), 0, PEDESTAL.y, PEDESTAL.z - 0.082);
         this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
+        // Manette de frein (gâchette) sur le flanc gauche du pupitre, à côté de la molette de trim :
+        // tirée vers le haut = freins serrés
+        this._brakeLever = new Group();
+        this._brakeLever.position.set(-0.112, -0.69, PEDESTAL.z - 0.03);
+        const brakeArm = new Mesh(new BoxGeometry(0.014, 0.014, 0.075), black);
+        brakeArm.position.z = 0.0375;
+        const brakeGrip = new Mesh(new BoxGeometry(0.02, 0.026, 0.035), new MeshStandardMaterial({ color: 0xb02418, roughness: 0.5 }));
+        brakeGrip.position.z = 0.085;
+        for (const part of [brakeArm, brakeGrip]) part.userData.control = 'brake';
+        const brakePivot = new Mesh(new CylinderGeometry(0.012, 0.012, 0.02, 12), frame);
+        brakePivot.rotation.z = Math.PI / 2;
+        this._brakeLever.add(brakeArm, brakeGrip, brakePivot);
+        this.group.add(this._brakeLever);
+        this.clickables.push(brakeArm, brakeGrip);
         add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);
         this._fuelPlate = canvasPlane(FUEL_PLATE, 'fuel');
         this._fuelPlate.mesh.rotation.x = -Math.PI / 2;
         add(this._fuelPlate.mesh, FUEL_PLATE.x, FUEL_PLATE.y, FUEL_PLATE.z);
+
+        // Commandes en 3D, posées sur les logements dessinés dans les canvas
+        const pixel = (spec, cx, cy) => new Vector3(spec.x - spec.width / 2 + cx / PX_PER_M, spec.y + spec.height / 2 - cy / PX_PER_M, spec.z);
+        this._controls3D = new Controls3D(this.group, {
+            panelPoint: (cx, cy) => pixel({ ...PANEL, x: 0 }, cx, cy),
+            pedestalPoint: (cx, cy) => pixel(PEDESTAL, cx, cy),
+            floorPoint: (cx, cy) => new Vector3(FUEL_PLATE.x - FUEL_PLATE.width / 2 + cx / PX_PER_M, FUEL_PLATE.y,
+                FUEL_PLATE.z - FUEL_PLATE.height / 2 + cy / PX_PER_M),
+            subTop: SUBPANEL_TOP,
+            obs: OBS_KNOB,
+        });
+        this._controls3D.finalize();
+        this.clickables.push(...this._controls3D.clickables);
 
         // Pare-brise : film d'eau et gouttes en cas de pluie
         const start = new Vector3(0, -0.05, -0.98), end = new Vector3(0, 0.37, -0.42);
@@ -983,8 +1037,15 @@ class Cockpit {
     // Commande sous un point touché par un rayon (intersection three.js avec this.clickables) :
     // { id, side (-1 gauche / 1 droite), vertical (-1 haut / 1 bas) } ou null
     controlAt(hit) {
+        // Pièce 3D : la commande est portée par la pièce ou un de ses parents ; côté cliqué par rapport à son centre
+        let root = hit.object;
+        while (root && !root.userData.control && root !== this.group) root = root.parent;
+        if (root?.userData.control) {
+            const point = this.group.worldToLocal(hit.point.clone());
+            const center = this.group.worldToLocal(root.getWorldPosition(new Vector3()));
+            return { id: root.userData.control, side: point.x < center.x ? -1 : 1, vertical: point.y > center.y ? -1 : 1 };
+        }
         const object = hit.object;
-        if (object.userData.control) return { id: object.userData.control, side: 0, vertical: hit.uv && hit.uv.y > 0.5 ? -1 : 1 };
         const surface = object.userData.surface;
         if (!surface || !hit.uv) return null;
         const canvas = surface === 'panel' ? CANVAS : this[surface === 'pedestal' ? '_pedestal' : '_fuelPlate'].ctx.canvas;
@@ -1024,6 +1085,10 @@ class Cockpit {
         }
         this._throttle.position.z = PANEL.z + 0.02 + (1 - state.throttle) * 0.08;
         this._mixture.position.z = PANEL.z + 0.02 + (1 - state.systems.mixture) * 0.08;
+        this._controls3D.update({ systems: state.systems, flapLevel: state.flapLevel, trim: state.trim, vorCourse: state.vor?.course ?? 0 }, k);
+        // Manette de frein : relevée quand les freins sont serrés (touche B ou manette)
+        const brake = state.inputs.brake > 0 ? 1 : 0;
+        this._brakeLever.rotation.x += (brake * 0.6 - 0.15 - this._brakeLever.rotation.x) * k;
         // Éclairage des instruments : rhéostat, alimentation électrique
         this._panelMaterial.emissiveIntensity = 0.12 + (0.38 + 0.4 * this._night) * state.systems.panelLighting;
         for (const material of this._sideMaterials) material.emissiveIntensity = this._panelMaterial.emissiveIntensity;
@@ -1077,9 +1142,8 @@ class Cockpit {
         caption(ctx, mx + 54, my - 4, 'MIXTURE', 13);
         caption(ctx, mx + 54, my + 13, `${Math.round(sys.mixture * 100)} %`, 13);
 
-        annunciator(ctx, 730, 60, 'STALL', state.stallWarning && Math.sin(this._time * 20) > 0, '#ff3b2f');
-        annunciator(ctx, 730, 110, 'FREINS', state.inputs.brake > 0 && state.onGround, '#ffb000');
-        annunciator(ctx, 730, 160, 'SOL', state.onGround, '#39d353');
+        // Alarme de décrochage : petite LED rouge à gauche de l'anémomètre, clignote un peu avant le décrochage
+        stallLed(ctx, px - col - r - 34, top - 30, state.stallWarning && Math.sin(this._time * 20) > 0);
         flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
         trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimLimits, state.trimSpeed * KT);
 

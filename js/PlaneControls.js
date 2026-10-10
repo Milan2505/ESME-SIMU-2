@@ -35,7 +35,8 @@ class PlaneControls extends Controls {
 		super( object, domElement );
 
 		this.model = new FlightModel( object );
-		this.throttleRate = 1;       // variation de la manette des gaz par seconde (plein gaz en 1 s)
+		this.throttleRate = 1;
+		this.parkingBrake = false;   // manette de frein de la cabine : freins serrés tant qu'elle est tirée       // variation de la manette des gaz par seconde (plein gaz en 1 s)
 		// Événements du modèle de vol relayés : envol, toucher, crash
 		for ( const type of [ 'liftoff', 'touchdown', 'crash' ] ) {
 			this.model.addEventListener( type, ( event ) => this.dispatchEvent( { ...event } ) );
@@ -142,7 +143,7 @@ class PlaneControls extends Controls {
 			pitch: this._controls.x,
 			yaw: this._controls.y,
 			roll: this._controls.z,
-			brake: this._moveState.brake,
+			brake: Math.max( this._moveState.brake, this.parkingBrake ? 1 : 0 ),
 		} );
 		model.throttle = Math.min( 1, Math.max( 0, model.throttle + this.accel * this.throttleRate * delta ) );
 		model.trim = MathUtils.clamp( model.trim + ( this._moveState.trimUp - this._moveState.trimDown ) * _TRIM_RATE * delta,
@@ -227,7 +228,7 @@ class PlaneControls extends Controls {
 			pitch: this._controls.x,
 			roll: this._controls.z,
 			yaw: this._controls.y,
-			brake: this._moveState.brake,
+			brake: Math.max( this._moveState.brake, this.parkingBrake ? 1 : 0 ),
 		};
 	}
 	// Trim : angle du tab (degrés, + = à cabrer), repère de décollage et butées
