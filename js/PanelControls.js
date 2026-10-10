@@ -186,9 +186,26 @@ function drawSubpanel(ctx, hotspots, top, width, height, systems, flaps) {
     const mx = 78, my = top + 112, mr = 30;
     label(ctx, 'MAGNETOS', mx, top + 22, 11);
     const positions = LAYOUT.mags.angles;
+    // Position de la clé : pastille claire et texte noir (lisible même sous l'éclairage ambré de nuit), point
+    // lumineux sur le cadran ; les autres positions sont atténuées
     MAGNETOS.forEach((name, i) => {
         const a = deg(positions[i]);
-        label(ctx, name, mx + Math.sin(a) * (mr + 22), my - Math.cos(a) * (mr + 22), 10, i === s.magnetos ? '#ffd34d' : '#e8e8e8');
+        const tx = mx + Math.sin(a) * (mr + 24), ty = my - Math.cos(a) * (mr + 24);
+        if (i === s.magnetos) {
+            ctx.font = `bold 13px ${FONT}`;
+            const w = ctx.measureText(name).width + 10;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.roundRect(tx - w / 2, ty - 9, w, 18, 6);
+            ctx.fill();
+            label(ctx, name, tx, ty, 13, '#000000');
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(mx + Math.sin(a) * (mr + 7), my - Math.cos(a) * (mr + 7), 4, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            label(ctx, name, tx, ty, 10, '#6f7378');
+        }
     });
     knob(ctx, mx, my, mr, null, '#8e9196');
     // Clé (en 3D)

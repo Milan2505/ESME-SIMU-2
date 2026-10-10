@@ -28,6 +28,8 @@ const steel = new MeshStandardMaterial({ color: 0x8c9095, metalness: 0.7, roughn
 const blackPlastic = new MeshStandardMaterial({ color: 0x141416, roughness: 0.55 });
 const knobGrey = new MeshStandardMaterial({ color: 0x9a9da2, metalness: 0.5, roughness: 0.35 });
 const white = new MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4 });
+// Matériaux éclairés par le tableau la nuit (voir setLighting)
+const LIT_MATERIALS = [];
 const breakerGrey = new MeshStandardMaterial({ color: 0x45484d, metalness: 0.3, roughness: 0.45 });
 const collar = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.15 });
 
@@ -58,6 +60,8 @@ function ridgesTexture(count) {
     texture.wrapS = texture.wrapT = RepeatWrapping;
     return texture;
 }
+
+LIT_MATERIALS.push(chrome, steel, blackPlastic, knobGrey, white, breakerGrey);
 
 class Controls3D {
     // group : groupe de la cabine ; panelPoint(cx, cy) / pedestalPoint(cx, cy) / floorPoint(cx, cy) : position (repère
@@ -247,6 +251,14 @@ class Controls3D {
                 child.receiveShadow = true;
                 this.clickables.push(child);
             });
+        }
+    }
+
+    // Éclairage du tableau (rhéostat PANEL LT) : les commandes en relief en reçoivent un peu (sinon noires la nuit)
+    setLighting(intensity, color) {
+        for (const material of LIT_MATERIALS) {
+            material.emissive.copy(color);
+            material.emissiveIntensity = intensity;
         }
     }
 
