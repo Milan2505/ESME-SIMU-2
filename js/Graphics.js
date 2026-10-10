@@ -125,6 +125,11 @@ const SkyDomeShader = {
 };
 const SKY_CUBE_SIZE = 512;      // côté d'une face de la cubemap du ciel
 
+const _worldUp = new Vector3(0, 1, 0);
+const _shadowRight = new Vector3();
+const _shadowUp = new Vector3();
+const _shadowCenter = new Vector3();
+
 const SHADOW_SIZE = 120;        // demi-côté de la zone d'ombres autour de l'avion (m)
 const SUN_DISTANCE = 400;
 
@@ -328,8 +333,17 @@ class Graphics {
     // shadowCenter : point autour duquel calculer les ombres (le sol sous l'avion)
     update(shadowCenter) {
         this.skyDome.position.copy(this.camera.position);
-        this.sunLight.target.position.copy(shadowCenter);
-        this.sunLight.position.copy(shadowCenter).addScaledVector(this.sunDirection, SUN_DISTANCE);
+        // Zone d'ombres calée sur la grille des texels de la carte d'ombres (dans le plan face au soleil) :
+        // sinon, en suivant l'avion au centimètre près, les bords des ombres scintillent quand il avance
+        const texel = (2 * SHADOW_SIZE) / this.sunLight.shadow.mapSize.x;
+        _shadowRight.crossVectors(_worldUp, this.sunDirection).normalize(); // mêmes axes que la caméra d'ombre (lookAt)
+        _shadowUp.crossVectors(this.sunDirection, _shadowRight);
+        const x = Math.round(shadowCenter.dot(_shadowRight) / texel) * texel;
+        const y = Math.round(shadowCenter.dot(_shadowUp) / texel) * texel;
+        const z = shadowCenter.dot(this.sunDirection);
+        _shadowCenter.copy(_shadowRight).multiplyScalar(x).addScaledVector(_shadowUp, y).addScaledVector(this.sunDirection, z);
+        this.sunLight.target.position.copy(_shadowCenter);
+        this.sunLight.position.copy(_shadowCenter).addScaledVector(this.sunDirection, SUN_DISTANCE);
     }
 
     render() {

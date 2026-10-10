@@ -380,10 +380,12 @@ function updateCamera(delta, snap = false) {
     // Vibration continue (sinusoïdes de fréquences non multiples) plutôt qu'un tirage au hasard à chaque image,
     // qui faisait sauter la caméra d'autant plus que les i/s étaient élevées
     if (shake > 0.001) {
+        // En cabine, le tableau de bord est à 50 cm de l'œil : quelques millimètres le font vibrer nettement
+        const amount = chaseView ? shake : shake * 0.3;
         const t = clock.elapsedTime;
-        camera.position.x += shake * 0.5 * (Math.sin(t * 31) + Math.sin(t * 17.3 + 1.1)) * 0.5;
-        camera.position.y += shake * 0.5 * (Math.sin(t * 37.7 + 2.3) + Math.sin(t * 13.1)) * 0.5;
-        camera.position.z += shake * 0.5 * (Math.sin(t * 23.9 + 4.2) + Math.sin(t * 19.7 + 0.7)) * 0.5;
+        camera.position.x += amount * 0.5 * (Math.sin(t * 31) + Math.sin(t * 17.3 + 1.1)) * 0.5;
+        camera.position.y += amount * 0.5 * (Math.sin(t * 37.7 + 2.3) + Math.sin(t * 13.1)) * 0.5;
+        camera.position.z += amount * 0.5 * (Math.sin(t * 23.9 + 4.2) + Math.sin(t * 19.7 + 0.7)) * 0.5;
     }
 }
 
@@ -896,7 +898,7 @@ renderer.setAnimationLoop((time)=>{
     if (controls.isOnGround() && !controls.isCrashed()) {
         const speed = controls.getSpeed();
         const wheelLoad = Math.max(0.15, 1 - (speed / (controls.rotateSpeed * 1.5)) ** 2);
-        shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0025 : 0.0006));
+        shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
     }
     updateCamera( delta );
 

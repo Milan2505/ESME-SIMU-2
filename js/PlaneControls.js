@@ -39,8 +39,8 @@ const _ALPHA_STALL = MathUtils.degToRad( 16 );        // incidence de décrochag
 const _CD0 = 0.036;                                   // traînée de forme (train fixe compris)
 const _INDUCED_DRAG = 0.06;                           // traînée induite : k·CL² (aile d'allongement 7,5)
 const _STALL_DRAG = 0.15;                             // aile décrochée : traînée en plus
-const _STATIC_THRUST = 2000;                          // poussée plein gaz à l'arrêt (N)
-const _POWER = 75000;                                 // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse ; montée ~3,5 m/s
+const _STATIC_THRUST = 2600;                          // poussée plein gaz à l'arrêt (N)
+const _POWER = 80000;                                 // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
 const _WINDMILL_DRAG = 0.012;                         // hélice au ralenti : elle freine l'avion (finesse ~9 en plané)
 const _SIDE_FORCE = 0.6;                              // force latérale du fuselage en dérapage (par radian)
 
@@ -67,7 +67,7 @@ const _CRASH_TAIL = MathUtils.degToRad( 22 );         // queue trop basse
 const _MIN_SLOPE_NORMAL = 0.85;                       // terrain trop pentu pour s'y poser
 const _MAX_GROUND_PITCH = MathUtils.degToRad( 10 );   // cabré max roues principales au sol : décollage avec de la marge au décrochage
 const _BRAKES = 4;                                    // décélération des freins (m/s²), roues chargées
-const _ROLLING = { asphalt: 0.3, grass: 1.2 };        // résistance au roulement (m/s²), roues chargées
+const _ROLLING = { asphalt: 0.2, grass: 1.0 };        // résistance au roulement (m/s²), roues chargées
 const _OBSTACLE_MARGIN = 3;                           // demi-envergure "utile" pour les obstacles (m)
 const _CONTROL_SMOOTHING = 0.5;                       // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
 const _FLAP_LEVELS = [ 0, 10, 20, 30 ];               // crans de volets (degrés)
@@ -75,6 +75,10 @@ const _FLAP_RATE = 0.25;                              // vitesse de sortie des v
 const _FLAP_LIFT = 0.7;                               // volets à fond : portance en plus (décrochage vers 80 km/h au lieu de 90)
 const _FLAP_DRAG = 0.05;                              // volets à fond : traînée en plus
 const _FLAP_STALL_ALPHA = MathUtils.degToRad( 2 );    // volets à fond : l'aile décroche 2° plus tôt
+const _TRIM_TIME = 2.5;                               // compensation automatique : suit l'incidence tenue au manche en ~2,5 s
+const _CLIMB_SPEED = 33;                              // vitesse de meilleure montée (m/s, ~120 km/h) : compensation après l'envol
+const _CLIMB_TRIM_DURATION = 15;                      // après l'envol, manche relâché, le nez se rend doucement pendant 15 s...
+const _CLIMB_TRIM_TIME = 6;                           // ... vers la vitesse de montée (en ~6 s : pas de retour brutal sur la piste)
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
 const _KEYS = {
@@ -99,7 +103,7 @@ class PlaneControls extends Controls {
 		this.obstacles = [];         // boîtes (Box3, repère monde) à ne pas percuter
 		this.turbulence = 0;         // 0 = air calme, 1 = tempête
 		this.rotateSpeed = 24;       // vitesse (m/s) où la profondeur peut lever le nez au sol ; décollage vers 27 m/s
-		this.throttleRate = 0.4;     // variation de la manette des gaz par seconde
+		this.throttleRate = 1;       // variation de la manette des gaz par seconde (plein gaz en 1 s)
 
 		this.throttle = 0.3;
 		this.movementSpeed = 0;      // vitesse air (m/s)
@@ -134,6 +138,7 @@ class PlaneControls extends Controls {
 		this._stalled = false;
 		this._alpha = 0;             // incidence : angle entre le nez et la trajectoire dans l'air (rad)
 		this._alphaTrim = 0;         // incidence que l'avion garde manche lâché (compensation automatique)
+		this._climbTrimTime = 0;     // temps restant où la compensation glisse vers la vitesse de montée (après l'envol)
 		this._wingDrop = 0;          // aile qui tombe au décrochage (-1 gauche, 1 droite)
 		this._onGround = false;
 		this._groundYaw = 0;         // cap au sol (rad, + = vers la gauche)
@@ -195,6 +200,7 @@ class PlaneControls extends Controls {
 		this._stalled = false;
 		this._alpha = 0;
 		this._alphaTrim = 0;
+		this._climbTrimTime = 0;
 		this._crashed = false;
 		this._flapLevel = 0;
 		this._flaps = 0;
@@ -284,6 +290,12 @@ class PlaneControls extends Controls {
 		return Math.max( peak * 0.55, peak - 3.5 * ( alpha - stallAlpha ) );
 	}
 
+	// Incidence qui porte l'avion à cette vitesse (m/s) en vol rectiligne
+	_alphaForSpeed( speed ) {
+		const lift = _MASS * _GRAVITY / ( 0.5 * _AIR_DENSITY * speed * speed * _WING_AREA );
+		return ( lift - _CL0 - _FLAP_LIFT * this._flaps ) / _CL_ALPHA;
+	}
+
 	_stallAlpha() {
 		return _ALPHA_STALL - _FLAP_STALL_ALPHA * this._flaps;
 	}
@@ -341,12 +353,19 @@ class PlaneControls extends Controls {
 		this.velocity.addScaledVector( _force, dt / _MASS );
 		object.position.addScaledVector( this.velocity, dt );
 
-		// Gouvernes : efficacité selon la vitesse. Compensation automatique : manche lâché, l'incidence
-		// (donc la vitesse) est conservée, comme un avion bien compensé
+		// Gouvernes : efficacité selon la vitesse. Compensation automatique : manche lâché, l'avion garde
+		// l'incidence (donc la vitesse) à laquelle il a été tenu, comme un avion bien compensé
 		const effect = Math.min( 1, ( speed / _CONTROL_SPEED ) ** 2 );
 		const stability = effect;
 		const input = this._controls;
-		if ( this._rotationVector.x !== 0 ) this._alphaTrim = alpha;
+		// (une brève action au manche, comme la rotation, la déplace peu : manche relâché, l'avion revient vers sa vitesse)
+		if ( this._rotationVector.x !== 0 ) {
+			this._alphaTrim += ( alpha - this._alphaTrim ) * Math.min( 1, dt / _TRIM_TIME );
+		} else if ( this._climbTrimTime > 0 ) {
+			this._climbTrimTime -= dt;
+			const climbAlpha = this._alphaForSpeed( _CLIMB_SPEED );
+			if ( this._alphaTrim > climbAlpha ) this._alphaTrim += ( climbAlpha - this._alphaTrim ) * Math.min( 1, dt / _CLIMB_TRIM_TIME );
+		}
 		this._alphaTrim = MathUtils.clamp( this._alphaTrim, MathUtils.degToRad( - 5 ), stallAlpha - MathUtils.degToRad( 3 ) );
 
 		// Profondeur : à cabrer, de moins en moins efficace à l'approche du décrochage
@@ -410,7 +429,10 @@ class PlaneControls extends Controls {
 			this._groundNormal( object.position.x, object.position.z, _normal );
 			_forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize();
 			this.velocity.copy( _forward ).multiplyScalar( speed );
-			this._alpha = this._alphaTrim = this._groundPitch;
+			this._alpha = this._groundPitch;
+			// Compensation : d'abord l'incidence d'envol, puis elle glisse vers la vitesse de montée (voir _updateFlight)
+			this._alphaTrim = this._groundPitch;
+			this._climbTrimTime = _CLIMB_TRIM_DURATION;
 			this._angularVelocity.set( 0, 0, 0 );
 			this.dispatchEvent( { type: 'liftoff' } );
 		}
