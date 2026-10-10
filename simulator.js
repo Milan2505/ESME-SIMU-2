@@ -345,10 +345,13 @@ function updateCamera(delta, snap = false) {
         camera.lookAt(_lookAt.applyMatrix4(aircraft.matrixWorld));
     }
     // Secousses (atterrissage, roulage, crash)
+    // Vibration continue (sinusoïdes de fréquences non multiples) plutôt qu'un tirage au hasard à chaque image,
+    // qui faisait sauter la caméra d'autant plus que les i/s étaient élevées
     if (shake > 0.001) {
-        camera.position.x += (Math.random() - 0.5) * shake;
-        camera.position.y += (Math.random() - 0.5) * shake;
-        camera.position.z += (Math.random() - 0.5) * shake;
+        const t = clock.elapsedTime;
+        camera.position.x += shake * 0.5 * (Math.sin(t * 31) + Math.sin(t * 17.3 + 1.1)) * 0.5;
+        camera.position.y += shake * 0.5 * (Math.sin(t * 37.7 + 2.3) + Math.sin(t * 13.1)) * 0.5;
+        camera.position.z += shake * 0.5 * (Math.sin(t * 23.9 + 4.2) + Math.sin(t * 19.7 + 0.7)) * 0.5;
     }
 }
 
@@ -855,10 +858,13 @@ renderer.setAnimationLoop((time)=>{
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
     lastAircraftPosition.copy(aircraft.position);
 
-    // Secousses : s'amortissent, entretenues au roulage (plus fort dans l'herbe)
+    // Secousses : s'amortissent, entretenues au roulage (plus fort dans l'herbe). Elles croissent avec la vitesse
+    // jusqu'à ~40 km/h, puis diminuent : à l'approche du décollage, l'aile porte l'avion et déleste les roues
     shake *= Math.exp(-4 * delta);
     if (controls.isOnGround() && !controls.isCrashed()) {
-        shake = Math.max(shake, controls.getSpeed() * (controls.getSurface() === 'grass' ? 0.0025 : 0.0006));
+        const speed = controls.getSpeed();
+        const wheelLoad = Math.max(0.15, 1 - (speed / (controls.rotateSpeed * 1.5)) ** 2);
+        shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0025 : 0.0006));
     }
     updateCamera( delta );
 
