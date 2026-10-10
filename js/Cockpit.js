@@ -23,6 +23,10 @@ import {
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
 const EYE = new Vector3(-0.3, 0.1, 0); // hauteur d'œil : on voit le sol par-dessus le tableau à ~12° sous l'horizon
 const PANEL = { width: 1.2, height: 0.4, y: -0.3, z: -0.75 };
+// Manches : colonne au ras du tableau (comme dans un Cessna), course poussé / tiré et rotation du volant
+const YOKE_Z = -0.75;
+const YOKE_TRAVEL = 0.1;          // m de chaque côté du neutre
+const YOKE_TURN = Math.PI / 2;    // 90° de chaque côté
 const CANVAS = { width: 1536, height: 512 };
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
@@ -130,8 +134,8 @@ function airspeed(ctx, cx, cy, r, knots) {
     arc(ctx, cx, cy, r * 0.86, angleOf(49), angleOf(128), '#2ecc40', 9);
     arc(ctx, cx, cy, r * 0.86, angleOf(128), angleOf(163), '#ffdc00', 9);
     arc(ctx, cx, cy, r * 0.86, angleOf(163), angleOf(165), '#ff2a1a', 12);
-    ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(200), count: 40, every: 4, labels: (i) => String(i * 20) });
-    caption(ctx, cx, cy + r * 0.32, 'KT');
+    ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(200), count: 40, every: 4, size: 17, labels: (i) => (i >= 2 ? String(i * 20) : null) }); // chiffres à partir de 40 kt, comme sur un C172
+    caption(ctx, cx, cy - r * 0.13, 'KT', 15); // au-dessus du pivot : l'aiguille au repos ne le cache pas
     caption(ctx, cx, cy - r * 0.3, 'ANÉMO', 14);
     needle(ctx, cx, cy, r * 0.85, angleOf(Math.max(0, knots)));
 }
@@ -635,15 +639,16 @@ class Cockpit {
         }
         this._beam(new Vector3(0, -0.05, -0.98), new Vector3(0, 0.37, -0.42), 0.035, frame); // montant central
 
-        // Manches (yokes) : la colonne avance / recule, le volant tourne
+        // Manches (yokes) : la colonne coulisse dans le tableau (poussé / tiré), le volant tourne
         this._yokes = [-0.3, 0.3].map((x) => {
             const column = new Group();
-            column.position.set(x, -0.475, -0.75); // sort sous les instruments, comme dans un vrai Cessna
+            column.position.set(x, -0.475, YOKE_Z); // sort sous les instruments, comme dans un vrai Cessna
+            // Colonne : dépasse de 16 cm au neutre, le reste est caché dans le tableau (encore dedans manche poussé)
             const shaft = new Mesh(new CylinderGeometry(0.018, 0.018, 0.4, 10), frame);
             shaft.rotation.x = Math.PI / 2;
-            shaft.position.z = 0.1;
+            shaft.position.z = -0.04;
             const wheel = new Group();
-            wheel.position.z = 0.3;
+            wheel.position.z = 0.16;
             const hub = new Mesh(new CylinderGeometry(0.035, 0.035, 0.05, 12), black);
             hub.rotation.x = Math.PI / 2;
             const bar = new Mesh(new BoxGeometry(0.3, 0.035, 0.03), black);
@@ -761,8 +766,8 @@ class Cockpit {
         s.slip += (-s.yaw * 0.6 - s.slip) * (1 - Math.exp(-4 * delta));
 
         for (const yoke of this._yokes) {
-            yoke.column.position.z = -0.75 + s.pitch * 0.07;
-            yoke.wheel.rotation.z = s.roll * 0.6;
+            yoke.column.position.z = YOKE_Z + s.pitch * YOKE_TRAVEL;   // tiré vers le pilote pour cabrer
+            yoke.wheel.rotation.z = s.roll * YOKE_TURN;                // volant tourné jusqu'à 90°
         }
         this._throttle.position.z = PANEL.z + 0.02 + (1 - state.throttle) * 0.08;
 

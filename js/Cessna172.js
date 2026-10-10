@@ -39,7 +39,7 @@ const CESSNA_172 = {
 	stallPitchDown: 0.4,              // abattée au décrochage (rad/s)
 	stallWingDrop: 0.5,               // une aile tombe au décrochage (rad/s)
 	// Profondeur : la position du manche fixe l'incidence visée, par rapport à celle du trim
-	elevatorUp: deg( 9 ),             // manche tiré à fond : +9° (au trim de décollage, reste sous le décrochage)
+	elevatorUp: deg( 6 ),             // manche tiré à fond : +6° (au trim de décollage : ~l'incidence d'envol, loin du décrochage)
 	elevatorDown: deg( 10 ),          // manche poussé à fond : -10°
 	pitchRateMax: 0.35,               // rotation en tangage au plus 20°/s
 	// Incidence visée au plus (par rapport au décrochage)
@@ -62,7 +62,7 @@ const CESSNA_172 = {
 
 	// Au sol
 	rotateSpeed: 24,                  // vitesse (m/s) où la profondeur peut lever le nez ; décollage vers 27 m/s
-	maxGroundPitch: deg( 10 ),        // cabré max roues principales au sol : décollage avec de la marge au décrochage
+	maxGroundPitch: deg( 8 ),         // cabré max roues principales au sol : envol avec une bonne marge au décrochage
 	brakes: 4,                        // décélération des freins (m/s²), roues chargées
 	rolling: { asphalt: 0.2, grass: 1.0 }, // résistance au roulement (m/s²), roues chargées
 
