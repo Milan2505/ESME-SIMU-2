@@ -61,8 +61,8 @@ const HANGARS = [{ x: 395, z: 15, name: 'ESME AÉRO-CLUB' }, { x: 395, z: 62, na
     .map((h) => ({ ...h, minX: h.x - 15, maxX: h.x + 15, minZ: h.z - 14, maxZ: h.z + 14 }));
 // Mâts d'éclairage du parking (asset/light-square-cross, Kenney, CC0) : en bordure est, derrière la queue des
 // avions garés, entre le parking et les bâtiments. Le modèle mesure 0,6 m : à l'échelle 20, un mât de 12 m.
-// Le 3e est entre les deux hangars (devant le premier, il gênait l'accès aux portes)
-const FLOODLIGHTS = { points: [[APRON.maxX - 2, -90], [APRON.maxX - 2, -30], [395, 38.5], [APRON.maxX - 2, 90]], scale: 20 };
+// Le 3e est aligné sur les autres, mais face à l'espace entre les deux hangars (devant le premier, il gênait l'accès aux portes)
+const FLOODLIGHTS = { points: [[APRON.maxX - 2, -90], [APRON.maxX - 2, -30], [APRON.maxX - 2, 38.5], [APRON.maxX - 2, 90]], scale: 20 };
 const FLOODLIGHT_LAMPS = [[0.1875, 0], [-0.1875, 0], [0, 0.1875], [0, -0.1875]]; // bouts des 4 bras (repère du modèle)
 const FLOODLIGHT_LAMP_Y = 0.57;
 const WIND_DIRECTION = 0; // le vent vient du nord (la manche à air pointe vers le sud)
