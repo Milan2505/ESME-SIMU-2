@@ -765,6 +765,7 @@ function cockpitState() {
         flaps: controls.getFlaps(),
         trim: controls.getTrim(),
         takeoffTrim: controls.getTakeoffTrim(),
+        trimSpeed: controls.getTrimSpeed(),
         onGround: controls.isOnGround(),
         crashed: controls.isCrashed(),
         stallWarning: controls.isNearStall(),

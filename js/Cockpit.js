@@ -360,7 +360,7 @@ function flapIndicator(ctx, x, y, setting, position) {
 }
 
 // Trim de profondeur : PIQ en haut, CAB en bas, repère de décollage (T/O), l'index suit la position
-function trimIndicator(ctx, x, y, trim, takeoff) {
+function trimIndicator(ctx, x, y, trim, takeoff, trimKnots) {
     const h = 190, top = y + 46, bottom = y + h - 30;
     ctx.fillStyle = '#151618';
     ctx.fillRect(x, y, 76, h);
@@ -387,6 +387,14 @@ function trimIndicator(ctx, x, y, trim, takeoff) {
     ctx.lineTo(x + 62, py - 8);
     ctx.lineTo(x + 62, py + 8);
     ctx.fill();
+    // Vitesse tenue manche lâché avec ce trim (et ces volets) : pour aller plus vite, trimer à piquer
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(x, y + h + 6, 76, 30);
+    ctx.strokeRect(x, y + h + 6, 76, 30);
+    ctx.fillStyle = '#39ff6a';
+    ctx.font = 'bold 16px DejaVu Sans Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(trimKnots)} KT`, x + 38, y + h + 22);
 }
 
 function radio(ctx, x, y, label, active, standby) {
@@ -810,7 +818,7 @@ class Cockpit {
         annunciator(ctx, 730, 110, 'FREINS', state.inputs.brake > 0 && state.onGround, '#ffb000');
         annunciator(ctx, 730, 160, 'SOL', state.onGround, '#39d353');
         flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
-        trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim);
+        trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimSpeed * KT);
 
         radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
         radio(ctx, 960, 150, 'NAV1', '110.30', '113.90');

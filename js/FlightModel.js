@@ -154,6 +154,14 @@ class FlightModel extends EventDispatcher {
 		return Math.sqrt( 2 * A.mass * GRAVITY / ( AIR_DENSITY * A.wingArea * maxLift ) );
 	}
 
+	// Vitesse (m/s) que l'avion tient manche lâché avec le trim et les volets actuels : la puissance fait monter
+	// ou descendre à cette vitesse, pas accélérer (pour aller plus vite : trimer à piquer)
+	trimSpeed() {
+		const A = this.aircraft;
+		const alpha = Math.min( A.trimMid + this.trim * A.trimRange, this.stallAlpha() - MathUtils.degToRad( 5 ) );
+		return Math.sqrt( 2 * A.mass * GRAVITY / ( AIR_DENSITY * A.wingArea * this._liftCoefficient( alpha ) ) );
+	}
+
 	// Vrai un peu avant le décrochage (incidence à moins de 3° de la limite), pas au sol
 	nearStall() {
 		return ! this.onGround && ! this.crashed && this.alpha > this.stallAlpha() - MathUtils.degToRad( 3 );

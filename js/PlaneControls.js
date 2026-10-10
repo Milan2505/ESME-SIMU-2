@@ -236,6 +236,10 @@ class PlaneControls extends Controls {
 	getTakeoffTrim() {
 		return this.model.aircraft.takeoffTrim;
 	}
+	// Vitesse tenue manche lâché avec ce trim et ces volets (m/s)
+	getTrimSpeed() {
+		return this.model.trimSpeed();
+	}
 	isStalled() {
 		return this.model.stalled;
 	}
