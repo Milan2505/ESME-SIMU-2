@@ -243,7 +243,7 @@ function drawSubpanel(ctx, hotspots, top, width, height, systems, flaps) {
     // Accolade "LIGHTS" au-dessus des feux
     ctx.strokeStyle = '#e8e8e8';
     ctx.lineWidth = 1.5;
-    const l0 = t0 + tStep - 20, l1 = t0 + 5 * tStep + 20, ly = toggleY - 56;
+    const l0 = t0 + tStep - 20, l1 = t0 + 4 * tStep + 20, ly = toggleY - 56;
     ctx.beginPath();
     ctx.moveTo(l0, ly + 6); ctx.lineTo(l0, ly); ctx.lineTo(l1, ly); ctx.lineTo(l1, ly + 6);
     ctx.stroke();

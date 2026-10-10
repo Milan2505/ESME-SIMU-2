@@ -29,7 +29,6 @@ const TOGGLES = [
     { id: 'fuelPump', label: 'FUEL\nPUMP' },
     { id: 'beacon', label: 'BCN', group: 'LIGHTS' },
     { id: 'land', label: 'LAND', group: 'LIGHTS' },
-    { id: 'taxi', label: 'TAXI', group: 'LIGHTS' },
     { id: 'nav', label: 'NAV', group: 'LIGHTS' },
     { id: 'strobe', label: 'STROBE', group: 'LIGHTS' },
     { id: 'pitotHeat', label: 'PITOT\nHEAT' },
@@ -48,7 +47,7 @@ class Systems extends EventTarget {
     reset() {
         this.switches = {
             masterBat: true, masterAlt: true, avionics: true,
-            fuelPump: false, beacon: true, land: false, taxi: false, nav: true, strobe: true, pitotHeat: false,
+            fuelPump: false, beacon: true, land: false, nav: true, strobe: true, pitotHeat: false,
             elt: false, altStatic: false, cabinAir1: false, cabinAir2: false,
         };
         this.breakers = Object.fromEntries(BREAKERS.map((b) => [b.id, true]));   // true = enclenché
@@ -161,7 +160,7 @@ class Systems extends EventTarget {
         const on = this.busPowered;
         return {
             beacon: on && this.switches.beacon, nav: on && this.switches.nav, strobe: on && this.switches.strobe,
-            land: on && this.switches.land, taxi: on && this.switches.taxi,
+            land: on && this.switches.land,
         };
     }
 
@@ -238,7 +237,7 @@ class Systems extends EventTarget {
         }
         // Batterie : se décharge sans alternateur, se recharge avec
         if (this.switches.masterBat) {
-            const load = 0.4 + (this.switches.avionics ? 0.3 : 0) + (this.switches.land ? 0.2 : 0) + (this.switches.taxi ? 0.15 : 0)
+            const load = 0.4 + (this.switches.avionics ? 0.3 : 0) + (this.switches.land ? 0.2 : 0)
                 + (this.switches.pitotHeat ? 0.3 : 0) + (starting ? 4 : 0);
             this.battery = Math.max(0, Math.min(1, this.battery + (this.alternatorOn ? 1 / 600 : -load / BATTERY_LIFE) * delta));
         }

@@ -187,19 +187,13 @@ aircraft.add(cockpit.group);
 const airframe = trimAirframe(new THREE.Group());
 aircraft.add(airframe);
 const aircraftLights = new AircraftLights(airframe, { castLight: true });
-const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(14), 0.6, 1.6);
+const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(20), 0.65, 1.6); // phare unique : atterrissage et roulage
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
 landingLight.position.set(-2.2, 1.12, -3);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
 landingLight.target.position.set(-1.2, -2.4, -80);
 airframe.add(landingLight, landingLight.target);
-// Feu de roulage, à côté du phare dans le bord d'attaque gauche : faisceau large, vers le sol devant l'avion
-const taxiLight = new THREE.SpotLight(0xfff3d6, 5000, 120, THREE.MathUtils.degToRad(32), 0.7, 1.6);
-taxiLight.position.set(-2.0, 1.12, -3);
-taxiLight.target.position.set(-1.5, -6, -40);
-taxiLight.visible = false;
-airframe.add(taxiLight, taxiLight.target);
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
 // verraient pas et chaque lumière alourdit le rendu)
@@ -208,7 +202,6 @@ function applyLights() {
     const dark = (weather?.night ?? 0) >= 0.5;
     aircraftLights.setSwitches(lights);
     landingLight.visible = lights.land && dark;
-    taxiLight.visible = lights.taxi && dark;
 }
 systems.addEventListener('change', applyLights);
 
@@ -529,7 +522,7 @@ controls.addEventListener('reset', () => {
     // Retour au point de départ : avion prêt à voler (moteur tournant, réservoirs remplis)
     systems.reset();
     controls.parkingBrake = systems.brake = false;
-    systems.switches.land = systems.switches.taxi = (weather?.night ?? 0) >= 0.5;
+    systems.switches.land = (weather?.night ?? 0) >= 0.5;
     applyLights();
     aircraft.updateMatrixWorld();
     updateCamera(0, true);
@@ -730,8 +723,8 @@ function setWeather(name) {
     applyLights();
     remotePlayers.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
-    // De nuit, le pilote allume phare et feu de roulage (interrupteurs LAND / TAXI, modifiables en cabine)
-    systems.switches.land = systems.switches.taxi = w.night >= 0.5;
+    // De nuit, le pilote allume le phare (interrupteur LAND, modifiable en cabine)
+    systems.switches.land = w.night >= 0.5;
     systems.dispatchEvent(new Event('change'));
     landingLight.intensity = 12000;
 

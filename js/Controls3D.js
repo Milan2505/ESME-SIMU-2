@@ -2,10 +2,13 @@ import {
     BoxGeometry,
     CanvasTexture,
     CylinderGeometry,
+    ExtrudeGeometry,
     Group,
+    Path,
     Mesh,
     MeshStandardMaterial,
     RepeatWrapping,
+    Shape,
     SphereGeometry,
     SRGBColorSpace,
     TorusGeometry
@@ -66,12 +69,42 @@ class Controls3D {
         const L = LAYOUT;
         const sub = (x, y) => panelPoint(x, subTop + y);
 
-        // Clé des magnétos : barillet et clé
+        // Contact des magnétos : barillet de serrure (enjoliveur chromé, face noire, fente) et vraie clé de contact
+        // qui sort du tableau : tige métallique, tête plate noire avec son trou de porte-clés. Toute la clé tourne
+        // autour de son axe (perpendiculaire au tableau) d'une position à l'autre
         const mags = this._add('mags', sub(L.mags.x, L.mags.y));
-        mags.add(zCylinder(0.019, 0.008, knobGrey, 28).translateZ(0.004));
+        const bezel = new Mesh(new TorusGeometry(0.0145, 0.0035, 10, 32), chrome);
+        bezel.position.z = 0.003;
+        const face = zCylinder(0.0145, 0.004, blackPlastic, 32);
+        face.position.z = 0.002;
+        const barrel = zCylinder(0.0075, 0.003, chrome, 24);   // cylindre de la serrure
+        barrel.position.z = 0.0055;
+        mags.add(bezel, face, barrel);
         const key = new Group();
-        key.add(new Mesh(new BoxGeometry(0.008, 0.042, 0.006), chrome).translateZ(0.011));
-        key.add(new Mesh(new BoxGeometry(0.022, 0.016, 0.005), blackPlastic).translateZ(0.016).translateY(0.012));
+        // Tige (lame engagée dans la serrure) et épaulement
+        const blade = new Mesh(new BoxGeometry(0.0022, 0.006, 0.012), chrome);
+        blade.position.z = 0.012;
+        const shoulder = new Mesh(new BoxGeometry(0.003, 0.011, 0.004), chrome);
+        shoulder.position.z = 0.019;
+        // Tête de la clé : profil arrondi percé d'un trou, dans le plan qui contient l'axe de la clé
+        const bow = new Shape();
+        bow.moveTo(0, -0.0075);
+        bow.lineTo(0.012, -0.011);
+        bow.absarc(0.022, 0, 0.011, -Math.PI / 2, Math.PI / 2, false);
+        bow.lineTo(0, 0.0075);
+        bow.lineTo(0, -0.0075);
+        const hole = new Path();
+        hole.absarc(0.026, 0, 0.0035, 0, Math.PI * 2, true);
+        bow.holes.push(hole);
+        const bowGeometry = new ExtrudeGeometry(bow, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.0008, bevelSize: 0.0008, bevelSegments: 2, curveSegments: 16 });
+        bowGeometry.translate(0, 0, -0.002);
+        bowGeometry.rotateY(-Math.PI / 2);   // profil (x, y) -> (axe de la clé z, largeur y), épaisseur selon x
+        const head = new Mesh(bowGeometry, blackPlastic);
+        head.position.z = 0.021;
+        // Logo chromé sur la tête (petit insert)
+        const insert = new Mesh(new BoxGeometry(0.0052, 0.008, 0.008), chrome);
+        insert.position.z = 0.031;
+        key.add(blade, shoulder, head, insert);
         mags.add(key);
         this._parts.magKey = key;
 

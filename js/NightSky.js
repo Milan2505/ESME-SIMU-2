@@ -32,15 +32,16 @@ const fragmentShader = /* glsl */`
 
     void main() {
         vec3 d = normalize(vDirection);
-        float elevation = asin(clamp(d.y, -1.0, 1.0));
+        // Sous l'horizon (au-delà du bord du terrain, vu d'altitude) : ciel en miroir, pour couvrir tout l'horizon
+        float elevation = asin(clamp(abs(d.y), 0.0, 1.0));
         // Image équirectangulaire de l'hémisphère : bas = horizon, haut = zénith
         // Le bas du panorama photographié contient des collines (silhouettes 2D) : on ne garde que le ciel
         // au-dessus d'elles (SKY_START), étiré jusqu'à l'horizon. Le relief 3D du jeu fait le reste.
         float v = SKY_START + (1.0 - SKY_START) * clamp(elevation / (0.5 * PI), 0.0, 1.0);
         vec2 uv = vec2(atan(d.z, d.x) / (2.0 * PI) + 0.5, v);
         vec3 stars = texture2D(uMap, uv).rgb * uBrightness;
-        // Fondu vers la brume de l'horizon (le relief et le brouillard prennent le relais)
-        vec3 color = mix(uHorizon, stars, smoothstep(0.0, 0.18, d.y));
+        // Étoiles jusqu'à l'horizon ; légère brume au ras de l'horizon seulement
+        vec3 color = mix(stars, uHorizon, 0.45 * (1.0 - smoothstep(0.0, 0.06, abs(d.y))));
         color += uFlash * vec3(0.6, 0.65, 0.8);
         gl_FragColor = vec4(color, uOpacity);
         #include <tonemapping_fragment>
@@ -57,7 +58,7 @@ class NightSky {
             uniforms: {
                 uMap: { value: map },
                 uHorizon: { value: new Color(0x0b1a2e) },
-                uBrightness: { value: 1.6 },
+                uBrightness: { value: 0.85 },
                 uOpacity: { value: 1 },
                 uFlash: { value: 0 },
             },

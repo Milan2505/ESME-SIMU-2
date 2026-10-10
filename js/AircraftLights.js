@@ -12,7 +12,7 @@ import {
     MathUtils,
     Mesh,
     MeshStandardMaterial,
-    PointLight,
+    SpotLight,
     Raycaster,
     Shape,
     ShaderMaterial,
@@ -244,14 +244,17 @@ class AircraftLights {
             const wing = Math.abs(def.position[0]) > 2;
             return { ...def, wing, base: position.clone(), position, bulb, glows, flare, baseColor: flare.material.color.clone(), visibility: 1 };
         });
-        // Une lumière par bout d'aile : couleur du feu de navigation, blanche pendant l'éclat du strobe
+        // Une lumière par bout d'aile : couleur du feu de navigation, blanche pendant l'éclat du strobe. Les feux sont
+        // tournés vers l'extérieur : projecteur au faisceau très large (80° autour de l'axe) dirigé vers l'extérieur
+        // de l'aile et un peu vers le bas ; il éclaire le sol et les objets à côté, pas le fuselage ni l'aile
         this.tipLights = !castLight ? [] : this.lights.filter((light) => light.kind === 'nav' && light.wing).map((nav) => {
             const side = Math.sign(nav.base.x);
-            const light = new PointLight(nav.color, 0, TIP_LIGHT_RANGE, 2);
-            light.position.set(nav.base.x + side * 0.4, nav.base.y + 0.1, nav.base.z + 0.3);   // un peu à l'extérieur
+            const light = new SpotLight(nav.color, 0, TIP_LIGHT_RANGE, MathUtils.degToRad(80), 0.6, 2);
+            light.position.set(nav.base.x + side * 0.05, nav.base.y, nav.base.z);
+            light.target.position.set(nav.base.x + side * 10, nav.base.y - 3, nav.base.z);
             light.visible = false;
             light.userData.navColor = new Color(nav.color);
-            this.group.add(light);
+            this.group.add(light, light.target);
             return light;
         });
         this.beam = createBeam();
