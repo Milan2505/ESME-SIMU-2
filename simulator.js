@@ -263,7 +263,7 @@ function updateView() {
     aircraftLights.setCabinView(!chaseView);
     camera.fov = chaseView ? CAM_FOV : COCKPIT_FOV;
     camera.updateProjectionMatrix();
-    viewButton.textContent = chaseView ? '🎥 Vue cabine' : '🎥 Vue extérieure';
+    viewButton.textContent = chaseView ? 'Vue cabine' : 'Vue extérieure';
 }
 
 function toggleView() {
@@ -523,21 +523,47 @@ function setWeather(name) {
     landingLight.visible = w.night >= 0.5;
     landingLight.intensity = 12000;
 
-    for (const button of document.querySelectorAll('#météo button')) {
-        button.classList.toggle('actif', button.dataset.meteo === name);
-    }
+    for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
+    document.getElementById('météo-actuelle').textContent = w.label;
 }
 
-const meteoPanel = document.getElementById('météo');
+// Menus du bandeau (Commandes, Météo) : un clic sur la case déroule son contenu ; clic ailleurs ou Échap : fermé
+const menus = [...document.querySelectorAll('.menu')];
+function closeMenus(except = null) {
+    for (const menu of menus) {
+        if (menu === except) continue;
+        menu.querySelector('.menu-titre').setAttribute('aria-expanded', 'false');
+        menu.querySelector('.menu-contenu').hidden = true;
+    }
+}
+for (const menu of menus) {
+    const title = menu.querySelector('.menu-titre');
+    title.addEventListener('click', () => {
+        const open = title.getAttribute('aria-expanded') !== 'true';
+        closeMenus(menu);
+        title.setAttribute('aria-expanded', String(open));
+        menu.querySelector('.menu-contenu').hidden = !open;
+        title.blur(); // garde le clavier pour le pilotage
+    });
+}
+document.addEventListener('pointerdown', (event) => {
+    if (!menus.some((menu) => menu.contains(event.target))) closeMenus();
+});
+window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenus();
+});
+
+const meteoButtons = document.querySelector('#météo .menu-boutons');
 for (const [name, w] of Object.entries(WEATHERS)) {
     const button = document.createElement('button');
     button.textContent = w.label;
     button.dataset.meteo = name;
     button.addEventListener('click', () => {
         setWeather(name);
+        closeMenus();
         button.blur(); // garde le clavier pour le pilotage (Espace ne re-clique pas)
     });
-    meteoPanel.appendChild(button);
+    meteoButtons.appendChild(button);
 }
 setWeather('jour');
 
@@ -561,13 +587,13 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyF' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleFullscreen();
 });
 document.addEventListener('fullscreenchange', () => {
-    fullscreenButton.textContent = document.fullscreenElement ? '⛶ Quitter le plein écran' : '⛶ Plein écran';
+    fullscreenButton.textContent = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
 });
 
 // Volets : le bouton sort un cran (rentre tout après le dernier), touches G / T
 const flapsButton = document.getElementById('volets');
 function updateFlapsButton() {
-    flapsButton.textContent = `🪽 Volets : ${controls.getFlapSetting()}°`;
+    flapsButton.textContent = `Volets : ${controls.getFlapSetting()}°`;
 }
 flapsButton.addEventListener('click', (event) => {
     const level = controls.getFlapLevel();
@@ -773,8 +799,9 @@ function updateIls() {
     ilsLoc.style.left = `${50 + state.localizer * 40}%`;
     ilsGs.style.top = `${50 - state.glideslope * 40}%`;
     ilsGs.hidden = state.distance <= 0;
-    ilsText.textContent = `Piste ${state.runway} · ${(state.distance / 1000).toFixed(1)} km\n`
-        + `Hauteur ${Math.round(state.height)} m (idéal ${Math.round(state.glideHeight)} m)\n${ils.advice()}`;
+    // Unités aéronautiques : distance en milles nautiques, hauteurs en pieds
+    ilsText.textContent = `Piste ${state.runway} · ${(state.distance / 1852).toFixed(1)} NM\n`
+        + `Hauteur ${Math.round(state.height / 0.3048)} ft (idéal ${Math.round(state.glideHeight / 0.3048)} ft)\n${ils.advice()}`;
 }
 
 ilsButton.addEventListener('click', (event) => {

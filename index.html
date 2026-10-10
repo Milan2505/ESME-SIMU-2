@@ -37,7 +37,7 @@
 	<h4>Profil</h4>
 	</div>
 	
-	<div id="paramètre" role="button" tabindex="0" title="Qualité visuelle et performances">
+	<div id="paramètre" role="button" tabindex="0" title="Qualité graphique et aides au pilotage">
 	<h4>Paramètre</h4>
 	</div>
 	
@@ -45,7 +45,39 @@
 	<h4>Online</h4>
 	</div>
 	
-	<div id="séparation-gauche"></div>
+	<!-- Menus du bandeau (cases libres) : un clic déroule les boutons et l'aide -->
+	<div id="commandes" class="menu">
+		<button class="menu-titre" aria-expanded="false">Commandes <span class="menu-fleche">▾</span></button>
+		<div class="menu-contenu" hidden>
+			<div class="menu-boutons">
+				<button id="vue" title="Changer de vue (touche V)">Vue cabine</button>
+				<button id="volets" title="Sortir un cran de volets (touches G / T)">Volets : 0°</button>
+				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
+				<button id="plein-ecran" title="Plein écran (touche F)">Plein écran</button>
+				<button id="qualite" title="Qualité graphique et aides au pilotage">Paramètres</button>
+			</div>
+			<table class="aide">
+				<tr><th colspan="2">Pilotage (clavier AZERTY)</th></tr>
+				<tr><td>Z / S</td><td>Piquer / cabrer (profondeur)</td></tr>
+				<tr><td>Q / D</td><td>Incliner à gauche / à droite (ailerons)</td></tr>
+				<tr><td>A / E</td><td>Palonnier gauche / droite (au sol : roulette de nez)</td></tr>
+				<tr><td>Espace / Ctrl</td><td>Plus / moins de gaz</td></tr>
+				<tr><td>W / X</td><td>Trim à piquer / à cabrer</td></tr>
+				<tr><td>G / T</td><td>Sortir / rentrer un cran de volets</td></tr>
+				<tr><td>B</td><td>Freins (au sol)</td></tr>
+				<tr><th colspan="2">Navigation et vue</th></tr>
+				<tr><td>I</td><td>Guidage ILS (en approche, dans l'axe d'une piste)</td></tr>
+				<tr><td>V</td><td>Vue cabine / vue extérieure</td></tr>
+				<tr><td>Glisser</td><td>Tourner la caméra (souris)</td></tr>
+				<tr><td>Molette</td><td>Zoom</td></tr>
+				<tr><td>C / double-clic</td><td>Recentrer la caméra</td></tr>
+				<tr><th colspan="2">Simulateur</th></tr>
+				<tr><td>F</td><td>Plein écran</td></tr>
+				<tr><td>R</td><td>Revenir au point de départ</td></tr>
+				<tr><td>P</td><td>Afficher la fluidité : images par seconde, résolution</td></tr>
+			</table>
+		</div>
+	</div>
 	
 	<div id="initiation">
 	<h4>Initiation</h4>
@@ -64,7 +96,12 @@
 	<h4>Libre</h4>
 	</div>
 	
-	<div id="séparation-droite"></div>
+	<div id="météo" class="menu">
+		<button class="menu-titre" aria-expanded="false">Météo : <span id="météo-actuelle">Jour</span> <span class="menu-fleche">▾</span></button>
+		<div class="menu-contenu" hidden>
+			<div class="menu-boutons"></div>
+		</div>
+	</div>
 	
 	<canvas id="ecran" tabindex="0"></canvas>
 	<div id="alarme">DÉCROCHAGE</div>
@@ -76,20 +113,6 @@
 	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
 		
-	<div id="commandes">
-	<h4>Commandes</h4>
-		<button id="vue" title="Changer de vue (touche V)">🎥 Vue cabine</button>
-		<button id="qualite" title="Qualité visuelle et performances">⚙ Qualité</button>
-		<button id="volets" title="Sortir un cran de volets (touches G / T)">🪽 Volets : 0°</button>
-		<button id="reset" title="Revenir au point de départ (touche R)">↺ Réinitialiser</button>
-		<button id="plein-ecran" title="Plein écran (touche F)">⛶ Plein écran</button>
-		<p class="aide">🖱 Glisser : tourner la caméra<br>Molette : zoom<br>Double-clic / C : recentrer<br>B : freins<br>G / T : volets<br>W / X : trim (piquer / cabrer)<br>I : ILS · P : performances</p>
-	</div>
-
-	<div id="météo">
-	<h4>Météo</h4>
-	</div>
-	
 	</main>
 
 	<dialog id="reglages-dialog">

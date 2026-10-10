@@ -21,7 +21,7 @@ const OPTIONS = {
                   choices: [[0.25, '25 %'], [0.5, '50 %'], [1, '100 %']] },
     bloom:      { label: 'Halo lumineux', hint: 'Lueur autour des feux, éclairs, explosion',
                   choices: [[false, 'Désactivé'], [true, 'Activé']] },
-    perf:       { label: 'Afficher les performances', hint: 'Compteur d\'i/s à l\'écran (touche P)',
+    perf:       { label: 'Afficher la fluidité', hint: 'Images par seconde et résolution, en haut à gauche de l\'écran (touche P)',
                   choices: [[false, 'Non'], [true, 'Oui']] },
     // Aides au pilotage : désactivées par défaut (pilotage réaliste)
     rotationAuto:    { group: 'Pilotage', label: 'Rotation automatique', hint: 'Au sol, le trim lève le nez tout seul au décollage',

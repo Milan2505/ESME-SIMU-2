@@ -24,6 +24,10 @@ import {
 const EYE = new Vector3(-0.3, 0.1, 0); // hauteur d'œil : on voit le sol par-dessus le tableau à ~12° sous l'horizon
 const PANEL = { width: 1.2, height: 0.4, y: -0.3, z: -0.75 };
 const CANVAS = { width: 1536, height: 512 };
+// Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
+const KT = 3600 / 1852;   // m/s -> nœuds
+const FT = 1 / 0.3048;    // m -> pieds
+const NM = 1852;          // mille nautique (m)
 const PX_PER_M = CANVAS.width / PANEL.width;
 const PANEL_NIGHT_LIGHT = new Color(0xffbf45); // éclairage ambré des instruments
 
@@ -117,19 +121,19 @@ function caption(ctx, cx, cy, text, size = 16) {
     ctx.fillText(text, cx, cy);
 }
 
-function airspeed(ctx, cx, cy, r, kmh) {
+function airspeed(ctx, cx, cy, r, knots) {
     bezel(ctx, cx, cy, r);
-    // Arcs du Cessna 172 (voir PlaneControls) : blanc = volets utilisables (décrochage volets sortis -> 157),
+    // Arcs du Cessna 172 (nœuds) : blanc = volets utilisables (décrochage volets sortis -> 85 kt),
     // vert = décrochage lisse -> vitesse max en air agité, jaune = air calme seulement, rouge = à ne jamais dépasser
-    const angleOf = (v) => deg(-160 + (Math.min(v, 320) / 320) * 320);
-    arc(ctx, cx, cy, r * 0.93, angleOf(80), angleOf(157), '#ddd', 8);
-    arc(ctx, cx, cy, r * 0.86, angleOf(95), angleOf(237), '#2ecc40', 9);
-    arc(ctx, cx, cy, r * 0.86, angleOf(237), angleOf(302), '#ffdc00', 9);
-    arc(ctx, cx, cy, r * 0.86, angleOf(302), angleOf(306), '#ff2a1a', 12);
-    ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(320), count: 32, every: 4, labels: (i) => String(i * 40) });
-    caption(ctx, cx, cy + r * 0.32, 'KM/H');
+    const angleOf = (v) => deg(-160 + (Math.min(v, 200) / 200) * 320);
+    arc(ctx, cx, cy, r * 0.93, angleOf(43), angleOf(85), '#ddd', 8);
+    arc(ctx, cx, cy, r * 0.86, angleOf(49), angleOf(128), '#2ecc40', 9);
+    arc(ctx, cx, cy, r * 0.86, angleOf(128), angleOf(163), '#ffdc00', 9);
+    arc(ctx, cx, cy, r * 0.86, angleOf(163), angleOf(165), '#ff2a1a', 12);
+    ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(200), count: 40, every: 4, labels: (i) => String(i * 20) });
+    caption(ctx, cx, cy + r * 0.32, 'KT');
     caption(ctx, cx, cy - r * 0.3, 'ANÉMO', 14);
-    needle(ctx, cx, cy, r * 0.85, angleOf(Math.max(0, kmh)));
+    needle(ctx, cx, cy, r * 0.85, angleOf(Math.max(0, knots)));
 }
 
 function attitude(ctx, cx, cy, r, rollRad, pitchDeg) {
@@ -186,19 +190,19 @@ function attitude(ctx, cx, cy, r, rollRad, pitchDeg) {
     ctx.fill();
 }
 
-function altimeter(ctx, cx, cy, r, meters) {
+function altimeter(ctx, cx, cy, r, feet) {
     bezel(ctx, cx, cy, r);
     ticks(ctx, cx, cy, r, { from: 0, to: deg(360), count: 50, every: 5, labels: (i) => (i < 10 ? String(i) : null) });
     // Fenêtre numérique
     ctx.fillStyle = '#222';
-    ctx.fillRect(cx - 52, cy + r * 0.28, 104, 32);
+    ctx.fillRect(cx - 56, cy + r * 0.28, 112, 32);
     ctx.fillStyle = '#7fff7f';
     ctx.font = 'bold 22px DejaVu Sans Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`${Math.round(meters)} m`, cx, cy + r * 0.28 + 17);
-    caption(ctx, cx, cy - r * 0.3, 'ALT ×100 m', 13);
-    needle(ctx, cx, cy, r * 0.5, deg((meters / 1000) * 360), 10);   // petite aiguille : 1000 m par tour
-    needle(ctx, cx, cy, r * 0.88, deg((meters / 100) * 360), 6);    // grande aiguille : 100 m par tour
+    ctx.fillText(`${Math.round(feet)} ft`, cx, cy + r * 0.28 + 17);
+    caption(ctx, cx, cy - r * 0.3, 'ALT ×100 ft', 13);
+    needle(ctx, cx, cy, r * 0.5, deg((feet / 10000) * 360), 10);  // petite aiguille : 10 000 ft par tour
+    needle(ctx, cx, cy, r * 0.88, deg((feet / 1000) * 360), 6);   // grande aiguille : 1 000 ft par tour
 }
 
 function turnCoordinator(ctx, cx, cy, r, rollRad, slip) {
@@ -290,14 +294,16 @@ function headingIndicator(ctx, cx, cy, r, heading) {
     ctx.fill();
 }
 
-function variometer(ctx, cx, cy, r, vs) {
+// Variomètre en pieds par minute : ±2 000 ft/min, graduations tous les 100 ft/min, chiffres en centaines
+function variometer(ctx, cx, cy, r, fpm) {
     bezel(ctx, cx, cy, r);
-    const angleOf = (v) => deg(-90 + (MathUtils.clamp(v, -10, 10) / 10) * 170);
-    ticks(ctx, cx, cy, r, { from: angleOf(-10), to: angleOf(10), count: 20, every: 5, labels: (i) => (i === 0 ? null : String(Math.abs(i * 5 - 10))) }); // un seul « 10 » (en haut)
+    const angleOf = (v) => deg(-90 + (MathUtils.clamp(v, -2000, 2000) / 2000) * 170);
+    ticks(ctx, cx, cy, r, { from: angleOf(-2000), to: angleOf(2000), count: 40, every: 5,
+        labels: (i) => (i === 0 || i === 4 ? null : String(Math.abs(i * 5 - 20))) }); // un seul « 20 » (en haut)
     caption(ctx, cx + r * 0.2, cy - r * 0.32, 'MONTÉE', 13);
     caption(ctx, cx + r * 0.2, cy + r * 0.32, 'DESCENTE', 13);
-    caption(ctx, cx + r * 0.25, cy, 'm/s', 15);
-    needle(ctx, cx, cy, r * 0.85, angleOf(vs));
+    caption(ctx, cx + r * 0.1, cy + r * 0.15, '×100 ft/min', 11);
+    needle(ctx, cx, cy, r * 0.85, angleOf(fpm));
 }
 
 function tachometer(ctx, cx, cy, r, rpm) {
@@ -457,7 +463,7 @@ function ilsIndicator(ctx, cx, cy, r, ils, time) {
         ctx.lineTo(cx + r * 0.8, cy - ils.glideslope * range);
         ctx.stroke();
     }
-    caption(ctx, cx, cy + r * 1.22, `${(ils.distance / 1000).toFixed(1)} km · idéal ${Math.round(ils.glideHeight)} m`, 13);
+    caption(ctx, cx, cy + r * 1.22, `${(ils.distance / NM).toFixed(1)} NM · idéal ${Math.round(ils.glideHeight * FT)} ft`, 13);
 }
 
 // --- Vitres ----------------------------------------------------------------------------
@@ -787,12 +793,12 @@ class Cockpit {
 
         const r = 88, col = 190, [px] = toCanvas(EYE.x, 0);
         const top = 132, bottom = 368;
-        airspeed(ctx, px - col, top, r, state.speed * 3.6);
+        airspeed(ctx, px - col, top, r, state.speed * KT);
         attitude(ctx, px, top, r, state.roll, state.pitchDeg);
-        altimeter(ctx, px + col, top, r, state.altitude);
+        altimeter(ctx, px + col, top, r, state.altitude * FT);
         turnCoordinator(ctx, px - col, bottom, r, state.roll, this._smooth.slip);
         headingIndicator(ctx, px, bottom, r, state.heading);
-        variometer(ctx, px + col, bottom, r, state.verticalSpeed);
+        variometer(ctx, px + col, bottom, r, state.verticalSpeed * FT * 60);
         tachometer(ctx, 790, bottom - 10, 72, this._smooth.rpm);
 
         annunciator(ctx, 730, 60, 'STALL', state.stallWarning && Math.sin(this._time * 20) > 0, '#ff3b2f');

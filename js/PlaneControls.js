@@ -40,12 +40,12 @@ const _CD0 = 0.036;                                   // traînée de forme (tra
 const _INDUCED_DRAG = 0.06;                           // traînée induite : k·CL² (aile d'allongement 7,5)
 const _STALL_DRAG = 0.15;                             // aile décrochée : traînée en plus
 const _STATIC_THRUST = 3400;                          // poussée plein gaz à l'arrêt (N) : accélération franche au décollage
-const _POWER = 105000;                                // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
+const _POWER = 75000;                                 // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
+                                                      // (pleine poussée jusqu'à ~80 km/h, puis montée ~4 m/s, assiette ~10°)
 const _WINDMILL_DRAG = 0.012;                         // hélice au ralenti : elle freine l'avion (finesse ~9 en plané)
 const _SIDE_FORCE = 0.6;                              // force latérale du fuselage en dérapage (par radian)
 
 // Rotations (rad/s) à pleine efficacité des gouvernes ; l'efficacité croît avec le carré de la vitesse
-const _PITCH_RATE = 0.2;
 const _ROLL_RATE = 0.7;
 const _YAW_RATE = 0.3;
 const _CONTROL_SPEED = 30;                            // vitesse (m/s) où les gouvernes ont leur pleine efficacité
@@ -56,10 +56,13 @@ const _SPIRAL_STABILITY = 0.1;                        // manche lâché, l'incli
 const _ANGULAR_RESPONSE = 5;                          // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 const _STALL_PITCH_DOWN = 0.4;                        // abattée au décrochage (rad/s)
 const _STALL_WING_DROP = 0.5;                         // une aile tombe au décrochage (rad/s)
-// Manche tiré à fond : l'incidence plafonne près du décrochage, en y arrivant de plus en plus lentement
+// Profondeur : la position du manche fixe l'incidence visée, par rapport à celle du trim
+const _ELEVATOR_UP = MathUtils.degToRad( 9 );         // manche tiré à fond : +9° (au trim de décollage, reste sous le décrochage)
+const _ELEVATOR_DOWN = MathUtils.degToRad( 10 );      // manche poussé à fond : -10°
+const _PITCH_RATE_MAX = 0.35;                         // rotation en tangage au plus 20°/s
+// Incidence visée au plus (par rapport au décrochage)
 const _ELEVATOR_LIMIT = MathUtils.degToRad( 2 );      // sans aide : 2° au-delà (on peut décrocher en tirant)
 const _ELEVATOR_LIMIT_PROTECTED = MathUtils.degToRad( - 1 ); // aide "protection décrochage" : 1° en deçà
-const _ELEVATOR_FADE = MathUtils.degToRad( 8 );
 
 // Sol : au-delà de ces limites, le contact avec le sol est un crash
 const _CRASH_SINK = 6;                                // vitesse d'impact perpendiculaire au sol (m/s)
@@ -79,10 +82,10 @@ const _FLAP_DRAG = 0.05;                              // volets à fond : traîn
 const _FLAP_STALL_ALPHA = MathUtils.degToRad( 2 );    // volets à fond : l'aile décroche 2° plus tôt
 // Trim (compensateur de profondeur) : manche relâché, l'avion revient à l'incidence qu'il fixe, donc à une vitesse.
 // -1 = à piquer à fond (rapide), +1 = à cabrer à fond (lent)
-const _TRIM_MID = MathUtils.degToRad( 5 );            // incidence au trim neutre
-const _TRIM_RANGE = MathUtils.degToRad( 8 );          // incidence : de -3° (piqué à fond, ~220 km/h) à 13° (cabré à fond)
-const _TRIM_RATE = 0.2;                               // course du trim par seconde, touche enfoncée (d'une butée à l'autre en 10 s)
-const _TAKEOFF_TRIM = ( MathUtils.degToRad( 7.5 ) - _TRIM_MID ) / _TRIM_RANGE; // repère décollage : montée vers 120 km/h
+const _TRIM_MID = MathUtils.degToRad( 6 );            // incidence au trim neutre
+const _TRIM_RANGE = MathUtils.degToRad( 7 );          // incidence : de -1° (piqué à fond, ~220 km/h) à 13° (cabré à fond)
+const _TRIM_RATE = 0.3;                               // course du trim par seconde, touche enfoncée (d'une butée à l'autre en ~7 s)
+const _TAKEOFF_TRIM = ( MathUtils.degToRad( 4.5 ) - _TRIM_MID ) / _TRIM_RANGE; // repère décollage : montée vers 135 km/h
 const _LIFTOFF_RELEASE_TIME = 6;                      // après l'envol, manche relâché, le nez se rend en ~6 s (pas de retour sur la piste)
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
@@ -375,10 +378,13 @@ class PlaneControls extends Controls {
 			trimAlpha = MathUtils.lerp( trimAlpha, this._liftoffAlpha, this._liftoffBlend );
 		}
 
-		// Profondeur : à cabrer, de moins en moins efficace à l'approche du décrochage
+		// Profondeur : le manche décale l'incidence visée par rapport au trim (moins d'autorité à très basse vitesse) ;
+		// la stabilité y amène l'avion
 		const limit = stallAlpha + ( this.assists.stallProtection ? _ELEVATOR_LIMIT_PROTECTED : _ELEVATOR_LIMIT );
-		const elevator = input.x > 0 ? MathUtils.clamp( ( limit - alpha ) / _ELEVATOR_FADE, 0, 1 ) : 1;
-		let pitchRate = input.x * elevator * _PITCH_RATE * effect + _PITCH_STABILITY * ( trimAlpha - alpha ) * stability;
+		const authority = Math.min( 1, effect * 1.5 );
+		let alphaTarget = trimAlpha + input.x * ( input.x > 0 ? _ELEVATOR_UP : _ELEVATOR_DOWN ) * authority;
+		if ( input.x > 0 ) alphaTarget = Math.min( alphaTarget, Math.max( limit, trimAlpha ) );
+		let pitchRate = MathUtils.clamp( _PITCH_STABILITY * ( alphaTarget - alpha ) * stability, - _PITCH_RATE_MAX, _PITCH_RATE_MAX );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		let rollRate = input.z * _ROLL_RATE * effect + ( _DIHEDRAL * beta - _SPIRAL_STABILITY * bank ) * stability + this._gustRoll;
 		const yawRate = input.y * _YAW_RATE * effect - _YAW_STABILITY * beta * stability;
@@ -481,7 +487,7 @@ class PlaneControls extends Controls {
 		let reason = null;
 		if ( _planeUp.dot( _normal ) < 0 ) reason = 'Avion sur le dos';
 		else if ( _normal.y < _MIN_SLOPE_NORMAL ) reason = 'Collision avec le relief';
-		else if ( impact > _CRASH_SINK ) reason = `Impact trop violent (${impact.toFixed( 1 )} m/s)`;
+		else if ( impact > _CRASH_SINK ) reason = `Impact trop violent (${Math.round( impact / 0.3048 * 60 )} ft/min)`;
 		else if ( Math.abs( bank ) > _CRASH_BANK ) reason = 'Une aile a touché le sol';
 		else if ( pitch < _CRASH_NOSE ) reason = 'L\'avion a touché du nez';
 		else if ( pitch > _CRASH_TAIL ) reason = 'La queue a touché le sol';

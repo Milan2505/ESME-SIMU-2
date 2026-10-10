@@ -173,7 +173,7 @@ img{margin: 0px;
     grid-row: 2/4;
 	  border: 3px solid;
   }
-  #séparation-gauche {
+  #commandes {
     grid-column: 1/6;
     grid-row: 7/9;
 	  border: 3px solid;
@@ -346,7 +346,7 @@ img{margin: 0px;
     grid-row: 7/9;
   	border: 3px solid;
   }
-  #séparation-droite {
+  #météo {
     grid-column: 17/21;
     grid-row: 7/9;
   	border: 3px solid;
@@ -513,139 +513,158 @@ img{margin: 0px;
   #crash.actif {
     display: flex;
   }
-  #commandes .aide {
-    margin: 4px 0 0;
-    text-indent: 0;
-    text-align: left;
-    font-family: DejaVu Sans Mono, monospace;
-    font-size: 11px;
-    color: #114E69;
-  }
   @keyframes clignote {
     50% { opacity: 0; }
   }
-  #commandes {
-    grid-column: 16/19;
-    grid-row: 10/13;
-    align-self: start;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 0 6px 6px;
-    margin-bottom: 10px;
-    border: 3px solid;
-    border-radius: 10px;
+
+  /* Menus du bandeau (Commandes, Météo) : la case entière est un bouton, le contenu se déroule dessous */
+  .menu {
+    position: relative;
+    z-index: 5;
+    box-sizing: border-box;
+    background: white;
   }
-  #commandes h4 {
-    margin: 6px 0;
-  }
-  #commandes button {
-    padding: 3px 8px;
+  .menu-titre {
+    width: 100%;
+    height: 100%;
     font-family: DejaVu Sans Mono, monospace;
-    background: #C3E6F5;
-    color: #114E69;
-    border: 2px solid #114E69;
-    border-radius: 5px;
+    font-size: 14px;
+    font-weight: bold;
+    color: black;
+    background: white;
+    border: none;
     cursor: pointer;
   }
-  #commandes button:hover {
-    background: #114E69;
-    color: white;
+  .menu-titre:hover,
+  .menu-titre[aria-expanded="true"] {
+    background: #f2f2f2;
   }
-  #météo {
-    grid-column: 16/19;
-    grid-row: 13/17;
-    align-self: start;
-	  border: 3px solid;
-  	border-radius: 10px;
+  .menu-fleche {
+    display: inline-block;
+    transition: transform 0.15s;
   }
-  #météo {
+  .menu-titre[aria-expanded="true"] .menu-fleche {
+    transform: rotate(180deg);
+  }
+  .menu-contenu {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: -3px;
+    min-width: calc(100% + 6px);
+    box-sizing: border-box;
+    padding: 10px;
+    background: white;
+    border: 3px solid black;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  }
+  #météo .menu-contenu {
+    left: auto;
+    right: -3px;
+  }
+  .menu-contenu[hidden] {
+    display: none;
+  }
+  .menu-boutons {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 0 6px 6px;
+    flex-wrap: wrap;
+    gap: 6px;
   }
-
-  #météo h4 {
-    margin: 6px 0;
-  }
-
-  #météo button {
+  .menu-boutons button {
+    padding: 5px 12px;
     font-family: DejaVu Sans Mono, monospace;
-    background: #C3E6F5;
-    color: #114E69;
-    border: 2px solid #114E69;
-    border-radius: 5px;
+    font-size: 13px;
+    color: black;
+    background: white;
+    border: 2px solid black;
+    border-radius: 6px;
     cursor: pointer;
   }
-
-  #météo button.actif {
-    background: #114E69;
-    color: white;
+  .menu-boutons button:hover {
+    background: #f2f2f2;
+  }
+  #météo .menu-boutons {
+    flex-direction: column;
+    min-width: 160px;
+  }
+  /* Météo choisie : cadre épais et texte en gras (sans fond de couleur) */
+  #météo .menu-boutons button.actif {
+    font-weight: bold;
+    border-width: 3px;
+  }
+  /* Aide des touches */
+  .menu-contenu .aide {
+    margin-top: 10px;
+    border: none;
+    border-collapse: collapse;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 12px;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+  .menu-contenu .aide th {
+    padding: 8px 0 3px;
+    text-align: left;
+    border-bottom: 1px solid #ccc;
+  }
+  .menu-contenu .aide td {
+    padding: 2px 12px 2px 0;
+    color: #222;
+  }
+  .menu-contenu .aide td:first-child {
+    font-weight: bold;
   }
 
-  /* Plein écran : l'écran de vol occupe tout l'écran, sous une barre d'options (Commandes + Météo) */
+  /* Plein écran : l'écran de vol occupe tout l'écran, sous une barre avec les menus Commandes et Météo */
   #simulator:fullscreen {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto auto 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
     padding: 0;
     height: 100vh;
     box-sizing: border-box;
-    background: #10171c;
+    background: white;
   }
   #simulator:fullscreen > #titre,
   #simulator:fullscreen > #profil,
   #simulator:fullscreen > #paramètre,
   #simulator:fullscreen > #online,
-  #simulator:fullscreen > #séparation-gauche,
   #simulator:fullscreen > #initiation,
   #simulator:fullscreen > #solo,
   #simulator:fullscreen > #multi,
-  #simulator:fullscreen > #libre,
-  #simulator:fullscreen > #séparation-droite,
-  #simulator:fullscreen .aide {
+  #simulator:fullscreen > #libre {
     display: none;
   }
-  /* Barre du haut : les deux panneaux côte à côte, boutons en ligne */
   #simulator:fullscreen > #commandes,
   #simulator:fullscreen > #météo {
     grid-row: 1;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    align-self: stretch;
-    gap: 6px;
-    margin: 0;
-    padding: 6px 10px;
     border: none;
-    border-radius: 0;
-    background: #C3E6F5;
+    border-bottom: 2px solid black;
   }
   #simulator:fullscreen > #commandes {
     grid-column: 1;
-    border-right: 2px solid #114E69;
+    border-right: 2px solid black;
   }
   #simulator:fullscreen > #météo {
     grid-column: 2;
+    border-right: 2px solid black;
   }
-  #simulator:fullscreen > #commandes h4,
-  #simulator:fullscreen > #météo h4 {
-    margin: 0 4px 0 0;
+  #simulator:fullscreen .menu-titre {
+    padding: 8px 18px;
   }
-  #simulator:fullscreen > #commandes button,
-  #simulator:fullscreen > #météo button {
-    padding: 4px 10px;
+  #simulator:fullscreen #météo .menu-contenu {
+    left: -2px;
+    right: auto;
   }
-  /* Écran de vol et éléments superposés : tout le reste */
+  /* Écran de vol et éléments superposés : toute la largeur, sous la barre */
   #simulator:fullscreen > #ecran,
   #simulator:fullscreen > #alarme,
   #simulator:fullscreen > #crash,
   #simulator:fullscreen > #perf,
   #simulator:fullscreen > #ils-bouton,
   #simulator:fullscreen > #ils-panneau {
-    grid-column: 1 / 3;
+    grid-column: 1 / 4;
     grid-row: 2;
   }
   #simulator:fullscreen > #ecran {
