@@ -6,7 +6,11 @@
 const GALLON = 3.785;                  // litres (affichage en gallons US, comme dans l'avion)
 const TANK_CAPACITY = 26.5;            // gallons utilisables par aile
 const LOW_FUEL = 5;                    // alarme carburant bas (gal)
-const START_TIME = 1.2;                // le moteur démarre après 1,2 s de démarreur
+const START_TIME = 1.2;                // moteur amorcé : il démarre après 1,2 s de démarreur
+const START_TIME_UNPRIMED = 4.5;       // sans amorçage (pompe), il faut insister : ~4,5 s de démarreur en tout
+const PRIME_TIME = 2;                  // amorçage : pompe allumée ~2 s, moteur arrêté, mixture poussée
+const FLOOD_TIME = 10;                 // au-delà de ~10 s de pompe moteur arrêté : moteur noyé
+const LOW_FUEL_FEED = 1.5;             // réservoir presque vide (gal) : sans pompe, l'alimentation est irrégulière
 const STARTER_HOLD = 1.6;              // durée d'un appui sur START (s) : la clé revient seule sur BOTH
 const FUEL_STARVE_TIME = 4;            // sans alimentation, le moteur s'arrête après ~4 s (carburant dans les tuyaux)
 const BATTERY_LIFE = 1800;             // batterie seule : ~30 min (s)
@@ -63,6 +67,7 @@ class Systems extends EventTarget {
         this._crank = 0;                // temps de démarreur restant (s)
         this._cranked = 0;              // temps de démarreur écoulé
         this._starve = 0;               // temps sans carburant
+        this.prime = 0;                 // carburant injecté pour le démarrage (s de pompe) ; > FLOOD_TIME : noyé
         this._changed();
     }
 
@@ -75,6 +80,8 @@ class Systems extends EventTarget {
         this.running = false;
         this.rpm = 0;
         this._crank = 0;
+        this._cranked = 0;
+        this.prime = 0;
         this._changed();
     }
 
@@ -89,10 +96,7 @@ class Systems extends EventTarget {
     // Clé des magnétos : step -1 / +1 ; START est momentané (la clé revient sur BOTH)
     turnMagnetos(step) {
         this.magnetos = Math.max(0, Math.min(4, this.magnetos + step));
-        if (this.magnetos === 4) {
-            this._crank = STARTER_HOLD;
-            this._cranked = 0;
-        }
+        if (this.magnetos === 4) this._crank = STARTER_HOLD;   // le temps de démarreur s'additionne d'un appui à l'autre
         this._changed();
     }
 
@@ -193,10 +197,27 @@ class Systems extends EventTarget {
         return this.mixture >= 0.7 ? 1 : 0.55 + 0.45 * Math.max(0, (this.mixture - 0.1) / 0.6);
     }
 
-    // Puissance du moteur (0 -> 1) : magnétos (une seule : ~4 % de moins), mixture
+    // Pompe électrique en marche (interrupteur FUEL PUMP, bus alimenté)
+    get fuelPumpRunning() {
+        return this.switches.fuelPump && this.busPowered;
+    }
+
+    get flooded() {
+        return this.prime > FLOOD_TIME;
+    }
+
+    // Réservoir(s) choisi(s) presque vide(s) : sans la pompe électrique, le moteur tousse
+    get _fuelFeedWeak() {
+        const tanks = [[this.fuel[0]], [this.fuel[0], this.fuel[1]], [this.fuel[1]]][this.fuelSelector];
+        return Math.max(...tanks) < LOW_FUEL_FEED && !this.fuelPumpRunning;
+    }
+
+    // Puissance du moteur (0 -> 1) : magnétos (une seule : ~4 % de moins), mixture, alimentation (toux sans pompe
+    // quand le réservoir est presque vide)
     get power() {
         if (!this.running) return 0;
-        return (this.singleMagneto ? 0.96 : 1) * this._mixturePower;
+        const feed = this._fuelFeedWeak ? 0.75 + 0.2 * Math.sin(this._time * 9) * Math.sin(this._time * 2.3) : 1;
+        return (this.singleMagneto ? 0.96 : 1) * this._mixturePower * feed;
     }
 
     // Débit carburant (gal/h)
@@ -217,15 +238,26 @@ class Systems extends EventTarget {
     // throttle : 0 -> 1 ; airspeed (m/s) : fait tourner l'hélice moteur coupé
     update(delta, throttle, airspeed) {
         this._throttle = throttle;
+        this._time = (this._time ?? 0) + delta;
+        // Amorçage : pompe en marche, moteur arrêté, mixture poussée -> du carburant arrive aux cylindres (trop : noyé) ;
+        // il s'évapore lentement ; démarreur avec la mixture tirée : on dénoie le moteur
+        if (!this.running) {
+            if (this.fuelPumpRunning && this.mixture > 0.3 && this.fuelAvailable) this.prime += delta;
+            else this.prime = Math.max(0, this.prime - delta / 30);
+            if (this._crank > 0 && this.mixture < 0.2) this.prime = Math.max(0, this.prime - delta * 3);
+        }
         // Démarreur : la clé tenue sur START lance le moteur (batterie, carburant, magnétos, mixture)
         const starting = this._crank > 0;
         if (starting) {
             this._crank -= delta;
             this._cranked += delta;
-            const canStart = this.switches.masterBat && this.battery > 0.05 && this.fuelAvailable && this.mixture > 0.25;
-            if (!this.running && canStart && this._cranked > START_TIME) {
+            const canStart = this.switches.masterBat && this.battery > 0.05 && this.fuelAvailable && this.mixture > 0.25 && !this.flooded;
+            const needed = this.prime >= PRIME_TIME ? START_TIME : START_TIME_UNPRIMED;
+            if (!this.running && canStart && this._cranked > needed) {
                 this.running = true;
                 this._starve = 0;
+                this._cranked = 0;
+                this.prime = 0;
                 this.dispatchEvent(new Event('start'));
             }
             if (this._crank <= 0) {
@@ -233,6 +265,7 @@ class Systems extends EventTarget {
                 this._changed();
             }
         }
+        else this._cranked = Math.max(0, this._cranked - delta * 0.2);   // le démarreur "oublie" en quelques secondes
         // Arrêts : magnétos coupées, étouffoir, panne sèche
         if (this.running) {
             if (this.magnetos === 0 || this.mixture < 0.08) this._stop();
@@ -250,7 +283,8 @@ class Systems extends EventTarget {
         // Batterie : se décharge sans alternateur, se recharge avec
         if (this.switches.masterBat) {
             const load = 0.4 + (this.switches.avionics ? 0.3 : 0) + (this.switches.land ? 0.2 : 0)
-                + (this.switches.pitotHeat ? 0.3 : 0) + (starting ? 4 : 0);
+                + (this.switches.pitotHeat ? 0.3 : 0)
+                + (this.fuelPumpRunning ? 0.25 : 0) + (starting ? 4 : 0);
             this.battery = Math.max(0, Math.min(1, this.battery + (this.alternatorOn ? 1 / 600 : -load / BATTERY_LIFE) * delta));
         }
         // Régime : moteur (gaz, mixture) ou hélice entraînée par le vent relatif / le démarreur

@@ -6,6 +6,8 @@ const LOOPS = {
     rainCockpit:   'asset/sounds/rain-windshield.wav',
     rollAsphalt:   'asset/sounds/tires-rolling-asphalt.wav',
     rollGrass:     'asset/sounds/tires-rolling-grass.wav',
+    flapMotor:     'asset/sounds/flaps-motor.wav',
+    fuelPump:      'asset/sounds/fuel-pump.wav',
 };
 const SHOTS = {
     thunder1: 'asset/sounds/thunder1.wav',
@@ -13,6 +15,7 @@ const SHOTS = {
     thunder3: 'asset/sounds/thunder3.wav',
     crash:    'asset/sounds/crash.wav',
     screech:  'asset/sounds/tires-screech.wav',
+    flapsStop: 'asset/sounds/flaps-click.wav',
 };
 
 class SoundEffects {

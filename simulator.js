@@ -734,8 +734,9 @@ function setWeather(name) {
     applyLights();
     remotePlayers.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
-    // De nuit, le pilote allume le phare (interrupteur LAND, modifiable en cabine)
-    systems.switches.land = w.night >= 0.5;
+    // Avion en route (moteur en marche) : de nuit, le pilote allume le phare (interrupteur LAND, modifiable en cabine).
+    // Avion éteint au parking : on ne touche à rien, c'est au pilote de tout allumer
+    if (systems.running) systems.switches.land = w.night >= 0.5;
     systems.dispatchEvent(new Event('change'));
     landingLight.intensity = 12000;
 
@@ -1544,6 +1545,16 @@ function updateSounds() {
     const rate = 0.7 + controls.getSpeed() / 40;
     sounds.setLoop('rollAsphalt', grass ? 0 : rolling, rate);
     sounds.setLoop('rollGrass', grass ? rolling : 0, rate);
+    // Moteur des volets : seulement pendant qu'ils bougent, clac de fin de course à l'arrêt ; plus fort en cabine
+    // (il est dans l'aile, au-dessus)
+    const flaps = controls.getFlaps();
+    const moving = Math.abs(flaps - lastFlaps) > 1e-5 && !choosingSpawn;
+    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.25 : 0.6 });
+    flapsMoving = moving;
+    lastFlaps = flaps;
+    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.25 : 0.7) : 0, 1);
+    // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
+    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.05 : 0.22) : 0, 1.7);
 }
 
 const aircraftVelocity = new THREE.Vector3();
@@ -1620,7 +1631,7 @@ function updatePerf(cpuTime) {
 }
 
 let nextFrameTime = 0;
-let lastTrim = controls.getTrim(), trimTravel = 0;
+let lastTrim = controls.getTrim(), trimTravel = 0, lastFlaps = 0, flapsMoving = false;
 
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
