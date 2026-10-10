@@ -170,6 +170,7 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     propeller.position.set(center.x, center.y, 0);
     // Ailerons, profondeur, direction et volets deviennent des pièces mobiles (aussi sur les copies du modèle)
     controlSurfaces = new ControlSurfaces(model, propeller);
+    addWindowPillars(model);
     // Copie aux vitres opaques pour les avions garés et ceux des autres joueurs (ils n'ont pas d'intérieur)
     const template = model.clone();
     makeWindowsTransparent(model, propeller);
@@ -183,6 +184,32 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     rebuildObstacles(); // + les avions garés
     updateView();
 }, undefined, (error) => console.error(error));
+
+// Montants extérieurs du vitrage (le modèle n'en a pas : vitres d'un seul tenant du pare-brise à l'arrière des portes) :
+// bord du pare-brise, avant et arrière de la porte, à la couleur du fuselage. Arêtes relevées sur les vitres du modèle
+// (repère avion ; le modèle n'est pas tout à fait symétrique)
+const WINDOW_PILLARS = [
+    { thickness: 0.035, right: [[0.79, 0.70, -2.95], [0.77, 1.10, -2.87]], left: [[-0.82, 0.66, -2.95], [-0.82, 1.06, -2.87]] },
+    { thickness: 0.06,  right: [[0.78, 0.73, -2.49], [0.76, 1.10, -2.48]], left: [[-0.80, 0.69, -2.49], [-0.80, 1.06, -2.48]] },
+    { thickness: 0.06,  right: [[0.74, 0.82, -1.07], [0.67, 1.16, -1.20]], left: [[-0.77, 0.79, -1.07], [-0.71, 1.12, -1.20]] },
+];
+
+function addWindowPillars(model) {
+    let white = null;
+    model.traverse((child) => { if (child.isMesh && child.material.name === 'White') white ??= child.material; });
+    const up = new THREE.Vector3(0, 1, 0);
+    for (const { thickness, right, left } of WINDOW_PILLARS) {
+        for (const [side, points] of [[1, right], [-1, left]]) {
+            // Repère du modèle : décalé de 2 m vers l'arrière ; montant posé sur la vitre, à moitié dehors
+            const [a, b] = points.map(([x, y, z]) => new THREE.Vector3(x + side * thickness * 0.3, y, z - model.position.z));
+            const pillar = new THREE.Mesh(new THREE.BoxGeometry(thickness, a.distanceTo(b) + 0.06, thickness), white);
+            pillar.position.copy(a).add(b).multiplyScalar(0.5);
+            pillar.quaternion.setFromUnitVectors(up, b.clone().sub(a).normalize());
+            pillar.castShadow = true;
+            model.add(pillar);
+        }
+    }
+}
 
 // Hélice en rotation : les pales s'estompent et un disque flou apparaît (comme vu de la cabine d'un vrai avion,
 // au lieu d'une pale qui saute d'une position à l'autre à chaque image)

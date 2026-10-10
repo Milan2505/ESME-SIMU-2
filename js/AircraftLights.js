@@ -137,7 +137,7 @@ class AircraftLights {
         for (const light of this.lights) {
             if (!light.wing) continue;
             light.position.copy(light.base);
-            if (cabin) light.position.set(light.base.x, 1.35, light.base.z + 0.5);
+            if (cabin) light.position.set(light.base.x, 1.35, light.base.z + 0.44); // au nez du bord d'attaque arrondi
             light.bulb.position.copy(light.position);
         }
         // Faisceau recalé avec le phare ; un peu plus discret vu de la cabine (on est tout près du cône)

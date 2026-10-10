@@ -1,6 +1,8 @@
 import {
     BoxGeometry,
+    BufferGeometry,
     CanvasTexture,
+    Float32BufferAttribute,
     Color,
     Shape,
     ShapeGeometry,
@@ -515,6 +517,61 @@ const glassShader = {
     `,
 };
 
+// --- Aile vue de la cabine -------------------------------------------------------------
+// Profil NACA 2412 (cambrure 2 % à 40 % de la corde, épaisseur 12 %) extrudé sur l'envergure, centré en x = 0.
+// Bord d'attaque arrondi (normales lissées le long du profil), extrémités fermées.
+function wingGeometry({ span, chord, leadingEdge, y, points = 24 }) {
+    const m = 0.02, p = 0.4, t = 0.12;
+    const surface = (x, upper) => {
+        const camber = x < p ? m / (p * p) * (2 * p * x - x * x) : m / ((1 - p) ** 2) * (1 - 2 * p + 2 * p * x - x * x);
+        const slope = Math.atan(x < p ? 2 * m / (p * p) * (p - x) : 2 * m / ((1 - p) ** 2) * (p - x));
+        const thickness = 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
+        const sign = upper ? 1 : -1;
+        return [x - sign * thickness * Math.sin(slope), camber + sign * thickness * Math.cos(slope)];
+    };
+    // Contour fermé (z, y) : extrados du bord de fuite au bord d'attaque, puis intrados ; points resserrés au bord d'attaque
+    const outline = [];
+    for (let i = points; i >= 0; i--) outline.push(surface((1 - Math.cos(Math.PI * i / points)) / 2, true));
+    for (let i = 1; i < points; i++) outline.push(surface((1 - Math.cos(Math.PI * i / points)) / 2, false));
+    const profile = outline.map(([x, h]) => [leadingEdge + x * chord, y + h * chord]);
+    const n = profile.length, half = span / 2;
+    const position = [], normal = [], index = [];
+    // Flancs : deux vertices par point du profil (un à chaque saumon), normale perpendiculaire au contour
+    profile.forEach(([z, h], i) => {
+        const [z0, h0] = profile[(i - 1 + n) % n], [z1, h1] = profile[(i + 1) % n];
+        const length = Math.hypot(z1 - z0, h1 - h0) || 1;
+        for (const x of [-half, half]) {
+            position.push(x, h, z);
+            normal.push(0, -(z1 - z0) / length, (h1 - h0) / length);
+        }
+    });
+    for (let i = 0; i < n; i++) {
+        const a0 = i * 2, a1 = a0 + 1, b0 = ((i + 1) % n) * 2, b1 = b0 + 1;
+        index.push(a0, a1, b0, a1, b1, b0);
+    }
+    // Saumons : éventail depuis le centre du profil
+    const center = profile.reduce(([sz, sh], [z, h]) => [sz + z / n, sh + h / n], [0, 0]);
+    for (const [x, nx] of [[-half, -1], [half, 1]]) {
+        const start = position.length / 3;
+        position.push(x, center[1], center[0]);
+        normal.push(nx, 0, 0);
+        for (const [z, h] of profile) {
+            position.push(x, h, z);
+            normal.push(nx, 0, 0);
+        }
+        for (let i = 0; i < n; i++) {
+            const a = start + 1 + i, b = start + 1 + (i + 1) % n;
+            if (nx > 0) index.push(start, b, a);
+            else index.push(start, a, b);
+        }
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(position, 3));
+    geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
+    geometry.setIndex(index);
+    return geometry;
+}
+
 // --- Pluie sur le pare-brise ---------------------------------------------------------
 
 const windshieldShader = {
@@ -643,9 +700,7 @@ class Cockpit {
             this._beam(new Vector3(side * 0.6, -0.05, -0.98), new Vector3(side * 0.64, -0.3, -0.78), 0.04, frame);
             sideGlass(side * 0.645, [[-0.78, -0.3], [0.66, -0.3], [0.76, 0.36], [-0.42, 0.36], [-0.97, -0.05]]);
             sideGlass(side * 0.645, [[0.8, -0.3], [1.18, -0.3], [1.18, 0.36], [0.8, 0.36]]);
-            // Aile haute posée sur le toit, bord d'attaque au-dessus du haut du pare-brise (comme sur un Cessna),
-            // vue par les vitres latérales, et hauban
-            add(new Mesh(new BoxGeometry(4.9, 0.14, 1.7), paint), side * (0.65 + 2.45), 0.45, 0.42);
+            // Hauban d'aile
             this._beam(new Vector3(side * 0.66, -0.78, 0.15), new Vector3(side * 2.7, 0.38, 0.4), 0.05, paint);
             // Sièges avant
             add(new Mesh(new BoxGeometry(0.46, 0.1, 0.48), seat), side * 0.3, -0.62, 0.3);
@@ -653,6 +708,9 @@ class Cockpit {
             back.rotation.x = -0.18;
         }
         // Pas de montant central : le pare-brise du Cessna 172 est d'un seul tenant
+        // Aile haute posée sur le toit, d'un saumon à l'autre, bord d'attaque au-dessus du haut du pare-brise
+        // (comme sur un Cessna), vue par les vitres latérales : profil arrondi NACA 2412, celui du vrai Cessna 172
+        this.group.add(new Mesh(wingGeometry({ span: 11.1, chord: 1.7, leadingEdge: -0.43, y: 0.45 }), paint));
 
         // Manches (yokes) : la colonne coulisse dans le tableau (poussé / tiré), le volant tourne
         this._yokes = [-0.3, 0.3].map((x) => {
