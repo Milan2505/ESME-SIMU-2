@@ -35,7 +35,7 @@ const _WINGSPAN = 11;                                 // m (effet de sol)
 const _AIR_DENSITY = 1.225;                           // kg/m³
 const _CL0 = 0.4;                                     // coefficient de portance à incidence nulle (calage de l'aile compris)
 const _CL_ALPHA = 4.6;                                // pente de portance (par radian d'incidence)
-const _ALPHA_STALL = MathUtils.degToRad( 15 );        // incidence de décrochage
+const _ALPHA_STALL = MathUtils.degToRad( 16 );        // incidence de décrochage
 const _CD0 = 0.036;                                   // traînée de forme (train fixe compris)
 const _INDUCED_DRAG = 0.06;                           // traînée induite : k·CL² (aile d'allongement 7,5)
 const _STALL_DRAG = 0.15;                             // aile décrochée : traînée en plus
@@ -56,6 +56,8 @@ const _SPIRAL_STABILITY = 0.1;                        // manche lâché, l'incli
 const _ANGULAR_RESPONSE = 5;                          // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 const _STALL_PITCH_DOWN = 0.4;                        // abattée au décrochage (rad/s)
 const _STALL_WING_DROP = 0.5;                         // une aile tombe au décrochage (rad/s)
+const _ELEVATOR_LIMIT = MathUtils.degToRad( 1 );      // manche tiré à fond : l'incidence plafonne 1° au-delà du décrochage...
+const _ELEVATOR_FADE = MathUtils.degToRad( 8 );       // ... en y arrivant de plus en plus lentement (l'alarme a le temps de sonner)
 
 // Sol : au-delà de ces limites, le contact avec le sol est un crash
 const _CRASH_SINK = 6;                                // vitesse d'impact perpendiculaire au sol (m/s)
@@ -63,14 +65,14 @@ const _CRASH_BANK = MathUtils.degToRad( 20 );         // inclinaison au toucher 
 const _CRASH_NOSE = MathUtils.degToRad( - 8 );        // nez trop bas : l'hélice et la roulette avant touchent
 const _CRASH_TAIL = MathUtils.degToRad( 22 );         // queue trop basse
 const _MIN_SLOPE_NORMAL = 0.85;                       // terrain trop pentu pour s'y poser
-const _MAX_GROUND_PITCH = MathUtils.degToRad( 14 );   // cabré max roues principales au sol
+const _MAX_GROUND_PITCH = MathUtils.degToRad( 10 );   // cabré max roues principales au sol : décollage avec de la marge au décrochage
 const _BRAKES = 4;                                    // décélération des freins (m/s²), roues chargées
 const _ROLLING = { asphalt: 0.3, grass: 1.2 };        // résistance au roulement (m/s²), roues chargées
 const _OBSTACLE_MARGIN = 3;                           // demi-envergure "utile" pour les obstacles (m)
 const _CONTROL_SMOOTHING = 0.5;                       // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
 const _FLAP_LEVELS = [ 0, 10, 20, 30 ];               // crans de volets (degrés)
 const _FLAP_RATE = 0.25;                              // vitesse de sortie des volets (course complète en 4 s)
-const _FLAP_LIFT = 0.7;                               // volets à fond : portance en plus (décrochage vers 80 km/h au lieu de 95)
+const _FLAP_LIFT = 0.7;                               // volets à fond : portance en plus (décrochage vers 80 km/h au lieu de 90)
 const _FLAP_DRAG = 0.05;                              // volets à fond : traînée en plus
 const _FLAP_STALL_ALPHA = MathUtils.degToRad( 2 );    // volets à fond : l'aile décroche 2° plus tôt
 
@@ -347,7 +349,9 @@ class PlaneControls extends Controls {
 		if ( this._rotationVector.x !== 0 ) this._alphaTrim = alpha;
 		this._alphaTrim = MathUtils.clamp( this._alphaTrim, MathUtils.degToRad( - 5 ), stallAlpha - MathUtils.degToRad( 3 ) );
 
-		let pitchRate = input.x * _PITCH_RATE * effect + _PITCH_STABILITY * ( this._alphaTrim - alpha ) * stability;
+		// Profondeur : à cabrer, de moins en moins efficace à l'approche du décrochage
+		const elevator = input.x > 0 ? MathUtils.clamp( ( stallAlpha + _ELEVATOR_LIMIT - alpha ) / _ELEVATOR_FADE, 0, 1 ) : 1;
+		let pitchRate = input.x * elevator * _PITCH_RATE * effect + _PITCH_STABILITY * ( this._alphaTrim - alpha ) * stability;
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		let rollRate = input.z * _ROLL_RATE * effect + ( _DIHEDRAL * beta - _SPIRAL_STABILITY * bank ) * stability + this._gustRoll;
 		const yawRate = input.y * _YAW_RATE * effect - _YAW_STABILITY * beta * stability;
@@ -390,7 +394,7 @@ class PlaneControls extends Controls {
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
 		if ( input.x > 0 && speed > this.rotateSpeed * 0.85 ) {
-			this._groundPitch += input.x * 0.25 * Math.min( 1, ( speed / this.rotateSpeed ) ** 2 ) * dt;
+			this._groundPitch += input.x * 0.12 * Math.min( 1, ( speed / this.rotateSpeed ) ** 2 ) * dt; // ~7°/s
 		} else {
 			this._groundPitch -= ( input.x < 0 ? 0.6 : 0.25 ) * ( 0.3 + 0.7 * wheelLoad ) * dt;
 		}

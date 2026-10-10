@@ -133,6 +133,7 @@ class AircraftLights {
     // Vue cabine : l'aile modélisée dans la cabine (voir Cockpit.js) est 0,5 m plus en arrière et plus haute que
     // celle du modèle extérieur ; les feux d'aile s'y recalent (bord d'attaque à z -2,28, extrados vers y 1,35)
     setCabinView(cabin) {
+        this._cabin = cabin;
         for (const light of this.lights) {
             if (!light.wing) continue;
             light.position.copy(light.base);
@@ -154,7 +155,7 @@ class AircraftLights {
         this._lastTime = time;
         _eye.copy(camera.position);
         this.parent.worldToLocal(_eye);
-        const occluder = this.occluder?.visible ? this.occluder : null; // pas de test en cabine (modèle caché)
+        const occluder = this._cabin ? null : this.occluder; // pas de test en cabine (modèle caché, sauf l'hélice)
         const beaconPhase = (time % 1) * Math.PI * 2;      // anticollision : un tour par seconde
         const strobe = time % 1.4;                          // strobes : double éclat toutes les 1,4 s
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);

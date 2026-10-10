@@ -115,6 +115,8 @@ const decorGroups = [];
 let decorDensity = 1;
 let aircraftModel = null;
 let propeller = null;
+let propellerParts = new Set();   // pièces de l'hélice : seules affichées en vue cabine
+let propellerDisc = null;          // disque de flou de l'hélice qui tourne vite
 let controlSurfaces = null;
 let chaseView = true;
 const clock = new THREE.Clock();
@@ -168,6 +170,7 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const template = model.clone();
     makeWindowsTransparent(model, propeller);
     model.traverse((child) => { child.castShadow = child.material !== cabinGlass; }); // le soleil entre par les vitres
+    setupPropellerBlur(propeller); // après : le disque flou ne fait pas d'ombre
     aircraft.add(model);
     aircraftLights.setOccluder(model);
     remotePlayers.setTemplate(template);
@@ -175,6 +178,36 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     rebuildObstacles(); // + les avions garés
     updateView();
 }, undefined, (error) => console.error(error));
+
+// Hélice en rotation : les pales s'estompent et un disque flou apparaît (comme vu de la cabine d'un vrai avion,
+// au lieu d'une pale qui saute d'une position à l'autre à chaque image)
+function setupPropellerBlur(propeller) {
+    propeller.traverse((child) => {
+        if (!child.isMesh) return;
+        child.material = child.material.clone(); // estompées sans toucher le reste de l'avion
+        child.material.transparent = true;
+        propellerParts.add(child);
+    });
+    propeller.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(propeller);
+    const size = box.getSize(new THREE.Vector3());
+    propellerDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(Math.max(size.x, size.y) / 2, 48),
+        new THREE.MeshBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    propellerDisc.position.z = propeller.worldToLocal(box.getCenter(new THREE.Vector3())).z;
+    propeller.add(propellerDisc);
+    propellerParts.add(propellerDisc);
+}
+
+function updatePropeller(delta) {
+    if (!propeller) return;
+    const spin = controls.isCrashed() ? 0 : 20 + 80 * controls.getThrottle(); // rad/s
+    propeller.rotation.z += spin * delta;
+    const blur = THREE.MathUtils.clamp((spin - 30) / 40, 0, 1);
+    propellerDisc.material.opacity = 0.15 * blur; // à peine visible, comme une vraie hélice lancée
+    for (const part of propellerParts) if (part !== propellerDisc) part.material.opacity = 1 - 0.8 * blur;
+}
 
 // Vitres de la cabine : dans le modèle, ce sont les triangles noirs au-dessus de y = 0,3
 // (en dessous : pneus et carénages). Ils deviennent du verre teinté, on voit l'intérieur à travers.
@@ -223,7 +256,8 @@ function makeWindowsTransparent(model, propeller) {
 const viewButton = document.getElementById('vue');
 
 function updateView() {
-    if (aircraftModel) aircraftModel.visible = chaseView;
+    // En cabine, seule l'hélice reste visible devant le pare-brise (le reste de l'avion masquerait la vue)
+    aircraftModel?.traverse((child) => { if (child.isMesh) child.visible = chaseView || propellerParts.has(child); });
     // L'intérieur reste affiché en vue extérieure : on le voit à travers les vitres
     cockpit.setExterior(chaseView);
     aircraftLights.setCabinView(!chaseView);
@@ -866,7 +900,7 @@ renderer.setAnimationLoop((time)=>{
     }
     updateCamera( delta );
 
-    if (propeller && !controls.isCrashed()) propeller.rotation.z += (20 + 80 * controls.getThrottle()) * delta;
+    updatePropeller( delta );
     engineSound.update(controls.getThrottle(), controls.isCrashed() ? 0 : chaseView ? 1 : 0.7);
     updateSounds();
     multiplayer.update( aircraft, controls.getThrottle() );
