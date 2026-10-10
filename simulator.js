@@ -1217,3 +1217,4 @@ renderer.setAnimationLoop((time)=>{
     graphics.render();
     updatePerf(performance.now() - frameStart);
 });
+window.__sim = { controls, aircraft, terrain, aircraftModel: () => aircraftModel }; // TEST-TEMP
