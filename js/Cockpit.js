@@ -424,7 +424,10 @@ function radio(ctx, x, y, label, active, standby) {
 
 // --- ILS ---------------------------------------------------------------------------
 
-const ILS_BUTTON = { x: 1305, y: 150, width: 110, height: 70 };
+const ILS_BUTTON = { x: 1305, y: 236, width: 110, height: 62 };
+// Indicateur VOR en haut à droite (hors de la zone cachée par le manche droit) et son bouton OBS cliquable
+const VOR_GAUGE = { x: 1458, y: 138, r: 62 };
+const OBS_KNOB = { x: VOR_GAUGE.x - 60, y: VOR_GAUGE.y + 62, r: 20 };
 
 // Bouton ILS : éteint hors de portée, cerclé d'orange quand disponible, vert quand actif
 function ilsButton(ctx, b, ils) {
@@ -577,15 +580,24 @@ function vorIndicator(ctx, cx, cy, r, vor) {
     ctx.font = 'bold 18px DejaVu Sans Mono, monospace';
     ctx.fillText(String(Math.round(course)).padStart(3, '0'), cx, cy - r * 0.42);
     caption(ctx, cx, cy + r * 0.38, vor?.ident ? `${vor.ident} ${vor.frequency}` : 'VOR', 12);
-    caption(ctx, cx, cy + r * 1.22, signal ? `DME ${vor.dmeNM.toFixed(1)} NM · OBS J / K` : 'VOR · OBS J / K', 13);
-    // Bouton OBS
+    caption(ctx, cx + r * 0.25, cy + r * 1.24, signal ? `DME ${vor.dmeNM.toFixed(1)} NM` : 'VOR', 13);
+    // Bouton OBS (moleté) : clic à gauche -1°, à droite +1°, molette ; touches J / K
+    const kx = cx - r * 0.97, ky = cy + r, kr = Math.max(14, r * 0.32);
     ctx.fillStyle = '#2b2d31';
     ctx.beginPath();
-    ctx.arc(cx - r * 0.95, cy + r * 0.95, r * 0.2, 0, Math.PI * 2);
+    ctx.arc(kx, ky, kr, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#6a6e74';
-    ctx.stroke();
-    caption(ctx, cx - r * 0.95, cy + r * 0.95, 'OBS', 11);
+    ctx.strokeStyle = '#8a8e94';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 16; i++) {
+        const [x1, y1] = polar(kx, ky, kr, i * Math.PI / 8), [x2, y2] = polar(kx, ky, kr - 4, i * Math.PI / 8);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.fillStyle = '#e6e6e6';
+    ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('- OBS +', kx, ky);
 }
 
 // --- Vitres ----------------------------------------------------------------------------
@@ -919,7 +931,11 @@ class Cockpit {
     buttonAt(uv) {
         const x = uv.x * CANVAS.width, y = (1 - uv.y) * CANVAS.height;
         const b = ILS_BUTTON;
-        return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height ? 'ils' : null;
+        if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) return 'ils';
+        // Bouton OBS : moitié gauche -1°, moitié droite +1°
+        const k = OBS_KNOB;
+        if (Math.hypot(x - k.x, y - k.y) <= k.r + 6) return x < k.x ? 'obs-' : 'obs+';
+        return null;
     }
 
     setRain(intensity) {
@@ -998,8 +1014,8 @@ class Cockpit {
         // À gauche du trou : vu de la place pilote, le bouton tiré se projette en dessous et un peu à droite
         caption(ctx, tx - 62, ty, `${Math.round(state.throttle * 100)} %`, 16);
 
-        // Indicateurs VOR et ILS (à la place de la boîte à gants)
-        vorIndicator(ctx, 1135, 410, 78, state.vor);
+        // Indicateur ILS (à la place de la boîte à gants)
+        vorIndicator(ctx, VOR_GAUGE.x, VOR_GAUGE.y, VOR_GAUGE.r, state.vor);
         ilsIndicator(ctx, 1385, 400, 82, state.ils, this._time);
 
         this.panelTexture.needsUpdate = true;

@@ -26,6 +26,7 @@ import {
     SpriteMaterial,
     SphereGeometry,
     SRGBColorSpace,
+    TextureLoader,
     Vector2,
     Vector3
 } from 'three';
@@ -52,12 +53,16 @@ const STANDS = [-80, -60, -40, 15, 45];
 const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 // Balise VOR de l'aérodrome (VOR conventionnel : abri, plan réflecteur circulaire, antenne centrale), au nord-est
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
+const DOOR_TRIGGER = 70;     // les portes d'un hangar s'ouvrent quand l'avion approche à moins de 70 m (s)
+const DOOR_TIME = 6;         // durée d'ouverture / fermeture (s)
+const LOGO = 'ESME_LOGO_BASELINE_QUADRI_2021.png';
 const LIGHT_HEIGHT = 0.36;   // hauteur du verre des feux de bord (feux surélevés)
 const HANGARS = [{ x: 395, z: 15, name: 'ESME AÉRO-CLUB' }, { x: 395, z: 62, name: 'HANGAR 2' }]
     .map((h) => ({ ...h, minX: h.x - 15, maxX: h.x + 15, minZ: h.z - 14, maxZ: h.z + 14 }));
 // Mâts d'éclairage du parking (asset/light-square-cross, Kenney, CC0) : en bordure est, derrière la queue des
 // avions garés, entre le parking et les bâtiments. Le modèle mesure 0,6 m : à l'échelle 20, un mât de 12 m.
-const FLOODLIGHTS = { x: APRON.maxX - 2, z: [-90, -30, 30, 90], scale: 20 };
+// Le 3e est entre les deux hangars (devant le premier, il gênait l'accès aux portes)
+const FLOODLIGHTS = { points: [[APRON.maxX - 2, -90], [APRON.maxX - 2, -30], [395, 38.5], [APRON.maxX - 2, 90]], scale: 20 };
 const FLOODLIGHT_LAMPS = [[0.1875, 0], [-0.1875, 0], [0, 0.1875], [0, -0.1875]]; // bouts des 4 bras (repère du modèle)
 const FLOODLIGHT_LAMP_Y = 0.57;
 const WIND_DIRECTION = 0; // le vent vient du nord (la manche à air pointe vers le sud)
@@ -391,6 +396,7 @@ class Airport {
         // Balise VOR (antenne à 6,5 m de haut)
         this.vor = { ...VOR_STATION, y: 6.5 };
         // Contours pour la carte (MapView.js)
+        this._hangars = [];          // portes animées et éclairage intérieur, voir updateHangars
         this.mapShapes = [{ ...TAXIWAY, kind: 'asphalt' }, { ...APRON, kind: 'asphalt' }, { ...HANGAR_APRON, kind: 'asphalt' },
             ...TURN_PADS.map((pad) => ({ ...pad, kind: 'asphalt' })), { ...RUNWAY_RECT, kind: 'runway' }];
         this._papi = [];
@@ -465,15 +471,15 @@ class Airport {
     addFloodlights(model) {
         model.traverse((child) => { if (child.isMesh) child.castShadow = true; });
         const lamps = [];
-        for (const z of FLOODLIGHTS.z) {
+        for (const [fx, z] of FLOODLIGHTS.points) {
             const mast = model.clone();
-            mast.position.set(FLOODLIGHTS.x, 0, z);
+            mast.position.set(fx, 0, z);
             mast.scale.setScalar(FLOODLIGHTS.scale);
             this.group.add(mast);
             // Obstacle : le mât seul (les bras sont trop haut pour un avion qui roule)
-            this.obstacles.push(new Box3(new Vector3(FLOODLIGHTS.x - 0.5, 0, z - 0.5), new Vector3(FLOODLIGHTS.x + 0.5, 12, z + 0.5)));
+            this.obstacles.push(new Box3(new Vector3(fx - 0.5, 0, z - 0.5), new Vector3(fx + 0.5, 12, z + 0.5)));
             for (const [dx, dz] of FLOODLIGHT_LAMPS) {
-                lamps.push(FLOODLIGHTS.x + dx * FLOODLIGHTS.scale, FLOODLIGHT_LAMP_Y * FLOODLIGHTS.scale, z + dz * FLOODLIGHTS.scale);
+                lamps.push(fx + dx * FLOODLIGHTS.scale, FLOODLIGHT_LAMP_Y * FLOODLIGHTS.scale, z + dz * FLOODLIGHTS.scale);
             }
         }
 
@@ -502,8 +508,8 @@ class Airport {
             polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
         });
         // Centrée sous le mât (les 4 projecteurs éclairent tout autour)
-        for (const z of FLOODLIGHTS.z) {
-            this._flat(new PlaneGeometry(34, 34), this._poolMaterial, FLOODLIGHTS.x, 0.04, z);
+        for (const [fx, z] of FLOODLIGHTS.points) {
+            this._flat(new PlaneGeometry(34, 34), this._poolMaterial, fx, 0.04, z);
         }
         this.setNight(this._night);
     }
@@ -731,32 +737,86 @@ class Airport {
         add(new BoxGeometry(0.5, H - 7.2, W), trim, -D / 2, 7.2 + (H - 7.2) / 2, 0);
         for (const side of [-1, 1]) add(new BoxGeometry(0.5, 7.2, 0.4), trim, -D / 2, 3.6, side * (W / 2 - 0.2));
         add(new BoxGeometry(0.3, 0.2, W), trim, -D / 2 - 0.1, 7.15, 0);
-        // Portes coulissantes : 6 vantaux de 4,5 m ; les deux du milieu sont poussés derrière leurs voisins (ouverture de 9 m)
+        // Portes coulissantes : 6 vantaux de 4,5 m sur 3 rails parallèles ; ouvertes, ils s'empilent aux deux bouts
+        // (ouverture de 18 m), fermés ils se suivent sur toute la largeur. Animés par updateHangars
         const panelZ = (i) => -W / 2 + 0.4 + 2.25 + i * 4.53;
-        for (const [i, behind] of [[0, null], [1, null], [2, 1], [3, 4], [4, null], [5, null]]) {
-            const pz = panelZ(behind ?? i);
-            add(new BoxGeometry(0.2, 7.1, 4.5), doorMaterial, -D / 2 + (behind !== null ? 0.4 : 0.1), 3.55, pz);
-        }
+        const panels = [0, 1, 2, 3, 4, 5].map((i) => {
+            const left = i < 3, track = left ? i : 5 - i;
+            const mesh = add(new BoxGeometry(0.2, 7.1, 4.5), doorMaterial, -D / 2 + 0.1 + track * 0.25, 3.55, panelZ(i));
+            return { mesh, closedZ: panelZ(i), openZ: panelZ(left ? 0 : 5) };
+        });
         // Intérieur sombre, vu par l'ouverture
         // Intérieur : murs sombres, sol blanc (résine époxy, brillante)
-        const innerWall = new MeshStandardMaterial({ color: 0x3a4048, roughness: 1, side: BackSide });
-        const floor = new MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.35, metalness: 0.05, side: BackSide });
+        const innerWall = new MeshStandardMaterial({ color: 0x3a4048, roughness: 1, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
+        const floor = new MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.35, metalness: 0.05, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
         const interior = add(new BoxGeometry(D - 0.8, H - 0.3, W - 0.8), [innerWall, innerWall, innerWall, floor, innerWall, innerWall],
             0.2, (H - 0.3) / 2 + 0.05, 0); // sol 5 cm au-dessus du terrain (sinon l'herbe apparaît dedans)
         interior.userData.flat = true; // pas d'ombre portée
+        // Plafonniers : 3 rangées de rampes LED sous le toit, allumées quand les portes s'ouvrent
+        const ceiling = new MeshStandardMaterial({ color: 0xdddddd, emissive: 0xfff6e8, emissiveIntensity: 0 });
+        for (const lz of [-8, 0, 8]) for (const lx of [-9, -3, 3, 9]) add(new BoxGeometry(3, 0.12, 0.35), ceiling, lx, H - 0.45, lz);
         // Porte de service sur le côté
         add(new BoxGeometry(1, 2.1, 0.08), trim, -D / 2 + 4, 1.05, W / 2 + 0.17);
-        // Enseigne sur le pignon et projecteur au-dessus des portes (allumés la nuit)
-        const signMap = signTexture([{ text: name, bg: '#1c2c3c', fg: '#ffffff', width: 12, size: 80 }], 1.2);
+        // Enseigne sur le linteau, logo ESME sur le pignon et sur les murs latéraux, projecteurs (allumés la nuit)
+        const signMap = signTexture([{ text: name, bg: '#1c2c3c', fg: '#ffffff', width: 12, size: 64 }], 0.75);
         const signMaterial = new MeshStandardMaterial({ map: signMap, emissiveMap: signMap, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.6 });
-        add(new PlaneGeometry(12, 1.2), signMaterial, -D / 2 - 0.3, H + 1, 0).rotation.y = -Math.PI / 2;
+        add(new PlaneGeometry(12, 0.75), signMaterial, -D / 2 - 0.27, 7.6, 0).rotation.y = -Math.PI / 2;
+        const logo = new MeshStandardMaterial({ map: this._logoTexture(), transparent: true, alphaTest: 0.5, roughness: 0.6 });
+        add(new PlaneGeometry(2.3, 2.3), logo, -D / 2 - 0.05, H + 1.15, 0).rotation.y = -Math.PI / 2;
+        for (const side of [-1, 1]) add(new PlaneGeometry(5.5, 5.5), logo, 6, 3.8, side * (W / 2 + 0.17)).rotation.y = side > 0 ? 0 : Math.PI;
         const lamp = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff1d6, emissiveIntensity: 0 });
-        add(new BoxGeometry(0.5, 0.25, 0.8), lamp, -D / 2 - 0.5, 7.7, 0);
+        for (const side of [-1, 1]) add(new BoxGeometry(0.5, 0.25, 0.8), lamp, -D / 2 - 0.5, 8.2, side * 8);
         this._glowingMaterials.push(signMaterial, lamp);
 
         this.group.add(hangar);
         hangar.updateMatrixWorld(true);
-        this.obstacles.push(new Box3().setFromObject(hangar).expandByScalar(-1.5));
+        // Obstacles : murs, toit, linteau et vantaux empilés ; la porte ne bloque que fermée (on peut entrer)
+        const box = (minX, maxX, minY, maxY, minZ, maxZ) => new Box3(new Vector3(x + minX, minY, z + minZ), new Vector3(x + maxX, maxY, z + maxZ));
+        const stack = W / 2 - (-panelZ(0) - 2.25);   // les vantaux empilés occupent 4,9 m de chaque côté
+        this.obstacles.push(
+            box(D / 2 - 0.2, D / 2 + 0.2, 0, H, -W / 2, W / 2),                      // fond
+            box(-D / 2, D / 2, 0, H, W / 2 - 0.2, W / 2 + 0.2),                      // murs latéraux
+            box(-D / 2, D / 2, 0, H, -W / 2 - 0.2, -W / 2 + 0.2),
+            box(-D / 2 - 0.5, D / 2 + 0.5, H, RIDGE + 0.3, -W / 2 - 0.6, W / 2 + 0.6), // toit
+            box(-D / 2 - 0.3, -D / 2 + 0.8, 7.2, H, -W / 2, W / 2),                  // linteau
+            box(-D / 2 - 0.1, -D / 2 + 0.8, 0, 7.2, W / 2 - stack, W / 2),           // vantaux empilés
+            box(-D / 2 - 0.1, -D / 2 + 0.8, 0, 7.2, -W / 2, -W / 2 + stack),
+        );
+        const door = box(-D / 2 - 0.1, -D / 2 + 0.8, 0, 7.2, -W / 2, W / 2);
+        this.obstacles.push(door);
+        this._hangars.push({
+            front: new Vector3(x - D / 2, 0, z), panels, open: 0, door, doorBox: door.clone(),
+            lights: [ceiling, innerWall, floor],
+        });
+    }
+
+    _logoTexture() {
+        if (!this._logo) {
+            this._logo = new TextureLoader().load(LOGO);
+            this._logo.colorSpace = SRGBColorSpace;
+            this._logo.anisotropy = 4;
+        }
+        return this._logo;
+    }
+
+    // Portes des hangars : s'ouvrent quand l'avion approche, se referment quand il s'éloigne ; les plafonniers
+    // s'allument avec l'ouverture. position : avion du joueur
+    updateHangars(delta, position) {
+        for (const hangar of this._hangars) {
+            const near = position && position.distanceTo(hangar.front) < DOOR_TRIGGER;
+            const target = near ? 1 : 0;
+            if (hangar.open === target) continue;
+            hangar.open = Math.min(1, Math.max(0, hangar.open + (near ? 1 : -1) * delta / DOOR_TIME));
+            const t = hangar.open * hangar.open * (3 - 2 * hangar.open);   // départ et arrivée en douceur
+            for (const panel of hangar.panels) panel.mesh.position.z = MathUtils.lerp(panel.closedZ, panel.openZ, t);
+            // La porte ne bloque plus l'avion une fois grande ouverte
+            if (hangar.open > 0.95) hangar.door.makeEmpty();
+            else hangar.door.copy(hangar.doorBox);
+            const [ceiling, wall, floor] = hangar.lights;
+            ceiling.emissiveIntensity = 3 * t;
+            wall.emissiveIntensity = 0.12 * t;
+            floor.emissiveIntensity = 0.35 * t;
+        }
     }
 
     // Panneaux du point d'attente, de chaque côté de la bretelle, tournés vers les avions qui viennent du parking :

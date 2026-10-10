@@ -440,6 +440,11 @@ for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, (
 view.addEventListener('dblclick', recenterCamera);
 view.addEventListener('wheel', (event) => {
     event.preventDefault();
+    // En cabine, molette sur le bouton OBS du VOR : tourne la route (au lieu du zoom)
+    if (!chaseView && obsUnderPointer(event)) {
+        vor.turnCourse((event.deltaY < 0 ? 1 : -1) * (event.shiftKey ? 10 : 1));
+        return;
+    }
     const zoom = Math.sign(event.deltaY) * 0.1;
     if (chaseView) {
         orbit.distance = THREE.MathUtils.clamp(orbit.distance * (1 + zoom), 7, 90);
@@ -1136,6 +1141,15 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyO' && !event.repeat) vorShown = !vorShown;
 });
 
+// Boutons du panneau VOR en vue extérieure
+for (const [id, action] of [['vor-moins', () => vor.turnCourse(-1)], ['vor-plus', () => vor.turnCourse(1)], ['vor-to', () => vor.centerTo()]]) {
+    document.getElementById(id).addEventListener('click', (event) => {
+        action();
+        vorTimer = 0;
+        event.currentTarget.blur();
+    });
+}
+
 function updateVor(delta) {
     vor.update(aircraft.position);
     vorPanel.hidden = !(chaseView && vorShown);
@@ -1184,6 +1198,18 @@ window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyI' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleIls();
 });
 
+// Bouton du tableau de bord sous le pointeur (cabine)
+function panelButtonAt(event) {
+    const rect = view.getBoundingClientRect();
+    pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObject(cockpit.panel)[0];
+    return hit ? cockpit.buttonAt(hit.uv) : null;
+}
+function obsUnderPointer(event) {
+    return String(panelButtonAt(event)).startsWith('obs');
+}
+
 // En cabine : clic (sans glisser) sur un bouton du tableau de bord
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -1193,7 +1219,9 @@ view.addEventListener('click', (event) => {
     pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
     const hit = raycaster.intersectObject(cockpit.panel)[0];
-    if (hit && cockpit.buttonAt(hit.uv) === 'ils') toggleIls();
+    const button = hit && cockpit.buttonAt(hit.uv);
+    if (button === 'ils') toggleIls();
+    if (button === 'obs-' || button === 'obs+') vor.turnCourse((button === 'obs-' ? -1 : 1) * (event.shiftKey ? 10 : 1));
 });
 
 // Bruits de l'environnement : pluie (étouffée en cabine), roulement des pneus selon le revêtement
@@ -1336,6 +1364,7 @@ renderer.setAnimationLoop((time)=>{
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
     airport.update( delta, weather.wind, camera );
+    airport.updateHangars( delta, aircraft.position );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();

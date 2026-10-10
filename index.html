@@ -127,7 +127,14 @@
 		<div class="ils-cadran"><div id="ils-loc"></div><div id="ils-gs"></div></div>
 		<pre id="ils-texte"></pre>
 	</div>
-	<div id="vor-panneau" hidden><canvas id="vor-canvas" width="240" height="236"></canvas></div>
+	<div id="vor-panneau" hidden>
+		<canvas id="vor-canvas" width="240" height="236"></canvas>
+		<div class="vor-boutons">
+			<button id="vor-moins" title="Route -1° (touche J)">OBS −</button>
+			<button id="vor-to" title="Centrer l'aiguille vers la balise (touche H)">Vers balise</button>
+			<button id="vor-plus" title="Route +1° (touche K)">OBS +</button>
+		</div>
+	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
 	<div id="radio-indicateur" hidden></div>
 	<div id="carte" hidden>

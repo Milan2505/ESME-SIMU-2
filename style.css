@@ -858,7 +858,25 @@ img{margin: 0px;
     padding: 6px;
     background: rgba(20, 20, 20, 0.75);
     border-radius: 8px;
-    pointer-events: none;
+  }
+  .vor-boutons {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .vor-boutons button {
+    flex: 1;
+    padding: 3px 2px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
+    color: white;
+    background: #2b2d31;
+    border: 1px solid #6a6e74;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .vor-boutons button:hover {
+    background: #3d4046;
   }
   #vor-panneau[hidden] {
     display: none;
