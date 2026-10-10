@@ -27,6 +27,7 @@ import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
 import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
+import { RadioVoices } from './js/RadioVoices.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -144,7 +145,9 @@ const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altit
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
-const atc = new ATC({ airport, wind, sounds, registration: 'F-HESM', aircraftType: 'Cessna 172' });
+// Voix de la radio : voix réalistes (téléchargées à la première ouverture de la fenêtre), sinon voix de l'ordinateur
+const radioVoices = new RadioVoices();
+const atc = new ATC({ airport, wind, voices: radioVoices, sounds, registration: 'F-HESM', aircraftType: 'Cessna 172' });
 const radio = new Radio(multiplayer);
 
 const loader = new Utils3dLoader();
@@ -1389,7 +1392,10 @@ window.speechSynthesis?.getVoices();   // charge la liste des voix à l'avance
 function toggleAtc(open = atcPanel.hidden) {
     atcPanel.hidden = !open;
     atcButton.setAttribute('aria-pressed', String(open));
-    if (open) renderAtc();
+    if (open) {
+        radioVoices.preload();
+        renderAtc();
+    }
     view.focus();
 }
 atcButton.addEventListener('click', () => toggleAtc());
@@ -1411,6 +1417,24 @@ function setAtcVoice(on) {
 }
 atcVoiceButton.addEventListener('click', () => { setAtcVoice(!atc.voice); view.focus(); });
 atcAtisButton.addEventListener('click', () => { sounds.unlock(); atc.playAtis(); view.focus(); });
+
+// Type de voix : réalistes (neuronales) ou de l'ordinateur ; état du téléchargement
+const atcVoiceType = document.getElementById('atc-voix-type');
+const atcVoiceStatus = document.getElementById('atc-voix-etat');
+atcVoiceType.addEventListener('change', () => {
+    radioVoices.setMode(atcVoiceType.value);
+    try { localStorage.setItem('atc-voix-type', radioVoices.mode); } catch { /* stockage indisponible */ }
+    view.focus();
+});
+function renderVoiceStatus() {
+    const { state, progress } = radioVoices.status;
+    atcVoiceStatus.textContent = radioVoices.mode === 'system' ? ''
+        : state === 'loading' ? `Téléchargement des voix réalistes : ${Math.round(progress * 100)} % (une seule fois)`
+        : state === 'error' ? "Voix réalistes indisponibles : voix de l'ordinateur"
+        : '';
+    atcVoiceStatus.hidden = !atcVoiceStatus.textContent;
+}
+radioVoices.addEventListener('status', renderVoiceStatus);
 
 // Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée
 atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
@@ -1453,7 +1477,9 @@ atcTransponder.addEventListener('keydown', (event) => {
         lang = localStorage.getItem('atc-langue') ?? 'fr';
         voice = localStorage.getItem('atc-voix') !== '0';
         persons = Number(localStorage.getItem('atc-bord') ?? 2);
+        radioVoices.mode = localStorage.getItem('atc-voix-type') === 'system' ? 'system' : 'neural';
     } catch { /* stockage indisponible */ }
+    atcVoiceType.value = radioVoices.mode;
     setAtcLanguage(lang);
     setAtcVoice(voice);
     atc.setPersons(persons);

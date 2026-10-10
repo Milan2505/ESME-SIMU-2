@@ -1082,6 +1082,10 @@ img{margin: 0px;
   #atc-xpdr.erreur {
     border-color: #ff5a4a;
   }
+  #atc-voix-etat {
+    flex: 1;
+    color: #9fe3ff;
+  }
   #atc-code-demande {
     flex: 1;
     color: #ffb000;

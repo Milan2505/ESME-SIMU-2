@@ -3,8 +3,8 @@ import { EventDispatcher } from 'three';
 // Contrôle aérien de l'aérodrome : contrôleur automatique (à règles) sur trois fréquences — Sol (mise en route,
 // roulage), Tour (piste, circuit, zone) et Approche (hors de la zone). Phraséologie officielle (DGAC en
 // français, OACI en anglais). Le pilote choisit ses messages dans une liste qui dépend de la phase du vol et de la
-// fréquence affichée ; chaque instruction doit être collationnée. Les messages sont lus par la synthèse vocale
-// du navigateur (une voix pour le pilote, une autre pour les contrôleurs).
+// fréquence affichée ; chaque instruction doit être collationnée. Les messages sont lus à voix haute (RadioVoices.js :
+// voix réalistes, toujours la même pour le pilote, une par fréquence pour les contrôleurs).
 
 const FT = 0.3048;
 const NM = 1852;
@@ -16,8 +16,9 @@ const PHONETIC = {
     J: 'Juliett', K: 'Kilo', L: 'Lima', M: 'Mike', N: 'November', O: 'Oscar', P: 'Papa', Q: 'Quebec', R: 'Romeo',
     S: 'Sierra', T: 'Tango', U: 'Uniform', V: 'Victor', W: 'Whiskey', X: 'X-ray', Y: 'Yankee', Z: 'Zulu',
 };
+// Chiffres épelés (pistes, QNH, transpondeur, fréquences, caps) : en radio française, 1 se dit « unité »
 const DIGITS = {
-    fr: ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf'],
+    fr: ['zéro', 'unité', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf'],
     en: ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'niner'],
 };
 const CARDINALS = {
@@ -40,7 +41,6 @@ const METARS = {
 };
 const QNH = '1013';
 const VFR_SQUAWK = '7000';
-const MALE_VOICE = /paul|david|mark|george|guy|thomas|daniel|claude|henri|male|homme/i;
 // Intitulés des cases (interface en français), quelle que soit la langue des messages
 const LABELS = {
     startupFirst: 'Premier contact · mise en route', taxiFirst: 'Premier contact · roulage',
@@ -90,8 +90,9 @@ function msg(strings, ...values) {
 }
 
 class ATC extends EventDispatcher {
-    constructor({ airport, wind, sounds = null, registration = 'F-HESM', aircraftType = 'Cessna 172' }) {
+    constructor({ airport, wind, voices, sounds = null, registration = 'F-HESM', aircraftType = 'Cessna 172' }) {
         super();
+        this.voices = voices;
         this.airport = airport;
         this.aerodrome = airport.aerodrome;
         this.wind = wind;
@@ -136,7 +137,7 @@ class ATC extends EventDispatcher {
     // Nouveau départ (ou touche R) : plus de contact ni d'autorisation ; au parking sur Sol, sur la piste sur Tour
     reset(spawn = null) {
         this._gen++;
-        window.speechSynthesis?.cancel();
+        this.voices.stop();
         this._chain = Promise.resolve();
         this._queued = 0;
         this.busy = false;
@@ -167,13 +168,14 @@ class ATC extends EventDispatcher {
 
     setLanguage(lang) {
         this.lang = lang === 'en' ? 'en' : 'fr';
+        this.voices.setLanguage(this.lang);
         this._optionsKey = '';
         this._changed();
     }
 
     setVoice(on) {
         this.voice = on;
-        if (!on) window.speechSynthesis?.cancel();
+        if (!on) this.voices.stop();
     }
 
     setFrequency(id) {
@@ -230,22 +232,26 @@ class ATC extends EventDispatcher {
     choose(id) {
         const option = this.options.find((o) => o.id === id);
         if (!option || this.busy) return;
+        const pilotClip = option.clip ?? this._prepare('pilot', option.message);
         option.action?.();
         const gen = this._gen;
         this._queue(async () => {
-            await this._transmit('pilot', option.message, gen);
+            await this._transmit('pilot', option.message, gen, pilotClip);
             if (!option.reply || gen !== this._gen) return;
+            // Réponse décidée dès la fin du message, voix calculée pendant le temps de réaction du contrôleur
+            const reply = option.reply();
+            const clip = reply ? this._prepare(this.freq, reply.message) : null;
             await wait(900 + Math.random() * 1300);
             if (gen !== this._gen) return;
-            const reply = option.reply();
-            if (reply) await this._controller(reply, gen);
+            if (reply) await this._controller(reply, gen, clip);
         });
     }
 
     playAtis() {
         if (this.busy) return;
         const gen = this._gen;
-        this._queue(() => this._transmit('atis', this._atisMessage(), gen));
+        const message = this._atisMessage();
+        this._queue(() => this._transmit('atis', message, gen, this._prepare('atis', message)));
     }
 
     // --- Situation de l'avion ----------------------------------------------------------------
@@ -476,6 +482,7 @@ class ATC extends EventDispatcher {
                 this.pending = null;
                 pending.then?.();
             });
+            list[list.length - 1].clip = pending.clip;   // voix déjà calculée
             sayAgain();
             return list;
         }
@@ -943,17 +950,19 @@ class ATC extends EventDispatcher {
         const gen = this._gen;
         const reply = { message: this._t(fr, en), readback: rbFr ? this._t(rbFr, rbEn) : null };
         this._queue(async () => {
+            const clip = this._prepare(station, reply.message);
             await wait(400);
-            await this._controller(reply, gen);
+            await this._controller(reply, gen, clip);
         });
     }
 
-    async _controller(reply, gen) {
+    async _controller(reply, gen, clip = null) {
         if (gen !== this._gen) return;
         if (!reply.keepLast) this.lastAtc = { message: reply.message, readback: reply.readback, then: reply.then, station: this.freq };
-        await this._transmit('atc', reply.message, gen);
+        await this._transmit('atc', reply.message, gen, clip);
         if (gen !== this._gen || reply.keepLast) return;
-        this.pending = reply.readback ? { message: reply.readback, then: reply.then, time: 0, reminders: 0 } : null;
+        this.pending = reply.readback ? { message: reply.readback, then: reply.then, time: 0, reminders: 0,
+            clip: this._prepare('pilot', reply.readback) } : null;
         if (!reply.readback) reply.then?.();
         this._optionsKey = '';
         this._changed();
@@ -985,47 +994,28 @@ class ATC extends EventDispatcher {
         this._changed();
     }
 
-    async _transmit(from, message, gen) {
+    // Voix d'un message (calculée à l'avance) ; null si la lecture à voix haute est coupée
+    _prepare(role, message) {
+        if (!this.voice) return null;
+        const clip = this.voices.prepare(message.speech, role);
+        clip.catch(() => {});
+        return clip;
+    }
+
+    async _transmit(from, message, gen, prepared = null) {
+        if (gen !== this._gen) return;
+        const role = from === 'pilot' ? 'pilot' : from === 'atis' ? 'atis' : this.freq;
+        const clip = await (prepared ?? this._prepare(role, message));
         if (gen !== this._gen) return;
         this.log.push({ from, text: message.text, station: from === 'atc' ? STATIONS[this.freq].fr.toUpperCase() : null });
         if (this.log.length > 40) this.log.shift();
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: true });
         this._changed();
         this.sounds?.squelch(0.16, 0.08);
-        await this._speak(message.speech, from);
+        if (clip && this.voice) await clip.play();
+        else await wait((0.8 + message.text.length * 0.065) * 1000);
         this.sounds?.squelch(0.22, 0.14);
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: false });
-    }
-
-    // Synthèse vocale : les contrôleurs et l'ATIS d'une voix, le pilote d'une autre (voix d'homme si possible)
-    _speak(text, from) {
-        const estimate = 0.8 + text.length * 0.065;
-        const synth = window.speechSynthesis;
-        if (!this.voice || !synth) return wait(estimate * 1000);
-        return new Promise((resolve) => {
-            const utterance = new SpeechSynthesisUtterance(text);
-            const voices = synth.getVoices().filter((v) => v.lang.toLowerCase().startsWith(this.lang))
-                .sort((a, b) => (b.localService ? 1 : 0) - (a.localService ? 1 : 0));
-            const male = voices.find((v) => MALE_VOICE.test(v.name));
-            const pilotVoice = male ?? voices[1] ?? voices[0];
-            const towerVoice = voices.find((v) => v !== pilotVoice && !MALE_VOICE.test(v.name)) ?? voices.find((v) => v !== pilotVoice) ?? voices[0];
-            const tower = from !== 'pilot';
-            const voice = tower ? towerVoice : pilotVoice;
-            if (voice) utterance.voice = voice;
-            utterance.lang = this.lang === 'fr' ? 'fr-FR' : 'en-GB';
-            utterance.rate = tower ? (from === 'atis' ? 1.05 : 1.15) : 1.1;
-            utterance.pitch = towerVoice === pilotVoice ? (tower ? 0.8 : 1.25) : 1;
-            let done = false;
-            const timer = setTimeout(() => finish(), estimate * 2000 + 3000);
-            const finish = () => {
-                if (done) return;
-                done = true;
-                clearTimeout(timer);
-                resolve();
-            };
-            utterance.onend = utterance.onerror = finish;
-            synth.speak(utterance);
-        });
     }
 
     _changed() {
