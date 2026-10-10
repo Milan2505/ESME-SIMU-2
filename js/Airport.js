@@ -250,8 +250,11 @@ class Airport {
             ctx.fillStyle = g;
             ctx.fillRect(0, 0, w, h);
         });
+        // Décalage de profondeur plus fort que celui des surfaces (béton, asphalte : -2, voir _buildGround),
+        // sinon la flaque reste cachée sous le parking et n'éclaire que l'herbe autour
         this._poolMaterial = new MeshBasicMaterial({
             map: pool, transparent: true, depthWrite: false, blending: AdditiveBlending,
+            polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
         });
         for (const z of FLOODLIGHTS.z) {
             this._flat(new PlaneGeometry(34, 34), this._poolMaterial, FLOODLIGHTS.x - 6, 0.04, z);

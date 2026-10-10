@@ -28,7 +28,6 @@ const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
 // Lumière renvoyée par le sol : vert-gris sourd (un vert pur teintait en vert le dessous des ailes et le ventre de l'avion)
 const COLOR_GROUND_BOUNCE = 0x5d6450;
-const ROLL_SPEED = 0.3;
 const WORLD_SIZE = 1000;      // zone de placement aléatoire des objets
 const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (ms)
 
@@ -120,7 +119,6 @@ let controlSurfaces = null;
 let chaseView = true;
 const clock = new THREE.Clock();
 
-controls.rollSpeed = ROLL_SPEED;
 controls.groundHeight = (x, z) => terrain.heightAt(x, z);
 controls.surfaceAt = (x, z) => airport.surfaceAt(x, z);
 controls.minAltitude = WHEEL_HEIGHT;

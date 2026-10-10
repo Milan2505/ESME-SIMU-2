@@ -119,12 +119,14 @@ function caption(ctx, cx, cy, text, size = 16) {
 
 function airspeed(ctx, cx, cy, r, kmh) {
     bezel(ctx, cx, cy, r);
-    const angleOf = (v) => deg(-160 + (Math.min(v, 260) / 260) * 320);
-    arc(ctx, cx, cy, r * 0.93, angleOf(50), angleOf(140), '#ddd', 8);
-    arc(ctx, cx, cy, r * 0.86, angleOf(60), angleOf(200), '#2ecc40', 9);
-    arc(ctx, cx, cy, r * 0.86, angleOf(200), angleOf(240), '#ffdc00', 9);
-    arc(ctx, cx, cy, r * 0.86, angleOf(240), angleOf(244), '#ff2a1a', 12);
-    ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(260), count: 26, every: 4, labels: (i) => String(i * 40) });
+    // Arcs du Cessna 172 (voir PlaneControls) : blanc = volets utilisables (décrochage volets sortis -> 157),
+    // vert = décrochage lisse -> vitesse max en air agité, jaune = air calme seulement, rouge = à ne jamais dépasser
+    const angleOf = (v) => deg(-160 + (Math.min(v, 320) / 320) * 320);
+    arc(ctx, cx, cy, r * 0.93, angleOf(80), angleOf(157), '#ddd', 8);
+    arc(ctx, cx, cy, r * 0.86, angleOf(95), angleOf(237), '#2ecc40', 9);
+    arc(ctx, cx, cy, r * 0.86, angleOf(237), angleOf(302), '#ffdc00', 9);
+    arc(ctx, cx, cy, r * 0.86, angleOf(302), angleOf(306), '#ff2a1a', 12);
+    ticks(ctx, cx, cy, r, { from: angleOf(0), to: angleOf(320), count: 32, every: 4, labels: (i) => String(i * 40) });
     caption(ctx, cx, cy + r * 0.32, 'KM/H');
     caption(ctx, cx, cy - r * 0.3, 'ANÉMO', 14);
     needle(ctx, cx, cy, r * 0.85, angleOf(Math.max(0, kmh)));
