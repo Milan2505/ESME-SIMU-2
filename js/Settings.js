@@ -23,7 +23,15 @@ const OPTIONS = {
                   choices: [[false, 'Désactivé'], [true, 'Activé']] },
     perf:       { label: 'Afficher les performances', hint: 'Compteur d\'i/s à l\'écran (touche P)',
                   choices: [[false, 'Non'], [true, 'Oui']] },
+    // Aides au pilotage : désactivées par défaut (pilotage réaliste)
+    rotationAuto:    { group: 'Pilotage', label: 'Rotation automatique', hint: 'Au sol, le trim lève le nez tout seul au décollage',
+                       choices: [[false, 'Désactivée'], [true, 'Activée']] },
+    stallProtection: { group: 'Pilotage', label: 'Protection décrochage', hint: 'Manche tiré à fond, l\'aile s\'arrête juste avant le décrochage',
+                       choices: [[false, 'Désactivée'], [true, 'Activée']] },
+    smoothLiftoff:   { group: 'Pilotage', label: 'Envol en douceur', hint: 'Après l\'envol, manche relâché, le nez se rend progressivement',
+                       choices: [[false, 'Désactivé'], [true, 'Activé']] },
 };
+const FLIGHT_DEFAULTS = { rotationAuto: false, stallProtection: false, smoothLiftoff: false };
 
 const PRESETS = {
     bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, terrain: 128, decor: 0.25, bloom: false },
@@ -38,7 +46,7 @@ class Settings extends EventTarget {
     constructor() {
         super();
         this.preset = DEFAULT_PRESET;
-        this.values = { ...PRESETS[DEFAULT_PRESET], perf: false };
+        this.values = { ...PRESETS[DEFAULT_PRESET], perf: false, ...FLIGHT_DEFAULTS };
         delete this.values.label;
         this._load();
         this._selects = {};
@@ -51,7 +59,15 @@ class Settings extends EventTarget {
             this.preset, (value) => this.applyPreset(value));
         this._presetSelect.parentElement.classList.add('reglage-principal');
 
+        let group = null;
         for (const [key, option] of Object.entries(OPTIONS)) {
+            if (option.group && option.group !== group) {
+                group = option.group;
+                const title = document.createElement('h4');
+                title.className = 'reglages-groupe';
+                title.textContent = group;
+                container.append(title);
+            }
             this._selects[key] = this._row(container, key, option, this.values[key], (value) => this.set(key, value));
         }
     }
@@ -67,8 +83,8 @@ class Settings extends EventTarget {
     set(key, value) {
         if (this.values[key] === value) return;
         this.values[key] = value;
-        // Modifier un réglage de qualité passe en "Personnalisé" (sauf l'affichage des performances)
-        if (key !== 'perf') this.preset = this._matchingPreset();
+        // Modifier un réglage de qualité passe en "Personnalisé" (les autres réglages n'y changent rien)
+        this.preset = this._matchingPreset();
         this._changed();
     }
 

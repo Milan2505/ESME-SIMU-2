@@ -56,8 +56,10 @@ const _SPIRAL_STABILITY = 0.1;                        // manche lâché, l'incli
 const _ANGULAR_RESPONSE = 5;                          // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 const _STALL_PITCH_DOWN = 0.4;                        // abattée au décrochage (rad/s)
 const _STALL_WING_DROP = 0.5;                         // une aile tombe au décrochage (rad/s)
-const _ELEVATOR_LIMIT = MathUtils.degToRad( - 1 );    // manche tiré à fond : l'incidence plafonne 1° sous le décrochage (la profondeur seule ne fait pas décrocher)...
-const _ELEVATOR_FADE = MathUtils.degToRad( 6 );       // ... en y arrivant de plus en plus lentement (l'alarme sonne avant)
+// Manche tiré à fond : l'incidence plafonne près du décrochage, en y arrivant de plus en plus lentement
+const _ELEVATOR_LIMIT = MathUtils.degToRad( 2 );      // sans aide : 2° au-delà (on peut décrocher en tirant)
+const _ELEVATOR_LIMIT_PROTECTED = MathUtils.degToRad( - 1 ); // aide "protection décrochage" : 1° en deçà
+const _ELEVATOR_FADE = MathUtils.degToRad( 8 );
 
 // Sol : au-delà de ces limites, le contact avec le sol est un crash
 const _CRASH_SINK = 6;                                // vitesse d'impact perpendiculaire au sol (m/s)
@@ -108,6 +110,12 @@ class PlaneControls extends Controls {
 		this.turbulence = 0;         // 0 = air calme, 1 = tempête
 		this.rotateSpeed = 24;       // vitesse (m/s) où la profondeur peut lever le nez au sol ; décollage vers 27 m/s
 		this.throttleRate = 1;       // variation de la manette des gaz par seconde (plein gaz en 1 s)
+		// Aides au pilotage (menu Paramètres > Pilotage), désactivées par défaut
+		this.assists = {
+			rotation: false,         // au sol, le trim lève le nez tout seul
+			stallProtection: false,  // la profondeur seule ne fait pas décrocher
+			smoothLiftoff: false,    // après l'envol, manche relâché, le nez se rend progressivement
+		};
 
 		this.throttle = 0.3;
 		this.movementSpeed = 0;      // vitesse air (m/s)
@@ -361,14 +369,15 @@ class PlaneControls extends Controls {
 		const stability = MathUtils.clamp( ( speed / 20 ) ** 2, 0.6, 1 );
 		const input = this._controls;
 		let trimAlpha = Math.min( _TRIM_MID + this.trim * _TRIM_RANGE, stallAlpha - MathUtils.degToRad( 5 ) ); // trim seul : jamais de décrochage
-		// Juste après l'envol : on part de l'incidence d'envol et on rejoint le trim en douceur
+		// Aide "envol en douceur" : juste après l'envol, on part de l'incidence d'envol et on rejoint le trim en douceur
 		if ( this._liftoffBlend > 0 ) {
 			this._liftoffBlend = Math.max( 0, this._liftoffBlend - dt / _LIFTOFF_RELEASE_TIME );
 			trimAlpha = MathUtils.lerp( trimAlpha, this._liftoffAlpha, this._liftoffBlend );
 		}
 
 		// Profondeur : à cabrer, de moins en moins efficace à l'approche du décrochage
-		const elevator = input.x > 0 ? MathUtils.clamp( ( stallAlpha + _ELEVATOR_LIMIT - alpha ) / _ELEVATOR_FADE, 0, 1 ) : 1;
+		const limit = stallAlpha + ( this.assists.stallProtection ? _ELEVATOR_LIMIT_PROTECTED : _ELEVATOR_LIMIT );
+		const elevator = input.x > 0 ? MathUtils.clamp( ( limit - alpha ) / _ELEVATOR_FADE, 0, 1 ) : 1;
 		let pitchRate = input.x * elevator * _PITCH_RATE * effect + _PITCH_STABILITY * ( trimAlpha - alpha ) * stability;
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		let rollRate = input.z * _ROLL_RATE * effect + ( _DIHEDRAL * beta - _SPIRAL_STABILITY * bank ) * stability + this._gustRoll;
@@ -411,11 +420,11 @@ class PlaneControls extends Controls {
 		this._groundYaw += steer * 0.6 * authority * dt;
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
-		// Manche au neutre : le trim lève doucement le nez jusqu'à son assiette (l'avion trimé décolle tout seul)
+		// Aide "rotation automatique" : manche au neutre, le trim lève doucement le nez jusqu'à son assiette
 		const trimPitch = MathUtils.clamp( _TRIM_MID + this.trim * _TRIM_RANGE, 0, _MAX_GROUND_PITCH );
 		if ( input.x > 0 && speed > this.rotateSpeed * 0.85 ) {
 			this._groundPitch += input.x * 0.12 * Math.min( 1, ( speed / this.rotateSpeed ) ** 2 ) * dt; // ~7°/s
-		} else if ( Math.abs( input.x ) < 0.05 && speed > this.rotateSpeed && this._groundPitch < trimPitch ) {
+		} else if ( this.assists.rotation && Math.abs( input.x ) < 0.05 && speed > this.rotateSpeed && this._groundPitch < trimPitch ) {
 			this._groundPitch = Math.min( trimPitch, this._groundPitch + 0.06 * dt );
 		} else {
 			this._groundPitch -= ( input.x < 0 ? 0.6 : 0.25 ) * ( 0.3 + 0.7 * wheelLoad ) * dt;
@@ -434,7 +443,7 @@ class PlaneControls extends Controls {
 			this.velocity.copy( _forward ).multiplyScalar( speed );
 			this._alpha = this._groundPitch;
 			this._liftoffAlpha = this._groundPitch;
-			this._liftoffBlend = 1;
+			this._liftoffBlend = this.assists.smoothLiftoff ? 1 : 0;
 			this._angularVelocity.set( 0, 0, 0 );
 			this.dispatchEvent( { type: 'liftoff' } );
 		}

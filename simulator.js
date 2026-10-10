@@ -837,6 +837,11 @@ function applySettings(values) {
     decorDensity = values.decor;
     applyDecorDensity();
     perfPanel.hidden = !values.perf;
+    Object.assign(controls.assists, {
+        rotation: values.rotationAuto,
+        stallProtection: values.stallProtection,
+        smoothLiftoff: values.smoothLiftoff,
+    });
 }
 
 settings.buildForm(document.getElementById('reglages-liste'));

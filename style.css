@@ -243,6 +243,11 @@ img{margin: 0px;
     padding: 6px 0;
     border-bottom: 1px solid #C3E6F5;
   }
+  .reglages-groupe {
+    margin: 14px 0 2px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #114E69;
+  }
   .reglage-principal {
     font-weight: bold;
     border-bottom: 2px solid #114E69;
