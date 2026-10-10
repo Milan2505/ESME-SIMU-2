@@ -21,12 +21,13 @@ function reliefColor(height, shade) {
 class MapView {
     // heightAt(x, z) : hauteur du sol ; worldSize : côté du terrain (m) ; shapes : pistes et parkings [{ minX, maxX, minZ, maxZ, kind }]
     // runways : [{ name, threshold }]
-    constructor(canvas, { heightAt, worldSize, shapes = [], runways = [] }) {
+    constructor(canvas, { heightAt, worldSize, shapes = [], runways = [], navaids = [] }) {
         this.canvas = canvas;
         this.heightAt = heightAt;
         this.worldSize = worldSize;
         this.shapes = shapes;
         this.runways = runways;
+        this.navaids = navaids;       // balises (VOR) : { x, z, ident, frequency }
         this.zoom = 1;
         this._relief = null;
         this._timer = 0;
@@ -85,6 +86,29 @@ class MapView {
         for (const runway of this.runways) {
             const outward = runway.direction ? -runway.direction.z : 0;   // le numéro est écrit avant le seuil
             ctx.fillText(runway.name, toX(runway.threshold.x), toY(runway.threshold.z) + outward * 14 * ratio);
+        }
+
+        // Balises VOR : hexagone bleu, indicatif et fréquence
+        for (const nav of this.navaids) {
+            const x = toX(nav.x), y = toY(nav.z), size = 7 * ratio;
+            ctx.strokeStyle = '#1f5fbf';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.lineWidth = 2 * ratio;
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) ctx.lineTo(x + Math.cos(i * Math.PI / 3) * size, y + Math.sin(i * Math.PI / 3) * size);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#1f5fbf';
+            ctx.beginPath();
+            ctx.arc(x, y, 1.6 * ratio, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.font = `bold ${Math.round(10 * ratio)}px DejaVu Sans Mono, monospace`;
+            ctx.textAlign = 'left';
+            ctx.lineWidth = 3 * ratio;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.strokeText(`VOR ${nav.ident} ${nav.frequency}`, x + 10 * ratio, y);
+            ctx.fillText(`VOR ${nav.ident} ${nav.frequency}`, x + 10 * ratio, y);
         }
 
         // Autres joueurs, puis le joueur (dessus)

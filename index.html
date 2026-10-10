@@ -77,6 +77,9 @@
 				<tr><td>B</td><td>Freins (au sol)</td></tr>
 				<tr><th colspan="2">Navigation et vue</th></tr>
 				<tr><td>I</td><td>Guidage ILS (en approche, dans l'axe d'une piste)</td></tr>
+				<tr><td>J / K</td><td>VOR : tourner le bouton OBS (Maj : de 10°)</td></tr>
+				<tr><td>H</td><td>VOR : centrer l'aiguille (route directe vers la balise)</td></tr>
+				<tr><td>O</td><td>VOR : afficher l'indicateur en vue extérieure</td></tr>
 				<tr><td>V</td><td>Vue cabine / vue extérieure</td></tr>
 				<tr><td>Glisser</td><td>Tourner la caméra (souris)</td></tr>
 				<tr><td>Molette</td><td>Zoom</td></tr>
@@ -124,6 +127,7 @@
 		<div class="ils-cadran"><div id="ils-loc"></div><div id="ils-gs"></div></div>
 		<pre id="ils-texte"></pre>
 	</div>
+	<div id="vor-panneau" hidden><canvas id="vor-canvas" width="240" height="236"></canvas></div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
 	<div id="radio-indicateur" hidden></div>
 	<div id="carte" hidden>

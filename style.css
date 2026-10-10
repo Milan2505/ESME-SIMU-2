@@ -846,3 +846,29 @@ img{margin: 0px;
     font-family: inherit;
     padding: 3px;
   }
+
+  /* Indicateur VOR en vue extérieure (touche O), à gauche du panneau ILS */
+  #vor-panneau {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: end;
+    justify-self: end;
+    z-index: 2;
+    margin: 12px 190px 12px 12px;
+    padding: 6px;
+    background: rgba(20, 20, 20, 0.75);
+    border-radius: 8px;
+    pointer-events: none;
+  }
+  #vor-panneau[hidden] {
+    display: none;
+  }
+  #vor-canvas {
+    display: block;
+    width: 180px;
+    height: 177px;
+  }
+  #simulator:fullscreen > #vor-panneau {
+    grid-column: 1 / 6;
+    grid-row: 2;
+  }

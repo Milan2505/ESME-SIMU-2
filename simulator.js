@@ -15,7 +15,8 @@ import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
 import { Airport } from './js/Airport.js';
 import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
-import { Cockpit } from './js/Cockpit.js';
+import { Cockpit, vorIndicator } from './js/Cockpit.js';
+import { VOR } from './js/VOR.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
@@ -1047,6 +1048,7 @@ const mapView = new MapView(document.getElementById('carte-canvas'), {
     worldSize: terrain.size,
     shapes: airport.mapShapes,
     runways: airport.runways,
+    navaids: [airport.vor],
 });
 
 function toggleMap(open = mapPanel.hidden) {
@@ -1113,12 +1115,38 @@ function cockpitState() {
         crashed: controls.isCrashed(),
         stallWarning: controls.isNearStall(),
         ils: { ...ils.state, active: ils.active },
+        vor: vor.state,
     };
 }
 
 // ILS : disponible près de la piste, dans l'axe d'approche. Bouton sur le tableau de bord en cabine,
 // bouton à l'écran en vue extérieure, touche I dans les deux cas.
 const ils = new ILS(airport.runways, airport.runwayLength);
+
+// VOR (NAV1) : balise de l'aérodrome. Indicateur au tableau de bord ; en vue extérieure, touche O.
+// OBS : J / K (Maj : 10° par appui), H : centrer l'aiguille sur la route directe vers la balise
+const vor = new VOR(airport.vor);
+const vorPanel = document.getElementById('vor-panneau');
+const vorCanvas = document.getElementById('vor-canvas');
+let vorShown = false, vorTimer = 0;
+window.addEventListener('keydown', (event) => {
+    if (isTypingTarget(event.target)) return;
+    if (event.code === 'KeyJ' || event.code === 'KeyK') vor.turnCourse((event.code === 'KeyJ' ? -1 : 1) * (event.shiftKey ? 10 : 1));
+    if (event.code === 'KeyH' && !event.repeat) vor.centerTo();
+    if (event.code === 'KeyO' && !event.repeat) vorShown = !vorShown;
+});
+
+function updateVor(delta) {
+    vor.update(aircraft.position);
+    vorPanel.hidden = !(chaseView && vorShown);
+    if (vorPanel.hidden || (vorTimer -= delta) > 0) return;
+    vorTimer = 0.1;
+    const ctx = vorCanvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#25272b';
+    ctx.fillRect(0, 0, vorCanvas.width, vorCanvas.height);
+    vorIndicator(ctx, vorCanvas.width / 2, 112, 92, vor.state);
+}
 const ilsButton = document.getElementById('ils-bouton');
 const ilsPanel = document.getElementById('ils-panneau');
 const ilsLoc = document.getElementById('ils-loc');
@@ -1311,6 +1339,7 @@ renderer.setAnimationLoop((time)=>{
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();
+    updateVor( delta );
     controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps() );
     // Instruments et manches animés en cabine, et en vue extérieure quand on est assez près pour les voir
     if (!chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );

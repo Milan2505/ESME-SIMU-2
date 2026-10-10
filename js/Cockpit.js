@@ -487,6 +487,107 @@ function ilsIndicator(ctx, cx, cy, r, ils, time) {
     caption(ctx, cx, cy + r * 1.22, `${(ils.distance / NM).toFixed(1)} NM · idéal ${Math.round(ils.glideHeight * FT)} ft`, 13);
 }
 
+// --- VOR ---------------------------------------------------------------------------
+
+// Indicateur VOR (OBS / CDI) : rose graduée tournée pour afficher la route choisie en haut, aiguille d'écart
+// (un point = 2°, butée = 10°), drapeau TO / FROM, drapeau NAV rouge sans signal, bouton OBS, indicatif et DME
+function vorIndicator(ctx, cx, cy, r, vor) {
+    bezel(ctx, cx, cy, r);
+    const course = vor?.course ?? 0;
+    // Rose graduée
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = '#e6e6e6';
+    ctx.fillStyle = '#e6e6e6';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let d = 0; d < 360; d += 5) {
+        const a = deg(d - course);
+        const long = d % 10 === 0;
+        const [x1, y1] = polar(0, 0, r * 0.97, a), [x2, y2] = polar(0, 0, r * (long ? 0.85 : 0.9), a);
+        ctx.lineWidth = long ? 2.5 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        if (d % 30 === 0) {
+            const label = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[d] ?? String(d / 10);
+            ctx.save();
+            ctx.rotate(a);
+            ctx.font = `bold ${Math.round(r * 0.17)}px DejaVu Sans Mono, monospace`;
+            ctx.fillText(label, 0, -r * 0.72);
+            ctx.restore();
+        }
+    }
+    ctx.restore();
+    // Repères de route : triangle en haut (route), petit en bas (réciproque)
+    ctx.fillStyle = '#ffd34d';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r * 0.84);
+    ctx.lineTo(cx - r * 0.08, cy - r * 1.0);
+    ctx.lineTo(cx + r * 0.08, cy - r * 1.0);
+    ctx.fill();
+    ctx.fillStyle = '#e6e6e6';
+    ctx.fillRect(cx - 2, cy + r * 0.86, 4, r * 0.12);
+    // Points de l'échelle d'écart
+    const scale = r * 0.13;
+    ctx.strokeStyle = '#e6e6e6';
+    ctx.lineWidth = 2;
+    for (let i = -5; i <= 5; i++) {
+        if (i === 0) continue;
+        ctx.beginPath();
+        ctx.arc(cx + i * scale, cy + r * 0.05, 3.5, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(cx, cy + r * 0.05, r * 0.08, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const signal = vor?.available && !vor.overhead;
+    if (signal) {
+        // Aiguille d'écart de route
+        const x = cx + vor.deviation * scale * 5;
+        ctx.strokeStyle = '#f5f5f5';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(x, cy - r * 0.55);
+        ctx.lineTo(x, cy + r * 0.62);
+        ctx.stroke();
+        // TO / FROM : triangle blanc vers le haut (TO) ou vers le bas (FROM)
+        const fx = cx + r * 0.45, fy = cy - r * 0.32;
+        ctx.fillStyle = '#f5f5f5';
+        ctx.beginPath();
+        if (vor.to) { ctx.moveTo(fx, fy - 12); ctx.lineTo(fx - 13, fy + 8); ctx.lineTo(fx + 13, fy + 8); }
+        else { ctx.moveTo(fx, fy + 12); ctx.lineTo(fx - 13, fy - 8); ctx.lineTo(fx + 13, fy - 8); }
+        ctx.fill();
+        ctx.font = 'bold 11px DejaVu Sans Mono, monospace';
+        ctx.fillText(vor.to ? 'TO' : 'FR', fx, fy + (vor.to ? 20 : -20));
+    } else {
+        // Drapeau NAV : pas de signal (hors de portée, ou à la verticale de la balise)
+        ctx.fillStyle = '#c0392b';
+        ctx.fillRect(cx + r * 0.2, cy - r * 0.42, 52, 22);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px DejaVu Sans Mono, monospace';
+        ctx.fillText('NAV', cx + r * 0.2 + 26, cy - r * 0.42 + 12);
+    }
+    // Route sélectionnée, indicatif, DME
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(cx - 30, cy - r * 0.42 - 12, 60, 24);
+    ctx.fillStyle = '#ffd34d';
+    ctx.font = 'bold 18px DejaVu Sans Mono, monospace';
+    ctx.fillText(String(Math.round(course)).padStart(3, '0'), cx, cy - r * 0.42);
+    caption(ctx, cx, cy + r * 0.38, vor?.ident ? `${vor.ident} ${vor.frequency}` : 'VOR', 12);
+    caption(ctx, cx, cy + r * 1.22, signal ? `DME ${vor.dmeNM.toFixed(1)} NM · OBS J / K` : 'VOR · OBS J / K', 13);
+    // Bouton OBS
+    ctx.fillStyle = '#2b2d31';
+    ctx.beginPath();
+    ctx.arc(cx - r * 0.95, cy + r * 0.95, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#6a6e74';
+    ctx.stroke();
+    caption(ctx, cx - r * 0.95, cy + r * 0.95, 'OBS', 11);
+}
+
 // --- Vitres ----------------------------------------------------------------------------
 
 // Verre légèrement teinté : presque invisible de face, de plus en plus réfléchissant aux angles rasants (Fresnel)
@@ -886,7 +987,7 @@ class Cockpit {
         trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimLimits, state.trimSpeed * KT);
 
         radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
-        radio(ctx, 960, 150, 'NAV1', '110.30', '113.90');
+        radio(ctx, 960, 150, 'NAV1', state.vor?.frequency ?? '113.50', '110.30');
         ilsButton(ctx, ILS_BUTTON, state.ils);
         // Transpondeur
         radio(ctx, 960, 240, 'XPDR', '7000', 'ALT');
@@ -897,11 +998,12 @@ class Cockpit {
         // À gauche du trou : vu de la place pilote, le bouton tiré se projette en dessous et un peu à droite
         caption(ctx, tx - 62, ty, `${Math.round(state.throttle * 100)} %`, 16);
 
-        // Indicateur ILS (à la place de la boîte à gants)
+        // Indicateurs VOR et ILS (à la place de la boîte à gants)
+        vorIndicator(ctx, 1135, 410, 78, state.vor);
         ilsIndicator(ctx, 1385, 400, 82, state.ils, this._time);
 
         this.panelTexture.needsUpdate = true;
     }
 }
 
-export { Cockpit };
+export { Cockpit, vorIndicator };

@@ -99,6 +99,9 @@
 		<tr><th>Molette</th><th>Zoom</th></tr>
 		<tr><th>C / double-clic</th><th>Recentrer la caméra</th></tr>
 		<tr><th>I</th><th>Activer / couper le guidage ILS (quand il est disponible)</th></tr>
+		<tr><th>J / K</th><th>VOR : tourner le bouton OBS (Maj : de 10° en 10°)</th></tr>
+		<tr><th>H</th><th>VOR : centrer l'aiguille sur la route directe vers la balise</th></tr>
+		<tr><th>O</th><th>VOR : afficher l'indicateur en vue extérieure</th></tr>
 		<tr><th>P</th><th>Afficher la fluidité (images par seconde, résolution) ; la résolution baisse toute seule si l'ordinateur peine</th></tr>
 		<tr><th>F</th><th>Plein écran (ou bouton ⛶)</th></tr>
 		<tr><th>M</th><th>Carte avec les autres joueurs (ou bouton Carte du bandeau)</th></tr>
@@ -121,6 +124,11 @@
 	<br>La partie continue tant qu’il reste au moins un joueur.
 	<br>Les positions passent par un relais public (MQTT) : rien à installer, mais ne mettez pas d’informations personnelles dans votre pseudo, et ne dites rien de confidentiel à la radio : la voix passe aussi par ce relais public.</p>
 	
+	<span style="text-decoration: underline;"><h2>Navigation VOR:</h2></span>
+	<p>L'aérodrome a une balise <b>VOR « ESM » (113.50)</b>, au nord-est du parking (sur la carte : hexagone bleu). Elle est captée partout sur le terrain ; la radio NAV1 du tableau de bord est réglée dessus.
+	<br>L'indicateur VOR est en bas à droite du tableau de bord (touche <b>O</b> pour l'afficher en vue extérieure). Pour rejoindre l'aérodrome : tournez le bouton <b>OBS</b> (touches <b>J</b> / <b>K</b>) jusqu'à centrer l'aiguille avec le drapeau <b>TO</b> (ou appuyez sur <b>H</b>). Le nombre en haut est alors le cap à suivre.
+	<br>En vol, si l'aiguille part à gauche, la route est à gauche : corrigez le cap de ce côté. <b>DME</b> : distance jusqu'à la balise en milles nautiques. À la verticale de la balise, le drapeau rouge <b>NAV</b> apparaît, puis l'indicateur passe sur <b>FROM</b> (on s'éloigne).</p>
+
 	<span style="text-decoration: underline;"><h2>Décrochage:</h2></span>
 	<p>Si l’aile attaque l’air sous un angle trop fort (incidence de plus de 16°), elle ne porte plus : c’est le <b>décrochage</b>. En vol rectiligne, cela correspond à environ 49 kt (43 kt volets sortis). Manche tiré à fond et longtemps, on peut dépasser cette limite ; avec l’aide « Protection décrochage », la profondeur s’arrête juste avant : l’alarme sonne mais l’aile tient (une rafale ou une manœuvre brutale peut toutefois la faire décrocher).
 	<br><b>Aides au pilotage</b> (case <b>Paramètre</b> du bandeau, ou <b>Commandes</b> puis <b>Paramètres</b>, section « Pilotage », toutes désactivées au départ) : <b>Rotation automatique</b> (au sol, le trim lève le nez tout seul), <b>Protection décrochage</b>, <b>Envol en douceur</b> (après l’envol, manche relâché, le nez se rend progressivement au lieu de revenir d’un coup à l’assiette du trim).
