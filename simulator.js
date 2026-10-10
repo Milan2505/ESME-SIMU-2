@@ -204,6 +204,8 @@ function applyLights() {
     landingLight.visible = lights.land && dark;
 }
 systems.addEventListener('change', applyLights);
+// Démarrage raté : message à l'écran (raison et marche à suivre)
+systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
 
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const model = aircraftModel = gltf.scene;
@@ -1554,7 +1556,7 @@ function updateSounds() {
     lastFlaps = flaps;
     sounds.setLoop('flapMotor', moving ? (chaseView ? 0.25 : 0.7) : 0, 1);
     // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
-    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.015 : 0.07) : 0, 1.7);
+    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.005 : 0.025) : 0, 1.7);
 }
 
 const aircraftVelocity = new THREE.Vector3();

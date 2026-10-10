@@ -9,7 +9,7 @@ const LOW_FUEL = 5;                    // alarme carburant bas (gal)
 const START_TIME = 1.2;                // moteur amorcé : il démarre après 1,2 s de démarreur
 const START_TIME_UNPRIMED = 4.5;       // sans amorçage (pompe), il faut insister : ~4,5 s de démarreur en tout
 const PRIME_TIME = 2;                  // amorçage : pompe allumée ~2 s, moteur arrêté, mixture poussée
-const FLOOD_TIME = 10;                 // au-delà de ~10 s de pompe moteur arrêté : moteur noyé
+const FLOOD_TIME = 30;                 // au-delà de ~30 s de pompe moteur arrêté (sans démarreur) : moteur noyé
 const LOW_FUEL_FEED = 1.5;             // réservoir presque vide (gal) : sans pompe, l'alimentation est irrégulière
 const STARTER_HOLD = 1.6;              // durée d'un appui sur START (s) : la clé revient seule sur BOTH
 const FUEL_STARVE_TIME = 4;            // sans alimentation, le moteur s'arrête après ~4 s (carburant dans les tuyaux)
@@ -242,7 +242,8 @@ class Systems extends EventTarget {
         // Amorçage : pompe en marche, moteur arrêté, mixture poussée -> du carburant arrive aux cylindres (trop : noyé) ;
         // il s'évapore lentement ; démarreur avec la mixture tirée : on dénoie le moteur
         if (!this.running) {
-            if (this.fuelPumpRunning && this.mixture > 0.3 && this.fuelAvailable) this.prime += delta;
+            // (pendant le démarreur, les cylindres aspirent ce carburant : il ne s'accumule pas)
+            if (this.fuelPumpRunning && this.mixture > 0.3 && this.fuelAvailable && this._crank <= 0) this.prime += delta;
             else this.prime = Math.max(0, this.prime - delta / 30);
             if (this._crank > 0 && this.mixture < 0.2) this.prime = Math.max(0, this.prime - delta * 3);
         }
@@ -262,6 +263,7 @@ class Systems extends EventTarget {
             }
             if (this._crank <= 0) {
                 this.magnetos = 3;   // la clé revient sur BOTH
+                if (!this.running) this.dispatchEvent(new CustomEvent('startfail', { detail: this._startFailure() }));
                 this._changed();
             }
         }
@@ -291,6 +293,17 @@ class Systems extends EventTarget {
         const target = this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
             : starting && this.switches.masterBat && this.battery > 0.05 ? 280 : airspeed * 18;
         this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
+    }
+
+    // Pourquoi le moteur n'a pas démarré (message pour le pilote)
+    _startFailure() {
+        if (!this.switches.masterBat) return 'Démarreur sans effet : master BAT coupé';
+        if (this.battery <= 0.05) return 'Batterie à plat';
+        if (this.fuelShutoff) return 'Pas de carburant : robinet coupé (pupitre, bouton rouge à pousser)';
+        if (!this.fuelAvailable) return 'Pas de carburant : réservoir choisi vide (sélecteur au plancher)';
+        if (this.mixture <= 0.25) return 'Mixture tirée : poussez la manette rouge';
+        if (this.flooded) return 'Moteur noyé : coupez la pompe, tirez la mixture et actionnez le démarreur, puis repoussez la mixture';
+        return 'Le moteur tousse sans partir : insistez au démarreur (ou amorcez 2-3 s avec la pompe)';
     }
 
     _stop() {
