@@ -11,6 +11,12 @@ const CESSNA_172 = {
 	mass: 1100,                       // kg (masse au décollage)
 	wingArea: 16.2,                   // m²
 	wingspan: 11,                     // m (effet de sol)
+	wingHeight: 2.6,                  // hauteur de l'aile au-dessus du sol, roues posées (m)
+	// Effet de sol : à moins d'une envergure du sol, l'air "coincé" sous l'aile réduit le tourbillon de bout d'aile.
+	// Facteur de traînée induite φ = 33 (h/b)^1,5 / (1 + 33 (h/b)^1,5) : ~0,8 roues au sol, ~0,95 à une demi-envergure
+	groundEffectDrag: 33,
+	groundEffectLift: 0.6,            // portance en plus : +12 % roues au sol (l'avion "flotte" à l'arrondi)
+	groundEffectPitch: deg( 2 ),      // moins de déflexion sur l'empennage : le nez pique un peu (~0,4° au sol), il faut tirer plus
 	cl0: 0.4,                         // coefficient de portance à incidence nulle (calage de l'aile compris)
 	clAlpha: 4.6,                     // pente de portance (par radian d'incidence)
 	alphaStall: deg( 16 ),            // incidence de décrochage

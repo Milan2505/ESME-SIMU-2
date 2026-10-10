@@ -64,6 +64,7 @@ class FlightModel extends EventDispatcher {
 		this.airspeed = 0;               // vitesse air (m/s) ; au sol : vitesse de roulage
 		this.flaps = 0;                  // position réelle des volets : 0 = rentrés, 1 = sortis à fond
 		this.alpha = 0;                  // incidence : angle entre le nez et la trajectoire dans l'air (rad)
+		this.groundEffect = 0;           // intensité de l'effet de sol (0 = loin du sol)
 		this.stalled = false;
 		this.onGround = false;
 		this.crashed = false;
@@ -250,13 +251,15 @@ class FlightModel extends EventDispatcher {
 			this.stalled = false;
 		}
 
-		// Effet de sol : à moins d'une envergure du sol, la traînée induite chute (l'avion "flotte" à l'arrondi)
-		const wingHeight = Math.max( 0, object.position.y - this.groundHeight( object.position.x, object.position.z ) - this.minAltitude + 1.5 );
-		const h = 16 * ( wingHeight / A.wingspan ) ** 2;
-		const groundEffect = h / ( 1 + h );
+		// Effet de sol : à moins d'une envergure du sol, la traînée induite chute et la portance augmente (l'avion
+		// "flotte" à l'arrondi, surtout s'il arrive trop vite), et le nez a tendance à piquer
+		const wingHeight = Math.max( 0, object.position.y - this.groundHeight( object.position.x, object.position.z ) - this.minAltitude ) + A.wingHeight;
+		const k = A.groundEffectDrag * ( wingHeight / A.wingspan ) ** 1.5;
+		const groundEffect = k / ( 1 + k );        // 1 = loin du sol
+		this.groundEffect = 1 - groundEffect;      // 0 -> ~0,2 : intensité de l'effet de sol (instruments, tests)
 
 		const pressure = 0.5 * AIR_DENSITY * speed * speed * A.wingArea;
-		const lift = this._liftCoefficient( alpha );
+		const lift = this._liftCoefficient( alpha ) * ( 1 + A.groundEffectLift * this.groundEffect );
 		_liftDirection.crossVectors( _right, _air ).normalize(); // perpendiculaire au vent relatif
 		_force.copy( _liftDirection ).multiplyScalar( lift * pressure )
 			.addScaledVector( _air, - this._dragCoefficient( lift, groundEffect ) * pressure / speed )
@@ -283,7 +286,8 @@ class FlightModel extends EventDispatcher {
 		// la stabilité y amène l'avion
 		const limit = stallAlpha + ( this.assists.stallProtection ? A.elevatorLimitProtected : A.elevatorLimit );
 		const authority = Math.min( 1, effect * 1.5 );
-		let alphaTarget = trimAlpha + input.pitch * ( input.pitch > 0 ? A.elevatorUp : A.elevatorDown ) * authority;
+		let alphaTarget = trimAlpha + input.pitch * ( input.pitch > 0 ? A.elevatorUp : A.elevatorDown ) * authority
+			- A.groundEffectPitch * this.groundEffect;
 		if ( input.pitch > 0 ) alphaTarget = Math.min( alphaTarget, Math.max( limit, trimAlpha ) );
 		// Manche lâché : amortissement des longues oscillations de trajectoire (phugoïde) ; quand la trajectoire
 		// se redresse, l'incidence baisse un peu, et inversement (sans effet en vol stabilisé, ni à l'arrondi)
