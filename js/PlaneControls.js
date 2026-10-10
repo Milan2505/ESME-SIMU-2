@@ -15,7 +15,7 @@ const _resetEvent = { type: 'reset' };
 const _EPS = 0.000001;
 const _MAX_DELTA = 0.1;            // évite les sauts après un onglet en arrière-plan
 const _CONTROL_SMOOTHING = 0.5;    // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
-const _TRIM_RATE = 0.3;            // course du trim par seconde, touche enfoncée (d'une butée à l'autre en ~7 s)
+const _TRIM_RATE = MathUtils.degToRad( 5 ); // vitesse du tab de trim, touche enfoncée (d'une butée à l'autre en ~7 s)
 const _up = new Vector3( 0, 1, 0 );
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
@@ -145,7 +145,8 @@ class PlaneControls extends Controls {
 			brake: this._moveState.brake,
 		} );
 		model.throttle = Math.min( 1, Math.max( 0, model.throttle + this.accel * this.throttleRate * delta ) );
-		model.trim = MathUtils.clamp( model.trim + ( this._moveState.trimUp - this._moveState.trimDown ) * _TRIM_RATE * delta, - 1, 1 );
+		model.trim = MathUtils.clamp( model.trim + ( this._moveState.trimUp - this._moveState.trimDown ) * _TRIM_RATE * delta,
+			model.aircraft.trimTabMin, model.aircraft.trimTabMax );
 
 		model.step( delta );
 
@@ -229,12 +230,15 @@ class PlaneControls extends Controls {
 			brake: this._moveState.brake,
 		};
 	}
-	// Trim : position (-1 piqué -> +1 cabré) et repère de décollage
+	// Trim : angle du tab (degrés, + = à cabrer), repère de décollage et butées
 	getTrim() {
-		return this.model.trim;
+		return MathUtils.radToDeg( this.model.trim );
 	}
 	getTakeoffTrim() {
-		return this.model.aircraft.takeoffTrim;
+		return MathUtils.radToDeg( this.model.aircraft.takeoffTrim );
+	}
+	getTrimLimits() {
+		return [ MathUtils.radToDeg( this.model.aircraft.trimTabMin ), MathUtils.radToDeg( this.model.aircraft.trimTabMax ) ];
 	}
 	// Vitesse tenue manche lâché avec ce trim et ces volets (m/s)
 	getTrimSpeed() {

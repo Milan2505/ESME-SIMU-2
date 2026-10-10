@@ -5,8 +5,6 @@ const deg = MathUtils.degToRad;
 // Caractéristiques du Cessna 172 pour le modèle de vol (FlightModel.js) : ordres de grandeur réels
 // (masse, aile, moteur de 160 ch), ajustés pour la jouabilité. Unités SI : m, kg, N, W, m/s, radians.
 // Un autre avion = un autre objet de ce type, sans toucher à la physique.
-const TRIM_MID = deg( 6 );
-const TRIM_RANGE = deg( 7 );
 
 const CESSNA_172 = {
 	// Masse et aile
@@ -23,7 +21,7 @@ const CESSNA_172 = {
 
 	// Moteur et hélice
 	staticThrust: 3400,               // poussée plein gaz à l'arrêt (N) : accélération franche au décollage
-	power: 75000,                     // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
+	power: 85000,                     // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
 	                                  // (pleine poussée jusqu'à ~80 km/h, puis montée ~4 m/s, assiette ~10°)
 	windmillDrag: 0.012,              // hélice au ralenti : elle freine l'avion (finesse ~9 en plané)
 
@@ -42,6 +40,7 @@ const CESSNA_172 = {
 	elevatorUp: deg( 6 ),             // manche tiré à fond : +6° (au trim de décollage : ~l'incidence d'envol, loin du décrochage)
 	elevatorDown: deg( 10 ),          // manche poussé à fond : -10°
 	pitchRateMax: 0.35,               // rotation en tangage au plus 20°/s
+	phugoidDamping: 3,                // manche lâché : amortit les longues oscillations de trajectoire (s)
 	// Incidence visée au plus (par rapport au décrochage)
 	elevatorLimit: deg( 2 ),          // sans aide : 2° au-delà (on peut décrocher en tirant)
 	elevatorLimitProtected: deg( - 1 ), // aide "protection décrochage" : 1° en deçà
@@ -53,11 +52,14 @@ const CESSNA_172 = {
 	flapDrag: 0.05,                   // volets à fond : traînée en plus
 	flapStallAlpha: deg( 2 ),         // volets à fond : l'aile décroche 2° plus tôt
 
-	// Trim (compensateur de profondeur) : manche relâché, l'avion revient à l'incidence qu'il fixe, donc à une vitesse.
-	// Position -1 = à piquer à fond (rapide), +1 = à cabrer à fond (lent)
-	trimMid: TRIM_MID,                // incidence au trim neutre
-	trimRange: TRIM_RANGE,            // incidence : de -1° (piqué à fond, ~220 km/h) à 13° (cabré à fond)
-	takeoffTrim: ( deg( 4.5 ) - TRIM_MID ) / TRIM_RANGE, // repère décollage : montée vers 135 km/h
+	// Trim : tab de la gouverne de profondeur, en degrés (+ = à cabrer). Manche lâché, l'avion revient à l'incidence
+	// que fixe le tab, donc à une vitesse. Réglé pour rester au-dessus du second régime (vitesse de puissance
+	// minimale ~55 kt) : 20° (décollage) -> ~74 kt, meilleure montée ; 0° -> ~110 kt, croisière
+	trimTabMin: deg( - 4 ),           // à piquer à fond : ~125 kt en légère descente
+	trimTabMax: deg( 28 ),            // à cabrer à fond : ~67 kt (volets rentrés)
+	takeoffTrim: deg( 20 ),           // repère décollage
+	trimAlphaZero: deg( - 0.8 ),      // incidence tenue tab à 0°
+	trimAlphaPerTab: 0.26,            // incidence tenue en plus par degré de tab à cabrer
 	liftoffReleaseTime: 6,            // aide "envol en douceur" : le nez se rend en ~6 s après l'envol
 
 	// Au sol

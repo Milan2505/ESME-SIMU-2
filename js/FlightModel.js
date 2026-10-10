@@ -56,7 +56,7 @@ class FlightModel extends EventDispatcher {
 		// Commandes du pilote
 		this.controls = { pitch: 0, roll: 0, yaw: 0, brake: 0 }; // profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins
 		this.throttle = 0.3;             // 0 -> 1
-		this.trim = aircraft.takeoffTrim; // -1 piqué -> +1 cabré
+		this.trim = aircraft.takeoffTrim; // tab de profondeur (rad, + = à cabrer)
 		this.flapLevel = 0;              // cran demandé (indice dans aircraft.flapLevels)
 
 		// État
@@ -76,6 +76,8 @@ class FlightModel extends EventDispatcher {
 		this._liftoffAlpha = 0;          // incidence à l'envol...
 		this._liftoffBlend = 0;          // ... dont l'avion se détache progressivement (1 -> 0) pour rejoindre celle du trim
 		this._wingDrop = 0;              // aile qui tombe au décrochage (-1 gauche, 1 droite)
+		this._pathAngle = null;          // pente de la trajectoire (rad) et sa vitesse de variation (rad/s), lissée
+		this._pathRate = 0;
 		this._groundYaw = 0;             // cap au sol (rad, + = vers la gauche)
 		this._groundPitch = 0;           // cabré au sol (rad), 0 = roulette avant posée
 	}
@@ -104,6 +106,7 @@ class FlightModel extends EventDispatcher {
 		this._wind.set( 0, 0, 0 );
 		this._gustRoll = 0;
 		this._angularVelocity.set( 0, 0, 0 );
+		this._pathAngle = null;
 		this.stalled = false;
 		this.alpha = 0;
 		this.trim = this.aircraft.takeoffTrim;
@@ -154,11 +157,16 @@ class FlightModel extends EventDispatcher {
 		return Math.sqrt( 2 * A.mass * GRAVITY / ( AIR_DENSITY * A.wingArea * maxLift ) );
 	}
 
+	// Incidence que fixe le tab de trim (manche lâché)
+	trimAlpha() {
+		return this.aircraft.trimAlphaZero + this.trim * this.aircraft.trimAlphaPerTab;
+	}
+
 	// Vitesse (m/s) que l'avion tient manche lâché avec le trim et les volets actuels : la puissance fait monter
 	// ou descendre à cette vitesse, pas accélérer (pour aller plus vite : trimer à piquer)
 	trimSpeed() {
 		const A = this.aircraft;
-		const alpha = Math.min( A.trimMid + this.trim * A.trimRange, this.stallAlpha() - MathUtils.degToRad( 5 ) );
+		const alpha = Math.min( this.trimAlpha(), this.stallAlpha() - MathUtils.degToRad( 5 ) );
 		return Math.sqrt( 2 * A.mass * GRAVITY / ( AIR_DENSITY * A.wingArea * this._liftCoefficient( alpha ) ) );
 	}
 
@@ -264,7 +272,7 @@ class FlightModel extends EventDispatcher {
 		// dépassait le décrochage sans action du pilote)
 		const stability = MathUtils.clamp( ( speed / 20 ) ** 2, 0.6, 1 );
 		const input = this.controls;
-		let trimAlpha = Math.min( A.trimMid + this.trim * A.trimRange, stallAlpha - MathUtils.degToRad( 5 ) ); // trim seul : jamais de décrochage
+		let trimAlpha = Math.min( this.trimAlpha(), stallAlpha - MathUtils.degToRad( 5 ) ); // trim seul : jamais de décrochage
 		// Aide "envol en douceur" : juste après l'envol, on part de l'incidence d'envol et on rejoint le trim en douceur
 		if ( this._liftoffBlend > 0 ) {
 			this._liftoffBlend = Math.max( 0, this._liftoffBlend - dt / A.liftoffReleaseTime );
@@ -277,6 +285,14 @@ class FlightModel extends EventDispatcher {
 		const authority = Math.min( 1, effect * 1.5 );
 		let alphaTarget = trimAlpha + input.pitch * ( input.pitch > 0 ? A.elevatorUp : A.elevatorDown ) * authority;
 		if ( input.pitch > 0 ) alphaTarget = Math.min( alphaTarget, Math.max( limit, trimAlpha ) );
+		// Manche lâché : amortissement des longues oscillations de trajectoire (phugoïde) ; quand la trajectoire
+		// se redresse, l'incidence baisse un peu, et inversement (sans effet en vol stabilisé, ni à l'arrondi)
+		const pathAngle = Math.asin( MathUtils.clamp( this.velocity.y / Math.max( 0.1, this.velocity.length() ), - 1, 1 ) );
+		if ( this._pathAngle !== null ) {
+			this._pathRate += ( ( pathAngle - this._pathAngle ) / dt - this._pathRate ) * Math.min( 1, dt * 3 );
+		}
+		this._pathAngle = pathAngle;
+		if ( Math.abs( input.pitch ) < 0.1 ) alphaTarget -= A.phugoidDamping * this._pathRate;
 		let pitchRate = MathUtils.clamp( A.pitchStability * ( alphaTarget - alpha ) * stability, - A.pitchRateMax, A.pitchRateMax );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta - A.spiralStability * bank ) * stability + this._gustRoll;
@@ -323,7 +339,7 @@ class FlightModel extends EventDispatcher {
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
 		// Aide "rotation automatique" : manche au neutre, le trim lève doucement le nez jusqu'à son assiette
-		const trimPitch = MathUtils.clamp( A.trimMid + this.trim * A.trimRange, 0, A.maxGroundPitch );
+		const trimPitch = MathUtils.clamp( this.trimAlpha(), 0, A.maxGroundPitch );
 		if ( input.pitch > 0 && speed > this.rotateSpeed * 0.85 ) {
 			this._groundPitch += input.pitch * 0.12 * Math.min( 1, ( speed / this.rotateSpeed ) ** 2 ) * dt; // ~7°/s
 		} else if ( this.assists.rotation && Math.abs( input.pitch ) < 0.05 && speed > this.rotateSpeed && this._groundPitch < trimPitch ) {
@@ -347,6 +363,7 @@ class FlightModel extends EventDispatcher {
 			this._liftoffAlpha = this._groundPitch;
 			this._liftoffBlend = this.assists.smoothLiftoff ? 1 : 0;
 			this._angularVelocity.set( 0, 0, 0 );
+		this._pathAngle = null;
 			this.dispatchEvent( { type: 'liftoff' } );
 		}
 	}
@@ -402,6 +419,7 @@ class FlightModel extends EventDispatcher {
 		this.airspeed = Math.max( 0, this.velocity.dot( _forward.setY( 0 ).normalize() ) );
 		this.velocity.set( 0, 0, 0 );
 		this._angularVelocity.set( 0, 0, 0 );
+		this._pathAngle = null;
 		this.stalled = false;
 		this._wind.set( 0, 0, 0 );
 		this._alignToGround();

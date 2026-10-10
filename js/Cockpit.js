@@ -359,8 +359,9 @@ function flapIndicator(ctx, x, y, setting, position) {
     ctx.fill();
 }
 
-// Trim de profondeur : PIQ en haut, CAB en bas, repère de décollage (T/O), l'index suit la position
-function trimIndicator(ctx, x, y, trim, takeoff, trimKnots) {
+// Trim de profondeur : angle du tab en degrés, PIQ (butée à piquer) en haut, CAB en bas, repère de décollage (T/O) ;
+// sous l'échelle : l'angle et la vitesse que l'avion tient manche lâché
+function trimIndicator(ctx, x, y, trimDeg, takeoffDeg, [minDeg, maxDeg], trimKnots) {
     const h = 190, top = y + 46, bottom = y + h - 30;
     ctx.fillStyle = '#151618';
     ctx.fillRect(x, y, 76, h);
@@ -370,31 +371,37 @@ function trimIndicator(ctx, x, y, trim, takeoff, trimKnots) {
     caption(ctx, x + 38, y + 14, 'TRIM', 13);
     caption(ctx, x + 38, y + 32, 'PIQ', 12);
     caption(ctx, x + 38, y + h - 12, 'CAB', 12);
-    const yOf = (t) => top + ((t + 1) / 2) * (bottom - top);
+    const yOf = (d) => top + ((d - minDeg) / (maxDeg - minDeg)) * (bottom - top);
     ctx.fillStyle = '#c4c8cc';
-    for (let i = 0; i <= 8; i++) ctx.fillRect(x + 28, yOf(-1 + i / 4) - 1, i % 4 === 0 ? 14 : 8, 2);
-    // Repère de décollage
-    ctx.fillStyle = '#39d353';
-    ctx.fillRect(x + 26, yOf(takeoff) - 2, 18, 4);
     ctx.font = 'bold 11px DejaVu Sans Mono, monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText('T/O', x + 25, yOf(takeoff));
-    const py = yOf(trim);
+    for (let d = Math.ceil(minDeg / 4) * 4; d <= maxDeg; d += 4) {
+        const major = d % 20 === 0;
+        ctx.fillRect(x + 28, yOf(d) - 1, major ? 14 : 8, 2);
+        if (d === 0) ctx.fillText('0', x + 25, yOf(d));
+    }
+    // Repère de décollage
+    ctx.fillStyle = '#39d353';
+    ctx.fillRect(x + 26, yOf(takeoffDeg) - 2, 18, 4);
+    ctx.fillText('T/O', x + 25, yOf(takeoffDeg));
+    const py = yOf(trimDeg);
     ctx.fillStyle = '#ff9f1a';
     ctx.beginPath();
     ctx.moveTo(x + 46, py);
     ctx.lineTo(x + 62, py - 8);
     ctx.lineTo(x + 62, py + 8);
     ctx.fill();
-    // Vitesse tenue manche lâché avec ce trim (et ces volets) : pour aller plus vite, trimer à piquer
+    // Angle du tab et vitesse tenue manche lâché (avec ces volets) : pour aller plus vite, trimer à piquer
     ctx.fillStyle = '#050505';
-    ctx.fillRect(x, y + h + 6, 76, 30);
-    ctx.strokeRect(x, y + h + 6, 76, 30);
+    ctx.fillRect(x, y + h + 6, 76, 46);
+    ctx.strokeRect(x, y + h + 6, 76, 46);
     ctx.fillStyle = '#39ff6a';
-    ctx.font = 'bold 16px DejaVu Sans Mono, monospace';
+    ctx.font = 'bold 15px DejaVu Sans Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`${Math.round(trimKnots)} KT`, x + 38, y + h + 22);
+    const sign = trimDeg > 0.5 ? '+' : '';
+    ctx.fillText(`${sign}${Math.round(trimDeg)}°`, x + 38, y + h + 19);
+    ctx.fillText(`${Math.round(trimKnots)} KT`, x + 38, y + h + 39);
 }
 
 function radio(ctx, x, y, label, active, standby) {
@@ -818,7 +825,7 @@ class Cockpit {
         annunciator(ctx, 730, 110, 'FREINS', state.inputs.brake > 0 && state.onGround, '#ffb000');
         annunciator(ctx, 730, 160, 'SOL', state.onGround, '#39d353');
         flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
-        trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimSpeed * KT);
+        trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimLimits, state.trimSpeed * KT);
 
         radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
         radio(ctx, 960, 150, 'NAV1', '110.30', '113.90');
