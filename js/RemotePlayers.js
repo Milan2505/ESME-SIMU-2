@@ -91,12 +91,14 @@ class Label {
 // vraies couleurs (livrée choisie par chaque joueur), son du moteur, explosion quand ils se crashent.
 // Événement 'crash' { name, position } : un joueur vient de s'écraser.
 class RemotePlayers extends EventTarget {
-    constructor(scene, multiplayer, { engineSound = null, altitudeOffset = 0 } = {}) {
+    // trimAirframe : redresse un repère comme l'extérieur de l'avion du joueur (les feux suivent le modèle)
+    constructor(scene, multiplayer, { engineSound = null, altitudeOffset = 0, trimAirframe = null } = {}) {
         super();
         this.scene = scene;
         this.multiplayer = multiplayer;
         this.engineSound = engineSound;
-        this.altitudeOffset = altitudeOffset;   // hauteur de l'avion au-dessus du sol, roues posées (m)
+        this.altitudeOffset = altitudeOffset;
+        this.trimAirframe = trimAirframe;   // hauteur de l'avion au-dessus du sol, roues posées (m)
         this.showLabels = true;
         this.night = 0;                         // feux des avions : discrets le jour, halos larges la nuit
         this.engineVolume = 1;                  // moins fort en cabine
@@ -250,7 +252,10 @@ class RemotePlayers extends EventTarget {
             const group = new Group();
             group.add(model);
             // Feux : les mêmes que sur notre avion, cachés par leur propre avion quand il est entre eux et nous
-            const lights = new AircraftLights(group);
+            const airframe = new Group();
+            this.trimAirframe?.(airframe);
+            group.add(airframe);
+            const lights = new AircraftLights(airframe);
             lights.setOccluder(model);
             lights.setNight(this.night);
             const label = new Label();

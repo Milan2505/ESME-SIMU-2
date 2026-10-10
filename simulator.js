@@ -36,9 +36,26 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 
 // Avion du joueur : Cessna 172 low poly de Vojtěch Balák (Poly Pizza, CC-BY 3.0)
 const AIRCRAFT_MODEL = 'asset/cessna.glb';
-const PROPELLER_SCALE = 0.97 / 1.51;                       // pales du modèle ramenées au rayon réel (0,97 m)
+const PROPELLER_SCALE = 1.2 / 1.51;                        // pales du modèle ramenées à 1,20 m de rayon (garde au sol ~21 cm)
 const NOSE_GEAR_EXTENSION = 0.18;                           // tige du train avant allongée (trop courte dans le modèle)
 const WHEEL_HEIGHT = 1.25 + NOSE_GEAR_EXTENSION;            // centre de l'avion au-dessus du sol, roues posées
+// Le modèle penche vers l'avant (aile calée à -1° à l'emplanture au lieu de +1,5°, dessous du fuselage qui descend de
+// 30 cm vers le nez) : l'extérieur de l'avion (modèle, feux) est redressé de 3°, autour du centre de la cabine
+// (la physique et la cabine ne changent pas), et le train avant allongé d'autant pour garder les trois roues au sol
+const AIRFRAME_PITCH = THREE.MathUtils.degToRad(3);
+const AIRFRAME_PIVOT_Z = -2.1;
+const TIRE_BOTTOM_Y = 0.01 - WHEEL_HEIGHT;                  // bas des pneus, repère avion (1 cm au-dessus du sol)
+const MAIN_WHEEL_Z = -1.21, NOSE_WHEEL_Z = -3.38;
+const pitchedY = (y, z) => y * Math.cos(AIRFRAME_PITCH) - (z - AIRFRAME_PIVOT_Z) * Math.sin(AIRFRAME_PITCH);
+const AIRFRAME_LIFT = TIRE_BOTTOM_Y - pitchedY(TIRE_BOTTOM_Y, MAIN_WHEEL_Z);       // roues principales gardées au sol
+const NOSE_PITCH_EXTENSION = pitchedY(TIRE_BOTTOM_Y, NOSE_WHEEL_Z) + AIRFRAME_LIFT - TIRE_BOTTOM_Y; // nez relevé d'autant
+
+// Repère redressé de l'extérieur de l'avion : rotation de AIRFRAME_PITCH autour de (0, 0, AIRFRAME_PIVOT_Z), relevé de AIRFRAME_LIFT
+function trimAirframe(object) {
+    object.rotation.x = AIRFRAME_PITCH;
+    object.position.set(0, AIRFRAME_LIFT + AIRFRAME_PIVOT_Z * Math.sin(AIRFRAME_PITCH), AIRFRAME_PIVOT_Z * (1 - Math.cos(AIRFRAME_PITCH)));
+    return object;
+}
 const COCKPIT_POSITION = new THREE.Vector3(0, 0.9, -1.85);  // cabine (hauteur des yeux) dans le repère avion, sous l'aile
 const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
@@ -108,7 +125,7 @@ const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
-const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT });
+const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT, trimAirframe });
 const radio = new Radio(multiplayer);
 
 const loader = new Utils3dLoader();
@@ -153,14 +170,17 @@ cockpit.group.position.copy(COCKPIT_POSITION);
 aircraft.add(cockpit.group);
 
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
-const aircraftLights = new AircraftLights(aircraft);
+// Extérieur de l'avion (modèle, feux, phare), redressé (voir trimAirframe)
+const airframe = trimAirframe(new THREE.Group());
+aircraft.add(airframe);
+const aircraftLights = new AircraftLights(airframe);
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(14), 0.6, 1.6);
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
 landingLight.position.set(-2.2, 1.12, -3);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
 landingLight.target.position.set(-1.2, -2.4, -80);
-aircraft.add(landingLight, landingLight.target);
+airframe.add(landingLight, landingLight.target);
 
 new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const model = aircraftModel = gltf.scene;
@@ -171,8 +191,8 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     const center = new THREE.Box3().setFromObject(propeller).getCenter(new THREE.Vector3());
     propeller.traverse((child) => child.geometry?.translate(-center.x, -center.y, 0));
     propeller.position.set(center.x, center.y, 0);
-    // Pales à la taille réelle : 1,51 m de rayon dans le modèle (hélice de 3 m, la pale du bas passait 32 cm sous
-    // la piste) ; celle d'un Cessna 172 fait 1,93 m de diamètre. Le cône (gris) garde sa taille
+    // Pales raccourcies : 1,51 m de rayon dans le modèle (hélice de 3 m, la pale du bas traversait la piste) ;
+    // 1,20 m, à l'échelle du nez du modèle, laisse ~21 cm sous la pale. Le cône (gris) garde sa taille
     propeller.traverse((child) => {
         if (child.isMesh && child.material.name === 'Black') child.geometry.scale(PROPELLER_SCALE, PROPELLER_SCALE, 1);
     });
@@ -180,11 +200,11 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     controlSurfaces = new ControlSurfaces(model, propeller);
     addWindowPillars(model);
     // Copie aux vitres opaques pour les avions garés et ceux des autres joueurs (ils n'ont pas d'intérieur)
-    const template = model.clone();
+    const template = trimAirframe(new THREE.Group()).add(model.clone());
     makeWindowsTransparent(model, propeller);
     model.traverse((child) => { child.castShadow = child.material !== cabinGlass; }); // le soleil entre par les vitres
     setupPropellerBlur(propeller); // après : le disque flou ne fait pas d'ombre
-    aircraft.add(model);
+    airframe.add(model);
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
     remotePlayers.setTemplate(template);
@@ -205,7 +225,7 @@ const MAIN_GEAR_DROP = { right: 0.295 + NOSE_GEAR_EXTENSION, left: 0.23 + NOSE_G
 function gearDrop(point) {
     // Train avant : sous le fuselage, autour de la roue (x ±0,15, z -3,7 à -3,1)
     if (Math.abs(point.x) < 0.15 && point.z > -3.7 && point.z < -3.1 && point.y < -0.74) {
-        return NOSE_GEAR_EXTENSION * (1 - THREE.MathUtils.smoothstep(point.y, -0.9, -0.74));
+        return (NOSE_GEAR_EXTENSION + NOSE_PITCH_EXTENSION) * (1 - THREE.MathUtils.smoothstep(point.y, -0.9, -0.74));
     }
     // Train principal : sous le fuselage (y < -0,3), autour de l'axe des roues (z -1,9 à -0,5)
     if (point.y > -0.3 || point.z < -1.9 || point.z > -0.5) return 0;
