@@ -45,6 +45,10 @@ function numbers(value, length) {
 }
 
 // N'accepte que des champs attendus, avec des valeurs valides (les messages viennent d'un relais public)
+function lightsFromBits(bits) {
+    return { land: (bits & 1) !== 0, nav: (bits & 2) !== 0, beacon: (bits & 4) !== 0, strobe: (bits & 8) !== 0 };
+}
+
 function cleanState(state) {
     const p = numbers(state?.p, 3), q = numbers(state?.q, 4), v = numbers(state?.v, 3);
     if (!p || !q || !v) return null;
@@ -56,6 +60,8 @@ function cleanState(state) {
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
         away: state.h === 1,                                       // page du simulateur cachée (hors ligne)
+        // Feux allumés (bits : 1 phare, 2 navigation, 4 anticollision, 8 strobes) ; absent : tous sauf le phare
+        lights: lightsFromBits(Number.isInteger(state.l) ? state.l : 14),
     };
 }
 
@@ -145,7 +151,7 @@ class Multiplayer extends EventTarget {
     }
 
     // À appeler à chaque image avec l'objet piloté, la position des gaz et l'état de crash
-    update(object, throttle, { crashed = false, crashes = 0 } = {}) {
+    update(object, throttle, { crashed = false, crashes = 0, lights = null } = {}) {
         if (!this.code) return;
         const now = performance.now();
 
@@ -170,6 +176,7 @@ class Multiplayer extends EventTarget {
             c: this.livery,
             x: crashes,
             k: crashed ? 1 : 0,
+            l: lights ? (lights.land ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
         };
         if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
     }

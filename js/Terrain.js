@@ -35,9 +35,12 @@ class Terrain {
         tile = 60,            // taille d'une répétition de texture (m)
         grassTint = 0x219313,
         flatten = () => 1,    // facteur de relief en (x, z) : 0 = sol plat (aérodrome), 1 = relief normal
+        // Vallée sans montagnes autour de la piste : ellipse allongée dans l'axe (rz, nord-sud) aux bords irréguliers,
+        // pour décoller et atterrir face au relief dégagé
+        clearing = null,      // { x, z, rx, rz }
     } = {}) {
         this.noise = new ImprovedNoise();
-        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten });
+        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearing });
 
         this.size = size;
         this.mesh = new Mesh(this._createGeometry(segments), this._createMaterial(renderer, { snowHeight, tile, grassTint }));
@@ -86,7 +89,21 @@ class Terrain {
         mountains /= total;
 
         return relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
-            + mountains * this.mountainHeight * smoothstep(this.mountainStart, this.mountainFull, r));
+            + mountains * this.mountainHeight * smoothstep(this.mountainStart, this.mountainFull, r) * this._clearingFactor(x, z));
+    }
+
+    // 0 au fond de la vallée de la piste, 1 hors de la vallée (montagnes normales), fondu sur ses bords
+    _clearingFactor(x, z) {
+        const c = this.clearing;
+        if (!c) return 1;
+        const dx = (x - c.x) / c.rx, dz = (z - c.z) / c.rz;
+        const d = Math.hypot(dx, dz);
+        if (d > 2) return 1;
+        // Bord irrégulier : rayon qui varie avec la direction (grandes et petites ondulations) et le lieu
+        const angle = Math.atan2(dz, dx);
+        const wobble = 1 + 0.22 * this.noise.noise(Math.cos(angle) * 1.6, Math.sin(angle) * 1.6, 3.7)
+            + 0.1 * this.noise.noise(x / 300, z / 300, 9.1);
+        return smoothstep(0.75, 1.3, d / wobble);
     }
 
     _createMaterial(renderer, { snowHeight, tile, grassTint }) {

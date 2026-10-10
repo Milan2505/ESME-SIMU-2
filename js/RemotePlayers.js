@@ -2,6 +2,7 @@ import {
     CanvasTexture,
     Group,
     Quaternion,
+    SpotLight,
     Sprite,
     SpriteMaterial,
     SRGBColorSpace,
@@ -20,6 +21,11 @@ const LABEL_REFRESH = 0.5;      // distance et altitude de l'étiquette mises à
 const OFFLINE_DELAY = 3000;     // sans nouvelles depuis 3 s : joueur hors ligne (retiré au bout de 8 s, voir Multiplayer.js)
 const LABEL_MIN_DISTANCE = 12;  // tout près : étiquette masquée (elle cacherait l'avion)
 const FT = 0.3048, NM = 1852;
+// Phare des autres avions : même lumière que celui du joueur (simulator.js). Réserve de 2 projecteurs, attribués aux
+// avions phare allumé les plus proches (une lumière par avion alourdirait trop le rendu)
+const LANDING_SPOTS = 2;
+const LANDING_LIGHT = { intensity: 12000, distance: 400, angle: 20 * Math.PI / 180, penumbra: 0.65, decay: 1.6,
+    position: [-2.2, 1.12, -3], target: [-1.2, -2.4, -80] };
 
 const _forward = new Vector3();
 
@@ -205,6 +211,8 @@ class RemotePlayers extends EventTarget {
             }));
             plane.crashes = state.crashes;
             group.visible = !state.crashed;
+            // Feux : les interrupteurs de ce joueur (phare, navigation, anticollision, strobes)
+            plane.lights.setSwitches(state.lights);
             if (camera && group.visible) {
                 group.updateMatrixWorld();
                 plane.lights.update(camera, time + plane.lightPhase);
@@ -226,6 +234,36 @@ class RemotePlayers extends EventTarget {
                 label.draw(state.name, detail, RemotePlayers.color(state.livery), this.speaking.has(id), offline);
             }
         }
+        this._updateLandingLights(ownPosition);
+    }
+
+    // Projecteurs de la réserve placés sur les avions phare allumé les plus proches (de nuit)
+    _updateLandingLights(ownPosition) {
+        if (!this.planes.size && !this._spots) return;
+        if (!this._spots) {
+            // Créés une fois, à l'arrivée du premier joueur (chaque lumière ajoutée recompile les matériaux)
+            this._spots = Array.from({ length: LANDING_SPOTS }, () => {
+                const L = LANDING_LIGHT;
+                const spot = new SpotLight(0xfff3d6, 0, L.distance, L.angle, L.penumbra, L.decay);
+                this.scene.add(spot, spot.target);
+                return spot;
+            });
+        }
+        const lit = this.night >= 0.5 ? [...this.planes.entries()]
+            .filter(([id, plane]) => plane.group.visible && this.multiplayer.players.get(id)?.lights.land)
+            .map(([, plane]) => plane)
+            .sort((a, b) => (ownPosition ? a.group.position.distanceTo(ownPosition) - b.group.position.distanceTo(ownPosition) : 0))
+            : [];
+        this._spots.forEach((spot, i) => {
+            const plane = lit[i];
+            spot.intensity = plane ? LANDING_LIGHT.intensity : 0;
+            if (!plane) return;
+            const frame = plane.lights.parent;   // repère redressé de l'extérieur de l'avion (comme pour le joueur)
+            frame.updateMatrixWorld();
+            spot.position.fromArray(LANDING_LIGHT.position).applyMatrix4(frame.matrixWorld);
+            spot.target.position.fromArray(LANDING_LIGHT.target).applyMatrix4(frame.matrixWorld);
+            spot.target.updateMatrixWorld();
+        });
     }
 
     // Crée / supprime les avions selon la liste des joueurs

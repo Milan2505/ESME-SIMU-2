@@ -120,7 +120,9 @@ const scene = new THREE.Scene();
 // reçoit qu'une copie de l'image finale ; l'anticréneler calculait 4 échantillons par pixel pour rien (coûteux en plein écran)
 const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: false });
 const airport = new Airport();
-const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z) });
+// Vallée dégagée dans l'axe de la piste (x 220, nord-sud) : ~2,3 km de chaque côté, ~0,7 km de large
+const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z),
+    clearing: { x: 220, z: 0, rx: 750, rz: 2300 } });
 const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
@@ -1693,7 +1695,7 @@ renderer.setAnimationLoop((time)=>{
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * THREE.MathUtils.clamp(systems.rpm / 600, 0, 1);
     engineSound.update(controls.getThrottle() * systems.power, engineVolume, systems.running ? 1 : 0.45);
     updateSounds();
-    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount } );
+    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
