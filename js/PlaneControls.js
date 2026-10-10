@@ -39,8 +39,8 @@ const _ALPHA_STALL = MathUtils.degToRad( 16 );        // incidence de décrochag
 const _CD0 = 0.036;                                   // traînée de forme (train fixe compris)
 const _INDUCED_DRAG = 0.06;                           // traînée induite : k·CL² (aile d'allongement 7,5)
 const _STALL_DRAG = 0.15;                             // aile décrochée : traînée en plus
-const _STATIC_THRUST = 2600;                          // poussée plein gaz à l'arrêt (N)
-const _POWER = 80000;                                 // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
+const _STATIC_THRUST = 3400;                          // poussée plein gaz à l'arrêt (N) : accélération franche au décollage
+const _POWER = 105000;                                // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse
 const _WINDMILL_DRAG = 0.012;                         // hélice au ralenti : elle freine l'avion (finesse ~9 en plané)
 const _SIDE_FORCE = 0.6;                              // force latérale du fuselage en dérapage (par radian)
 
@@ -49,15 +49,15 @@ const _PITCH_RATE = 0.2;
 const _ROLL_RATE = 0.7;
 const _YAW_RATE = 0.3;
 const _CONTROL_SPEED = 30;                            // vitesse (m/s) où les gouvernes ont leur pleine efficacité
-const _PITCH_STABILITY = 2.5;                         // manche lâché : le nez revient à l'incidence compensée
+const _PITCH_STABILITY = 3.5;                         // manche lâché : le nez revient à l'incidence du trim
 const _YAW_STABILITY = 3;                             // la dérive aligne le nez sur la trajectoire (virage coordonné)
 const _DIHEDRAL = 0.8;                                // le dérapage incline l'avion (dièdre des ailes)
 const _SPIRAL_STABILITY = 0.1;                        // manche lâché, l'inclinaison se réduit doucement (sinon le virage se resserre)
 const _ANGULAR_RESPONSE = 5;                          // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 const _STALL_PITCH_DOWN = 0.4;                        // abattée au décrochage (rad/s)
 const _STALL_WING_DROP = 0.5;                         // une aile tombe au décrochage (rad/s)
-const _ELEVATOR_LIMIT = MathUtils.degToRad( 1 );      // manche tiré à fond : l'incidence plafonne 1° au-delà du décrochage...
-const _ELEVATOR_FADE = MathUtils.degToRad( 8 );       // ... en y arrivant de plus en plus lentement (l'alarme a le temps de sonner)
+const _ELEVATOR_LIMIT = MathUtils.degToRad( - 1 );    // manche tiré à fond : l'incidence plafonne 1° sous le décrochage (la profondeur seule ne fait pas décrocher)...
+const _ELEVATOR_FADE = MathUtils.degToRad( 6 );       // ... en y arrivant de plus en plus lentement (l'alarme sonne avant)
 
 // Sol : au-delà de ces limites, le contact avec le sol est un crash
 const _CRASH_SINK = 6;                                // vitesse d'impact perpendiculaire au sol (m/s)
@@ -356,13 +356,15 @@ class PlaneControls extends Controls {
 
 		// Gouvernes : efficacité selon la vitesse. Manche relâché, la stabilité ramène l'avion à l'incidence du trim
 		const effect = Math.min( 1, ( speed / _CONTROL_SPEED ) ** 2 );
-		const stability = effect;
+		// La stabilité garde de l'effet à basse vitesse : le nez suit la trajectoire (sinon, en chandelle, l'incidence
+		// dépassait le décrochage sans action du pilote)
+		const stability = MathUtils.clamp( ( speed / 20 ) ** 2, 0.6, 1 );
 		const input = this._controls;
-		let trimAlpha = Math.min( _TRIM_MID + this.trim * _TRIM_RANGE, stallAlpha - MathUtils.degToRad( 3 ) );
+		let trimAlpha = Math.min( _TRIM_MID + this.trim * _TRIM_RANGE, stallAlpha - MathUtils.degToRad( 5 ) ); // trim seul : jamais de décrochage
 		// Juste après l'envol : on part de l'incidence d'envol et on rejoint le trim en douceur
 		if ( this._liftoffBlend > 0 ) {
 			this._liftoffBlend = Math.max( 0, this._liftoffBlend - dt / _LIFTOFF_RELEASE_TIME );
-			trimAlpha = Math.max( trimAlpha, MathUtils.lerp( trimAlpha, this._liftoffAlpha, this._liftoffBlend ) );
+			trimAlpha = MathUtils.lerp( trimAlpha, this._liftoffAlpha, this._liftoffBlend );
 		}
 
 		// Profondeur : à cabrer, de moins en moins efficace à l'approche du décrochage
@@ -409,8 +411,12 @@ class PlaneControls extends Controls {
 		this._groundYaw += steer * 0.6 * authority * dt;
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
+		// Manche au neutre : le trim lève doucement le nez jusqu'à son assiette (l'avion trimé décolle tout seul)
+		const trimPitch = MathUtils.clamp( _TRIM_MID + this.trim * _TRIM_RANGE, 0, _MAX_GROUND_PITCH );
 		if ( input.x > 0 && speed > this.rotateSpeed * 0.85 ) {
 			this._groundPitch += input.x * 0.12 * Math.min( 1, ( speed / this.rotateSpeed ) ** 2 ) * dt; // ~7°/s
+		} else if ( Math.abs( input.x ) < 0.05 && speed > this.rotateSpeed && this._groundPitch < trimPitch ) {
+			this._groundPitch = Math.min( trimPitch, this._groundPitch + 0.06 * dt );
 		} else {
 			this._groundPitch -= ( input.x < 0 ? 0.6 : 0.25 ) * ( 0.3 + 0.7 * wheelLoad ) * dt;
 		}
