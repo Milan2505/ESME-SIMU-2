@@ -1551,12 +1551,13 @@ function updateSounds() {
     // (il est dans l'aile, au-dessus)
     const flaps = controls.getFlaps();
     const moving = Math.abs(flaps - lastFlaps) > 1e-5 && !choosingSpawn;
-    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.25 : 0.6 });
+    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.6 : 1.4 });
     flapsMoving = moving;
     lastFlaps = flaps;
-    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.25 : 0.7) : 0, 1);
+    // (fichier enregistré bas, -25 dBFS : gain > 1 pour passer au-dessus du moteur)
+    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.8 : 2.2) : 0, 1);
     // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
-    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.005 : 0.025) : 0, 1.7);
+    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.008 : 0.045) : 0, 1.7);
 }
 
 const aircraftVelocity = new THREE.Vector3();
