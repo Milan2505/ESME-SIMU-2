@@ -346,9 +346,9 @@ controls.addEventListener('reset', () => {
     clearTimeout(crashTimer);
 });
 
-const _cameraTarget = new THREE.Vector3();
 const _lookAt = new THREE.Vector3();
 const _offset = new THREE.Vector3();
+const chaseOffset = new THREE.Vector3(0, 0, CHASE_DISTANCE);  // caméra extérieure par rapport à l'avion (repère monde)
 const _headQuaternion = new THREE.Quaternion();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _xAxis = new THREE.Vector3(1, 0, 0);
@@ -369,12 +369,21 @@ function updateCamera(delta, snap = false) {
         _headQuaternion.setFromEuler(_euler.set(head.pitch + COCKPIT_TILT, head.yaw, 0));
         camera.quaternion.copy(aircraft.quaternion).multiply(_headQuaternion);
     } else {
-        // Caméra de poursuite en orbite autour de l'avion : suit avec un peu de retard, reste au-dessus du sol
-        _offset.set(0, 0, orbit.distance).applyAxisAngle(_xAxis, -orbit.pitch).applyAxisAngle(_yAxis, orbit.yaw);
-        _cameraTarget.copy(_offset).applyMatrix4(aircraft.matrixWorld);
-        const ground = terrain.heightAt(_cameraTarget.x, _cameraTarget.z) + 2;
-        _cameraTarget.y = Math.max(_cameraTarget.y, ground);
-        camera.position.lerp(_cameraTarget, snap ? 1 : 1 - Math.exp(-CHASE_STIFFNESS * delta));
+        // Caméra de poursuite en orbite autour de l'avion, reste au-dessus du sol. Elle suit exactement la position
+        // de l'avion ; seule sa direction autour de lui suit avec un peu de retard (virages, tangage). Lisser la position
+        // elle-même la laissait traîner derrière l'avion d'autant plus qu'il allait vite (zoomée à 7 m : ~20 m en vol),
+        // puis revenir d'un coup quand il ralentissait ou tournait
+        _offset.set(0, 0, orbit.distance).applyAxisAngle(_xAxis, -orbit.pitch).applyAxisAngle(_yAxis, orbit.yaw)
+            .applyQuaternion(aircraft.quaternion);
+        if (snap) {
+            chaseOffset.copy(_offset);
+        } else {
+            // Direction et distance lissées séparément : la caméra tourne autour de l'avion sans s'en rapprocher
+            const length = THREE.MathUtils.lerp(chaseOffset.length(), _offset.length(), 1 - Math.exp(-CHASE_STIFFNESS * delta));
+            chaseOffset.lerp(_offset, 1 - Math.exp(-CHASE_STIFFNESS * delta)).setLength(length);
+        }
+        camera.position.copy(aircraft.position).add(chaseOffset);
+        camera.position.y = Math.max(camera.position.y, terrain.heightAt(camera.position.x, camera.position.z) + 2);
         camera.up.set(0, 1, 0);
         _lookAt.copy(CHASE_TARGET).applyAxisAngle(_yAxis, orbit.yaw);
         // En orbite, on vise l'avion lui-même plutôt qu'un point devant lui
@@ -524,6 +533,7 @@ function setWeather(name) {
     cockpit.setNight(w.night);
     airport.setNight(w.night);
     aircraftLights.setNight(w.night);
+    remotePlayers.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
     landingLight.visible = w.night >= 0.5;
     landingLight.intensity = 12000;
@@ -794,7 +804,7 @@ function playerRow(name, color, info, speaking) {
 }
 
 function updateOnlineList() {
-    onlineNombre.textContent = multiplayer.code ? String(multiplayer.players.size + 1) : 'hors ligne';
+    onlineNombre.textContent = multiplayer.code ? String(multiplayer.players.size + 1) : '0';
     onlinePartie.textContent = multiplayer.code
         ? `Partie ${multiplayer.code}`
         : 'Hors ligne : créez ou rejoignez une partie pour voler à plusieurs';
@@ -807,7 +817,7 @@ function updateOnlineList() {
     for (const player of remotePlayers.list()) {
         const distance = formatNM(player.position.distanceTo(aircraft.position));
         rows.push(playerRow(player.name, player.color,
-            player.crashed ? 'crash' : `${distance} NM · ${formatAltitude(player.altitude)}`, player.speaking));
+            player.crashed ? 'crash' : player.offline ? 'hors ligne' : `${distance} NM · ${formatAltitude(player.altitude)}`, player.speaking));
     }
     // Joueurs connus dont l'avion n'est pas encore affiché (modèle 3D en cours de chargement)
     for (const [id, player] of multiplayer.players) {
@@ -1150,7 +1160,7 @@ renderer.setAnimationLoop((time)=>{
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
-    remotePlayers.update( delta, aircraft.position );
+    remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime );
     updateRemoteCrashes( delta );
     updateMap( delta );
     // Liste "En ligne" ouverte : distances et altitudes mises à jour chaque seconde

@@ -652,7 +652,7 @@ class Cockpit {
             const back = add(new Mesh(new BoxGeometry(0.46, 0.65, 0.09), seat), side * 0.3, -0.27, 0.6);
             back.rotation.x = -0.18;
         }
-        this._beam(new Vector3(0, -0.05, -0.98), new Vector3(0, 0.37, -0.42), 0.035, frame); // montant central
+        // Pas de montant central : le pare-brise du Cessna 172 est d'un seul tenant
 
         // Manches (yokes) : la colonne coulisse dans le tableau (poussé / tiré), le volant tourne
         this._yokes = [-0.3, 0.3].map((x) => {

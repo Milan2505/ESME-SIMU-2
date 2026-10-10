@@ -95,7 +95,7 @@ class MapView {
             ctx.textAlign = 'left';
             ctx.lineWidth = 3 * ratio;
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
-            const text = `${player.name}${player.speaking ? ' (radio)' : ''}`;
+            const text = `${player.name}${player.offline ? ' (hors ligne)' : player.speaking ? ' (radio)' : ''}`;
             const sub = `${(Math.round(Math.max(0, player.altitude) / 10) * 10).toLocaleString('fr-FR')} ft`;
             const x = toX(player.position.x) + 11 * ratio, y = toY(player.position.z);
             ctx.strokeText(text, x, y - 6 * ratio);

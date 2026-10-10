@@ -55,6 +55,7 @@ function cleanState(state) {
         livery: isLivery(state.c) ? state.c : DEFAULT_LIVERY,
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
+        away: state.h === 1,                                       // page du simulateur cachée (hors ligne)
     };
 }
 
@@ -82,6 +83,10 @@ class Multiplayer extends EventTarget {
         this._state = null;           // dernier état local, renvoyé par la pulsation
 
         setInterval(() => this._heartbeat(), HEARTBEAT / 2);
+        // Le joueur quitte la page du simulateur (autre onglet, fenêtre réduite) ou y revient : les autres le savent tout de suite
+        document.addEventListener('visibilitychange', () => {
+            if (this._joined) this._sendState();
+        });
     }
 
     // Lien direct vers la partie, à partager
@@ -223,7 +228,8 @@ class Multiplayer extends EventTarget {
     _sendState() {
         if (!this._state) return;
         this._lastSend = performance.now();
-        this._publish(this._state);
+        // Page cachée : le navigateur suspend l'animation, l'avion ne bouge plus ; la pulsation continue d'envoyer cet état
+        this._publish({ ...this._state, h: document.hidden ? 1 : 0 });
     }
 
     // Toutes les 0,5 s, même onglet en arrière-plan : renvoie l'état s'il n'est pas parti depuis 1 s,

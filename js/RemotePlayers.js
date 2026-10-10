@@ -8,6 +8,7 @@ import {
     Vector3
 } from 'three';
 import { LIVERIES, paintAircraft } from './Liveries.js';
+import { AircraftLights } from './AircraftLights.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
 const POSITION_CORRECTION = 3;  // rapidité du recalage sur la position prédite
@@ -16,6 +17,7 @@ const SNAP_DISTANCE = 60;       // au-delà, on replace l'avion directement (ré
 const LABEL_HEIGHT = 0.065;     // hauteur de l'étiquette : ~6,5 % de la hauteur de l'écran, quelle que soit la distance
 const LABEL_OFFSET = 3;         // étiquette au-dessus de l'avion (m)
 const LABEL_REFRESH = 0.5;      // distance et altitude de l'étiquette mises à jour toutes les 0,5 s
+const OFFLINE_DELAY = 3000;     // sans nouvelles depuis 3 s : joueur hors ligne (retiré au bout de 8 s, voir Multiplayer.js)
 const LABEL_MIN_DISTANCE = 12;  // tout près : étiquette masquée (elle cacherait l'avion)
 const FT = 0.3048, NM = 1852;
 
@@ -45,15 +47,16 @@ class Label {
         this._text = '';
     }
 
-    draw(name, detail, color, speaking) {
-        const text = `${name}|${detail}|${color}|${speaking}`;
+    draw(name, detail, color, speaking, offline = false) {
+        const text = `${name}|${detail}|${color}|${speaking}|${offline}`;
         if (text === this._text) return;
         this._text = text;
         const ctx = this.canvas.getContext('2d');
         ctx.clearRect(0, 0, 512, 168);
         // Cadre et pointe
         ctx.fillStyle = 'rgba(10, 12, 16, 0.72)';
-        ctx.strokeStyle = speaking ? '#39ff6a' : color;
+        const accent = offline ? '#8a8f96' : speaking ? '#39ff6a' : color;
+        ctx.strokeStyle = accent;
         ctx.lineWidth = 6;
         ctx.beginPath();
         ctx.roundRect(6, 6, 500, 128, 18);
@@ -64,17 +67,17 @@ class Label {
         ctx.lineTo(256, 164);
         ctx.lineTo(276, 137);
         ctx.closePath();
-        ctx.fillStyle = speaking ? '#39ff6a' : color;
+        ctx.fillStyle = accent;
         ctx.fill();
         // Texte
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = offline ? '#b8bcc2' : 'white';
         ctx.font = 'bold 54px DejaVu Sans Mono, monospace';
         ctx.fillText(name, 256, 50, 470);
         ctx.font = 'bold 34px DejaVu Sans Mono, monospace';
-        ctx.fillStyle = speaking ? '#39ff6a' : '#d8dde3';
-        ctx.fillText(speaking ? 'RADIO' : detail, 256, 104, 470);
+        ctx.fillStyle = offline ? '#ffb000' : speaking ? '#39ff6a' : '#d8dde3';
+        ctx.fillText(offline ? 'HORS LIGNE' : speaking ? 'RADIO' : detail, 256, 104, 470);
         this.texture.needsUpdate = true;
     }
 
@@ -95,6 +98,7 @@ class RemotePlayers extends EventTarget {
         this.engineSound = engineSound;
         this.altitudeOffset = altitudeOffset;   // hauteur de l'avion au-dessus du sol, roues posées (m)
         this.showLabels = true;
+        this.night = 0;                         // feux des avions : discrets le jour, halos larges la nuit
         this.engineVolume = 1;                  // moins fort en cabine
         this.template = null;          // modèle 3D de l'avion (fourni quand il est chargé)
         this.planes = new Map();       // id -> { group, model, label, propeller, engine, livery, crashes, … }
@@ -110,6 +114,12 @@ class RemotePlayers extends EventTarget {
     setTemplate(model) {
         this.template = model;
         this._sync();
+    }
+
+    // Ambiance (météo) : feux de navigation, anticollision, strobes et phare des autres avions
+    setNight(night) {
+        this.night = night;
+        for (const plane of this.planes.values()) plane.lights.setNight(night);
     }
 
     // Couleur d'affichage d'un joueur (étiquette, carte, liste)
@@ -132,14 +142,21 @@ class RemotePlayers extends EventTarget {
                 heading: (Math.atan2(_forward.x, -_forward.z) * 180 / Math.PI + 360) % 360,
                 altitude: (plane.group.position.y - this.altitudeOffset) / FT,
                 crashed: state.crashed,
+                offline: this.isOffline(state),
                 speaking: this.speaking.has(id),
             });
         }
         return result;
     }
 
-    // ownPosition : position de l'avion du joueur (distance affichée sur les étiquettes)
-    update(delta, ownPosition) {
+    // Joueur qui n'est plus sur la page du simulateur, ou dont on n'a plus de nouvelles
+    isOffline(state) {
+        return state.away || performance.now() - state.receivedAt > OFFLINE_DELAY;
+    }
+
+    // ownPosition : position de l'avion du joueur (distance affichée sur les étiquettes) ;
+    // camera et time (s) : orientation et clignotement des feux
+    update(delta, ownPosition, camera = null, time = 0) {
         const now = performance.now();
         const positionAlpha = 1 - Math.exp(-POSITION_CORRECTION * delta);
         const rotationAlpha = 1 - Math.exp(-SMOOTHING * delta);
@@ -156,6 +173,9 @@ class RemotePlayers extends EventTarget {
             const age = Math.min(MAX_EXTRAPOLATION,
                 (now - state.receivedAt + (state.age ?? 0)) / 1000 + this.multiplayer.latency);
             this._velocity.fromArray(state.v ?? [0, 0, 0]);
+            // Hors ligne : l'avion est figé chez ce joueur, on ne le fait plus avancer
+            const offline = this.isOffline(state);
+            if (offline) this._velocity.set(0, 0, 0);
             this._targetPosition.fromArray(state.p).addScaledVector(this._velocity, state.crashed ? 0 : age);
             this._targetQuaternion.fromArray(state.q);
 
@@ -183,6 +203,10 @@ class RemotePlayers extends EventTarget {
             }));
             plane.crashes = state.crashes;
             group.visible = !state.crashed;
+            if (camera && group.visible) {
+                group.updateMatrixWorld();
+                plane.lights.update(camera, time + plane.lightPhase);
+            }
 
             // Moteur (créé dès que le son est débloqué par une action du joueur)
             plane.engine ??= this.engineSound?.createRemote() ?? null;
@@ -197,7 +221,7 @@ class RemotePlayers extends EventTarget {
                 const altitude = Math.max(0, (group.position.y - this.altitudeOffset) / FT);
                 const detail = `${formatNM(distance)} NM · `
                     + `${(Math.round(altitude / 10) * 10).toLocaleString('fr-FR')} ft`;
-                label.draw(state.name, detail, RemotePlayers.color(state.livery), this.speaking.has(id));
+                label.draw(state.name, detail, RemotePlayers.color(state.livery), this.speaking.has(id), offline);
             }
         }
     }
@@ -225,12 +249,18 @@ class RemotePlayers extends EventTarget {
             paintAircraft(model, player.livery);
             const group = new Group();
             group.add(model);
+            // Feux : les mêmes que sur notre avion, cachés par leur propre avion quand il est entre eux et nous
+            const lights = new AircraftLights(group);
+            lights.setOccluder(model);
+            lights.setNight(this.night);
             const label = new Label();
             this.scene.add(group, label.sprite);
             this.planes.set(id, {
                 group, model, label,
                 propeller: model.getObjectByName('Propeller_Cone'),
                 engine: null,
+                lights,
+                lightPhase: Math.random() * 10,   // clignotements décalés d'un avion à l'autre
                 livery: player.livery,
                 crashes: player.crashes,   // les crashs d'avant notre arrivée ne font pas exploser l'avion
                 fresh: true,
