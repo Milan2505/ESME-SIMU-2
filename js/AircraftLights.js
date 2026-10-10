@@ -12,6 +12,7 @@ import {
     MathUtils,
     Mesh,
     MeshStandardMaterial,
+    PointLight,
     Raycaster,
     Shape,
     ShaderMaterial,
@@ -163,7 +164,12 @@ const _eye = new Vector3();
 const _worldLight = new Vector3();
 const _ray = new Vector3();
 const _raycaster = new Raycaster();
-const FLARE_OFFSET = 0.6;       // halo avancé vers la caméra : ne traverse pas l'aile ni le fuselage (m)
+const FLARE_OFFSET = 0.6;
+// Lumière portée par les bouts d'aile (avion du joueur, la nuit) : lueur du feu de navigation en continu,
+// éclair blanc du strobe qui éclaire le sol, les objets proches et l'avion (comme le phare)
+const NAV_GLOW = 2.5;          // candelas : lueur rouge / verte sur le bout d'aile et le sol juste dessous
+const STROBE_FLASH = 120;      // candelas : éclair du strobe
+const TIP_LIGHT_RANGE = 40;    // portée (m)       // halo avancé vers la caméra : ne traverse pas l'aile ni le fuselage (m)
 
 // Visibilité d'un feu dans un secteur [début, fin] d'azimut (0 = droit devant, + = vers la droite),
 // avec un fondu aux limites
@@ -214,7 +220,9 @@ function createBeam() {
 }
 
 class AircraftLights {
-    constructor(parent) {
+    // castLight : les bouts d'aile éclairent vraiment la scène (seulement pour l'avion du joueur : chaque lumière
+    // alourdit le calcul de tous les matériaux)
+    constructor(parent, { castLight = false } = {}) {
         this.parent = parent;
         this.group = new Group();
         this.night = 0;
@@ -235,6 +243,16 @@ class AircraftLights {
             const wing = Math.abs(def.position[0]) > 2;
             return { ...def, wing, base: position.clone(), position, bulb, glows, flare, baseColor: flare.material.color.clone(), visibility: 1 };
         });
+        // Une lumière par bout d'aile : couleur du feu de navigation, blanche pendant l'éclat du strobe
+        this.tipLights = !castLight ? [] : this.lights.filter((light) => light.kind === 'nav' && light.wing).map((nav) => {
+            const side = Math.sign(nav.base.x);
+            const light = new PointLight(nav.color, 0, TIP_LIGHT_RANGE, 2);
+            light.position.set(nav.base.x + side * 0.4, nav.base.y + 0.1, nav.base.z + 0.3);   // un peu à l'extérieur
+            light.visible = false;
+            light.userData.navColor = new Color(nav.color);
+            this.group.add(light);
+            return light;
+        });
         this.beam = createBeam();
         this.beam.position.set(-2.2, 1.12, -3);
         this.beam.visible = false;
@@ -247,6 +265,8 @@ class AircraftLights {
         this.night = night;
         this.landingLight = landingLight;
         this.beam.visible = landingLight;
+        // De nuit seulement, comme le phare (voir simulator.js) : le jour, elles ne se verraient pas
+        for (const light of this.tipLights) light.visible = landingLight;
     }
 
     // Le halo d'un feu masqué par l'avion lui-même (aile, fuselage) s'efface
@@ -281,6 +301,11 @@ class AircraftLights {
         const beaconPhase = (time % 1) * Math.PI * 2;      // anticollision : un tour par seconde
         const strobe = time % 1.4;                          // strobes : double éclat toutes les 1,4 s
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
+        for (const light of this.tipLights) {
+            if (strobeOn) light.color.setRGB(1, 1, 1);
+            else light.color.copy(light.userData.navColor);
+            light.intensity = strobeOn ? STROBE_FLASH : NAV_GLOW;
+        }
 
         for (const light of this.lights) {
             const toEye = _eye.clone().sub(light.position);
@@ -315,7 +340,10 @@ class AircraftLights {
 
             // Verre toujours en place : teinté quand le feu ne nous éclaire pas (hors secteur, entre deux éclats),
             // très lumineux sinon (au-delà de 1 : capté par le halo du bloom)
-            const glow = 0.1 + 3 * Math.min(1, intensity * 1.5);
+            let glow = 0.1 + 3 * Math.min(1, intensity * 1.5);
+            // Feu de navigation vu hors de son secteur (de l'arrière, règle OACI : pas de halo) : le verre reste
+            // allumé, plus faiblement, la nuit
+            if (light.kind === 'nav') glow = Math.max(glow, 0.1 + 0.9 * this.night);
             for (const material of light.glows) material.emissiveIntensity = glow;
             light.flare.visible = intensity > 0.02;
             if (!light.flare.visible) continue;

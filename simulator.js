@@ -182,7 +182,7 @@ aircraft.add(cockpit.group);
 // Extérieur de l'avion (modèle, feux, phare), redressé (voir trimAirframe)
 const airframe = trimAirframe(new THREE.Group());
 aircraft.add(airframe);
-const aircraftLights = new AircraftLights(airframe);
+const aircraftLights = new AircraftLights(airframe, { castLight: true });
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(14), 0.6, 1.6);
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
