@@ -886,9 +886,11 @@ class Airport {
         const half = RUNWAY.length / 2, side = RUNWAY.width / 2 + 1.5;
 
         // Feux de bord de piste tous les 50 m, feux de seuil verts et d'extrémité rouges
+        // Côté est : pas de feu au milieu des raccordements (bretelle, raquettes de retournement), on y roule
+        const onPavement = (x, z) => inside(TAXIWAY, x, z, 2) || TURN_PADS.some((pad) => inside(pad, x, z, 2));
         for (let z = -half; z <= half; z += 50) {
             add(RUNWAY.x - side, RUNWAY.z + z, white);
-            add(RUNWAY.x + side, RUNWAY.z + z, white);
+            if (!onPavement(RUNWAY.x + side, RUNWAY.z + z)) add(RUNWAY.x + side, RUNWAY.z + z, white);
         }
         for (let x = -RUNWAY.width / 2; x <= RUNWAY.width / 2; x += 3) {
             add(RUNWAY.x + x, RUNWAY.z + half + 2, green);
