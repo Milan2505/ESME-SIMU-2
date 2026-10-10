@@ -129,7 +129,9 @@ const SHADOW_SIZE = 120;        // demi-côté de la zone d'ombres autour de l'a
 const SUN_DISTANCE = 400;
 
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
-const MIN_PIXEL_RATIO = 0.6;
+// Jamais sous un pixel calculé par pixel CSS : en dessous, l'image agrandie paraît pixelisée malgré l'anticrénelage
+// (sur un écran HD, un pixel calculé couvrait plus de 3 pixels physiques à 0,6). Plus bas : réglage manuel 75 % / 50 %.
+const MIN_PIXEL_RATIO = 1;
 // Résolution automatique : au plus ~2 millions de pixels calculés par image (Full HD), quelle que soit la taille
 // de l'écran. Sans ce plafond, le plein écran sur un grand écran HD calculait 3 à 4 fois plus de pixels.
 const PIXEL_BUDGET = 2.1e6;
@@ -257,8 +259,8 @@ class Graphics {
 
         const ratio = this.renderer.getPixelRatio();
         q.goodSeconds = fps > HIGH_FPS * this.targetFps ? q.goodSeconds + 1 : 0;
-        if (fps < LOW_FPS * this.targetFps && ratio > MIN_PIXEL_RATIO) {
-            this.setPixelRatio(Math.max(MIN_PIXEL_RATIO, ratio - PIXEL_RATIO_STEP));
+        if (fps < LOW_FPS * this.targetFps && ratio > this._autoMinRatio() + 0.01) {
+            this.setPixelRatio(Math.max(this._autoMinRatio(), ratio - PIXEL_RATIO_STEP));
             q.holdUntil = now + 2000;       // laisse le temps de mesurer le nouvel état
             // Remontée qui a fait rechuter les i/s : on ne réessaie pas avant 30 s (évite le yo-yo de résolution)
             if (now - q.raisedAt < 6000) q.noRaiseUntil = now + 30000;
@@ -273,7 +275,12 @@ class Graphics {
     // Densité de pixels max en résolution automatique : celle de l'écran, dans la limite du budget de pixels
     _autoMaxRatio() {
         const { width, height } = this._cssSize;
-        return Math.max(MIN_PIXEL_RATIO, Math.min(this.maxPixelRatio, Math.sqrt(PIXEL_BUDGET / (width * height))));
+        return Math.max(this._autoMinRatio(), Math.min(this.maxPixelRatio, Math.sqrt(PIXEL_BUDGET / (width * height))));
+    }
+
+    // Densité de pixels min en résolution automatique (celle de l'écran si elle est plus basse)
+    _autoMinRatio() {
+        return Math.min(MIN_PIXEL_RATIO, this.maxPixelRatio);
     }
 
     setPixelRatio(ratio) {
