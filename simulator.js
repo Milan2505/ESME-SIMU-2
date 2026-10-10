@@ -10,7 +10,7 @@ import { EngineSound } from './js/EngineSound.js';
 import { SoundEffects } from './js/SoundEffects.js';
 import { Graphics } from './js/Graphics.js';
 import { Multiplayer } from './js/Multiplayer.js';
-import { RemotePlayers } from './js/RemotePlayers.js';
+import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
 import { Airport } from './js/Airport.js';
 import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
@@ -20,6 +20,9 @@ import { ControlSurfaces } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
 import { AircraftLights } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
+import { Radio } from './js/Radio.js';
+import { MapView } from './js/MapView.js';
+import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -103,7 +106,8 @@ const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
-const remotePlayers = new RemotePlayers(scene, multiplayer);
+const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT });
+const radio = new Radio(multiplayer);
 
 const loader = new Utils3dLoader();
 
@@ -172,6 +176,7 @@ new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
     model.traverse((child) => { child.castShadow = child.material !== cabinGlass; }); // le soleil entre par les vitres
     setupPropellerBlur(propeller); // après : le disque flou ne fait pas d'ombre
     aircraft.add(model);
+    paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
     remotePlayers.setTemplate(template);
     airport.addParkedPlanes(template);
@@ -616,6 +621,7 @@ const alarme = document.getElementById('alarme');
 // Le navigateur n'autorise le son qu'après une action du joueur
 for (const type of ['keydown', 'pointerdown']) {
     window.addEventListener(type, () => {
+        radio.unlock();
         stallWarning.unlock().catch((error) => console.error(error));
         engineSound.unlock().catch((error) => console.error(error));
         sounds.unlock().catch((error) => console.error(error));
@@ -636,7 +642,9 @@ controls.addEventListener('touchdown', ({ impact }) => {
     shake = Math.max(shake, Math.min(0.5, impact * 0.08));
     if (controls.getSpeed() > 8) sounds.play('screech', { volume: THREE.MathUtils.clamp(impact / 3, 0.25, 1) });
 });
+let crashCount = 0;   // envoyé aux autres joueurs : chaque nouveau crash fait exploser notre avion chez eux
 controls.addEventListener('crash', ({ reason }) => {
+    crashCount++;
     crashReason.textContent = `${reason} — retour au point de départ…`;
     crashBanner.classList.add('actif');
     const wreck = aircraft.position.clone().setY(terrain.heightAt(aircraft.position.x, aircraft.position.z));
@@ -725,13 +733,6 @@ document.getElementById('multi-copier').addEventListener('click', async (event) 
     }
 });
 
-// Lien d'invitation : index.html?partie=CODE rejoint directement la partie
-const invitation = new URLSearchParams(location.search).get('partie');
-if (invitation) {
-    multiCode.value = invitation.toUpperCase();
-    multiplayer.join(invitation, pseudo());
-    openMultiDialog();
-}
 window.addEventListener('pagehide', () => multiplayer.leave());
 multiplayer.addEventListener('players', () => {
     const names = multiplayer.code ? [`${multiplayer.name} (vous)`, ...[...multiplayer.players.values()].map((p) => p.name)] : [];
@@ -748,7 +749,209 @@ function updateMultiResume() {
     multiResume.textContent = multiplayer.code
         ? `Partie ${multiplayer.code} · ${count + 1} joueur${count ? 's' : ''}`
         : 'Hors ligne';
+    updateOnlineList();
 }
+
+// Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs
+const multiLivree = document.getElementById('multi-livree');
+for (const [id, livery] of Object.entries(LIVERIES)) multiLivree.add(new Option(livery.label, id));
+try {
+    const saved = localStorage.getItem('livree');
+    if (isLivery(saved)) multiplayer.livery = saved;
+} catch { /* stockage indisponible */ }
+multiLivree.value = multiplayer.livery;
+multiLivree.addEventListener('change', () => {
+    multiplayer.livery = isLivery(multiLivree.value) ? multiLivree.value : DEFAULT_LIVERY;
+    if (aircraftModel) paintAircraft(aircraftModel, multiplayer.livery);
+    try { localStorage.setItem('livree', multiplayer.livery); } catch { /* stockage indisponible */ }
+});
+
+// Liste "En ligne" du bandeau : joueurs de la partie, distance et altitude, qui parle à la radio
+const onlineMenu = document.getElementById('online');
+const onlineNombre = document.getElementById('online-nombre');
+const onlineListe = document.getElementById('online-liste');
+const onlinePartie = document.getElementById('online-partie-nom');
+let onlineTimer = 0;
+
+function formatAltitude(feet) {
+    return `${(Math.round(Math.max(0, feet) / 10) * 10).toLocaleString('fr-FR')} ft`;
+}
+
+function playerRow(name, color, info, speaking) {
+    const item = document.createElement('li');
+    item.classList.toggle('parle', speaking);
+    const dot = document.createElement('span');
+    dot.className = 'joueur-pastille';
+    dot.style.background = color;
+    const label = document.createElement('span');
+    label.className = 'joueur-nom';
+    label.textContent = name;
+    const detail = document.createElement('span');
+    detail.className = 'joueur-info';
+    detail.textContent = info;
+    item.append(dot, label, detail);
+    return item;
+}
+
+function updateOnlineList() {
+    onlineNombre.textContent = multiplayer.code ? String(multiplayer.players.size + 1) : 'hors ligne';
+    onlinePartie.textContent = multiplayer.code
+        ? `Partie ${multiplayer.code}`
+        : 'Hors ligne : créez ou rejoignez une partie pour voler à plusieurs';
+    if (!multiplayer.code) {
+        onlineListe.replaceChildren();
+        return;
+    }
+    const rows = [playerRow(`${multiplayer.name} (vous)`, RemotePlayers.color(multiplayer.livery),
+        formatAltitude((aircraft.position.y - WHEEL_HEIGHT) / 0.3048), radio.talking)];
+    for (const player of remotePlayers.list()) {
+        const distance = formatNM(player.position.distanceTo(aircraft.position));
+        rows.push(playerRow(player.name, player.color,
+            player.crashed ? 'crash' : `${distance} NM · ${formatAltitude(player.altitude)}`, player.speaking));
+    }
+    // Joueurs connus dont l'avion n'est pas encore affiché (modèle 3D en cours de chargement)
+    for (const [id, player] of multiplayer.players) {
+        if (!remotePlayers.planes.has(id)) rows.push(playerRow(player.name, RemotePlayers.color(player.livery), '…', false));
+    }
+    onlineListe.replaceChildren(...rows);
+}
+
+onlineMenu.querySelector('.menu-titre').addEventListener('click', () => updateOnlineList());
+document.getElementById('online-multi').addEventListener('click', (event) => {
+    closeMenus();
+    openMultiDialog();
+    event.currentTarget.blur();
+});
+
+// Radio : maintenir N pour parler ; le bouton du menu "En ligne" autorise le micro à l'avance
+const radioStatut = document.getElementById('radio-statut');
+const radioButton = document.getElementById('radio-activer');
+const radioIndicator = document.getElementById('radio-indicateur');
+let radioMessageTimer = 0;
+
+radioButton.addEventListener('click', (event) => {
+    radio.enable();
+    event.currentTarget.blur();
+});
+radio.addEventListener('state', ({ detail }) => {
+    radioStatut.textContent = detail.text;
+    radioStatut.classList.toggle('erreur', !detail.ready);
+    radioButton.hidden = detail.ready;
+    // Aussi à l'écran : le menu est souvent fermé quand on appuie sur N
+    if (!detail.ready) showRadioMessage(detail.text);
+});
+radio.addEventListener('talk', ({ detail }) => {
+    if (detail.id) {
+        if (detail.on) remotePlayers.speaking.add(detail.id);
+        else remotePlayers.speaking.delete(detail.id);
+    }
+    clearTimeout(radioMessageTimer);
+    updateRadioIndicator();
+    updateOnlineList();
+});
+
+function showRadioMessage(text) {
+    radioIndicator.textContent = text;
+    radioIndicator.classList.remove('emission');
+    radioIndicator.hidden = false;
+    clearTimeout(radioMessageTimer);
+    radioMessageTimer = setTimeout(updateRadioIndicator, 3500);
+}
+
+// Voyant : "ÉMISSION RADIO" quand on parle, sinon le nom de ceux qui parlent
+function updateRadioIndicator() {
+    const names = [...remotePlayers.speaking].map((id) => multiplayer.players.get(id)?.name).filter(Boolean);
+    radioIndicator.classList.toggle('emission', radio.talking);
+    radioIndicator.textContent = radio.talking ? 'ÉMISSION RADIO' : names.length ? `RADIO · ${names.join(', ')}` : '';
+    radioIndicator.hidden = !radio.talking && !names.length;
+}
+
+function isTypingTarget(target) {
+    return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
+}
+window.addEventListener('keydown', (event) => {
+    if (event.code === 'KeyN' && !event.repeat && !isTypingTarget(event.target)) radio.setTalking(true);
+});
+window.addEventListener('keyup', (event) => {
+    if (event.code === 'KeyN') radio.setTalking(false);
+});
+window.addEventListener('blur', () => radio.setTalking(false));
+
+// Crash d'un autre joueur : explosion à l'endroit de l'impact, bruit moins fort et retardé de loin
+const remoteCrashes = [];
+remotePlayers.addEventListener('crash', ({ detail }) => {
+    const effect = new CrashEffect();
+    const ground = terrain.heightAt(detail.position.x, detail.position.z);
+    effect.start(detail.position.clone().setY(Math.max(ground, detail.position.y - WHEEL_HEIGHT)));
+    scene.add(effect.group);
+    remoteCrashes.push(effect);
+    const distance = detail.position.distanceTo(camera.position);
+    sounds.play('crash', { volume: THREE.MathUtils.clamp(60 / distance, 0.05, 1), delay: Math.min(3, distance / 343) });
+});
+
+function updateRemoteCrashes(delta) {
+    for (let i = remoteCrashes.length - 1; i >= 0; i--) {
+        const effect = remoteCrashes[i];
+        effect.update(delta);
+        if (!effect.group.visible) {
+            scene.remove(effect.group);
+            remoteCrashes.splice(i, 1);
+        }
+    }
+}
+
+// Carte : bouton du bandeau ou touche M
+const mapPanel = document.getElementById('carte');
+const mapButton = document.getElementById('carte-bouton');
+const mapView = new MapView(document.getElementById('carte-canvas'), {
+    heightAt: (x, z) => terrain.heightAt(x, z),
+    worldSize: terrain.size,
+    shapes: airport.mapShapes,
+    runways: airport.runways,
+});
+
+function toggleMap(open = mapPanel.hidden) {
+    mapPanel.hidden = !open;
+    mapButton.setAttribute('aria-pressed', String(open));
+    if (open) updateMap(0, true);
+}
+
+function updateMap(delta, now = false) {
+    if (mapPanel.hidden) return;
+    const own = { position: aircraft.position, heading: controls.getHeading(), color: RemotePlayers.color(multiplayer.livery) };
+    if (now) mapView.draw(own, remotePlayers.list());
+    else mapView.update(delta, own, remotePlayers.list());
+}
+
+mapButton.addEventListener('click', (event) => {
+    toggleMap();
+    event.currentTarget.blur();
+});
+document.getElementById('carte-fermer').addEventListener('click', () => toggleMap(false));
+for (const [id, step] of [['carte-plus', 1], ['carte-moins', -1]]) {
+    document.getElementById(id).addEventListener('click', (event) => {
+        mapView.zoomBy(step);
+        updateMap(0, true);
+        event.currentTarget.blur();
+    });
+}
+document.getElementById('carte-canvas').addEventListener('wheel', (event) => {
+    event.preventDefault();
+    mapView.zoomBy(event.deltaY < 0 ? 1 : -1);
+    updateMap(0, true);
+}, { passive: false });
+window.addEventListener('keydown', (event) => {
+    if (event.code === 'KeyM' && !event.repeat && !isTypingTarget(event.target)) toggleMap();
+});
+
+// Lien d'invitation : index.html?partie=CODE rejoint directement la partie
+const invitation = new URLSearchParams(location.search).get('partie');
+if (invitation) {
+    multiCode.value = invitation.toUpperCase();
+    multiplayer.join(invitation, pseudo());
+    openMultiDialog();
+}
+updateOnlineList();
 
 // Instruments de la cabine : valeurs lues sur les commandes
 function cockpitState() {
@@ -866,6 +1069,8 @@ function applySettings(values) {
     decorDensity = values.decor;
     applyDecorDensity();
     perfPanel.hidden = !values.perf;
+    remotePlayers.showLabels = values.labels;
+    radio.setVolume(values.radioVolume);
     Object.assign(controls.assists, {
         rotation: values.rotationAuto,
         stallProtection: values.stallProtection,
@@ -941,8 +1146,18 @@ renderer.setAnimationLoop((time)=>{
     updatePropeller( delta );
     engineSound.update(controls.getThrottle(), controls.isCrashed() ? 0 : chaseView ? 1 : 0.7);
     updateSounds();
-    multiplayer.update( aircraft, controls.getThrottle() );
-    remotePlayers.update( delta );
+    multiplayer.update( aircraft, controls.getThrottle(), { crashed: controls.isCrashed(), crashes: crashCount } );
+    camera.updateMatrixWorld();
+    engineSound.setListener( camera );
+    remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
+    remotePlayers.update( delta, aircraft.position );
+    updateRemoteCrashes( delta );
+    updateMap( delta );
+    // Liste "En ligne" ouverte : distances et altitudes mises à jour chaque seconde
+    if ((onlineTimer -= delta) <= 0) {
+        onlineTimer = 1;
+        if (!onlineMenu.querySelector('.menu-contenu').hidden) updateOnlineList();
+    }
     clouds.update( camera );
     for (const object of detailedObjects) {
         object.visible = object.boundingSphere.distanceToPoint(camera.position) < DETAIL_DISTANCE;

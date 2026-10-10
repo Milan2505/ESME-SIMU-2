@@ -99,6 +99,8 @@
 		<tr><th>I</th><th>Activer / couper le guidage ILS (quand il est disponible)</th></tr>
 		<tr><th>P</th><th>Afficher la fluidité (images par seconde, résolution) ; la résolution baisse toute seule si l'ordinateur peine</th></tr>
 		<tr><th>F</th><th>Plein écran (ou bouton ⛶)</th></tr>
+		<tr><th>M</th><th>Carte avec les autres joueurs (ou bouton Carte du bandeau)</th></tr>
+		<tr><th>N (maintenir)</th><th>Parler à la radio (multijoueur)</th></tr>
     </table>
 	
 	<span style="text-decoration: underline;"><h2>Paramètres graphiques:</h2></span>
@@ -110,8 +112,12 @@
 	<p>Cliquez sur <b>Multijoueur</b> dans le bandeau au-dessus du jeu, puis choisissez votre pseudo.
 	<br>Un joueur clique sur <b>Créer une partie privée</b> : un <b>code à 6 caractères</b> et un <b>lien</b> s’affichent.
 	Les autres joueurs saisissent ce code puis cliquent sur <b>Rejoindre</b>, ou ouvrent simplement le lien.
-	<br>Chaque joueur apparaît dans un Cessna de sa couleur, avec son pseudo au-dessus. La partie continue tant qu’il reste au moins un joueur.
-	<br>Les positions passent par un relais public (MQTT) : rien à installer, mais ne mettez pas d’informations personnelles dans votre pseudo.</p>
+	<br>Choisissez la <b>couleur de votre avion</b> dans la même fenêtre : les autres joueurs voient votre avion avec ces couleurs. On entend le moteur des autres avions (plus fort quand ils sont proches), et on voit leur explosion quand ils s’écrasent.
+	<br>Au-dessus de chaque avion, une <b>étiquette</b> donne le pseudo, la distance (NM) et l’altitude (ft). Elle peut être masquée dans <b>Paramètre</b>, groupe Multijoueur.
+	<br>La case <b>En ligne</b> du bandeau déroule la liste des joueurs de la partie ; <b>Carte</b> (touche <b>M</b>) montre l’aérodrome et tous les avions vus de dessus (molette : zoom).
+	<br><b>Radio</b> : maintenez <b>N</b> pour parler, comme sur une vraie radio d’avion (le navigateur demande l’accès au micro la première fois, ou cliquez sur <b>Activer la radio</b> dans le menu En ligne). La voix des autres arrive avec un léger effet radio ; son volume se règle dans <b>Paramètre</b>.
+	<br>La partie continue tant qu’il reste au moins un joueur.
+	<br>Les positions passent par un relais public (MQTT) : rien à installer, mais ne mettez pas d’informations personnelles dans votre pseudo, et ne dites rien de confidentiel à la radio : la voix passe aussi par ce relais public.</p>
 	
 	<span style="text-decoration: underline;"><h2>Décrochage:</h2></span>
 	<p>Si l’aile attaque l’air sous un angle trop fort (incidence de plus de 16°), elle ne porte plus : c’est le <b>décrochage</b>. En vol rectiligne, cela correspond à environ 49 kt (43 kt volets sortis). Manche tiré à fond et longtemps, on peut dépasser cette limite ; avec l’aide « Protection décrochage », la profondeur s’arrête juste avant : l’alarme sonne mais l’aile tient (une rafale ou une manœuvre brutale peut toutefois la faire décrocher).

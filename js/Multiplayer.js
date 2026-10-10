@@ -9,7 +9,10 @@
 // - une "pulsation" envoie notre état chaque seconde même si l'onglet est en arrière-plan
 //   (le navigateur y suspend l'animation, donc update()) ;
 // - en rejoignant, on dit "bonjour" : les joueurs présents répondent aussitôt avec leur état.
+//
+// Radio : la voix passe par les mêmes relais, en petits paquets (voir Radio.js).
 import mqtt from 'mqtt';
+import { DEFAULT_LIVERY, isLivery } from './Liveries.js';
 
 const BROKERS = [
     'wss://broker.hivemq.com:8884/mqtt',
@@ -27,6 +30,7 @@ const MAX_PLAYERS = 16;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_PATTERN = /^[A-Z2-9]{6}$/;
 const ID_PATTERN = /^[a-z0-9]{8,32}$/;
+const MAX_VOICE = 4000;         // taille max d'un paquet de voix (caractères base64, ~0,3 s de son)
 
 function randomString(chars, length) {
     return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -48,6 +52,9 @@ function cleanState(state) {
         name: String(state.name ?? 'Pilote').slice(0, 20),
         p, q, v,
         t: Math.min(1, Math.max(0, Number(state.t) || 0)),
+        livery: isLivery(state.c) ? state.c : DEFAULT_LIVERY,
+        crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
+        crashed: state.k === 1,                                    // épave en cours (avion masqué)
     };
 }
 
@@ -56,8 +63,9 @@ class Multiplayer extends EventTarget {
         super();
         this.id = randomString('abcdefghijklmnopqrstuvwxyz0123456789', 16);
         this.name = 'Pilote';
+        this.livery = DEFAULT_LIVERY;
         this.code = null;
-        this.players = new Map();     // id -> { name, p, q, v, t, age, receivedAt } (sans le joueur local)
+        this.players = new Map();     // id -> { name, p, q, v, t, livery, crashes, crashed, receivedAt } (sans le joueur local)
         this.latency = 0.1;           // délai d'un message (s), ajouté à la prédiction des mouvements
         this._clients = [];           // connexions aux relais (connectées ou en cours de reconnexion)
         this._connecting = null;
@@ -131,8 +139,8 @@ class Multiplayer extends EventTarget {
         this._status('Hors ligne');
     }
 
-    // À appeler à chaque image avec l'objet piloté et la position des gaz
-    update(object, throttle) {
+    // À appeler à chaque image avec l'objet piloté, la position des gaz et l'état de crash
+    update(object, throttle, { crashed = false, crashes = 0 } = {}) {
         if (!this.code) return;
         const now = performance.now();
 
@@ -154,8 +162,16 @@ class Multiplayer extends EventTarget {
             q: object.quaternion.toArray().map(round),
             v: this._velocity.map(round),
             t: round(throttle),
+            c: this.livery,
+            x: crashes,
+            k: crashed ? 1 : 0,
         };
         if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
+    }
+
+    // Paquet de voix de la radio (texte base64) ; part tout de suite, sans attendre l'état
+    sendVoice(data, end = false) {
+        if (this._joined) this._publish({ voice: data, end });
     }
 
     // private
@@ -258,6 +274,13 @@ class Multiplayer extends EventTarget {
             if (this._joined && now - this._lastReply > 300) {
                 this._lastReply = now;
                 this._sendState();
+            }
+            return;
+        }
+        // Radio : paquet de voix d'un joueur de la partie
+        if (typeof data.voice === 'string') {
+            if (this.players.has(id) && data.voice.length <= MAX_VOICE) {
+                this.dispatchEvent(new CustomEvent('voice', { detail: { id, data: data.voice, end: data.end === true } }));
             }
             return;
         }

@@ -41,8 +41,18 @@
 	<h4>Paramètre</h4>
 	</div>
 	
-	<div id="online">
-	<h4>Online</h4>
+	<!-- Joueurs en ligne (partie multijoueur) et radio -->
+	<div id="online" class="menu">
+		<button class="menu-titre" aria-expanded="false">En ligne : <span id="online-nombre">0</span> <span class="menu-fleche">▾</span></button>
+		<div class="menu-contenu" hidden>
+			<p id="online-partie-nom" class="menu-note">Hors ligne</p>
+			<ul id="online-liste"></ul>
+			<div class="menu-boutons">
+				<button id="online-multi" title="Créer ou rejoindre une partie">Partie multijoueur…</button>
+				<button id="radio-activer" title="Autoriser le micro pour parler aux autres joueurs">Activer la radio</button>
+			</div>
+			<p id="radio-statut" class="menu-note">Radio : maintenez N pour parler</p>
+		</div>
 	</div>
 	
 	<!-- Menus du bandeau (cases libres) : un clic déroule les boutons et l'aide -->
@@ -71,6 +81,9 @@
 				<tr><td>Glisser</td><td>Tourner la caméra (souris)</td></tr>
 				<tr><td>Molette</td><td>Zoom</td></tr>
 				<tr><td>C / double-clic</td><td>Recentrer la caméra</td></tr>
+				<tr><td>M</td><td>Carte avec les autres joueurs</td></tr>
+				<tr><th colspan="2">Multijoueur</th></tr>
+				<tr><td>N (maintenir)</td><td>Parler à la radio</td></tr>
 				<tr><th colspan="2">Simulateur</th></tr>
 				<tr><td>F</td><td>Plein écran</td></tr>
 				<tr><td>R</td><td>Revenir au point de départ</td></tr>
@@ -92,8 +105,8 @@
 	<span id="multi-resume">Hors ligne</span>
 	</div>
 	
-	<div id="libre">
-	<h4>Libre</h4>
+	<div id="carte-case">
+		<button id="carte-bouton" class="menu-titre" aria-pressed="false" title="Carte avec les joueurs (touche M)">Carte</button>
 	</div>
 	
 	<div id="météo" class="menu">
@@ -112,6 +125,17 @@
 		<pre id="ils-texte"></pre>
 	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
+	<div id="radio-indicateur" hidden></div>
+	<div id="carte" hidden>
+		<div class="carte-entete">
+			<strong>Carte</strong>
+			<span class="carte-aide">molette : zoom · M : fermer</span>
+			<button id="carte-moins" title="Voir plus large">−</button>
+			<button id="carte-plus" title="Voir de plus près">+</button>
+			<button id="carte-fermer" title="Fermer (touche M)">×</button>
+		</div>
+		<canvas id="carte-canvas"></canvas>
+	</div>
 		
 	</main>
 
@@ -127,6 +151,7 @@
 	<dialog id="multi-dialog">
 		<h3>Multijoueur</h3>
 		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>
+		<label class="multi-livree">Couleur de l'avion <select id="multi-livree"></select></label>
 		<div class="multi-ligne">
 			<button id="multi-creer">Créer une partie privée</button>
 		</div>

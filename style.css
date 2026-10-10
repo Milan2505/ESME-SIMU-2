@@ -173,6 +173,68 @@ img{margin: 0px;
     grid-row: 2/4;
 	  border: 3px solid;
   }
+  #online .menu-contenu {
+    left: auto;
+    right: -3px;
+    min-width: 280px;
+  }
+  .menu-note {
+    margin: 6px 0;
+    text-indent: 0;
+    text-align: left;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 12px;
+    color: #333;
+  }
+  #radio-statut.erreur {
+    color: #c0392b;
+  }
+  /* Liste des joueurs en ligne : pastille de couleur, pseudo, distance et altitude */
+  #online-liste {
+    margin: 4px 0 10px;
+    padding: 0;
+    list-style: none;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 12px;
+  }
+  #online-liste li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    color: black;
+    border-bottom: 1px solid #e5e5e5;
+    white-space: nowrap;
+  }
+  .joueur-pastille {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid black;
+    border-radius: 50%;
+  }
+  .joueur-nom {
+    flex: 1;
+    font-weight: bold;
+  }
+  .joueur-info {
+    color: #555;
+  }
+  #online-liste li.parle .joueur-nom::after {
+    content: " · radio";
+    color: #1f7a33;
+  }
+  /* Bouton Carte (case du bandeau) */
+  #carte-case {
+    grid-column: 14/17;
+    grid-row: 7/9;
+    border: 3px solid;
+    box-sizing: border-box;
+    background: white;
+  }
+  #carte-bouton[aria-pressed="true"] {
+    background: #f2f2f2;
+  }
   #commandes {
     grid-column: 1/6;
     grid-row: 7/9;
@@ -195,7 +257,7 @@ img{margin: 0px;
     cursor: pointer;
   }
   /* Cases du bandeau : texte centré dans sa case */
-  #titre, #profil, #paramètre, #online, #initiation, #solo, #multi, #libre {
+  #titre, #profil, #paramètre, #initiation, #solo, #multi {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -205,7 +267,7 @@ img{margin: 0px;
     overflow: hidden;
     text-align: center;
   }
-  #titre h3, #profil h4, #paramètre h4, #online h4, #initiation h4, #solo h4, #multi h4, #libre h4 {
+  #titre h3, #profil h4, #paramètre h4, #initiation h4, #solo h4, #multi h4 {
     margin: 0;
     text-align: center;
   }
@@ -340,11 +402,6 @@ img{margin: 0px;
   }
   #multi-joueurs {
     padding-left: 18px;
-  }
-  #libre {
-    grid-column: 14/17;
-    grid-row: 7/9;
-  	border: 3px solid;
   }
   #météo {
     grid-column: 17/21;
@@ -524,6 +581,10 @@ img{margin: 0px;
     box-sizing: border-box;
     background: white;
   }
+  /* Menu déplié : au-dessus des cases voisines */
+  .menu:has(.menu-titre[aria-expanded="true"]) {
+    z-index: 6;
+  }
   .menu-titre {
     width: 100%;
     height: 100%;
@@ -618,7 +679,7 @@ img{margin: 0px;
   /* Plein écran : l'écran de vol occupe tout l'écran, sous une barre avec les menus Commandes et Météo */
   #simulator:fullscreen {
     display: grid;
-    grid-template-columns: auto auto 1fr;
+    grid-template-columns: auto auto auto 1fr auto;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
     padding: 0;
@@ -629,18 +690,30 @@ img{margin: 0px;
   #simulator:fullscreen > #titre,
   #simulator:fullscreen > #profil,
   #simulator:fullscreen > #paramètre,
-  #simulator:fullscreen > #online,
   #simulator:fullscreen > #initiation,
   #simulator:fullscreen > #solo,
-  #simulator:fullscreen > #multi,
-  #simulator:fullscreen > #libre {
+  #simulator:fullscreen > #multi {
     display: none;
   }
   #simulator:fullscreen > #commandes,
-  #simulator:fullscreen > #météo {
+  #simulator:fullscreen > #météo,
+  #simulator:fullscreen > #carte-case,
+  #simulator:fullscreen > #online {
     grid-row: 1;
     border: none;
     border-bottom: 2px solid black;
+  }
+  #simulator:fullscreen > #carte-case {
+    grid-column: 3;
+    border-right: 2px solid black;
+  }
+  /* "En ligne" à droite de la barre */
+  #simulator:fullscreen > #online {
+    grid-column: 5;
+    border-left: 2px solid black;
+  }
+  #simulator:fullscreen #online .menu-contenu {
+    right: 0;
   }
   #simulator:fullscreen > #commandes {
     grid-column: 1;
@@ -663,10 +736,113 @@ img{margin: 0px;
   #simulator:fullscreen > #crash,
   #simulator:fullscreen > #perf,
   #simulator:fullscreen > #ils-bouton,
-  #simulator:fullscreen > #ils-panneau {
-    grid-column: 1 / 4;
+  #simulator:fullscreen > #ils-panneau,
+  #simulator:fullscreen > #carte,
+  #simulator:fullscreen > #radio-indicateur {
+    grid-column: 1 / 6;
     grid-row: 2;
+  }
+  /* Barre du haut en plein écran : fond blanc derrière toute la largeur */
+  #simulator:fullscreen::before {
+    content: "";
+    grid-column: 1 / 6;
+    grid-row: 1;
+    border-bottom: 2px solid black;
   }
   #simulator:fullscreen > #ecran {
     border-radius: 0;
+  }
+
+  /* Carte (bouton Carte, touche M) : au-dessus de l'écran de vol, le pilotage continue */
+  #carte {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: start;
+    justify-self: center;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    margin-top: 10px;
+    width: min(92%, 58vh);
+    background: rgba(15, 18, 22, 0.88);
+    border: 3px solid black;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  #carte[hidden] {
+    display: none;
+  }
+  .carte-entete {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 13px;
+    color: black;
+    background: white;
+    border-bottom: 2px solid black;
+  }
+  .carte-aide {
+    flex: 1;
+    font-size: 11px;
+    color: #555;
+  }
+  .carte-entete button {
+    min-width: 28px;
+    padding: 2px 8px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 15px;
+    font-weight: bold;
+    color: black;
+    background: white;
+    border: 2px solid black;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .carte-entete button:hover {
+    background: #f2f2f2;
+  }
+  #carte-canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+  }
+
+  /* Radio : voyant d'émission (nous) ou de réception (un autre joueur), en bas de l'écran de vol */
+  #radio-indicateur {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: end;
+    justify-self: center;
+    z-index: 2;
+    margin-bottom: 14px;
+    padding: 6px 16px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 14px;
+    font-weight: bold;
+    color: white;
+    background: rgba(20, 20, 20, 0.78);
+    border: 3px solid #39ff6a;
+    border-radius: 8px;
+    pointer-events: none;
+  }
+  #radio-indicateur[hidden] {
+    display: none;
+  }
+  #radio-indicateur.emission {
+    border-color: #ff5a4a;
+  }
+  #radio-indicateur.emission::before {
+    content: "● ";
+    color: #ff5a4a;
+  }
+  .multi-livree {
+    display: block;
+    margin-top: 10px;
+  }
+  .multi-livree select {
+    font-family: inherit;
+    padding: 3px;
   }

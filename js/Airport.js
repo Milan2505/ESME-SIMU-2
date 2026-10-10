@@ -150,6 +150,8 @@ class Airport {
             runway.left = new Vector3(runway.direction.z, 0, -runway.direction.x); // à gauche de l'avion qui atterrit
         }
         this.runwayLength = RUNWAY.length;
+        // Contours pour la carte (MapView.js)
+        this.mapShapes = [{ ...TAXIWAY, kind: 'asphalt' }, { ...APRON, kind: 'asphalt' }, { ...RUNWAY_RECT, kind: 'runway' }];
         this._papi = [];
         this._night = 0;
         this._time = 0;
