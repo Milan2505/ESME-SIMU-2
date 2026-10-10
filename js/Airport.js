@@ -17,6 +17,7 @@ import {
     MeshBasicMaterial,
     MeshStandardMaterial,
     PlaneGeometry,
+    PointLight,
     Points,
     PointsMaterial,
     RepeatWrapping,
@@ -756,9 +757,14 @@ class Airport {
         });
         // Intérieur sombre, vu par l'ouverture
         // Intérieur : murs sombres, sol blanc (résine époxy, brillante)
-        const innerWall = new MeshStandardMaterial({ color: 0x3a4048, roughness: 1, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
+        // Intérieur : bardage clair aux murs, plafond, sol blanc ; pas de face côté portes (elle boucherait l'ouverture
+        // vue de l'intérieur). Faces de la boîte : +x (fond), -x (portes), +y (plafond), -y (sol), +z, -z
+        const innerWall = new MeshStandardMaterial({ map: claddingTexture('#c3c8cd', 4, D), roughness: 0.8, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
+        const innerEnd = new MeshStandardMaterial({ map: claddingTexture('#c3c8cd', 4, W), roughness: 0.8, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
+        const innerCeiling = new MeshStandardMaterial({ color: 0xa9adb2, roughness: 0.9, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
         const floor = new MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.35, metalness: 0.05, side: BackSide, emissive: 0xfff6e8, emissiveIntensity: 0 });
-        const interior = add(new BoxGeometry(D - 0.8, H - 0.3, W - 0.8), [innerWall, innerWall, innerWall, floor, innerWall, innerWall],
+        const noFace = new MeshBasicMaterial({ visible: false });
+        const interior = add(new BoxGeometry(D - 0.8, H - 0.3, W - 0.8), [innerEnd, noFace, innerCeiling, floor, innerWall, innerWall],
             0.2, (H - 0.3) / 2 + 0.05, 0); // sol 5 cm au-dessus du terrain (sinon l'herbe apparaît dedans)
         interior.userData.flat = true; // pas d'ombre portée
         // Plafonniers : 3 rangées de rampes LED sous le toit, allumées quand les portes s'ouvrent
@@ -766,6 +772,10 @@ class Airport {
         for (const lz of [-8, 0, 8]) for (const lx of [-9, -3, 3, 9]) add(new BoxGeometry(3, 0.12, 0.35), ceiling, lx, H - 0.45, lz);
         // Porte de service sur le côté
         add(new BoxGeometry(1, 2.1, 0.08), trim, -D / 2 + 4, 1.05, W / 2 + 0.17);
+        // Vraie lumière sous le plafond (éclaire l'avion rentré au hangar), allumée avec les plafonniers
+        const lamp3d = new PointLight(0xfff3e2, 0, 30, 2);
+        lamp3d.position.set(0, H - 1.2, 0);
+        hangar.add(lamp3d);
         // Enseigne sur le linteau, logo ESME sur le pignon et sur les murs latéraux, projecteurs (allumés la nuit)
         const signMap = signTexture([{ text: name, bg: '#1c2c3c', fg: '#ffffff', width: 12, size: 64 }], 0.75);
         const signMaterial = new MeshStandardMaterial({ map: signMap, emissiveMap: signMap, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.6 });
@@ -795,7 +805,7 @@ class Airport {
         this.obstacles.push(door);
         this._hangars.push({
             front: new Vector3(x - D / 2, 0, z), panels, open: 0, door, doorBox: door.clone(),
-            lights: [ceiling, innerWall, floor],
+            lights: [ceiling, [innerWall, innerEnd, innerCeiling], floor, lamp3d],
         });
     }
 
@@ -821,10 +831,11 @@ class Airport {
             // La porte ne bloque plus l'avion une fois grande ouverte
             if (hangar.open > 0.95) hangar.door.makeEmpty();
             else hangar.door.copy(hangar.doorBox);
-            const [ceiling, wall, floor] = hangar.lights;
+            const [ceiling, walls, floor, lamp] = hangar.lights;
             ceiling.emissiveIntensity = 3 * t;
-            wall.emissiveIntensity = 0.12 * t;
-            floor.emissiveIntensity = 0.35 * t;
+            for (const wall of walls) wall.emissiveIntensity = 0.05 * t;
+            floor.emissiveIntensity = 0.12 * t;
+            lamp.intensity = 45 * t;
         }
     }
 
