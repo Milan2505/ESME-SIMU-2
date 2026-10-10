@@ -40,7 +40,8 @@ const CESSNA_172 = {
 	elevatorUp: deg( 6 ),             // manche tiré à fond : +6° (au trim de décollage : ~l'incidence d'envol, loin du décrochage)
 	elevatorDown: deg( 10 ),          // manche poussé à fond : -10°
 	pitchRateMax: 0.35,               // rotation en tangage au plus 20°/s
-	phugoidDamping: 3,                // manche lâché : amortit les longues oscillations de trajectoire (s)
+	phugoidDamping: 1.5,              // manche lâché : amortit les longues oscillations de trajectoire (s)
+	phugoidFilter: 30,                // réactivité de cet amortissement (1/s) : trop lent, il fait osciller le nez
 	// Incidence visée au plus (par rapport au décrochage)
 	elevatorLimit: deg( 2 ),          // sans aide : 2° au-delà (on peut décrocher en tirant)
 	elevatorLimitProtected: deg( - 1 ), // aide "protection décrochage" : 1° en deçà
