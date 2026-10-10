@@ -349,6 +349,36 @@ function flapIndicator(ctx, x, y, setting, position) {
     ctx.fill();
 }
 
+// Trim de profondeur : PIQ en haut, CAB en bas, repère de décollage (T/O), l'index suit la position
+function trimIndicator(ctx, x, y, trim, takeoff) {
+    const h = 190, top = y + 46, bottom = y + h - 30;
+    ctx.fillStyle = '#151618';
+    ctx.fillRect(x, y, 76, h);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, 76, h);
+    caption(ctx, x + 38, y + 14, 'TRIM', 13);
+    caption(ctx, x + 38, y + 32, 'PIQ', 12);
+    caption(ctx, x + 38, y + h - 12, 'CAB', 12);
+    const yOf = (t) => top + ((t + 1) / 2) * (bottom - top);
+    ctx.fillStyle = '#c4c8cc';
+    for (let i = 0; i <= 8; i++) ctx.fillRect(x + 28, yOf(-1 + i / 4) - 1, i % 4 === 0 ? 14 : 8, 2);
+    // Repère de décollage
+    ctx.fillStyle = '#39d353';
+    ctx.fillRect(x + 26, yOf(takeoff) - 2, 18, 4);
+    ctx.font = 'bold 11px DejaVu Sans Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('T/O', x + 25, yOf(takeoff));
+    const py = yOf(trim);
+    ctx.fillStyle = '#ff9f1a';
+    ctx.beginPath();
+    ctx.moveTo(x + 46, py);
+    ctx.lineTo(x + 62, py - 8);
+    ctx.lineTo(x + 62, py + 8);
+    ctx.fill();
+}
+
 function radio(ctx, x, y, label, active, standby) {
     ctx.fillStyle = '#151618';
     ctx.fillRect(x, y, 330, 70);
@@ -769,6 +799,7 @@ class Cockpit {
         annunciator(ctx, 730, 110, 'FREINS', state.inputs.brake > 0 && state.onGround, '#ffb000');
         annunciator(ctx, 730, 160, 'SOL', state.onGround, '#39d353');
         flapIndicator(ctx, 870, 60, state.flapSetting, state.flaps);
+        trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim);
 
         radio(ctx, 960, 60, 'COM1', '118.30', '121.50');
         radio(ctx, 960, 150, 'NAV1', '110.30', '113.90');

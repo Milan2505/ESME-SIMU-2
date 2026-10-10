@@ -75,10 +75,13 @@ const _FLAP_RATE = 0.25;                              // vitesse de sortie des v
 const _FLAP_LIFT = 0.7;                               // volets à fond : portance en plus (décrochage vers 80 km/h au lieu de 90)
 const _FLAP_DRAG = 0.05;                              // volets à fond : traînée en plus
 const _FLAP_STALL_ALPHA = MathUtils.degToRad( 2 );    // volets à fond : l'aile décroche 2° plus tôt
-const _TRIM_TIME = 2.5;                               // compensation automatique : suit l'incidence tenue au manche en ~2,5 s
-const _CLIMB_SPEED = 33;                              // vitesse de meilleure montée (m/s, ~120 km/h) : compensation après l'envol
-const _CLIMB_TRIM_DURATION = 15;                      // après l'envol, manche relâché, le nez se rend doucement pendant 15 s...
-const _CLIMB_TRIM_TIME = 6;                           // ... vers la vitesse de montée (en ~6 s : pas de retour brutal sur la piste)
+// Trim (compensateur de profondeur) : manche relâché, l'avion revient à l'incidence qu'il fixe, donc à une vitesse.
+// -1 = à piquer à fond (rapide), +1 = à cabrer à fond (lent)
+const _TRIM_MID = MathUtils.degToRad( 5 );            // incidence au trim neutre
+const _TRIM_RANGE = MathUtils.degToRad( 8 );          // incidence : de -3° (piqué à fond, ~220 km/h) à 13° (cabré à fond)
+const _TRIM_RATE = 0.2;                               // course du trim par seconde, touche enfoncée (d'une butée à l'autre en 10 s)
+const _TAKEOFF_TRIM = ( MathUtils.degToRad( 7.5 ) - _TRIM_MID ) / _TRIM_RANGE; // repère décollage : montée vers 120 km/h
+const _LIFTOFF_RELEASE_TIME = 6;                      // après l'envol, manche relâché, le nez se rend en ~6 s (pas de retour sur la piste)
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
 const _KEYS = {
@@ -87,6 +90,7 @@ const _KEYS = {
 	KeyQ: 'yawLeft', KeyE: 'yawRight',
 	Space: 'speedup', ControlLeft: 'speeddown', ShiftLeft: 'speeddown',
 	KeyB: 'brake',
+	KeyZ: 'trimDown', KeyX: 'trimUp',   // W / X en AZERTY : trim à piquer / à cabrer
 };
 
 // Modèle de vol : mécanique du point (portance, traînée, poussée, poids) selon l'incidence et la vitesse,
@@ -116,6 +120,7 @@ class PlaneControls extends Controls {
 			speedup: 0, speeddown: 0,
 			yawLeft: 0, yawRight: 0,
 			brake: 0,
+			trimDown: 0, trimUp: 0,
 		};
 		this.accel = 0;
 		this._rotationVector = new Vector3( 0, 0, 0 );   // touches enfoncées (-1, 0 ou 1)
@@ -137,8 +142,9 @@ class PlaneControls extends Controls {
 		this._verticalSpeed = 0;
 		this._stalled = false;
 		this._alpha = 0;             // incidence : angle entre le nez et la trajectoire dans l'air (rad)
-		this._alphaTrim = 0;         // incidence que l'avion garde manche lâché (compensation automatique)
-		this._climbTrimTime = 0;     // temps restant où la compensation glisse vers la vitesse de montée (après l'envol)
+		this.trim = _TAKEOFF_TRIM;   // position du trim (-1 piqué -> +1 cabré)
+		this._liftoffAlpha = 0;      // incidence à l'envol...
+		this._liftoffBlend = 0;      // ... dont l'avion se détache progressivement (1 -> 0) pour rejoindre celle du trim
 		this._wingDrop = 0;          // aile qui tombe au décrochage (-1 gauche, 1 droite)
 		this._onGround = false;
 		this._groundYaw = 0;         // cap au sol (rad, + = vers la gauche)
@@ -199,8 +205,8 @@ class PlaneControls extends Controls {
 		this._angularVelocity.set( 0, 0, 0 );
 		this._stalled = false;
 		this._alpha = 0;
-		this._alphaTrim = 0;
-		this._climbTrimTime = 0;
+		this.trim = _TAKEOFF_TRIM;
+		this._liftoffBlend = 0;
 		this._crashed = false;
 		this._flapLevel = 0;
 		this._flaps = 0;
@@ -229,6 +235,7 @@ class PlaneControls extends Controls {
 		this._flaps += MathUtils.clamp( flapTarget - this._flaps, - _FLAP_RATE * delta, _FLAP_RATE * delta );
 
 		this.throttle = Math.min( 1, Math.max( 0, this.throttle + this.accel * this.throttleRate * delta ) );
+		this.trim = MathUtils.clamp( this.trim + ( this._moveState.trimUp - this._moveState.trimDown ) * _TRIM_RATE * delta, - 1, 1 );
 		this._updateGusts( delta );
 
 		// Physique en petits pas réguliers : même comportement quelle que soit la fréquence d'images
@@ -290,12 +297,6 @@ class PlaneControls extends Controls {
 		return Math.max( peak * 0.55, peak - 3.5 * ( alpha - stallAlpha ) );
 	}
 
-	// Incidence qui porte l'avion à cette vitesse (m/s) en vol rectiligne
-	_alphaForSpeed( speed ) {
-		const lift = _MASS * _GRAVITY / ( 0.5 * _AIR_DENSITY * speed * speed * _WING_AREA );
-		return ( lift - _CL0 - _FLAP_LIFT * this._flaps ) / _CL_ALPHA;
-	}
-
 	_stallAlpha() {
 		return _ALPHA_STALL - _FLAP_STALL_ALPHA * this._flaps;
 	}
@@ -353,24 +354,20 @@ class PlaneControls extends Controls {
 		this.velocity.addScaledVector( _force, dt / _MASS );
 		object.position.addScaledVector( this.velocity, dt );
 
-		// Gouvernes : efficacité selon la vitesse. Compensation automatique : manche lâché, l'avion garde
-		// l'incidence (donc la vitesse) à laquelle il a été tenu, comme un avion bien compensé
+		// Gouvernes : efficacité selon la vitesse. Manche relâché, la stabilité ramène l'avion à l'incidence du trim
 		const effect = Math.min( 1, ( speed / _CONTROL_SPEED ) ** 2 );
 		const stability = effect;
 		const input = this._controls;
-		// (une brève action au manche, comme la rotation, la déplace peu : manche relâché, l'avion revient vers sa vitesse)
-		if ( this._rotationVector.x !== 0 ) {
-			this._alphaTrim += ( alpha - this._alphaTrim ) * Math.min( 1, dt / _TRIM_TIME );
-		} else if ( this._climbTrimTime > 0 ) {
-			this._climbTrimTime -= dt;
-			const climbAlpha = this._alphaForSpeed( _CLIMB_SPEED );
-			if ( this._alphaTrim > climbAlpha ) this._alphaTrim += ( climbAlpha - this._alphaTrim ) * Math.min( 1, dt / _CLIMB_TRIM_TIME );
+		let trimAlpha = Math.min( _TRIM_MID + this.trim * _TRIM_RANGE, stallAlpha - MathUtils.degToRad( 3 ) );
+		// Juste après l'envol : on part de l'incidence d'envol et on rejoint le trim en douceur
+		if ( this._liftoffBlend > 0 ) {
+			this._liftoffBlend = Math.max( 0, this._liftoffBlend - dt / _LIFTOFF_RELEASE_TIME );
+			trimAlpha = Math.max( trimAlpha, MathUtils.lerp( trimAlpha, this._liftoffAlpha, this._liftoffBlend ) );
 		}
-		this._alphaTrim = MathUtils.clamp( this._alphaTrim, MathUtils.degToRad( - 5 ), stallAlpha - MathUtils.degToRad( 3 ) );
 
 		// Profondeur : à cabrer, de moins en moins efficace à l'approche du décrochage
 		const elevator = input.x > 0 ? MathUtils.clamp( ( stallAlpha + _ELEVATOR_LIMIT - alpha ) / _ELEVATOR_FADE, 0, 1 ) : 1;
-		let pitchRate = input.x * elevator * _PITCH_RATE * effect + _PITCH_STABILITY * ( this._alphaTrim - alpha ) * stability;
+		let pitchRate = input.x * elevator * _PITCH_RATE * effect + _PITCH_STABILITY * ( trimAlpha - alpha ) * stability;
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		let rollRate = input.z * _ROLL_RATE * effect + ( _DIHEDRAL * beta - _SPIRAL_STABILITY * bank ) * stability + this._gustRoll;
 		const yawRate = input.y * _YAW_RATE * effect - _YAW_STABILITY * beta * stability;
@@ -430,9 +427,8 @@ class PlaneControls extends Controls {
 			_forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize();
 			this.velocity.copy( _forward ).multiplyScalar( speed );
 			this._alpha = this._groundPitch;
-			// Compensation : d'abord l'incidence d'envol, puis elle glisse vers la vitesse de montée (voir _updateFlight)
-			this._alphaTrim = this._groundPitch;
-			this._climbTrimTime = _CLIMB_TRIM_DURATION;
+			this._liftoffAlpha = this._groundPitch;
+			this._liftoffBlend = 1;
 			this._angularVelocity.set( 0, 0, 0 );
 			this.dispatchEvent( { type: 'liftoff' } );
 		}
@@ -576,6 +572,13 @@ class PlaneControls extends Controls {
 			yaw: this._controls.y,
 			brake: this._moveState.brake,
 		};
+	}
+	// Trim : position (-1 piqué -> +1 cabré) et repère de décollage
+	getTrim() {
+		return this.trim;
+	}
+	getTakeoffTrim() {
+		return _TAKEOFF_TRIM;
 	}
 	isStalled() {
 		return this._stalled;
