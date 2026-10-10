@@ -17,6 +17,8 @@ const rainVertexShader = /* glsl */`
     uniform float uBox;
     uniform float uIntensity;
     uniform float uNear;           // pas de gouttes à l'intérieur de la cabine
+    uniform float uBase;           // base des nuages : la pluie tombe de là
+    uniform float uFade;           // dans le nuage, la pluie s'estompe sur cette hauteur (au-dessus : plus de pluie)
     varying float vAlpha;
 
     void main() {
@@ -24,7 +26,8 @@ const rainVertexShader = /* glsl */`
         p = uCenter + mod(p - uCenter, uBox) - 0.5 * uBox;
         float dist = length(p - uCenter);
         vAlpha = (1.0 - smoothstep(0.2 * uBox, 0.5 * uBox, dist)) * smoothstep(uNear, uNear + 1.0, dist)
-            * uIntensity * (1.0 - 0.6 * aEnd);
+            * uIntensity * (1.0 - 0.6 * aEnd)
+            * (1.0 - smoothstep(uBase, uBase + uFade, p.y));
         p -= uTrail * aEnd;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
     }
@@ -55,6 +58,8 @@ class Storm {
         this.rain = 0;               // intensité de la pluie (0 -> 1)
         this.lightning = false;
         this.flash = 0;              // éclat de l'éclair en cours (0 -> 1), pour l'éclairage de la scène
+        this.cloudBase = null;       // base des nuages (m) : pas de pluie au-dessus de la couche
+        this.cloudTop = null;
 
         const seeds = [], ends = [];
         for (let i = 0; i < drops; i++) {
@@ -74,6 +79,8 @@ class Storm {
                 uBox: { value: box },
                 uIntensity: { value: 0 },
                 uNear: { value: 0 },
+                uBase: { value: 1e6 },
+                uFade: { value: 40 },
                 uColor: { value: new Vector3(0.75, 0.8, 0.88) },
             },
             vertexShader: rainVertexShader,
@@ -101,16 +108,29 @@ class Storm {
         this._strikeStrength = 0;
     }
 
-    // rain : 0 -> 1 ; lightning : éclairs actifs
-    setWeather({ rain = 0, lightning = false } = {}) {
+    // rain : 0 -> 1 ; lightning : éclairs actifs ; clouds : { base, top } de la couche nuageuse (la pluie en tombe)
+    setWeather({ rain = 0, lightning = false, clouds = null } = {}) {
         this.rain = rain;
         this.lightning = lightning;
+        this.cloudBase = clouds?.base ?? null;
+        this.cloudTop = clouds?.top ?? null;
+        const u = this.rainMaterial.uniforms;
+        u.uBase.value = clouds ? clouds.base : 1e6;
+        u.uFade.value = clouds ? (clouds.top - clouds.base) * 0.6 : 40;
         this.rainMesh.visible = rain > 0;
         this.rainMaterial.uniforms.uIntensity.value = rain;
         if (!lightning) {
             this.bolt.visible = false;
             this.flash = 0;
         }
+    }
+
+    // Pluie à l'altitude donnée : pleine sous les nuages, s'estompe dans le nuage, nulle au-dessus
+    rainAt(y) {
+        if (this.cloudBase === null) return this.rain;
+        const fade = (this.cloudTop - this.cloudBase) * 0.6;
+        const t = Math.min(1, Math.max(0, (y - this.cloudBase) / fade));
+        return this.rain * (1 - t * t * (3 - 2 * t));
     }
 
     // velocity : vitesse de l'avion (m/s, repère monde) ; near : rayon sans gouttes autour de la caméra (m)
@@ -158,7 +178,8 @@ class Storm {
         const distance = random(250, 1600);
         const x = center.x + Math.cos(angle) * distance;
         const z = center.z + Math.sin(angle) * distance;
-        const top = random(260, 340);
+        // L'éclair part de la base des nuages
+        const top = this.cloudBase !== null ? random(this.cloudBase, this.cloudBase + 30) : random(260, 340);
         const bottom = this.groundHeight(x, z);
 
         const positions = [];

@@ -642,8 +642,7 @@ function setWeather(name) {
     clouds.setWeather(w.clouds);
     cloudLayer.setWeather(w.overcast ?? null, w.clouds);
     nightSky.setVisibility(w.stars ?? 0, w.sky);
-    storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false });
-    cockpit.setRain(w.rain ?? 0);
+    storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false, clouds: w.overcast ?? null });
     cockpit.setNight(w.night);
     airport.setNight(w.night);
     aircraftLights.setNight(w.night);
@@ -1160,7 +1159,9 @@ view.addEventListener('click', (event) => {
 
 // Bruits de l'environnement : pluie (étouffée en cabine), roulement des pneus selon le revêtement
 function updateSounds() {
-    const rain = storm.rain;
+    // Pluie là où est l'avion : rien au-dessus des nuages ; gouttes sur le pare-brise et bruit en conséquence
+    const rain = storm.rainAt(camera.position.y);
+    cockpit.setRain(rain);
     sounds.setLoop('rain', rain * (chaseView ? 0.8 : 0.25));
     sounds.setLoop('rainCockpit', rain * (chaseView ? 0 : 0.9));
     const rolling = controls.isOnGround() && !controls.isCrashed() ? Math.min(1, controls.getSpeed() / 20) * 0.6 : 0;
