@@ -519,11 +519,8 @@ view.addEventListener('wheel', (event) => {
 
 // Après une réinitialisation (bouton ou touche R), la caméra se replace d'un coup
 controls.addEventListener('reset', () => {
-    // Retour au point de départ : avion prêt à voler (moteur tournant, réservoirs remplis)
-    systems.reset();
-    controls.parkingBrake = systems.brake = false;
-    systems.switches.land = (weather?.night ?? 0) >= 0.5;
-    applyLights();
+    // Retour au point de départ : même état qu'au départ choisi (prêt à voler, ou éteint au parking)
+    applySpawnState();
     aircraft.updateMatrixWorld();
     updateCamera(0, true);
     crashEffect.stop();
@@ -544,7 +541,21 @@ let shake = 0;
 
 const crashCamera = { position: new THREE.Vector3(), target: new THREE.Vector3() };
 
+// Choix du départ en cours : pas encore d'avion dans le monde ; la caméra survole lentement l'aérodrome
+let choosingSpawn = false;
+
 function updateCamera(delta, snap = false) {
+    if (choosingSpawn) {
+        // Vue en temps réel au-dessus de l'aérodrome (nord en haut), légèrement inclinée
+        camera.position.set(200, 430, 520);
+        camera.up.set(0, 0, -1);
+        camera.lookAt(215, 0, 20);
+        if (camera.fov !== CAM_FOV) {
+            camera.fov = CAM_FOV;
+            camera.updateProjectionMatrix();
+        }
+        return;
+    }
     if (controls.isCrashed()) {
         // Crash : vue extérieure en retrait sur l'épave, quelle que soit la vue choisie
         camera.position.lerp(crashCamera.position, snap ? 1 : 1 - Math.exp(-2 * delta));
@@ -950,6 +961,189 @@ document.getElementById('multi-copier').addEventListener('click', async (event) 
 });
 
 window.addEventListener('pagehide', () => multiplayer.leave());
+
+// --- Choix du point de départ ---------------------------------------------------------------
+// Au lancement (et bouton "Changer de départ") : carte de l'aérodrome, seuils de piste (prêt à décoller) et places
+// de parking libres (avion éteint)
+let currentSpawn = airport.spawns[0];
+const spawnDialog = document.getElementById('depart-dialog');
+const spawnList = document.getElementById('depart-liste');
+let spawnHover = null;
+
+// Cases jaunes virtuelles posées sur les points de départ (visibles seulement pendant le choix) : contour au sol,
+// volume translucide, flèche du cap de départ et numéro au-dessus. Cliquables dans la vue 3D
+const spawnMarkers = new THREE.Group();
+spawnMarkers.visible = false;
+scene.add(spawnMarkers);
+function numberSprite(text) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffd400';
+    ctx.beginPath();
+    ctx.arc(64, 64, 56, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.stroke();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = 'bold 72px DejaVu Sans, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 64, 70);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, toneMapped: false, sizeAttenuation: false }));
+    sprite.scale.set(0.055, 0.055, 1);
+    sprite.center.set(0.5, -0.35);   // numéro au-dessus de la case (ne la cache pas)
+    sprite.renderOrder = 12;
+    return sprite;
+}
+airport.spawns.forEach((spawn, i) => {
+    const size = 24, height = 8;
+    const marker = new THREE.Group();
+    marker.position.set(spawn.x, 0.1, spawn.z);
+    marker.rotation.y = spawn.heading;
+    const fill = new THREE.MeshBasicMaterial({ color: 0xffd400, transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false });
+    const box = new THREE.Mesh(new THREE.BoxGeometry(size, height, size), fill);
+    box.position.y = height / 2;
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry), new THREE.LineBasicMaterial({ color: 0xffe14d, toneMapped: false }));
+    edges.position.copy(box.position);
+    // Flèche au sol : direction dans laquelle l'avion sera tourné
+    const arrowShape = new THREE.Shape([new THREE.Vector2(0, 10), new THREE.Vector2(5, 3), new THREE.Vector2(1.6, 3), new THREE.Vector2(1.6, -8),
+        new THREE.Vector2(-1.6, -8), new THREE.Vector2(-1.6, 3), new THREE.Vector2(-5, 3)]);
+    const arrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), new THREE.MeshBasicMaterial({ color: 0xffd400, toneMapped: false, depthWrite: false, side: THREE.DoubleSide }));
+    arrow.rotation.x = -Math.PI / 2;   // plan (x, y) -> sol ; pointe vers -z (nord local = cap de l'avion)
+    arrow.position.y = 0.15;
+    const label = numberSprite(String(i + 1));
+    label.position.y = height + 10;
+    marker.add(box, edges, arrow, label);
+    marker.userData = { spawn, fill, edges };
+    box.userData.spawn = spawn;
+    spawnMarkers.add(marker);
+});
+
+// Case survolée : plus lumineuse ; les autres pulsent doucement
+function updateSpawnMarkers() {
+    if (!spawnMarkers.visible) return;
+    const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 3);
+    for (const marker of spawnMarkers.children) {
+        const hover = marker.userData.spawn === spawnHover;
+        marker.userData.fill.opacity = hover ? 0.55 : 0.16 + 0.12 * pulse;
+        marker.userData.edges.material.color.setScalar(1).multiply(new THREE.Color(hover ? 0xffffff : 0xffe14d));
+        marker.scale.setScalar(hover ? 1.15 : 1);
+    }
+    for (const button of spawnList.children) button.classList.toggle('survol', button.dataset.spawn === spawnHover?.id);
+}
+
+// Case jaune sous le pointeur, dans la vue 3D
+const spawnRaycaster = new THREE.Raycaster();
+function spawnUnderPointer(event) {
+    if (!choosingSpawn) return null;
+    const rect = view.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    spawnRaycaster.setFromCamera(ndc, camera);
+    const boxes = spawnMarkers.children.map((marker) => marker.children[0]);
+    const hit = spawnRaycaster.intersectObjects(boxes, false)[0];
+    if (hit) return hit.object.userData.spawn;
+    // Au loin, les cases sont petites à l'écran : tolérance autour de leur centre
+    let best = null, bestDistance = 40;
+    for (const marker of spawnMarkers.children) {
+        const p = marker.position.clone().project(camera);
+        const d = Math.hypot((p.x - ndc.x) * rect.width / 2, (p.y - ndc.y) * rect.height / 2);
+        if (d < bestDistance) [best, bestDistance] = [marker.userData.spawn, d];
+    }
+    return best;
+}
+
+// État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
+function applySpawnState() {
+    systems.reset();
+    if (currentSpawn.cold) {
+        systems.coldAndDark();
+        controls.throttle = 0;
+        controls.parkingBrake = systems.brake = true;
+    } else {
+        controls.parkingBrake = systems.brake = false;
+        systems.switches.land = (weather?.night ?? 0) >= 0.5;
+    }
+    applyLights();
+}
+
+function spawnAt(spawn) {
+    currentSpawn = spawn;
+    aircraft.position.set(spawn.x, 0, spawn.z);
+    aircraft.rotation.set(0, spawn.heading, 0);
+    controls.placeOnGround();
+    applySpawnState();
+    controls.saveState();
+    controls.reset();   // repart de là (même chemin que la touche R : caméra, effets, bandeau de crash)
+}
+
+function openSpawnDialog() {
+    spawnList.replaceChildren(...airport.spawns.map((spawn, i) => {
+        const button = document.createElement('button');
+        button.dataset.spawn = spawn.id;
+        const number = document.createElement('span');
+        number.className = 'depart-numero';
+        number.textContent = String(i + 1);
+        const text = document.createElement('span');
+        text.textContent = spawn.name;
+        const detail = document.createElement('small');
+        detail.textContent = spawn.detail;
+        text.append(detail);
+        button.append(number, text);
+        button.addEventListener('click', () => chooseSpawn(spawn));
+        button.addEventListener('pointerenter', () => { spawnHover = spawn; });
+        button.addEventListener('pointerleave', () => { spawnHover = null; });
+        return button;
+    }));
+    spawnDialog.hidden = false;
+    // L'avion disparaît du monde (ni visible, ni physique, ni son, ni envoyé aux autres joueurs) jusqu'au choix ;
+    // vue en temps réel au-dessus de l'aérodrome, cases jaunes sur les départs possibles
+    choosingSpawn = true;
+    aircraft.visible = false;
+    spawnMarkers.visible = true;
+}
+
+function closeSpawnDialog() {
+    spawnDialog.hidden = true;
+    choosingSpawn = false;
+    spawnHover = null;
+    spawnMarkers.visible = false;
+    aircraft.visible = true;
+    view.style.cursor = '';
+}
+
+function chooseSpawn(spawn) {
+    closeSpawnDialog();
+    spawnAt(spawn);
+    view.focus();
+}
+
+view.addEventListener('pointermove', (event) => {
+    if (!choosingSpawn) return;
+    spawnHover = spawnUnderPointer(event);
+    view.style.cursor = spawnHover ? 'pointer' : '';
+});
+view.addEventListener('click', (event) => {
+    const spawn = spawnUnderPointer(event);
+    if (spawn) chooseSpawn(spawn);
+});
+// Échap : on garde le départ en cours
+window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !spawnDialog.hidden) {
+        closeSpawnDialog();
+        updateCamera(0, true);
+        view.focus();
+    }
+});
+document.getElementById('depart').addEventListener('click', (event) => {
+    closeMenus();
+    openSpawnDialog();
+    event.currentTarget.blur();
+});
+openSpawnDialog();
 multiplayer.addEventListener('players', () => {
     const names = multiplayer.code ? [`${multiplayer.name} (vous)`, ...[...multiplayer.players.values()].map((p) => p.name)] : [];
     multiJoueurs.replaceChildren(...names.map((name) => {
@@ -1275,7 +1469,7 @@ window.addEventListener('keydown', (event) => {
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 function controlAt(event) {
-    if (chaseView) return null;
+    if (chaseView || choosingSpawn) return null;
     const rect = view.getBoundingClientRect();
     pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
@@ -1441,7 +1635,7 @@ renderer.setAnimationLoop((time)=>{
     const frameStart = performance.now();
     const delta = clock.getDelta();
 
-    controls.update( delta );
+    if (!choosingSpawn) controls.update( delta );
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
     lastAircraftPosition.copy(aircraft.position);
@@ -1455,6 +1649,7 @@ renderer.setAnimationLoop((time)=>{
         shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
     }
     updateHeadTarget( delta );
+    updateSpawnMarkers();
     updateCamera( delta );
     // Molette de trim (touches W / X, ou à la souris) : un cran entendu tous les 0,6°
     trimTravel += Math.abs(controls.getTrim() - lastTrim);
@@ -1466,13 +1661,13 @@ renderer.setAnimationLoop((time)=>{
 
     updatePropeller( delta );
     // Systèmes : moteur, carburant, électricité ; le modèle de vol en reçoit la puissance et l'alimentation des volets
-    if (!controls.isCrashed()) systems.update(delta, controls.getThrottle(), controls.getSpeed());
+    if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
-    const engineVolume = controls.isCrashed() ? 0 : (chaseView ? 1 : 0.7) * THREE.MathUtils.clamp(systems.rpm / 600, 0, 1);
+    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * THREE.MathUtils.clamp(systems.rpm / 600, 0, 1);
     engineSound.update(controls.getThrottle() * systems.power, engineVolume, systems.running ? 1 : 0.45);
     updateSounds();
-    multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount } );
+    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount } );
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine

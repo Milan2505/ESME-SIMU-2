@@ -49,7 +49,8 @@ const TURN_PADS = [1, -1].map((end) => {
     return { end, minX: x0, maxX: x0 + TURN_PAD.width, minZ: Math.min(tip, tip - end * TURN_PAD.length), maxZ: Math.max(tip, tip - end * TURN_PAD.length) };
 });
 // Places de stationnement : axe de chaque avion garé (3 Cessna, carpeXL, DRAVION : data/objet.csv), x du nez
-const STANDS = [-80, -60, -40, 15, 45];
+// Places 1 à 7 ; occupées : 1, 2, 3 (Cessna), 5 (carpeXL), 6 (DRAVION) ; libres : 4 et 7 (départs au parking)
+const STANDS = [-80, -60, -40, -20, 15, 45, 75];
 const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 // Balise VOR de l'aérodrome (VOR conventionnel : abri, plan réflecteur circulaire, antenne centrale), au nord-est
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
@@ -383,6 +384,14 @@ class Airport {
         this.group = new Group();
         this.obstacles = [];         // boîtes à ne pas percuter (bâtiments, avions garés…)
         this.start = { x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15 }; // seuil sud, cap au nord
+        // Points de départ (écran de choix) : seuils de piste, avion prêt à décoller ; places de parking libres,
+        // avion éteint. heading : rotation autour de la verticale (0 = nord, PI / 2 = ouest)
+        this.spawns = [
+            { id: 'rwy36', name: 'Piste 36', detail: 'Seuil sud, face au nord · prêt à décoller', x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15, heading: 0, cold: false },
+            { id: 'rwy18', name: 'Piste 18', detail: 'Seuil nord, face au sud · prêt à décoller', x: RUNWAY.x, z: RUNWAY.z - RUNWAY.length / 2 + 15, heading: Math.PI, cold: false },
+            { id: 'stand4', name: 'Parking · place 4', detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[3], heading: Math.PI / 2, cold: true },
+            { id: 'stand7', name: 'Parking · place 7', detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[6], heading: Math.PI / 2, cold: true },
+        ];
         // Les deux sens d'atterrissage : seuil (bout de piste), direction d'atterrissage, point visé
         this.runways = [
             { name: '36', heading: 0, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z + RUNWAY.length / 2), direction: new Vector3(0, 0, -1) },

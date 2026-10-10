@@ -890,3 +890,101 @@ img{margin: 0px;
     grid-column: 1 / 6;
     grid-row: 2;
   }
+
+  /* Choix du point de départ */
+  /* Colonne intégrée à l'écran de vol, à gauche : la vue 3D de l'aérodrome reste visible */
+  #depart-dialog {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: start;
+    justify-self: start;
+    z-index: 4;
+    box-sizing: border-box;
+    width: min(300px, 40%);
+    max-height: calc(100% - 24px);
+    overflow: auto;
+    margin: 12px;
+    padding: 12px;
+    font-family: DejaVu Sans Mono, monospace;
+    background: rgba(255, 255, 255, 0.92);
+    border: 3px solid black;
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+  #depart-dialog[hidden] {
+    display: none;
+  }
+  #simulator:fullscreen > #depart-dialog {
+    grid-column: 1 / 6;
+    grid-row: 2;
+  }
+  #depart-dialog h3 {
+    margin-top: 0;
+    color: black;
+  }
+  .depart-contenu {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  #depart-carte {
+    width: min(460px, 52vh);
+    max-width: 100%;
+    aspect-ratio: 1;
+    border: 2px solid black;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  #depart-liste {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #depart-liste button {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    text-align: left;
+    font-family: inherit;
+    font-size: 13px;
+    color: black;
+    background: white;
+    border: 2px solid black;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  #depart-liste button:hover,
+  #depart-liste button.survol {
+    background: #f2f2f2;
+  }
+  #depart-liste button small {
+    display: block;
+    margin-top: 3px;
+    font-size: 11px;
+    color: #555;
+  }
+  .depart-numero {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    line-height: 26px;
+    text-align: center;
+    font-weight: bold;
+    color: #1a1a1a;
+    background: #ffd400;
+    border: 2px solid #1a1a1a;
+    border-radius: 50%;
+    box-sizing: border-box;
+  }
+  .depart-aide {
+    margin: 6px 0;
+    text-indent: 0;
+    font-size: 11px;
+    text-align: left;
+  }
+  #depart-dialog h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+  }

@@ -21,20 +21,21 @@ function reliefColor(height, shade) {
 class MapView {
     // heightAt(x, z) : hauteur du sol ; worldSize : côté du terrain (m) ; shapes : pistes et parkings [{ minX, maxX, minZ, maxZ, kind }]
     // runways : [{ name, threshold }]
-    constructor(canvas, { heightAt, worldSize, shapes = [], runways = [], navaids = [] }) {
+    constructor(canvas, { heightAt, worldSize, shapes = [], runways = [], navaids = [], zooms = ZOOMS }) {
         this.canvas = canvas;
         this.heightAt = heightAt;
         this.worldSize = worldSize;
         this.shapes = shapes;
         this.runways = runways;
-        this.navaids = navaids;       // balises (VOR) : { x, z, ident, frequency }
+        this.navaids = navaids;
+        this.zooms = zooms;       // balises (VOR) : { x, z, ident, frequency }
         this.zoom = 1;
         this._relief = null;
         this._timer = 0;
     }
 
     zoomBy(step) {
-        this.zoom = Math.max(0, Math.min(ZOOMS.length - 1, this.zoom + step));
+        this.zoom = Math.max(0, Math.min(this.zooms.length - 1, this.zoom + step));
         this._timer = 0;
     }
 
@@ -57,13 +58,14 @@ class MapView {
 
         // Fenêtre montrée : centrée sur l'avion du joueur, sans sortir du terrain
         const half = this.worldSize / 2;
-        const span = ZOOMS[this.zoom];
+        const span = this.zooms[Math.min(this.zoom, this.zooms.length - 1)];
         const view = span / 2;
         const cx = Math.max(-half + view, Math.min(half - view, own.position.x));
         const cz = Math.max(-half + view, Math.min(half - view, own.position.z));
         const scale = width / span;   // pixels par mètre
         const toX = (x) => (x - cx) * scale + width / 2;
         const toY = (z) => (z - cz) * scale + height / 2;
+        this.project = (x, z) => [toX(x), toY(z)];   // pour dessiner par-dessus la carte
 
         ctx.save();
         ctx.imageSmoothingEnabled = true;
@@ -129,7 +131,7 @@ class MapView {
             ctx.fillStyle = '#d8dde3';
             ctx.fillText(sub, x, y + 7 * ratio);
         }
-        this._plane(ctx, toX(own.position.x), toY(own.position.z), own.heading, own.color, 10 * ratio, true);
+        if (!own.hidden) this._plane(ctx, toX(own.position.x), toY(own.position.z), own.heading, own.color, 10 * ratio, true);
 
         this._scaleBar(ctx, width, height, scale, ratio);
         // Nord

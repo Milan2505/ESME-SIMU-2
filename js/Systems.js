@@ -66,6 +66,18 @@ class Systems extends EventTarget {
         this._changed();
     }
 
+    // Avion au parking, éteint ("cold and dark") : tout coupé, mixture sur étouffoir, magnétos sur OFF, moteur arrêté
+    coldAndDark() {
+        for (const id of Object.keys(this.switches)) this.switches[id] = false;
+        this.magnetos = 0;
+        this.mixture = 0;
+        this.panelLights = 0;
+        this.running = false;
+        this.rpm = 0;
+        this._crank = 0;
+        this._changed();
+    }
+
     // --- Commandes (clics en cabine) -------------------------------------------------
 
     toggle(id) {

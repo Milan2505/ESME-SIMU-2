@@ -1092,7 +1092,6 @@ class Cockpit {
         // Éclairage des instruments : rhéostat, alimentation électrique
         this._panelMaterial.emissiveIntensity = 0.12 + (0.38 + 0.4 * this._night) * state.systems.panelLighting;
         for (const material of this._sideMaterials) material.emissiveIntensity = this._panelMaterial.emissiveIntensity;
-        this._controls3D.setLighting(0.12 * this._night * state.systems.panelLighting, this._panelMaterial.emissive);
 
         const u = this.windshieldMaterial.uniforms;
         u.uTime.value = this._time;

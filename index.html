@@ -63,6 +63,7 @@
 				<button id="vue" title="Changer de vue (touche V)">Vue cabine</button>
 				<button id="volets" title="Sortir un cran de volets (touches G / T)">Volets : 0°</button>
 				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
+				<button id="depart" title="Choisir un autre point de départ">Changer de départ</button>
 				<button id="plein-ecran" title="Plein écran (touche F)">Plein écran</button>
 				<button id="qualite" title="Qualité graphique et aides au pilotage">Paramètres</button>
 			</div>
@@ -137,6 +138,14 @@
 		</div>
 	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
+	<!-- Choix du point de départ (au lancement, et menu Commandes) -->
+	<div id="depart-dialog" hidden>
+		<h3>Où voulez-vous commencer ?</h3>
+		<p class="depart-aide">Cliquez sur une case jaune, ou choisissez ci-dessous.</p>
+		<div id="depart-liste"></div>
+		<p class="depart-aide">Piste : prêt à décoller. Parking : avion éteint, à mettre en route (vue cabine, touches 3 à 9).</p>
+	</div>
+
 	<div id="radio-indicateur" hidden></div>
 	<div id="carte" hidden>
 		<div class="carte-entete">
