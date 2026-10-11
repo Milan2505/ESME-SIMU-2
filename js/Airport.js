@@ -493,25 +493,20 @@ class Airport {
     }
 
     // Avions garés sur le parking : copies du Cessna du joueur, repeintes
-    addParkedPlanes(model, wheelHeight) {
+    // paint(avion, livrée, immatriculation) : peint une copie du modèle
+    addParkedPlanes(model, wheelHeight, paint) {
         const spots = [
-            { x: 338, z: -80, color: 0xc0392b },
-            { x: 338, z: -60, color: 0x2e86c1 },
-            { x: 338, z: -40, color: 0xf1c40f },
+            { x: 338, z: -80, livery: 'origine', registration: 'F-GKTA' },
+            { x: 338, z: -60, livery: 'vert', registration: 'F-HBLU' },
+            { x: 338, z: -40, livery: 'orange', registration: 'F-GMOZ' },
         ];
         const parked = new Group();
         this.group.add(parked);
         for (const spot of spots) {
             const plane = model.clone();
             plane.visible = true;
-            plane.traverse((child) => {
-                if (!child.isMesh) return;
-                child.castShadow = true;
-                if (child.material.name === 'Red') {
-                    child.material = child.material.clone();
-                    child.material.color.set(spot.color);
-                }
-            });
+            plane.traverse((child) => { if (child.isMesh) child.castShadow = !child.material.transparent; });
+            paint(plane, spot.livery, spot.registration);
             const holder = new Group();
             holder.position.set(spot.x, wheelHeight - 0.01, spot.z); // roues posées sur le parking
             holder.rotation.y = Math.PI / 2;           // nez vers la piste (ouest)

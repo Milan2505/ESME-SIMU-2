@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Utils3dLoader } from './js/Utils3d.js';
 import { PlaneControls } from './js/PlaneControls.js';
 import { loadCSV } from './js/DataLoader.js';
@@ -29,6 +28,7 @@ import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
+import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -41,29 +41,9 @@ const COLOR_GROUND_BOUNCE = 0x5d6450;
 const WORLD_SIZE = 1000;      // zone de placement aléatoire des objets
 const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (ms)
 
-// Avion du joueur : Cessna 172 low poly de Vojtěch Balák (Poly Pizza, CC-BY 3.0)
-const AIRCRAFT_MODEL = 'asset/cessna.glb';
-const PROPELLER_SCALE = 1.2 / 1.51;                        // pales du modèle ramenées à 1,20 m de rayon (garde au sol ~21 cm)
-const NOSE_GEAR_EXTENSION = 0.18;                           // tige du train avant allongée (trop courte dans le modèle)
-const WHEEL_HEIGHT = 1.25 + NOSE_GEAR_EXTENSION;            // centre de l'avion au-dessus du sol, roues posées
-// Le modèle penche vers l'avant (aile calée à -1° à l'emplanture au lieu de +1,5°, dessous du fuselage qui descend de
-// 30 cm vers le nez) : l'extérieur de l'avion (modèle, feux) est redressé de 3°, autour du centre de la cabine
-// (la physique et la cabine ne changent pas), et le train avant allongé d'autant pour garder les trois roues au sol
-const AIRFRAME_PITCH = THREE.MathUtils.degToRad(3);
-const AIRFRAME_PIVOT_Z = -2.1;
-const TIRE_BOTTOM_Y = 0.01 - WHEEL_HEIGHT;                  // bas des pneus, repère avion (1 cm au-dessus du sol)
-const MAIN_WHEEL_Z = -1.21, NOSE_WHEEL_Z = -3.38;
-const pitchedY = (y, z) => y * Math.cos(AIRFRAME_PITCH) - (z - AIRFRAME_PIVOT_Z) * Math.sin(AIRFRAME_PITCH);
-const AIRFRAME_LIFT = TIRE_BOTTOM_Y - pitchedY(TIRE_BOTTOM_Y, MAIN_WHEEL_Z);       // roues principales gardées au sol
-const NOSE_PITCH_EXTENSION = pitchedY(TIRE_BOTTOM_Y, NOSE_WHEEL_Z) + AIRFRAME_LIFT - TIRE_BOTTOM_Y; // nez relevé d'autant
-
-// Repère redressé de l'extérieur de l'avion : rotation de AIRFRAME_PITCH autour de (0, 0, AIRFRAME_PIVOT_Z), relevé de AIRFRAME_LIFT
-function trimAirframe(object) {
-    object.rotation.x = AIRFRAME_PITCH;
-    object.position.set(0, AIRFRAME_LIFT + AIRFRAME_PIVOT_Z * Math.sin(AIRFRAME_PITCH), AIRFRAME_PIVOT_Z * (1 - Math.cos(AIRFRAME_PITCH)));
-    return object;
-}
-const COCKPIT_POSITION = new THREE.Vector3(0, 0.9, -1.85);  // cabine (hauteur des yeux) dans le repère avion, sous l'aile
+// Avion : Cessna 172P du projet FlightGear (C172Model.js, asset/c172p.glb)
+const WHEEL_HEIGHT = -GROUND_Y;                             // origine de l'avion au-dessus du sol, roues posées
+const COCKPIT_POSITION = CABIN_ORIGIN;                      // cabine (hauteur des yeux) dans le repère avion
 const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
 const CHASE_PITCH = Math.atan2(3.5, 15);                    // … et hauteur (angle au-dessus de l'avion)
@@ -152,7 +132,7 @@ const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
-const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT, trimAirframe });
+const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT, registrationFor: (id) => registrationFor(id) });
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
@@ -177,7 +157,7 @@ const decorGroups = [];
 let decorDensity = 1;
 let aircraftModel = null;
 let propeller = null;
-let propellerParts = new Set();   // pièces de l'hélice : seules affichées en vue cabine
+let propellerParts = new Set();   // pièces de l'hélice (estompées quand elle tourne vite)
 let propellerDisc = null;          // disque de flou de l'hélice qui tourne vite
 let controlSurfaces = null;
 let chaseView = true;
@@ -209,14 +189,14 @@ cockpit.group.position.copy(COCKPIT_POSITION);
 aircraft.add(cockpit.group);
 
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
-// Extérieur de l'avion (modèle, feux, phare), redressé (voir trimAirframe)
-const airframe = trimAirframe(new THREE.Group());
+// Extérieur de l'avion (modèle, feux, phare)
+const airframe = new THREE.Group();
 aircraft.add(airframe);
 const aircraftLights = new AircraftLights(airframe, { castLight: true });
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(20), 0.65, 1.6); // phare unique : atterrissage et roulage
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
-landingLight.position.set(-2.2, 1.12, -3);
+landingLight.position.set(-2.92, 1.14, -2.3);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
 landingLight.target.position.set(-1.2, -2.4, -80);
 airframe.add(landingLight, landingLight.target);
@@ -233,106 +213,24 @@ systems.addEventListener('change', applyLights);
 // Démarrage raté : message à l'écran (raison et marche à suivre)
 systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
 
-new GLTFLoader().load(AIRCRAFT_MODEL, (gltf) => {
-    const model = aircraftModel = gltf.scene;
-    model.position.z = -2; // centre l'avion sur l'aile (le modèle a son origine vers le nez)
-    lowerGear(model);
-    propeller = model.getObjectByName('Propeller_Cone');
-    // Recentre l'hélice sur son axe pour qu'elle tourne sans voilage
-    const center = new THREE.Box3().setFromObject(propeller).getCenter(new THREE.Vector3());
-    propeller.traverse((child) => child.geometry?.translate(-center.x, -center.y, 0));
-    propeller.position.set(center.x, center.y, 0);
-    // Pales raccourcies : 1,51 m de rayon dans le modèle (hélice de 3 m, la pale du bas traversait la piste) ;
-    // 1,20 m, à l'échelle du nez du modèle, laisse ~21 cm sous la pale. Le cône (gris) garde sa taille
-    propeller.traverse((child) => {
-        if (child.isMesh && child.material.name === 'Black') child.geometry.scale(PROPELLER_SCALE, PROPELLER_SCALE, 1);
-    });
-    // Ailerons, profondeur, direction et volets deviennent des pièces mobiles (aussi sur les copies du modèle)
-    controlSurfaces = new ControlSurfaces(model, propeller);
-    addWindowPillars(model);
-    // Copie aux vitres opaques pour les avions garés et ceux des autres joueurs (ils n'ont pas d'intérieur)
-    const template = trimAirframe(new THREE.Group()).add(model.clone());
-    makeWindowsTransparent(model, propeller);
-    model.traverse((child) => { child.castShadow = child.material !== cabinGlass; }); // le soleil entre par les vitres
-    setupPropellerBlur(propeller); // après : le disque flou ne fait pas d'ombre
+// Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs
+loadAircraft().then(({ model, template, parts }) => {
+    aircraftModel = model;
+    propeller = parts.propeller;
+    controlSurfaces = new ControlSurfaces(parts.pivots);
+    setupPropellerBlur(propeller);
     airframe.add(model);
+    cockpit.addCabinShell(buildCabinShell(model));   // garnitures intérieures : l'envers de la carrosserie
+    setRegistration(model, atc.registration);
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
     remotePlayers.setTemplate(template);
-    airport.addParkedPlanes(template, WHEEL_HEIGHT);
-    rebuildObstacles(); // + les avions garés
-    updateView();
-}, undefined, (error) => console.error(error));
-
-// Train d'atterrissage : dans le modèle, il est trop court.
-// - Train avant : tige de 24 cm à peine entre le fuselage et le carénage de roue ; allongée de NOSE_GEAR_EXTENSION
-//   (carénage et roue descendent d'un bloc, l'attache au fuselage, y -0,72, reste en place)
-// - Train principal : avion posé sur la roulette de nez, les roues flottaient à 30 cm (droite) et 24 cm (gauche, le
-//   modèle n'est pas symétrique) ; descendu d'autant, plus l'allongement du train avant, en étirant les jambes depuis
-//   leur attache au fuselage (x ~0,67) jusqu'à la roue (x ~1,35)
-const MAIN_GEAR_DROP = { right: 0.295 + NOSE_GEAR_EXTENSION, left: 0.23 + NOSE_GEAR_EXTENSION };
-
-// Déplacement vertical d'un point du train (repère avion), 0 ailleurs
-function gearDrop(point) {
-    // Train avant : sous le fuselage, autour de la roue (x ±0,15, z -3,7 à -3,1)
-    if (Math.abs(point.x) < 0.15 && point.z > -3.7 && point.z < -3.1 && point.y < -0.74) {
-        return (NOSE_GEAR_EXTENSION + NOSE_PITCH_EXTENSION) * (1 - THREE.MathUtils.smoothstep(point.y, -0.9, -0.74));
-    }
-    // Train principal : sous le fuselage (y < -0,3), autour de l'axe des roues (z -1,9 à -0,5)
-    if (point.y > -0.3 || point.z < -1.9 || point.z > -0.5) return 0;
-    const reach = THREE.MathUtils.smoothstep(Math.abs(point.x), 0.7, 1.3);   // 0 à l'attache, 1 à la roue
-    return reach * (point.x > 0 ? MAIN_GEAR_DROP.right : MAIN_GEAR_DROP.left);
-}
-
-function lowerGear(model) {
-    model.updateMatrixWorld(true);
-    const point = new THREE.Vector3(), inverse = new THREE.Matrix4();
-    model.traverse((mesh) => {
-        if (!mesh.isMesh) return;
-        const position = mesh.geometry.attributes.position;
-        inverse.copy(mesh.matrixWorld).invert();
-        let changed = false;
-        for (let i = 0; i < position.count; i++) {
-            point.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);   // repère avion
-            const drop = gearDrop(point);
-            if (drop <= 0) continue;
-            point.y -= drop;
-            point.applyMatrix4(inverse);
-            position.setXYZ(i, point.x, point.y, point.z);
-            changed = true;
-        }
-        if (!changed) return;
-        position.needsUpdate = true;
-        mesh.geometry.computeBoundingBox();
-        mesh.geometry.computeBoundingSphere();
+    airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
+        setRegistration(plane, registration);
+        paintAircraft(plane, livery);
     });
-}
-
-// Montants extérieurs du vitrage (le modèle n'en a pas : vitres d'un seul tenant du pare-brise à l'arrière des portes) :
-// bord du pare-brise, avant et arrière de la porte, à la couleur du fuselage. Arêtes relevées sur les vitres du modèle
-// (repère avion ; le modèle n'est pas tout à fait symétrique)
-const WINDOW_PILLARS = [
-    { thickness: 0.035, right: [[0.79, 0.70, -2.95], [0.77, 1.10, -2.87]], left: [[-0.82, 0.66, -2.95], [-0.82, 1.06, -2.87]] },
-    { thickness: 0.06,  right: [[0.78, 0.73, -2.49], [0.76, 1.10, -2.48]], left: [[-0.80, 0.69, -2.49], [-0.80, 1.06, -2.48]] },
-    { thickness: 0.06,  right: [[0.74, 0.82, -1.07], [0.67, 1.16, -1.20]], left: [[-0.77, 0.79, -1.07], [-0.71, 1.12, -1.20]] },
-];
-
-function addWindowPillars(model) {
-    let white = null;
-    model.traverse((child) => { if (child.isMesh && child.material.name === 'White') white ??= child.material; });
-    const up = new THREE.Vector3(0, 1, 0);
-    for (const { thickness, right, left } of WINDOW_PILLARS) {
-        for (const [side, points] of [[1, right], [-1, left]]) {
-            // Repère du modèle : décalé de 2 m vers l'arrière ; montant posé sur la vitre, à moitié dehors
-            const [a, b] = points.map(([x, y, z]) => new THREE.Vector3(x + side * thickness * 0.3, y, z - model.position.z));
-            const pillar = new THREE.Mesh(new THREE.BoxGeometry(thickness, a.distanceTo(b) + 0.06, thickness), white);
-            pillar.position.copy(a).add(b).multiplyScalar(0.5);
-            pillar.quaternion.setFromUnitVectors(up, b.clone().sub(a).normalize());
-            pillar.castShadow = true;
-            model.add(pillar);
-        }
-    }
-}
+    rebuildObstacles(); // + les avions garés
+}).catch((error) => console.error(error));
 
 // Hélice en rotation : les pales s'estompent et un disque flou apparaît (comme vu de la cabine d'un vrai avion,
 // au lieu d'une pale qui saute d'une position à l'autre à chaque image)
@@ -364,61 +262,17 @@ function updatePropeller(delta) {
     if (!propeller) return;
     const spin = controls.isCrashed() ? 0 : systems.rpm / 2700 * 100; // rad/s (vitesse d'affichage, pas réelle)
     propeller.rotation.z += spin * delta;
-    const blur = THREE.MathUtils.clamp((spin - 30) / 40, 0, 1);
+    const blur = THREE.MathUtils.clamp((spin - 8) / 20, 0, 1);   // au ralenti (~800 tr/min), déjà un disque flou
     propellerDisc.material.opacity = 0.15 * blur; // à peine visible, comme une vraie hélice lancée
     for (const part of propellerParts) if (part !== propellerDisc) part.material.opacity = 1 - 0.8 * blur;
-}
-
-// Vitres de la cabine : dans le modèle, ce sont les triangles noirs au-dessus de y = 0,3
-// (en dessous : pneus et carénages). Ils deviennent du verre teinté, on voit l'intérieur à travers.
-const cabinGlass = new THREE.MeshStandardMaterial({
-    color: 0x1d2c35, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.3,
-    depthWrite: false, side: THREE.DoubleSide,
-});
-
-function makeWindowsTransparent(model, propeller) {
-    const blackMeshes = [];
-    model.traverse((child) => {
-        if (!child.isMesh || child.material.name !== 'Black') return;
-        for (let o = child; o; o = o.parent) if (o === propeller) return;
-        blackMeshes.push(child);
-    });
-    for (const mesh of blackMeshes) {
-        const geometry = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
-        const position = geometry.attributes.position, normal = geometry.attributes.normal;
-        const parts = { opaque: { p: [], n: [] }, glass: { p: [], n: [] } };
-        for (let i = 0; i < position.count; i += 3) {
-            const y = (position.getY(i) + position.getY(i + 1) + position.getY(i + 2)) / 3;
-            const part = y > 0.3 ? parts.glass : parts.opaque;
-            for (let k = i; k < i + 3; k++) {
-                part.p.push(position.getX(k), position.getY(k), position.getZ(k));
-                part.n.push(normal.getX(k), normal.getY(k), normal.getZ(k));
-            }
-        }
-        if (!parts.glass.p.length) continue;
-        const build = ({ p, n }) => {
-            const g = new THREE.BufferGeometry();
-            g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-            g.setAttribute('normal', new THREE.Float32BufferAttribute(n, 3));
-            return g;
-        };
-        mesh.geometry = build(parts.opaque); // l'ancienne géométrie reste utilisée par la copie aux vitres opaques
-        const windows = new THREE.Mesh(build(parts.glass), cabinGlass);
-        windows.position.copy(mesh.position);
-        windows.quaternion.copy(mesh.quaternion);
-        windows.scale.copy(mesh.scale);
-        windows.renderOrder = 2;
-        mesh.parent.add(windows);
-    }
 }
 
 // Vue cabine / vue extérieure (bouton ou touche V)
 const viewButton = document.getElementById('vue');
 
 function updateView() {
-    // En cabine, seule l'hélice reste visible devant le pare-brise (le reste de l'avion masquerait la vue)
-    aircraftModel?.traverse((child) => { if (child.isMesh) child.visible = chaseView || propellerParts.has(child); });
-    // L'intérieur reste affiché en vue extérieure : on le voit à travers les vitres
+    // L'avion reste entier en vue cabine (aile, capot et hélice vus par les vitres ; l'extérieur du fuselage ne se
+    // voit pas de l'intérieur) ; l'intérieur reste affiché en vue extérieure : on le voit à travers les vitres
     cockpit.setExterior(chaseView);
     aircraftLights.setCabinView(!chaseView);
     camera.fov = chaseView ? CAM_FOV : COCKPIT_FOV;
@@ -452,13 +306,13 @@ let drag = null;
 // Vues de la cabine sur les touches chiffrées : point visé (repère cabine, comme Cockpit.js) et champ de vision
 const CABIN_VIEWS = {
     1: { label: 'Devant', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
-    2: { label: 'Instruments de vol', target: [-0.2, -0.24, -0.75], fov: 46 },
-    3: { label: 'Magnétos, master et disjoncteurs', target: [-0.45, -0.58, -0.75], fov: 38 },
-    4: { label: 'Interrupteurs et avionique', target: [-0.33, -0.57, -0.75], fov: 34 },
-    5: { label: 'Volets, aération, boîte à gants', target: [0.33, -0.57, -0.75], fov: 38 },
-    6: { label: 'Radios (NAV/COM, DME, transpondeur)', target: [0.0, -0.4, -0.75], fov: 30 },
-    7: { label: 'Gaz, mixture, éclairage', target: [0.02, -0.57, -0.75], fov: 34 },
-    8: { label: 'Pupitre (trim, robinet)', target: [0, -0.765, -0.6], fov: 38 },
+    2: { label: 'Instruments de vol', target: [-0.153, -0.205, -0.75], fov: 40 },
+    3: { label: 'Magnétos, master et disjoncteurs', target: [-0.34, -0.47, -0.75], fov: 30 },
+    4: { label: 'Interrupteurs et avionique', target: [-0.25, -0.46, -0.75], fov: 27 },
+    5: { label: 'Volets, aération, boîte à gants', target: [0.25, -0.46, -0.75], fov: 30 },
+    6: { label: 'Radios (NAV/COM, DME, transpondeur)', target: [0.09, -0.27, -0.75], fov: 25 },
+    7: { label: 'Gaz, mixture, éclairage', target: [0.02, -0.46, -0.75], fov: 27 },
+    8: { label: 'Pupitre (trim, robinet)', target: [0, -0.657, -0.6], fov: 38 },
     9: { label: 'Sélecteur de réservoir', target: [0, -0.884, -0.45], fov: 38 },
     0: { label: 'Aile gauche', yaw: 1.35, pitch: 0.05, fov: COCKPIT_FOV },
 };
@@ -751,6 +605,7 @@ function setWeather(name) {
     hemiLight.intensity = w.hemi;
     sunLight.intensity = w.sun;
     sunLight.color.set(w.sunColor ?? COLOR_LIGHT);
+    setDaylight(1 - 0.92 * w.night);   // lumière renvoyée sur l'avion et dans la cabine : presque rien la nuit
     controls.turbulence = w.turbulence;
     clouds.setWeather(w.clouds);
     atc.setWeather(name, w);
@@ -1599,6 +1454,7 @@ function registrationFor(id) {
 }
 function updateRegistration() {
     atc.setRegistration(multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM');
+    if (aircraftModel) setRegistration(aircraftModel, atc.registration);   // peinte sur le fuselage
     document.getElementById('atc-indicatif').textContent = atc.registration;
 }
 multiplayer.addEventListener('status', updateRegistration);

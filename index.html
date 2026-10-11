@@ -17,8 +17,9 @@
 	<!-- Préchargement de tous les modules dès le début (sinon ils sont découverts en cascade, un aller-retour par niveau d'import) -->
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.core.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js">
-	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/GLTFLoader.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/geometries/RoundedBoxGeometry.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/GLTFLoader.js">
+	<link rel="preload" href="asset/c172p.glb" as="fetch" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/MTLLoader.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/OBJLoader.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/math/ImprovedNoise.js">
@@ -58,6 +59,7 @@
 	<link rel="modulepreload" href="js/NightSky.js">
 	<link rel="modulepreload" href="js/Storm.js">
 	<link rel="modulepreload" href="js/Cockpit.js">
+	<link rel="modulepreload" href="js/C172Model.js">
 	<link rel="modulepreload" href="js/Panel172.js">
 	<link rel="modulepreload" href="js/InstrumentArt.js">
 	<link rel="modulepreload" href="js/Avionics.js">

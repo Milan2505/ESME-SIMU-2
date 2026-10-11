@@ -27,22 +27,16 @@ import { flareTexture } from './LightFlare.js';
 // Feux de navigation directionnels (règles OACI) : rouge à gauche et vert à droite visibles de l'avant
 // jusqu'à 110° sur leur côté, blanc de queue visible de l'arrière (les 140° restants).
 const deg = MathUtils.degToRad;
-// Le modèle n'est pas symétrique : le saumon gauche est plus bas (y 1,01 à 1,16, x -5,56)
-// que le droit (y 1,26 à 1,41, x 5,51). Bord d'attaque des saumons : z -2,78.
+// Positions sur le modèle (C172Model.js) : feux de bout d'aile à x ±5,64, feu de queue au bord de fuite de la
+// direction, gyrophare au sommet de la dérive, phare dans le bord d'attaque de l'aile gauche
 const LIGHTS = [
-    // Bouts d'aile : verre en amande encastré dans la face extérieure du saumon (x -5,56 / 5,51), à l'avant
-    // (bord d'attaque à z -2,78), tourné vers l'extérieur et un peu vers l'avant
-    { kind: 'nav',     color: 0xff2414, position: [-5.57, 1.08, -2.63],  sector: [deg(-110), deg(0)],  size: 1.1 },
-    { kind: 'nav',     color: 0x18ff3c, position: [5.52, 1.33, -2.63],   sector: [deg(0), deg(110)],   size: 1.1 },
-    // Feu de queue, encastré dans le bout du cône de queue (modèle : z 6,52 -> 4,52), sous la direction
-    { kind: 'nav',     color: 0xffffff, position: [-0.03, 1.2, 4.5],    sector: [deg(110), deg(250)], size: 0.8 },
-    // Sommet de la partie fixe de la dérive
-    { kind: 'beacon',  color: 0xff1a0a, position: [-0.07, 3.5, 4.35],                                   size: 1.6 },
-    // Strobes : dans le même bloc que le feu de navigation (diode blanche côté saumon), comme sur un vrai Cessna
-    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.575, 1.08, -2.61],                                size: 3.2 },
-    { kind: 'strobe',  color: 0xf2f6ff, position: [5.525, 1.33, -2.61],                                 size: 3.2 },
-    // Phare d'atterrissage dans le bord d'attaque de l'aile gauche (z -2,869 à cet endroit) : éblouissant vu de face, allumé de nuit
-    { kind: 'landing', color: 0xfff4dc, position: [-2.2, 1.12, -2.872],                                  size: 3.5 },
+    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.06],  sector: [deg(-110), deg(0)],  size: 1.1 },
+    { kind: 'nav',     color: 0x18ff3c, position: [5.64, 1.165, -2.06],   sector: [deg(0), deg(110)],   size: 1.1 },
+    { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.86],      sector: [deg(110), deg(250)], size: 0.8 },
+    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.71, 3.27],                                     size: 1.6 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.645, 1.165, -2.04],                              size: 3.2 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [5.645, 1.165, -2.04],                               size: 3.2 },
+    { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.142, -2.29],                               size: 3.5 },
 ];
 const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 
@@ -258,7 +252,7 @@ class AircraftLights {
             return light;
         });
         this.beam = createBeam();
-        this.beam.position.set(-2.2, 1.12, -3);
+        this.beam.position.set(-2.92, 1.14, -2.4);
         this.beam.visible = false;
         this.group.add(this.beam);
         parent.add(this.group);
@@ -281,22 +275,10 @@ class AircraftLights {
         for (const light of this.tipLights) light.visible = this.night >= 0.5 && (switches.nav || switches.strobe);
     }
 
-    // Le halo d'un feu masqué par l'avion lui-même (aile, fuselage) s'efface
-    // Vue cabine : l'aile modélisée dans la cabine (voir Cockpit.js) est 0,5 m plus en arrière et plus haute que
-    // celle du modèle extérieur ; les feux d'aile s'y recalent (bord d'attaque à z -2,28, extrados vers y 1,35)
+    // Vue cabine : les feux restent sur l'aile (la même que vue de l'extérieur) ; faisceau un peu plus discret vu
+    // de la cabine (on est tout près du cône)
     setCabinView(cabin) {
         this._cabin = cabin;
-        for (const light of this.lights) {
-            if (!light.wing) continue;
-            light.position.copy(light.base);
-            // Phare au nez du bord d'attaque arrondi de la cabine (z -2,28) ; feux de bout d'aile sur ses saumons (x ±5,55)
-            if (cabin && light.kind === 'landing') light.position.set(light.base.x, 1.35, -2.285);
-            else if (cabin) light.position.set(Math.sign(light.base.x) * 5.555, 1.35, light.base.z + 0.5);
-            light.bulb.position.copy(light.position);
-        }
-        // Faisceau recalé avec le phare ; un peu plus discret vu de la cabine (on est tout près du cône)
-        this._cabin = cabin;
-        this.beam.position.set(-2.2, cabin ? 1.35 : 1.12, cabin ? -2.4 : -3);
         this.beam.material.uniforms.uStrength.value = cabin ? 0.09 : 0.11;
     }
 

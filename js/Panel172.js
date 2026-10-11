@@ -30,9 +30,9 @@ import {
 // Tableau de bord du Cessna 172 en 3D, d'après le schéma de référence (Cessna 172, Cockpit Revolution) :
 // tôle grise découpée et sous-panneau noir, casquette, instruments ronds en retrait derrière leur vitre (cadrans,
 // roses et aiguilles en relief), pile radio (audio, deux NAV/COM, DME, transpondeur), compas magnétique,
-// boutons et interrupteurs. Les positions sont celles du schéma, en px de l'image (2394 x 1765) : 1 557 px par mètre.
+// boutons et interrupteurs. Les positions sont celles du schéma, en px de l'image (2394 x 1765) : 2 030 px par mètre.
 
-const S = 1557;                 // px du schéma par mètre
+const S = 2030;                 // px du schéma par mètre (tableau de 0,92 m, celui du Cessna 172 FlightGear)
 const X0 = 1344, Y0 = 195;      // milieu du tableau, haut du tableau (px)
 const TOP = -0.1;               // haut du tableau (repère cabine)
 const FACE_Z = -0.75;           // face du tableau
@@ -286,13 +286,13 @@ class Panel172 {
         shape.lineTo(1958, -195);
         shape.absellipse(1958, -425, 320, 230, Math.PI / 2, 0, true);
         shape.lineTo(2278, -545);
-        shape.absarc(2300.5, -545, 22.5, Math.PI, Math.PI * 2, false);
-        shape.lineTo(2323, -425);
-        shape.absellipse(1958, -425, 365, 265, 0, Math.PI / 2, false);
+        shape.absarc(2285.5, -545, 7.5, Math.PI, Math.PI * 2, false);
+        shape.lineTo(2293, -425);
+        shape.absellipse(1958, -425, 335, 265, 0, Math.PI / 2, false);
         shape.lineTo(730, -160);
-        shape.absellipse(730, -425, 365, 265, Math.PI / 2, Math.PI, false);
-        shape.lineTo(365, -545);
-        shape.absarc(387.5, -545, 22.5, Math.PI, Math.PI * 2, false);
+        shape.absellipse(730, -425, 335, 265, Math.PI / 2, Math.PI, false);
+        shape.lineTo(395, -545);
+        shape.absarc(402.5, -545, 7.5, Math.PI, Math.PI * 2, false);
         const depth = 0.3 * S;
         const geometry = toCabin(new ExtrudeGeometry(shape, {
             depth, bevelEnabled: true, bevelThickness: 6, bevelSize: 5, bevelSegments: 3, curveSegments: 40,

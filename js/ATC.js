@@ -52,7 +52,7 @@ const LABELS = {
     finalFull: 'Finale · atterrissage complet', finalTouch: 'Finale · toucher', goAround: 'Remise de gaz',
     leaveCircuit: 'Quitter le circuit', leaveZone: 'Sortie de zone',
     inboundJoin: 'Intégration · vent arrière', inboundStraight: 'Intégration · finale directe',
-    vacated: 'Piste dégagée', groundIn: 'Appel Sol · roulage vers le parking', parked: 'Au parking · fin de vol',
+    vacated: 'Piste dégagée', groundIn: 'Appel Sol · roulage vers le parking', parked: 'Au parking · fin de vol', parkedLeave: 'Au parking · quitter la fréquence',
     approachOut: 'Premier appel Approche · sortie de zone', approachIn: 'Premier appel Approche · retour au terrain',
     returnRequest: 'Demande de retour au terrain', report2nm: `À ${ZONE_NM} NM du terrain`, leaveFrequency: 'Quitter la fréquence',
     infoFirst: 'Premier contact · information de vol', infoWeather: 'Demande de météo', infoTraffic: 'Demande de trafic',
@@ -788,9 +788,9 @@ class ATC extends EventDispatcher {
             return;
         }
         if (this.state === 'taxiIn') {
-            if (s.speed < 0.5 && s.stand) add('parked', this._t(
-                () => msg`${this._pilotCs()}, au ${this._stand(s.stand)}, quittons la fréquence, au revoir.`,
-                () => msg`${this._pilotCs()}, on ${this._stand(s.stand)}, leaving the frequency, goodbye.`), () => {
+            if (s.speed < 0.5 && (s.stand || s.zone === 'apron')) add('parked', this._t(
+                () => msg`${this._pilotCs()}, ${where()}, quittons la fréquence, au revoir.`,
+                () => msg`${this._pilotCs()}, ${where()}, leaving the frequency, goodbye.`), () => {
                 const message = this._t(() => msg`${this._abbr()}, au revoir.`, () => msg`${this._abbr()}, goodbye.`);
                 this._endContact();
                 return { message };
@@ -810,6 +810,9 @@ class ATC extends EventDispatcher {
             () => msg`${call}${first ? msg`${where()}, ${this._withAtis()}pour un vol local, ` : ''}prêt à rouler.`,
             () => msg`${call}${first ? msg`${where()}, ${this._withAtis()}local flight, ` : ''}request taxi.`),
         () => this._taxiReply(rw));
+        if (this.contacted.has('ground') && s.zone === 'apron' && s.speed < 0.5) add('parkedLeave', this._t(
+            () => msg`${this._pilotCs()}, ${where()}, quittons la fréquence.`,
+            () => msg`${this._pilotCs()}, ${where()}, leaving the frequency.`), () => this._leaveReply('ground'));
     }
 
     _towerOptions(s, add) {

@@ -1,8 +1,11 @@
-// Livrées de l'avion : couleur des bandes du Cessna (matériau "Red" du modèle), le fuselage reste blanc.
+// Livrées de l'avion : couleur des bandes du Cessna (bleu marine d'origine repeint sur les textures), le fuselage
+// reste blanc.
 // La livrée choisie est envoyée aux autres joueurs : chacun voit les vraies couleurs des autres avions.
 
+import { setLiveryColor } from './C172Model.js';
+
 const LIVERIES = {
-    origine: { label: 'Origine (rouge)', stripe: null,     color: '#c0392b' },
+    origine: { label: 'Origine (bleu marine)', stripe: null, color: '#25348a' },
     bleu:    { label: 'Bleu',            stripe: 0x1f5fbf, color: '#2e78d6' },
     vert:    { label: 'Vert',            stripe: 0x1e8449, color: '#27a35a' },
     jaune:   { label: 'Jaune',           stripe: 0xf1c40f, color: '#f1c40f' },
@@ -18,18 +21,7 @@ function isLivery(id) {
 
 // Peint un modèle de Cessna (copie du modèle ou avion du joueur) ; peut être rappelée pour changer de livrée
 function paintAircraft(model, id) {
-    const livery = LIVERIES[isLivery(id) ? id : DEFAULT_LIVERY];
-    model.traverse((child) => {
-        if (!child.isMesh || child.material.name !== 'Red') return;
-        // Matériau propre à cet avion (sinon toutes les copies du modèle changeraient de couleur)
-        if (!child.userData.ownPaint) {
-            child.userData.originalColor = child.material.color.clone();
-            child.material = child.material.clone();
-            child.userData.ownPaint = true;
-        }
-        if (livery.stripe === null) child.material.color.copy(child.userData.originalColor);
-        else child.material.color.set(livery.stripe);
-    });
+    setLiveryColor(model, LIVERIES[isLivery(id) ? id : DEFAULT_LIVERY].stripe);
 }
 
 export { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft };

@@ -9,6 +9,7 @@ import {
     Vector3
 } from 'three';
 import { LIVERIES, paintAircraft } from './Liveries.js';
+import { setRegistration } from './C172Model.js';
 import { AircraftLights } from './AircraftLights.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
@@ -97,14 +98,14 @@ class Label {
 // vraies couleurs (livrée choisie par chaque joueur), son du moteur, explosion quand ils se crashent.
 // Événement 'crash' { name, position } : un joueur vient de s'écraser.
 class RemotePlayers extends EventTarget {
-    // trimAirframe : redresse un repère comme l'extérieur de l'avion du joueur (les feux suivent le modèle)
-    constructor(scene, multiplayer, { engineSound = null, altitudeOffset = 0, trimAirframe = null } = {}) {
+    // registrationFor(id) : immatriculation peinte sur l'avion d'un joueur
+    constructor(scene, multiplayer, { engineSound = null, altitudeOffset = 0, registrationFor = null } = {}) {
         super();
         this.scene = scene;
         this.multiplayer = multiplayer;
         this.engineSound = engineSound;
         this.altitudeOffset = altitudeOffset;
-        this.trimAirframe = trimAirframe;   // hauteur de l'avion au-dessus du sol, roues posées (m)
+        this.registrationFor = registrationFor;
         this.showLabels = true;
         this.night = 0;                         // feux des avions : discrets le jour, halos larges la nuit
         this.engineVolume = 1;                  // moins fort en cabine
@@ -287,11 +288,11 @@ class RemotePlayers extends EventTarget {
                 if (child.isMesh) child.castShadow = true;
             });
             paintAircraft(model, player.livery);
+            if (this.registrationFor) setRegistration(model, this.registrationFor(id));
             const group = new Group();
             group.add(model);
             // Feux : les mêmes que sur notre avion, cachés par leur propre avion quand il est entre eux et nous
             const airframe = new Group();
-            this.trimAirframe?.(airframe);
             group.add(airframe);
             const lights = new AircraftLights(airframe);
             lights.setOccluder(model);

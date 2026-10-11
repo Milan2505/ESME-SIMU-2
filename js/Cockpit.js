@@ -30,17 +30,18 @@ import { Controls3D } from './Controls3D.js';
 import { Panel172, PANEL_LAYOUT, panelPoint, panelLength, PANEL_FACE_Z } from './Panel172.js';
 import { PEDESTAL_LAYOUT, Hotspots, drawPedestal, drawFuelSelector } from './PanelControls.js';
 import { TANK_CAPACITY } from './Systems.js';
+import { buildCabin, CABIN_ORIGIN } from './C172Model.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
-const EYE = new Vector3(-0.265, 0.1, 0); // face à l'horizon artificiel ; on voit le sol par-dessus le tableau
+const EYE = new Vector3(-0.2, 0.08, 0); // face à l'horizon artificiel ; on voit le sol par-dessus le tableau
 // Manches : sortent du tableau par leur passage (course poussé / tiré), le volant tourne
 const YOKE_TRAVEL = 0.1;          // m de chaque côté du neutre
 const YOKE_TURN = Math.PI / 2;    // 90° de chaque côté
 const YOKE_OUT = 0.16;            // longueur de colonne hors du tableau au neutre
 // Pupitre central (molette de trim, robinet carburant) et sélecteur de réservoir au plancher : 1 280 px par mètre
 const PX_PER_M = 1280;
-const PEDESTAL = { width: 0.2, height: 0.23, x: 0, y: -0.778, z: -0.598 };   // haut juste sous le bossage du tableau
+const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.657, z: -0.598 };   // haut juste sous le bossage du tableau
 const FUEL_PLATE = { width: 0.2, height: 0.156, x: 0, y: -0.884, z: -0.45 };
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
@@ -189,91 +190,6 @@ function vorIndicator(ctx, cx, cy, r, vor) {
     ctx.fillText('- OBS +', kx, ky);
 }
 
-// --- Vitres ----------------------------------------------------------------------------
-
-// Verre légèrement teinté : presque invisible de face, de plus en plus réfléchissant aux angles rasants (Fresnel)
-const glassShader = {
-    vertexShader: /* glsl */`
-        varying vec3 vNormal;
-        varying vec3 vView;
-        void main() {
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            vNormal = normalize(normalMatrix * normal);
-            vView = -mvPosition.xyz;
-            gl_Position = projectionMatrix * mvPosition;
-        }
-    `,
-    fragmentShader: /* glsl */`
-        uniform vec3 uTint;
-        uniform vec3 uReflect;
-        uniform float uLight;
-        varying vec3 vNormal;
-        varying vec3 vView;
-        void main() {
-            float facing = abs(dot(normalize(vNormal), normalize(vView)));
-            float fresnel = pow(1.0 - facing, 3.0);
-            vec3 color = mix(uTint * 0.6, uReflect, fresnel) * uLight;
-            gl_FragColor = vec4(color, 0.07 + 0.38 * fresnel);
-            #include <colorspace_fragment>
-        }
-    `,
-};
-
-// --- Aile vue de la cabine -------------------------------------------------------------
-// Profil NACA 2412 (cambrure 2 % à 40 % de la corde, épaisseur 12 %) extrudé sur l'envergure, centré en x = 0.
-// Bord d'attaque arrondi (normales lissées le long du profil), extrémités fermées.
-function wingGeometry({ span, chord, leadingEdge, y, points = 24 }) {
-    const m = 0.02, p = 0.4, t = 0.12;
-    const surface = (x, upper) => {
-        const camber = x < p ? m / (p * p) * (2 * p * x - x * x) : m / ((1 - p) ** 2) * (1 - 2 * p + 2 * p * x - x * x);
-        const slope = Math.atan(x < p ? 2 * m / (p * p) * (p - x) : 2 * m / ((1 - p) ** 2) * (p - x));
-        const thickness = 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
-        const sign = upper ? 1 : -1;
-        return [x - sign * thickness * Math.sin(slope), camber + sign * thickness * Math.cos(slope)];
-    };
-    // Contour fermé (z, y) : extrados du bord de fuite au bord d'attaque, puis intrados ; points resserrés au bord d'attaque
-    const outline = [];
-    for (let i = points; i >= 0; i--) outline.push(surface((1 - Math.cos(Math.PI * i / points)) / 2, true));
-    for (let i = 1; i < points; i++) outline.push(surface((1 - Math.cos(Math.PI * i / points)) / 2, false));
-    const profile = outline.map(([x, h]) => [leadingEdge + x * chord, y + h * chord]);
-    const n = profile.length, half = span / 2;
-    const position = [], normal = [], index = [];
-    // Flancs : deux vertices par point du profil (un à chaque saumon), normale perpendiculaire au contour
-    profile.forEach(([z, h], i) => {
-        const [z0, h0] = profile[(i - 1 + n) % n], [z1, h1] = profile[(i + 1) % n];
-        const length = Math.hypot(z1 - z0, h1 - h0) || 1;
-        for (const x of [-half, half]) {
-            position.push(x, h, z);
-            normal.push(0, -(z1 - z0) / length, (h1 - h0) / length);
-        }
-    });
-    for (let i = 0; i < n; i++) {
-        const a0 = i * 2, a1 = a0 + 1, b0 = ((i + 1) % n) * 2, b1 = b0 + 1;
-        index.push(a0, a1, b0, a1, b1, b0);
-    }
-    // Saumons : éventail depuis le centre du profil
-    const center = profile.reduce(([sz, sh], [z, h]) => [sz + z / n, sh + h / n], [0, 0]);
-    for (const [x, nx] of [[-half, -1], [half, 1]]) {
-        const start = position.length / 3;
-        position.push(x, center[1], center[0]);
-        normal.push(nx, 0, 0);
-        for (const [z, h] of profile) {
-            position.push(x, h, z);
-            normal.push(nx, 0, 0);
-        }
-        for (let i = 0; i < n; i++) {
-            const a = start + 1 + i, b = start + 1 + (i + 1) % n;
-            if (nx > 0) index.push(start, b, a);
-            else index.push(start, a, b);
-        }
-    }
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute(position, 3));
-    geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
-    geometry.setIndex(index);
-    return geometry;
-}
-
 // --- Pluie sur le pare-brise ---------------------------------------------------------
 
 const windshieldShader = {
@@ -325,7 +241,7 @@ const YOKE_OUTER = [[0, 146], [180, 142], [262, 120], [296, 78], [292, 25], [266
     [172, -180], [148, -150], [134, -112], [98, -100]];
 const YOKE_OPENING = [[92, -78], [128, -78], [148, -44], [176, 14], [200, 56], [192, 74], [92, 74]];
 
-const YOKE_SCALE = 0.85;          // un peu plus petit que sur le schéma (largeur 32 cm, comme le vrai)
+const YOKE_SCALE = 0.75;          // un peu plus petit que sur le schéma (largeur 32 cm, comme le vrai)
 
 function yokeGeometry() {
     const k = YOKE_SCALE / 1557;
@@ -398,10 +314,6 @@ class Cockpit {
         this._hotspots = {};
 
         const plastic = new MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.85 });
-        const frame = new MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.7 });
-        const headliner = new MeshStandardMaterial({ color: 0xb8b0a0, roughness: 0.95 });
-        const seat = new MeshStandardMaterial({ color: 0x5a4636, roughness: 0.9 });
-        const paint = new MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 });
         const black = new MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
         const yokeBlack = new MeshStandardMaterial({ color: 0x232326, roughness: 0.38, metalness: 0.15 });
 
@@ -414,61 +326,11 @@ class Cockpit {
         // Tableau de bord, casquette, instruments, radios (Panel172)
         this.panel = new Panel172(this.group);
         this.clickables.push(...this.panel.clickables);
-        // Planche inclinée de l'avant de la casquette jusqu'au bas du pare-brise du modèle extérieur
-        // (y -0,24 / z -1,36 dans ce repère) : comble le vide vu à travers le pare-brise depuis l'extérieur
-        const deck = add(new Mesh(new BoxGeometry(1.3, 0.02, 0.43), plastic), 0, -0.17, -1.19);
-        deck.rotation.x = -Math.atan2(0.2, 0.38);
-        add(new Mesh(new BoxGeometry(1.26, 0.42, 0.2), plastic), 0, -0.71, -0.86);   // bas du tableau (devant les genoux)
-        const trim = new MeshStandardMaterial({ color: 0x8e877a, roughness: 0.9 });      // garnitures de porte
-        const carpet = new MeshStandardMaterial({ color: 0x2c2a28, roughness: 1 });
-        add(new Mesh(new BoxGeometry(1.3, 0.02, 2.1), carpet), 0, -0.9, 0.2);         // plancher (moquette)
-        add(new Mesh(new BoxGeometry(1.3, 0.05, 1.6), headliner), 0, 0.385, 0.38);   // plafond
-        add(new Mesh(new BoxGeometry(1.3, 1.3, 0.04), headliner), 0, -0.25, 1.2);    // cloison arrière
-        add(new Mesh(new BoxGeometry(1.1, 0.12, 0.42), seat), 0, -0.6, 0.95);         // banquette arrière
-        add(new Mesh(new BoxGeometry(1.1, 0.5, 0.08), seat), 0, -0.32, 1.14);
-
-        // Vitres : pare-brise, vitres de porte et vitres arrière (verre teinté, reflets aux angles rasants)
-        this._glassMaterial = new ShaderMaterial({
-            uniforms: { uTint: { value: new Color(0x9ec3cf) }, uReflect: { value: new Color(0xdfe9f2) }, uLight: { value: 1 } },
-            vertexShader: glassShader.vertexShader,
-            fragmentShader: glassShader.fragmentShader,
-            transparent: true,
-            depthWrite: false,
-            side: DoubleSide,
-        });
-        // Contour d'une vitre latérale dans le plan (z, y), posée à la position x
-        const sideGlass = (x, outline) => {
-            const glass = new Mesh(new ShapeGeometry(new Shape(outline.map(([z, y]) => new Vector2(z, y)))), this._glassMaterial);
-            glass.geometry.rotateY(-Math.PI / 2); // plan (z, y) -> repère cabine
-            glass.position.x = x;
-            glass.renderOrder = 2;
-            this.group.add(glass);
-        };
-
-        for (const side of [-1, 1]) {
-            // Portes : garniture, accoudoir, poignée
-            add(new Mesh(new BoxGeometry(0.04, 0.6, 1.95), trim), side * 0.65, -0.6, 0.2);
-            add(new Mesh(new BoxGeometry(0.08, 0.05, 0.55), plastic), side * 0.6, -0.4, 0.1);
-            add(new Mesh(new BoxGeometry(0.03, 0.03, 0.14), frame), side * 0.615, -0.33, -0.3);
-            // Montants de pare-brise, de porte, encadrements de vitre (bas et haut)
-            this._beam(new Vector3(side * 0.6, -0.05, -0.98), new Vector3(side * 0.62, 0.37, -0.42), 0.06, frame);
-            this._beam(new Vector3(side * 0.64, -0.3, 0.68), new Vector3(side * 0.62, 0.37, 0.78), 0.06, frame);
-            this._beam(new Vector3(side * 0.64, -0.3, -0.78), new Vector3(side * 0.64, -0.3, 1.18), 0.04, frame);
-            this._beam(new Vector3(side * 0.63, 0.36, -0.42), new Vector3(side * 0.63, 0.36, 1.18), 0.04, frame);
-            this._beam(new Vector3(side * 0.6, -0.05, -0.98), new Vector3(side * 0.64, -0.3, -0.78), 0.04, frame);
-            sideGlass(side * 0.645, [[-0.78, -0.3], [0.66, -0.3], [0.76, 0.36], [-0.42, 0.36], [-0.97, -0.05]]);
-            sideGlass(side * 0.645, [[0.8, -0.3], [1.18, -0.3], [1.18, 0.36], [0.8, 0.36]]);
-            // Hauban d'aile
-            this._beam(new Vector3(side * 0.66, -0.78, 0.15), new Vector3(side * 2.7, 0.38, 0.4), 0.05, paint);
-            // Sièges avant
-            add(new Mesh(new BoxGeometry(0.46, 0.1, 0.48), seat), side * 0.3, -0.62, 0.3);
-            const back = add(new Mesh(new BoxGeometry(0.46, 0.65, 0.09), seat), side * 0.3, -0.27, 0.6);
-            back.rotation.x = -0.18;
-        }
-        // Pas de montant central : le pare-brise du Cessna 172 est d'un seul tenant
-        // Aile haute posée sur le toit, d'un saumon à l'autre, bord d'attaque au-dessus du haut du pare-brise
-        // (comme sur un Cessna), vue par les vitres latérales : profil arrondi NACA 2412, celui du vrai Cessna 172
-        this.group.add(new Mesh(wingGeometry({ span: 11.1, chord: 1.7, leadingEdge: -0.43, y: 0.45 }), paint));
+        // Intérieur moulé dans le fuselage de l'avion (garnitures, vitres, sièges, palonniers, moquette) : construit
+        // dans le repère avion, ramené au repère de la cabine
+        this._interior = buildCabin();
+        this._interior.position.copy(CABIN_ORIGIN).negate();
+        this.group.add(this._interior);
 
         // Manches : la colonne coulisse dans son passage du tableau (poussé / tiré), le volant tourne
         const yokeShape = yokeGeometry();
@@ -499,7 +361,7 @@ class Cockpit {
             const gripGeometry = new RoundedBoxGeometry(0.032, 0.042, 0.038, 4, 0.01);
             for (const side of [-1, 1]) {
                 const grip = new Mesh(gripGeometry, yokeBlack);
-                grip.position.set(side * 0.162 * k, 0.15 * k, 0.004);
+                grip.position.set(side * 0.103, 0.097, 0.003);
                 grip.rotation.z = -side * 0.42;
                 wheel.add(grip);
             }
@@ -598,7 +460,7 @@ class Cockpit {
             this._hotspots[name] = new Hotspots();
             return { mesh, ctx: canvas.getContext('2d'), texture };
         };
-        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.height, 0.16), plastic), 0, PEDESTAL.y, PEDESTAL.z - 0.082);
+        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.y + PEDESTAL.height / 2 + 0.9, 0.16), plastic), 0, (PEDESTAL.y + PEDESTAL.height / 2 - 0.9) / 2, PEDESTAL.z - 0.082);   // jusqu'au plancher
         this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
         add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);
         this._fuelPlate = canvasPlane(FUEL_PLATE, 'fuel');
@@ -622,7 +484,7 @@ class Cockpit {
         this.clickables = [...this._baseClickables, ...this._yokeClickables];
 
         // Pare-brise : film d'eau et gouttes en cas de pluie
-        const start = new Vector3(0, -0.05, -0.98), end = new Vector3(0, 0.37, -0.42);
+        const start = new Vector3(0, -0.4, -1.0), end = new Vector3(0, 0.14, -0.54);
         this.windshieldMaterial = new ShaderMaterial({
             uniforms: { uTime: { value: 0 }, uIntensity: { value: 0 }, uSpeed: { value: 0 } },
             vertexShader: windshieldShader.vertexShader,
@@ -631,29 +493,22 @@ class Cockpit {
             depthWrite: false,
             side: DoubleSide,
         });
-        this._windshield = new Mesh(new PlaneGeometry(1.2, start.distanceTo(end)), this.windshieldMaterial);
+        this._windshield = new Mesh(new PlaneGeometry(0.95, start.distanceTo(end)), this.windshieldMaterial);
         this._windshield.position.copy(start).add(end).multiplyScalar(0.5);
         this._windshield.rotation.x = Math.atan2(end.z - start.z, end.y - start.y);
         this._windshield.visible = false;
         this._windshield.renderOrder = 3;
         this.group.add(this._windshield);
-        const windshieldGlass = new Mesh(this._windshield.geometry, this._glassMaterial);
-        windshieldGlass.position.copy(this._windshield.position);
-        windshieldGlass.rotation.copy(this._windshield.rotation);
-        windshieldGlass.renderOrder = 2;
-        this.group.add(windshieldGlass);
+        this._windshield.userData.cabinOnly = true;   // pluie vue de l'intérieur seulement
 
-        // Éléments de la vue cabine seulement : en vue extérieure, la coque du modèle les remplace
-        // (aile, haubans, montants, plafond, cloison, vitres et pluie dépasseraient de la coque ou feraient doublon)
-        const cabinOnly = new Set([headliner, paint, this._glassMaterial, this.windshieldMaterial]);
         this.group.traverse((child) => {
+            if (child.parent === this._interior || this._interior.getObjectById(child.id)) return;   // l'intérieur garde ses ombres
             child.castShadow = false;
-            child.receiveShadow = true; // la coque fait de l'ombre à l'intérieur en vue extérieure
-            if (cabinOnly.has(child.material)) child.userData.cabinOnly = true;
+            child.receiveShadow = true;
         });
         // Pièces fixes fusionnées par matériau (même image, bien moins d'appels de dessin) ; restent à part ce qui
         // bouge ou se clique : manches, gaz, mixture, frein, commandes 3D, instruments, pare-brise, surfaces cliquables
-        const dynamic = new Set([this._throttle, this._mixture, this._brakeLever, this._windshield,
+        const dynamic = new Set([this._throttle, this._mixture, this._brakeLever, this._windshield, ...this._interior.userData.pedals,
             ...this._yokes.map((yoke) => yoke.column), ...(this._controls3D._roots ?? []), ...this.panel.dynamic, ...this.clickables]);
         // Instruments : aiguilles, roses et maquettes bougent ; leurs boîtiers (enfants fixes) restent groupés
         const moving = new Set([...this.clickables, ...this._yokeClickables]);
@@ -663,6 +518,12 @@ class Cockpit {
     // Boîtier d'instrument (groupe à part : ses aiguilles et cartes bougent)
     _isInstrument(node) {
         return Object.values(this.panel._p).some((part) => part?.root === node || part?.inst?.root === node);
+    }
+
+    // Garnitures intérieures (envers de la carrosserie de l'avion chargé : voir C172Model.buildCabinShell)
+    addCabinShell(shell) {
+        shell.position.copy(this._interior.position);
+        this.group.add(shell);
     }
 
     // Manches visibles ou cachés (pour voir et toucher le bas du tableau, comme dans les simulateurs du commerce)
@@ -681,21 +542,9 @@ class Cockpit {
         if (!exterior) this._windshield.visible = this.windshieldMaterial.uniforms.uIntensity.value > 0;
     }
 
-    // Poutre de section carrée entre deux points (montants, haubans)
-    _beam(a, b, thickness, material) {
-        const length = a.distanceTo(b);
-        const mesh = new Mesh(new BoxGeometry(thickness, length, thickness), material);
-        mesh.position.copy(a).add(b).multiplyScalar(0.5);
-        mesh.quaternion.copy(new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), b.clone().sub(a).normalize()));
-        mesh.userData.cabinOnly = true; // montants, encadrements, haubans : structure propre à la vue cabine
-        this.group.add(mesh);
-        return mesh;
-    }
-
     // night : 0 = jour, 0,5 = tempête, 1 = nuit
     setNight(night) {
         this._night = night;
-        this._glassMaterial.uniforms.uLight.value = 1 - 0.8 * night; // reflets du ciel bien plus faibles la nuit
     }
 
     // Commande sous un point touché par un rayon (intersection three.js avec this.clickables) :
@@ -753,6 +602,7 @@ class Cockpit {
         s.vs += (state.verticalSpeed - s.vs) * (1 - Math.exp(-2 * delta));   // variomètre : un peu de retard
         s.oilTemp += ((sys.running ? 0.62 : 0) - s.oilTemp) * (1 - Math.exp(-delta / 90));
 
+        for (const pedal of this._interior.userData.pedals) pedal.position.z = pedal.userData.z + pedal.userData.side * s.yaw * 0.05;
         for (const yoke of this._yokes) {
             yoke.column.position.z = yoke.z + s.pitch * YOKE_TRAVEL;   // tiré vers le pilote pour cabrer
             yoke.wheel.rotation.z = s.roll * YOKE_TURN;                // volant tourné jusqu'à 90°

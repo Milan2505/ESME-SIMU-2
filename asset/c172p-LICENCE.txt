@@ -1,0 +1,7 @@
+asset/c172p.glb : Cessna 172P du simulateur de vol FlightGear
+Auteurs : équipe c172p (https://github.com/c172p-team/c172p) et contributeurs FlightGear
+Licence : GNU General Public License, version 2 (GPL-2.0) - https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+Fichier converti depuis Models/c172-common.ac et ses textures (fuselage.png, tail.png, wing.png, glass-alpha.png)
+du dépôt c172p : extérieur seulement (intérieur, zones cliquables et effets de lumière retirés), textures
+opaques enregistrées en JPEG. Ce fichier converti reste sous licence GPL-2.0.
