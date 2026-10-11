@@ -1262,3 +1262,37 @@ img{margin: 0px;
   #atc-sous-titre.atc-remote {
     border-color: #ffb000;
   }
+
+  /* Affichage 3D coupé par la carte graphique (contexte WebGL perdu) */
+  #contexte-perdu {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: center;
+    justify-self: center;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 24px;
+    font-family: DejaVu Sans Mono, monospace;
+    color: white;
+    text-align: center;
+    background: rgba(20, 20, 20, 0.9);
+    border: 3px solid #ffb000;
+    border-radius: 10px;
+  }
+  #contexte-perdu[hidden] {
+    display: none;
+  }
+  #contexte-perdu button {
+    padding: 6px 18px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #simulator:fullscreen > #contexte-perdu {
+    grid-column: 1 / 7;
+    grid-row: 2;
+  }

@@ -122,6 +122,14 @@ const scene = new THREE.Scene();
 // Pas d'anticrénelage sur le canvas : il est fait dans les textures du post-traitement (Graphics.js). Le canvas ne
 // reçoit qu'une copie de l'image finale ; l'anticréneler calculait 4 échantillons par pixel pour rien (coûteux en plein écran)
 const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: false });
+// La carte graphique peut couper l'affichage 3D (surcharge, pilote, plantage du processus graphique de Chrome) :
+// la page continue de tourner mais l'écran reste gris, sans erreur. On le signale, avec un bouton pour recharger
+view.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    document.getElementById('contexte-perdu').hidden = false;
+});
+view.addEventListener('webglcontextrestored', () => { document.getElementById('contexte-perdu').hidden = true; });
+document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
 const airport = new Airport();
 // Vallée dégagée dans l'axe de la piste (x 220, nord-sud) : ~2,3 km de chaque côté, ~0,7 km de large
 const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z),

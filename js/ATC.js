@@ -131,6 +131,12 @@ class ATC extends EventDispatcher {
         if (this.state === 'taxiIn') return `Roulage vers le parking ${this.assignedStand}`;
         const handoff = { toGround: 'ground', toApproach: 'approach', toTower: 'tower' }[this.state];
         if (handoff) return `${STATUS[this.state]} (${this.aerodrome.frequencies[handoff]})`;
+        // Sortie de zone : distance jusqu'à la limite (le message est proposé à partir de 1,5 NM du terrain)
+        if (this.state === 'leaving' && this.s) {
+            const d = this.s.distance.toFixed(1).replace('.', ',');
+            return this.s.distance > ZONE_NM - 0.5 ? `Limite de zone atteinte (${d} NM) : annoncez la sortie de zone`
+                : `Rappeler sortie de zone : limite à ${ZONE_NM} NM du terrain, vous êtes à ${d} NM`;
+        }
         return STATUS[this.state] ?? '';
     }
 
@@ -630,7 +636,8 @@ class ATC extends EventDispatcher {
         const options = s && !this.busy && !held ? this._buildOptions(s) : [];
         const expected = s ? this._expectedStation(s) : null;
         const suggestion = s && !this.busy && expected !== this.freq && !options.some((o) => o.id !== 'sayAgain') ? expected : null;
-        const key = options.map((o) => o.id + o.message.text).join('|') + this.busy + this.freq + suggestion + this.blockedBy;
+        const key = options.map((o) => o.id + o.message.text).join('|') + this.busy + this.freq + suggestion + this.blockedBy
+            + (this.state === 'leaving' && s ? s.distance.toFixed(1) : '');   // distance affichée à jour
         if (key === this._optionsKey) return;
         this._optionsKey = key;
         this.options = options;
@@ -803,7 +810,7 @@ class ATC extends EventDispatcher {
             };
         });
         if (this.state === 'leaving') {
-            if (s.distance > ZONE_NM) leaveZone();
+            if (s.distance > ZONE_NM - 0.5) leaveZone();   // on l'annonce en arrivant à la limite de la zone
             return;
         }
 
@@ -866,7 +873,7 @@ class ATC extends EventDispatcher {
                 readback: this._t(() => msg`Rappellerons sortie de zone, ${this._abbr()}.`, () => msg`Wilco, ${this._abbr()}.`),
             };
         });
-        if (!approach && s.distance > ZONE_NM) leaveZone();
+        if (!approach && s.distance > ZONE_NM - 0.5) leaveZone();
     }
 
     _approachOptions(s, add) {
