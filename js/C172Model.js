@@ -433,7 +433,8 @@ function seat(x, z, height, bench, backHeight = 1) {
     for (const dx of bench ? [-0.245, 0.245] : [0]) {
         const back = new Group();
         back.position.set(dx, height + 0.04, 0.25);
-        back.rotation.x = -0.08;   // dossier presque droit
+        // Dossier incliné vers l'arrière (~13°) : nez vers -z, donc un angle positif pousse le haut du dossier vers +z
+        back.rotation.x = 0.22;
         back.scale.y = backHeight;
         const pad = new Mesh(new RoundedBoxGeometry(0.44, 0.6, 0.1, 4, 0.04), fabric());
         pad.position.y = 0.3;
