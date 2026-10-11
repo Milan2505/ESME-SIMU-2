@@ -31,4 +31,4 @@ Les joueurs échangent leurs positions par un relais MQTT public (WebSocket séc
 - Cessna 172P : modèle 3D du simulateur FlightGear, équipe c172p (https://github.com/c172p-team/c172p), licence GPL-2.0 (asset/c172p-LICENCE.txt)
 - Textures du terrain et ciel de nuit : Poly Haven (CC0)
 - Mâts d'éclairage du parking : Kenney, City Kit Roads (CC0)
-- Sons : projets FlightGear c172p et A320-family (GPL-2.0), voir `asset/sounds/LICENSE.txt`
+- Sons : projets FlightGear c172p et A320-family (GPL-2.0) ; moteur enregistré dans la cabine d'un Cessna 172 par JLWSound (Freesound, CC0), voir `asset/sounds/LICENSE.txt`

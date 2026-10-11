@@ -337,6 +337,11 @@ class Systems extends EventTarget {
         this.dispatchEvent(new Event('stop'));
     }
 
+    // Clé tenue sur START (démarreur entraîné)
+    get cranking() {
+        return this._crank > 0 && this.switches.masterBat && this.battery > 0.05;
+    }
+
     _changed() {
         this.dispatchEvent(new Event('change'));
     }

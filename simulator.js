@@ -211,6 +211,8 @@ function applyLights() {
 }
 systems.addEventListener('change', applyLights);
 // Démarrage raté : message à l'écran (raison et marche à suivre)
+systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.7));
+systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.7); });
 systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
 
 // Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs
@@ -1941,8 +1943,8 @@ renderer.setAnimationLoop((time)=>{
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
-    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * THREE.MathUtils.clamp(systems.rpm / 600, 0, 1);
-    engineSound.update(controls.getThrottle() * systems.power, engineVolume, systems.running ? 1 : 0.45);
+    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7);
+    engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
     if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
     camera.updateMatrixWorld();
