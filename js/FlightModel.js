@@ -258,9 +258,12 @@ class FlightModel extends EventDispatcher {
 		// Effet de sol : à moins d'une envergure du sol, la traînée induite chute et la portance augmente (l'avion
 		// "flotte" à l'arrondi, surtout s'il arrive trop vite), et le nez a tendance à piquer
 		const wingHeight = Math.max( 0, object.position.y - this.groundHeight( object.position.x, object.position.z ) - this.minAltitude ) + A.wingHeight;
-		const k = A.groundEffectDrag * ( wingHeight / A.wingspan ) ** 1.5;
+		// Formule de McCormick : traînée induite × (16 h/b)² / (1 + (16 h/b)²). Roues posées (aile à 2,6 m, envergure
+		// 11 m) : -7 % ; à une demi-envergure : -1,5 %. L'ancienne formule (-21 % au sol, +12 % de portance) faisait
+		// flotter et remonter l'avion à l'arrondi dès qu'il restait un peu de gaz
+		const k = ( 16 * wingHeight / A.wingspan ) ** 2;
 		const groundEffect = k / ( 1 + k );        // 1 = loin du sol
-		this.groundEffect = 1 - groundEffect;      // 0 -> ~0,2 : intensité de l'effet de sol (instruments, tests)
+		this.groundEffect = 1 - groundEffect;      // 0 -> ~0,07 : intensité de l'effet de sol (instruments, tests)
 
 		const pressure = 0.5 * AIR_DENSITY * speed * speed * A.wingArea;
 		const lift = this._liftCoefficient( alpha ) * ( 1 + A.groundEffectLift * this.groundEffect );
