@@ -28,6 +28,7 @@ import { MapView } from './js/MapView.js';
 import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
+import { Avionics, parseFrequency } from './js/Avionics.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -143,6 +144,7 @@ const engineSound = new EngineSound();
 const sounds = new SoundEffects();
 const storm = new Storm({ groundHeight: (x, z) => terrain.heightAt(x, z), sounds });
 const cockpit = new Cockpit();
+try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false); } catch { /* stockage indisponible */ }
 const crashEffect = new CrashEffect();
 let weather = null;
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
@@ -166,6 +168,10 @@ const aircraft = new THREE.Group();
 const controls = new PlaneControls( aircraft );
 // Systèmes de l'avion (électricité, moteur, carburant, feux) commandés depuis la cabine
 const systems = new Systems();
+// Radios du tableau (NAV/COM, transpondeur, DME, ADF...), lien avec le contrôle aérien (voir syncRadios)
+const avionics = new Avionics();
+const radioSync = { freq: null, code: null };
+let gloveboxOpen = false;
 // Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
 const decorGroups = [];
 let decorDensity = 1;
@@ -446,12 +452,12 @@ let drag = null;
 // Vues de la cabine sur les touches chiffrées : point visé (repère cabine, comme Cockpit.js) et champ de vision
 const CABIN_VIEWS = {
     1: { label: 'Devant', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
-    2: { label: 'Instruments de vol', target: [-0.3, -0.3, -0.75], fov: 46 },
-    3: { label: 'Magnétos et master', target: [-0.5, -0.64, -0.75], fov: 32 },
-    4: { label: 'Interrupteurs et disjoncteurs', target: [0.03, -0.56, -0.75], fov: 36 },
-    5: { label: 'Volets et éclairage', target: [0.46, -0.57, -0.75], fov: 34 },
-    6: { label: 'Radios, VOR et moteur', target: [0.33, -0.3, -0.75], fov: 44 },
-    7: { label: 'Gaz et mixture', target: [-0.01, -0.47, -0.75], fov: 34 },
+    2: { label: 'Instruments de vol', target: [-0.2, -0.24, -0.75], fov: 46 },
+    3: { label: 'Magnétos, master et disjoncteurs', target: [-0.45, -0.58, -0.75], fov: 38 },
+    4: { label: 'Interrupteurs et avionique', target: [-0.33, -0.57, -0.75], fov: 34 },
+    5: { label: 'Volets, aération, boîte à gants', target: [0.33, -0.57, -0.75], fov: 38 },
+    6: { label: 'Radios (NAV/COM, DME, transpondeur)', target: [0.0, -0.4, -0.75], fov: 30 },
+    7: { label: 'Gaz, mixture, éclairage', target: [0.02, -0.57, -0.75], fov: 34 },
     8: { label: 'Pupitre (trim, robinet)', target: [0, -0.765, -0.6], fov: 38 },
     9: { label: 'Sélecteur de réservoir', target: [0, -0.884, -0.45], fov: 38 },
     0: { label: 'Aile gauche', yaw: 1.35, pitch: 0.05, fov: COCKPIT_FOV },
@@ -1084,6 +1090,11 @@ function spawnUnderPointer(event) {
 function applySpawnState() {
     systems.reset();
     atc.reset(currentSpawn);
+    avionics.reset(Boolean(currentSpawn.cold));
+    gloveboxOpen = false;
+    avionics.com1.active = parseFrequency(airport.aerodrome.frequencies[atc.freq]);
+    radioSync.freq = atc.freq;
+    radioSync.code = avionics.xpdr.code = atc.transponder;
     if (currentSpawn.cold) {
         systems.coldAndDark();
         controls.throttle = 0;
@@ -1609,7 +1620,23 @@ atc.addEventListener('transmit', ({ from, text, station, label, on }) => {
 });
 
 const _atcForward = new THREE.Vector3();
+// Radio de bord <-> contrôle aérien : la COM choisie au micro (boîte audio) règle la station écoutée ; un changement
+// fait dans la fenêtre Tour (ou par le contrôleur) s'affiche sur cette COM. Transpondeur : même code des deux côtés
+const stationOn = (khz) => Object.keys(airport.aerodrome.frequencies).find((id) => parseFrequency(airport.aerodrome.frequencies[id]) === khz) ?? null;
+function syncRadios() {
+    const micCom = avionics.audio.mic, com = avionics[micCom];
+    if (atc.freq !== radioSync.freq) avionics.showOnCom(micCom, parseFrequency(airport.aerodrome.frequencies[atc.freq]));
+    if (atc.transponder !== radioSync.code) avionics.xpdr.code = atc.transponder;
+    else if (avionics.xpdr.code !== atc.transponder) atc.setTransponder(avionics.xpdr.code);
+    const station = stationOn(com.active);
+    if (station && station !== atc.freq) atc.setFrequency(station);
+    atc.setRadio(Boolean(avionics.powered(systems)[micCom === 'com1' ? 'navcom1' : 'navcom2']), Boolean(station), (com.active / 1000).toFixed(3));
+    radioSync.freq = atc.freq;
+    radioSync.code = atc.transponder;
+}
+
 function updateAtc(delta) {
+    syncRadios();
     _atcForward.set(0, 0, -1).applyQuaternion(aircraft.quaternion);
     const ground = terrain.heightAt(aircraft.position.x, aircraft.position.z);
     atc.update(delta, {
@@ -1653,13 +1680,73 @@ function cockpitState() {
         onGround: controls.isOnGround(),
         crashed: controls.isCrashed(),
         stallWarning: controls.isNearStall(),
-        ils: { ...ils.state, active: ils.active },
-        vor: vor.state,
-        com: { active: airport.aerodrome.frequencies[atc.freq], standby: atc.standbyFreq ? airport.aerodrome.frequencies[atc.standbyFreq] : '121.500' },
-        transponder: atc.transponder,
         systems,
+        avionics,
+        ...navInstruments(),
+        oat: atc.metar.temp - 2 * Math.max(0, controls.getAltitude() - WHEEL_HEIGHT) / 0.3048 / 1000,
+        transmitting: radioTransmit.pilot,
+        receiving: radioTransmit.other,
+        gloveboxOpen,
+        parkingBrake: controls.parkingBrake,
         flapLevel: controls.getFlapLevel(),
     };
+}
+
+// Émission en cours (voyants T / R des NAV/COM)
+const radioTransmit = { pilot: false, other: false };
+atc.addEventListener('transmit', ({ from, on }) => {
+    if (from === 'pilot') radioTransmit.pilot = on;
+    else radioTransmit.other = on;
+});
+
+// Radionavigation : NAV 1 / NAV 2 (VOR ou ILS selon la fréquence affichée), DME (sur la NAV 1), ADF (balise NDB
+// fixe au milieu des pistes, rose réglée au bouton HDG)
+const VOR_FREQ = parseFrequency(airport.vor.frequency), ILS_FREQ = 110300;
+const NDB = airport.runways[0].threshold.clone().add(airport.runways[1].threshold).multiplyScalar(0.5);
+const dmeTrack = { distance: null, kt: 0 };
+function navReceiver(khz, powered, receiver, glide) {
+    if (!powered) return { available: false };
+    if (khz === VOR_FREQ) {
+        const s = receiver.state;
+        return { available: s.available && !s.overhead, deviation: s.deviation, to: s.to, glide: false, distance: s.distance };
+    }
+    if (khz === ILS_FREQ && ils.state.available) {
+        const s = ils.state;
+        return { available: true, deviation: s.localizer, to: null, glide: glide && s.distance > 0, glideslope: s.glideslope, distance: s.distance };
+    }
+    return { available: false };
+}
+function navInstruments() {
+    const powered = avionics.powered(systems);
+    const nav1 = navReceiver(avionics.nav1.active, powered.navcom1, vor, true);
+    const nav2 = navReceiver(avionics.nav2.active, powered.navcom2, vor2, false);
+    let dme = null;
+    if (powered.dme && nav1.available && dmeTrack.distance !== null) {
+        const nm = nav1.distance / 1852;
+        dme = { nm, kt: dmeTrack.kt, min: dmeTrack.kt > 30 ? nm / dmeTrack.kt * 60 : 999 };
+    }
+    let adf = 90;   // aiguille au repos (pas de signal)
+    if (powered.adf) {
+        const bearing = Math.atan2(NDB.x - aircraft.position.x, -(NDB.z - aircraft.position.z)) * 180 / Math.PI;
+        adf = ((bearing - controls.getHeading()) % 360 + 360) % 360;
+    }
+    return {
+        nav1, nav2, dme, adf, obs1: vor.course,
+        navcom1Powered: powered.navcom1, navcom2Powered: powered.navcom2, dmePowered: powered.dme, xpdrPowered: powered.xpdr,
+    };
+}
+// Vitesse sol du DME : variation de la distance à la balise (lissée)
+function updateDme(delta) {
+    const nav1 = navReceiver(avionics.nav1.active, true, vor, false);
+    if (!nav1.available || delta <= 0) {
+        dmeTrack.distance = null;
+        return;
+    }
+    if (dmeTrack.distance !== null) {
+        const kt = Math.abs(nav1.distance - dmeTrack.distance) / delta * 3600 / 1852;
+        dmeTrack.kt += (kt - dmeTrack.kt) * (1 - Math.exp(-delta / 2));
+    }
+    dmeTrack.distance = nav1.distance;
 }
 
 // ILS : disponible près de la piste, dans l'axe d'approche. Bouton sur le tableau de bord en cabine,
@@ -1669,6 +1756,7 @@ const ils = new ILS(airport.runways, airport.runwayLength);
 // VOR (NAV1) : balise de l'aérodrome. Indicateur au tableau de bord ; en vue extérieure, touche O.
 // OBS : J / K (Maj : 10° par appui), H : centrer l'aiguille sur la route directe vers la balise
 const vor = new VOR(airport.vor);
+const vor2 = new VOR(airport.vor);       // NAV 2 (même balise, son propre OBS)
 const vorPanel = document.getElementById('vor-panneau');
 const vorCanvas = document.getElementById('vor-canvas');
 let vorShown = false, vorTimer = 0;
@@ -1690,6 +1778,10 @@ for (const [id, action] of [['vor-moins', () => vor.turnCourse(-1)], ['vor-plus'
 
 function updateVor(delta) {
     vor.update(aircraft.position);
+    vor2.setCourse(avionics.obs2);
+    vor2.update(aircraft.position);
+    avionics.update(delta, { airborne: !controls.isOnGround(), vacuum: systems.vacuum });
+    updateDme(delta);
     vorPanel.hidden = !(chaseView && vorShown);
     if (vorPanel.hidden || (vorTimer -= delta) > 0) return;
     vorTimer = 0.1;
@@ -1705,13 +1797,15 @@ const ilsLoc = document.getElementById('ils-loc');
 const ilsGs = document.getElementById('ils-gs');
 const ilsText = document.getElementById('ils-texte');
 
+// ILS : affiché sur la NAV 1 (fréquence 110.30) ; touche I et bouton en vue extérieure : y passer ou en revenir
 function toggleIls() {
-    ils.toggle();
+    avionics.toggleNav1(ILS_FREQ);
     updateIls();
 }
 
 function updateIls() {
     const state = ils.update(aircraft.position);
+    ils.active = state.available && avionics.nav1.active === ILS_FREQ && avionics.powered(systems).navcom1;
     const showButton = chaseView && state.available && !controls.isCrashed();
     ilsButton.hidden = !showButton;
     ilsButton.classList.toggle('actif', ils.active);
@@ -1755,8 +1849,19 @@ function obsUnderPointer(event) {
 function useControl(control, step, wheel = false, fine = false) {
     const { id } = control;
     const trimStep = THREE.MathUtils.degToRad(fine ? 5 : 1);
-    if (id === 'ils') toggleIls();
-    else if (id === 'obs') vor.turnCourse(step * (fine ? 10 : 1));
+    if (id === 'obs') vor.turnCourse(step * (fine ? 10 : 1));
+    else if (id === 'yokes') {
+        if (wheel) return false;
+        cockpit.setYokesVisible(!cockpit.yokesVisible);
+        try { localStorage.setItem('manches', cockpit.yokesVisible ? '1' : '0'); } catch { /* stockage indisponible */ }
+    }
+    else if (id === 'glovebox') {
+        if (wheel) return false;
+        gloveboxOpen = !gloveboxOpen;
+    } else if (/^(com[12]|nav[12]|power|xpdr|dme|audio|davtron|baro|hdgBug|dg|ai|obs2|adf)(:|$)/.test(id)) {
+        if (wheel && /swap|ident|power|audio|davtron|dme/.test(id)) return false;
+        avionics.use(id, step, fine);
+    }
     else if (id === 'mags') systems.turnMagnetos(step);
     else if (id.startsWith('switch:') || id.startsWith('breaker:')) {
         if (wheel) return false;

@@ -27,11 +27,24 @@ const BREAKERS = [
     { id: 'warn', label: 'WARN', amps: 5 },
 ];
 
+// Disjoncteurs de l'avionique (rangée à gauche du tableau, sous les instruments moteur)
+const AVIONICS_BREAKERS = [
+    { id: 'altFeed', label: 'ALT\nFEED', amps: 5 },
+    { id: 'autopilot', label: 'AUTO\nPILOT', amps: 5 },
+    { id: 'gps', label: 'GPS', amps: 5 },
+    { id: 'navcom1', label: 'NAV\nCOM 1', amps: 10 },
+    { id: 'navcom2', label: 'NAV\nCOM 2', amps: 10 },
+    { id: 'adf', label: 'ADF', amps: 5 },
+    { id: 'xpdr', label: 'XPDR', amps: 5 },
+    { id: 'dme', label: 'DME', amps: 5 },
+];
+
 // Interrupteurs à bascule (rangée du bas), dans l'ordre d'affichage
 const TOGGLES = [
     { id: 'fuelPump', label: 'FUEL\nPUMP' },
     { id: 'beacon', label: 'BCN', group: 'LIGHTS' },
     { id: 'land', label: 'LAND', group: 'LIGHTS' },
+    { id: 'taxi', label: 'TAXI', group: 'LIGHTS' },
     { id: 'nav', label: 'NAV', group: 'LIGHTS' },
     { id: 'strobe', label: 'STROBE', group: 'LIGHTS' },
     { id: 'pitotHeat', label: 'PITOT\nHEAT' },
@@ -49,11 +62,11 @@ class Systems extends EventTarget {
     // Avion prêt à voler : moteur tournant, tout allumé sauf phares et pompe
     reset() {
         this.switches = {
-            masterBat: true, masterAlt: true, avionics: true,
-            fuelPump: false, beacon: true, land: false, nav: true, strobe: true, pitotHeat: false,
-            elt: false, altStatic: false, cabinAir1: false, cabinAir2: false,
+            masterBat: true, masterAlt: true, avionics: true, avionics2: true,
+            fuelPump: false, beacon: true, land: false, taxi: false, nav: true, strobe: true, pitotHeat: false,
+            elt: false, altStatic: false, cabinAir1: false, cabinHeat: false,
         };
-        this.breakers = Object.fromEntries(BREAKERS.map((b) => [b.id, true]));   // true = enclenché
+        this.breakers = Object.fromEntries([...BREAKERS, ...AVIONICS_BREAKERS].map((b) => [b.id, true]));   // true = enclenché
         this.magnetos = 3;              // index dans MAGNETOS (BOTH)
         this.fuelSelector = 1;          // BOTH
         this.fuelShutoff = false;       // robinet coupé (tiré)
@@ -67,6 +80,8 @@ class Systems extends EventTarget {
         this._cranked = 0;              // temps de démarreur écoulé
         this._starve = 0;               // temps sans carburant
         this.prime = 0;                 // carburant injecté pour le démarrage (s de pompe)
+        this.hobbs ??= 1234.5;          // compteur horaire (heures de vol, tourne moteur en marche)
+        this.tachHours ??= 1187.2;      // heures moteur du compte-tours (proportionnelles au régime)
         this._changed();
     }
 
@@ -135,12 +150,24 @@ class Systems extends EventTarget {
     }
 
     get alternatorOn() {
-        return this.switches.masterAlt && this.switches.masterBat && this.breakers.altFld && this.running && this.rpm > 1000;
+        return this.switches.masterAlt && this.switches.masterBat && this.breakers.altFld && this.breakers.altFeed
+            && this.running && this.rpm > 1000;
     }
 
-    // Avionique (radios, VOR, ILS, transpondeur)
+    // Barres avionique (interrupteur AVIONICS en deux moitiés) : BUS 1 = audio, NAV/COM 1, transpondeur ;
+    // BUS 2 = NAV/COM 2, DME, ADF
     get avionicsPowered() {
-        return this.busPowered && this.switches.avionics && this.breakers.avn1 && this.breakers.avn2;
+        return this.busPowered && this.switches.avionics && this.breakers.avn1;
+    }
+
+    get avionics2Powered() {
+        return this.busPowered && this.switches.avionics2 && this.breakers.avn2;
+    }
+
+    // Tension du réseau (V) : ~14 V alternateur en charge, ~12 V sur batterie seule
+    get volts() {
+        if (!this.busPowered) return 0;
+        return this.alternatorOn ? 14.1 + Math.min(0.2, (1 - this.battery) * 2) : 11.6 + this.battery * 0.9;
     }
 
     get flapsPowered() {
@@ -175,7 +202,8 @@ class Systems extends EventTarget {
         const on = this.busPowered;
         return {
             beacon: on && this.switches.beacon, nav: on && this.switches.nav, strobe: on && this.switches.strobe,
-            land: on && this.switches.land,
+            // Un seul phare dans l'aile : allumé par LAND ou par TAXI
+            land: on && (this.switches.land || this.switches.taxi), taxi: on && this.switches.taxi,
         };
     }
 
@@ -277,10 +305,16 @@ class Systems extends EventTarget {
         }
         // Batterie : se décharge sans alternateur, se recharge avec
         if (this.switches.masterBat) {
-            const load = 0.4 + (this.switches.avionics ? 0.3 : 0) + (this.switches.land ? 0.2 : 0)
+            const load = 0.4 + (this.switches.avionics ? 0.15 : 0) + (this.switches.avionics2 ? 0.15 : 0)
+                + (this.switches.land || this.switches.taxi ? 0.2 : 0)
                 + (this.switches.pitotHeat ? 0.3 : 0)
                 + (this.fuelPumpRunning ? 0.25 : 0) + (starting ? 4 : 0);
             this.battery = Math.max(0, Math.min(1, this.battery + (this.alternatorOn ? 1 / 600 : -load / BATTERY_LIFE) * delta));
+        }
+        // Compteurs horaires : Hobbs moteur en marche ; compte-tours au prorata du régime (heure pleine à 2 400 tr/min)
+        if (this.running) {
+            this.hobbs += delta / 3600;
+            this.tachHours += delta / 3600 * this.rpm / 2400;
         }
         // Régime : moteur (gaz, mixture) ou hélice entraînée par le vent relatif / le démarreur
         const target = this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
@@ -308,4 +342,4 @@ class Systems extends EventTarget {
     }
 }
 
-export { Systems, BREAKERS, TOGGLES, MAGNETOS, FUEL_SELECTOR, TANK_CAPACITY, GALLON };
+export { Systems, BREAKERS, AVIONICS_BREAKERS, TOGGLES, MAGNETOS, FUEL_SELECTOR, TANK_CAPACITY, GALLON };

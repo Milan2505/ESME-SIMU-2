@@ -108,6 +108,7 @@ class ATC extends EventDispatcher {
         this.voice = true;
         this.persons = 2;
         this.transponder = VFR_SQUAWK;
+        this.radio = { powered: true, tuned: true, frequency: null };   // radio de bord (voir setRadio)
         this.log = [];
         this.busy = false;
         this.traffic = [];
@@ -132,6 +133,8 @@ class ATC extends EventDispatcher {
     }
 
     get status() {
+        if (!this.radio.powered) return "Radio éteinte : allumez l'avionique (AVIONICS BUS 1) et la NAV/COM 1";
+        if (!this.radio.tuned) return `Aucune station sur ${this.radio.frequency} : affichez une fréquence de l'aérodrome sur la COM`;
         if (this.freq === 'info') return this.contacted.has('info') ? "Information de vol : ESME Info (trafic, météo)" : "Pas de contact avec ESME Info";
         if (!this.contact) return STATUS.idle;
         if (this.state === 'taxiIn') return `Roulage vers le parking ${this.assignedStand}`;
@@ -201,6 +204,19 @@ class ATC extends EventDispatcher {
         this._changed();
     }
 
+    // Radio de bord (tableau de bord) : alimentée, et réglée sur une fréquence de l'aérodrome. Sinon, on n'entend
+    // ni ne parle à personne
+    setRadio(powered, tuned, frequency) {
+        if (powered === this.radio.powered && tuned === this.radio.tuned && frequency === this.radio.frequency) return;
+        this.radio = { powered, tuned, frequency };
+        this._optionsKey = '';
+        this._changed();
+    }
+
+    get radioOk() {
+        return this.radio.powered && this.radio.tuned;
+    }
+
     setPersons(n) {
         this.persons = Math.max(1, Math.min(4, Math.round(n) || 1));
         this._optionsKey = '';
@@ -253,7 +269,7 @@ class ATC extends EventDispatcher {
 
     // Bouton "Quitter la fréquence" : possible sur toute fréquence où l'on est en contact, hors échange en cours
     get canLeaveFrequency() {
-        return Boolean(this.s) && !this.busy && !this.pending && !this._frequencyBusy() && this.contacted.has(this.freq);
+        return Boolean(this.s) && this.radioOk && !this.busy && !this.pending && !this._frequencyBusy() && this.contacted.has(this.freq);
     }
 
     leaveFrequency() {
@@ -549,7 +565,7 @@ class ATC extends EventDispatcher {
         // Collationnement attendu
         if (this.pending && !this.busy) {
             this.pending.time += delta;
-            if (this.pending.time > READBACK_TIMEOUT && this.pending.reminders < 2) {
+            if (this.pending.time > READBACK_TIMEOUT && this.pending.reminders < 2 && this.radioOk) {
                 this.pending.time = 0;
                 this.pending.reminders++;
                 this._queue(() => this._controller({ message: this._t(
@@ -686,10 +702,10 @@ class ATC extends EventDispatcher {
     _refreshOptions(s) {
         const held = this._frequencyBusy();
         this.blockedBy = held ? this._hold.name : null;
-        const options = s && !this.busy && !held ? this._buildOptions(s) : [];
+        const options = s && !this.busy && !held && this.radioOk ? this._buildOptions(s) : [];
         const expected = s ? this._expectedStation(s) : null;
-        const suggestion = s && !this.busy && expected !== this.freq && !options.some((o) => o.id !== 'sayAgain') ? expected : null;
-        const key = options.map((o) => o.id + o.message.text).join('|') + this.busy + this.freq + suggestion + this.blockedBy
+        const suggestion = s && !this.busy && this.radio.powered && expected !== this.freq && !options.some((o) => o.id !== 'sayAgain') ? expected : null;
+        const key = options.map((o) => o.id + o.message.text).join('|') + this.busy + this.freq + suggestion + this.blockedBy + this.radioOk
             + (this.state === 'leaving' && s ? s.distance.toFixed(1) : '');   // distance affichée à jour
         if (key === this._optionsKey) return;
         this._optionsKey = key;
@@ -1258,7 +1274,7 @@ class ATC extends EventDispatcher {
     // --- Émission -------------------------------------------------------------------------------
     // Message d'un contrôleur sans demande du pilote : entendu seulement sur sa fréquence, après un premier contact
     _say(station, fr, en, rbFr = null, rbEn = null) {
-        if (this.freq !== station || !this.contacted.has(station)) return;
+        if (this.freq !== station || !this.contacted.has(station) || !this.radioOk) return;
         const gen = this._gen;
         const reply = { message: this._t(fr, en), readback: rbFr ? this._t(rbFr, rbEn) : null };
         this._queue(async () => {
@@ -1271,7 +1287,7 @@ class ATC extends EventDispatcher {
 
     // Message spontané complet (avec collationnement éventuel et choix "trafic en vue / recherchons")
     _sayReply(station, reply) {
-        if (this.freq !== station || !this.contacted.has(station)) return;
+        if (this.freq !== station || !this.contacted.has(station) || !this.radioOk) return;
         const gen = this._gen;
         this._queue(async () => {
             while (this._frequencyBusy() && gen === this._gen) await wait(500);
@@ -1324,7 +1340,7 @@ class ATC extends EventDispatcher {
     // Message d'un autre joueur ou de son contrôleur, entendu seulement sur la même fréquence. La fréquence reste
     // occupée pendant tout l'échange (de son appel à son collationnement) : on ne peut pas transmettre
     receiveRemote({ id, name, freq, from, text, speech, lang, reply }) {
-        if (freq !== this.freq) return;
+        if (freq !== this.freq || !this.radioOk) return;
         const gen = this._gen;
         this._hold = { id, name, until: performance.now() + 60000 };
         const clip = this.voice ? this.voices.prepare(speech, from === 'pilot' ? 'otherPilot' : freq, { lang, seed: id }) : null;
