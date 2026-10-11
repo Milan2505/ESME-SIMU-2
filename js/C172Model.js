@@ -23,11 +23,12 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // Repère avion : x vers la droite, y vers le haut, z vers l'arrière (nez vers -z) ; la cabine (Cockpit.js) a son
 // origine à CABIN_ORIGIN. Le modèle est décalé de MODEL_OFFSET : son tableau de bord d'origine (face à z -0,37,
 // haut à y 0,163) tombe sur celui de Panel172.
-// Tout l'avion (modèle, cabine, tableau, feux) est agrandi de AIRCRAFT_SCALE : le modèle FlightGear est un peu tassé
-// (2,45 m de haut au lieu de 2,72 m) et paraissait petit à côté du décor. Les cotes ci-dessous sont avant agrandissement.
+// Tout l'avion (modèle, cabine, tableau, feux) est agrandi de AIRCRAFT_SCALE : le modèle FlightGear (8,2 m de long,
+// 2,45 m de haut) paraissait petit à côté du décor ; agrandi, il retrouve la taille de l'ancien modèle du simulateur
+// (9,7 m de long). Les cotes ci-dessous sont avant agrandissement.
 
 const MODEL_URL = 'asset/c172p.glb';
-const AIRCRAFT_SCALE = 1.08;
+const AIRCRAFT_SCALE = 1.18;
 const MODEL_OFFSET = new Vector3(0, 0.637, -2.23);
 const GROUND_Y = (-1.326 + MODEL_OFFSET.y) * AIRCRAFT_SCALE;   // bas des roues principales (agrandi : repère avion)
 const CABIN_ORIGIN = new Vector3(0, 0.9, -1.85);
@@ -422,7 +423,7 @@ function seat(x, z, height, bench, backHeight = 1) {
     for (const dx of bench ? [-0.245, 0.245] : [0]) {
         const back = new Group();
         back.position.set(dx, height + 0.04, 0.25);
-        back.rotation.x = -0.2;
+        back.rotation.x = -0.08;   // dossier presque droit
         back.scale.y = backHeight;
         const pad = new Mesh(new RoundedBoxGeometry(0.44, 0.6, 0.1, 4, 0.04), fabric());
         pad.position.y = 0.3;
