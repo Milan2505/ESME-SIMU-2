@@ -118,9 +118,11 @@ function prepare(scene) {
         propeller.add(mesh);
     }
     scene.add(propeller);
-    // Gouvernes : pivot sur la charnière (bord avant de la gouverne)
+    // Gouvernes : pivot sur la charnière, entre les points les plus en avant des deux bouts de la gouverne (span : axe
+    // de l'envergure de la gouverne). Profondeur : ses bouts avancent (compensation), la charnière passe par l'emplanture
+    // et reste transversale (fixedAxis)
     const pivots = {};
-    const pivot = (name, parts, span) => {
+    const pivot = (name, parts, span, fixedAxis = null) => {
         const list = parts.map((n) => meshes[n]).filter(Boolean);
         if (!list.length) return;
         const points = [];
@@ -128,11 +130,19 @@ function prepare(scene) {
             const p = mesh.geometry.attributes.position;
             for (let i = 0; i < p.count; i++) points.push(new Vector3(p.getX(i), p.getY(i), p.getZ(i)));
         }
-        const minZ = Math.min(...points.map((p) => p.z));
-        const front = points.filter((p) => p.z < minZ + (span === 'y' ? 0.25 : 0.03));
-        front.sort((a, b) => a[span] - b[span]);
-        const a = front[0], b = front[front.length - 1];
-        const axis = b.clone().sub(a).normalize();
+        const lo = Math.min(...points.map((p) => p[span])), hi = Math.max(...points.map((p) => p[span]));
+        const frontmost = (filter) => points.filter(filter).reduce((best, p) => (p.z < best.z ? p : best));
+        let a, axis;
+        if (fixedAxis) {
+            const middle = (lo + hi) / 2, half = (hi - lo) / 2;
+            a = frontmost((p) => Math.abs(p[span] - middle) < 0.15 * half);
+            axis = fixedAxis.clone();
+        } else {
+            const end = 0.1 * (hi - lo);
+            a = frontmost((p) => p[span] < lo + end);
+            const b = frontmost((p) => p[span] > hi - end);
+            axis = b.clone().sub(a).normalize();
+        }
         if (span === 'x' ? axis.x < 0 : axis.y > 0) axis.negate();   // angle positif : bord de fuite vers le bas / la gauche
         const group = new Group();
         group.name = name;
@@ -148,7 +158,7 @@ function prepare(scene) {
     pivot('aileronLeft', ['leftaileron'], 'x');
     pivot('aileronRight', ['rightaileron'], 'x');
     pivot('flapLeft', ['flaps'], 'x');
-    pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x');
+    pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
     PARTS.set(root, { propeller, pivots });
     root.scale.setScalar(AIRCRAFT_SCALE);   // après les pivots (calculés dans le repère du modèle)
