@@ -28,7 +28,7 @@ import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
-import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN } from './js/C172Model.js';
+import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -43,7 +43,7 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 
 // Avion : Cessna 172P du projet FlightGear (C172Model.js, asset/c172p.glb)
 const WHEEL_HEIGHT = -GROUND_Y;                             // origine de l'avion au-dessus du sol, roues posées
-const COCKPIT_POSITION = CABIN_ORIGIN;                      // cabine (hauteur des yeux) dans le repère avion
+const COCKPIT_POSITION = CABIN_ORIGIN.clone().multiplyScalar(AIRCRAFT_SCALE); // cabine (hauteur des yeux) dans le repère avion
 const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
 const CHASE_PITCH = Math.atan2(3.5, 15);                    // … et hauteur (angle au-dessus de l'avion)
@@ -186,6 +186,7 @@ controls.placeOnGround();
 controls.saveState();
 
 cockpit.group.position.copy(COCKPIT_POSITION);
+cockpit.group.scale.setScalar(AIRCRAFT_SCALE);   // agrandie comme le modèle de l'avion
 aircraft.add(cockpit.group);
 
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
@@ -196,7 +197,7 @@ const aircraftLights = new AircraftLights(airframe, { castLight: true });
 const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(20), 0.65, 1.6); // phare unique : atterrissage et roulage
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
-landingLight.position.set(-2.92, 1.14, -2.3);
+landingLight.position.set(-2.92, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
 landingLight.target.position.set(-1.2, -2.4, -80);
 airframe.add(landingLight, landingLight.target);
@@ -447,7 +448,7 @@ function updateCamera(delta, snap = false) {
         camera.lookAt(crashCamera.target);
     } else if (!chaseView) {
         // Œil du pilote dans la cabine, la tête peut tourner
-        camera.position.copy(cockpit.eye).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
+        camera.position.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
         _headQuaternion.setFromEuler(_euler.set(head.pitch + COCKPIT_TILT, head.yaw, 0));
         camera.quaternion.copy(aircraft.quaternion).multiply(_headQuaternion);
     } else {

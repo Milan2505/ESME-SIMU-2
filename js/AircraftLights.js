@@ -22,6 +22,7 @@ import {
     Vector3
 } from 'three';
 import { flareTexture } from './LightFlare.js';
+import { AIRCRAFT_SCALE } from './C172Model.js';
 
 // Feux extérieurs du Cessna, placés sur le modèle (repère avion : x à droite, y en haut, -z vers l'avant).
 // Feux de navigation directionnels (règles OACI) : rouge à gauche et vert à droite visibles de l'avant
@@ -219,6 +220,7 @@ class AircraftLights {
     constructor(parent, { castLight = false } = {}) {
         this.parent = parent;
         this.group = new Group();
+        this.group.scale.setScalar(AIRCRAFT_SCALE);   // positions ci-dessus : modèle avant agrandissement
         this.night = 0;
         this.landingLight = false;
         this.switches = null;   // interrupteurs (avion du joueur) ; null : tous les feux allumés, phare la nuit

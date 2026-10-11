@@ -23,12 +23,16 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // Repère avion : x vers la droite, y vers le haut, z vers l'arrière (nez vers -z) ; la cabine (Cockpit.js) a son
 // origine à CABIN_ORIGIN. Le modèle est décalé de MODEL_OFFSET : son tableau de bord d'origine (face à z -0,37,
 // haut à y 0,163) tombe sur celui de Panel172.
+// Tout l'avion (modèle, cabine, tableau, feux) est agrandi de AIRCRAFT_SCALE : le modèle FlightGear est un peu tassé
+// (2,45 m de haut au lieu de 2,72 m) et paraissait petit à côté du décor. Les cotes ci-dessous sont avant agrandissement.
 
 const MODEL_URL = 'asset/c172p.glb';
+const AIRCRAFT_SCALE = 1.08;
 const MODEL_OFFSET = new Vector3(0, 0.637, -2.23);
-const GROUND_Y = -1.326 + MODEL_OFFSET.y;       // bas des roues principales
+const GROUND_Y = (-1.326 + MODEL_OFFSET.y) * AIRCRAFT_SCALE;   // bas des roues principales (agrandi : repère avion)
 const CABIN_ORIGIN = new Vector3(0, 0.9, -1.85);
 const FLOOR_Y = -0.69 + MODEL_OFFSET.y;         // plancher de la cabine
+const SEAT_Z = -1.9;                            // sièges avant (milieu de l'assise), comme siège réglé à mi-course
 
 // Immatriculation d'origine (4X-CHV) dans les textures (px, textures de 2048) : flancs du fuselage (gris, penchée),
 // dessous des ailes (bleu de la livrée, écrite dans le sens de l'envergure)
@@ -146,6 +150,7 @@ function prepare(scene) {
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x');
     pivot('rudder', ['rudder_1'], 'y');
     PARTS.set(root, { propeller, pivots });
+    root.scale.setScalar(AIRCRAFT_SCALE);   // après les pivots (calculés dans le repère du modèle)
     root.userData = { registration: 'F-HESM', liveryColor: null, textureSize: 2048 };
     return root;
 }
@@ -316,18 +321,20 @@ function buildCabin() {
     group.add(headliner, firewall);
     // Moquette
     const carpet = new Mesh(new BoxGeometry(0.94, 0.02, 2.0), new MeshStandardMaterial({ map: carpetTexture(), roughness: 1 }));
-    carpet.position.set(0, FLOOR_Y + 0.01, -1.85);
+    carpet.position.set(0, FLOOR_Y + 0.01, -1.75);
     group.add(carpet);
     // Sièges avant (tissu gris bleuté, cuir beige, appui-tête), banquette arrière
-    for (const x of [-0.23, 0.23]) group.add(seat(x, -2.05, FLOOR_Y + 0.27, false));
-    group.add(seat(0, -1.2, FLOOR_Y + 0.25, true));
+    // Dossiers à la hauteur du toit, qui descend vers l'arrière (1,09 m au-dessus des sièges avant, 0,88 m au-dessus de la
+    // banquette) : appuis-tête juste dessous
+    for (const x of [-0.23, 0.23]) group.add(seat(x, SEAT_Z, FLOOR_Y + 0.27, false, 0.92));
+    group.add(seat(0, SEAT_Z + 0.8, FLOOR_Y + 0.25, true, 0.8));
     for (const side of [-1, 1]) {
         // Accoudoir de porte
         const arm = new Mesh(new RoundedBoxGeometry(0.05, 0.05, 0.45, 3, 0.02), tan);
-        arm.position.set(side * 0.46, FLOOR_Y + 0.5, -2.0);
+        arm.position.set(side * 0.46, FLOOR_Y + 0.5, SEAT_Z + 0.05);
         group.add(arm);
         // Harnais : du toit derrière le siège vers la boucle
-        const top = new Vector3(side * 0.43, 1.1, -1.85), bottom = new Vector3(side * 0.1, FLOOR_Y + 0.3, -1.98);
+        const top = new Vector3(side * 0.43, 1.1, SEAT_Z + 0.2), bottom = new Vector3(side * 0.1, FLOOR_Y + 0.3, SEAT_Z + 0.07);
         const strap = new Mesh(new BoxGeometry(0.045, top.distanceTo(bottom), 0.005), new MeshStandardMaterial({ color: 0xa69b85, roughness: 0.9 }));
         strap.position.copy(top).add(bottom).multiplyScalar(0.5);
         strap.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), top.clone().sub(bottom).normalize());
@@ -399,8 +406,9 @@ function fabric() {
     return fabricMaterial;
 }
 
-// Siège : assise, dossier incliné, appui-tête ; liserés et joues en cuir beige ; bench : banquette à deux places
-function seat(x, z, height, bench) {
+// Siège : assise, dossier incliné, appui-tête ; liserés et joues en cuir beige ; bench : banquette à deux places ;
+// backHeight : hauteur relative du dossier
+function seat(x, z, height, bench, backHeight = 1) {
     const g = new Group();
     g.position.set(x, 0, z);
     const leather = ambient(new MeshStandardMaterial({ color: 0xb59b74, roughness: 0.6, emissive: 0x2e2719 }));
@@ -415,6 +423,7 @@ function seat(x, z, height, bench) {
         const back = new Group();
         back.position.set(dx, height + 0.04, 0.25);
         back.rotation.x = -0.2;
+        back.scale.y = backHeight;
         const pad = new Mesh(new RoundedBoxGeometry(0.44, 0.6, 0.1, 4, 0.04), fabric());
         pad.position.y = 0.3;
         const shell = new Mesh(new RoundedBoxGeometry(0.47, 0.62, 0.06, 3, 0.025), leather);
@@ -442,4 +451,4 @@ function seat(x, z, height, bench) {
     return g;
 }
 
-export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, GROUND_Y, CABIN_ORIGIN };
+export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE };
