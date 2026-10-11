@@ -34,7 +34,7 @@ import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
 
-const CAM_FOV = 60, COCKPIT_FOV = 70, CAM_NEAR = 0.1, CAM_FAR = 3000;
+const CAM_FOV = 60, COCKPIT_FOV = 62, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
 // Lumière renvoyée par le sol : vert-gris sourd (un vert pur teintait en vert le dessous des ailes et le ventre de l'avion)
 const COLOR_GROUND_BOUNCE = 0x5d6450;
@@ -44,7 +44,7 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 // Avion : Cessna 172P du projet FlightGear (C172Model.js, asset/c172p.glb)
 const WHEEL_HEIGHT = -GROUND_Y;                             // origine de l'avion au-dessus du sol, roues posées
 const COCKPIT_POSITION = CABIN_ORIGIN.clone().multiplyScalar(AIRCRAFT_SCALE); // cabine (hauteur des yeux) dans le repère avion
-const COCKPIT_TILT = THREE.MathUtils.degToRad(-8);          // regard légèrement baissé vers le tableau de bord
+const COCKPIT_TILT = THREE.MathUtils.degToRad(-13);         // regard baissé : horizon au tiers haut de l'écran, tableau en bas
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
 const CHASE_PITCH = Math.atan2(3.5, 15);                    // … et hauteur (angle au-dessus de l'avion)
 const CHASE_TARGET = new THREE.Vector3(0, 1.5, -8);         // point visé, devant l'avion
@@ -307,38 +307,62 @@ const orbit = { yaw: 0, pitch: CHASE_PITCH, distance: CHASE_DISTANCE };
 const head = { yaw: 0, pitch: 0 };
 let drag = null;
 
-// Vues de la cabine sur les touches chiffrées : point visé (repère cabine, comme Cockpit.js) et champ de vision
+// Caméras de la cabine : touches 1 à 9 et 0, ou Tab / Maj + Tab pour passer à la suivante / précédente.
+// eye : position de l'œil (repère cabine, comme Cockpit.js ; par défaut : place du pilote) ; target : point visé
+// (sinon yaw / pitch : direction du regard) ; fov : champ de vision ; close : caméra rapprochée sur une partie du
+// tableau, comme un pilote qui se penche (manches cachés le temps de la vue)
+const PILOT_EYE = cockpit.eye.clone();
 const CABIN_VIEWS = {
-    1: { label: 'Devant', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
-    2: { label: 'Instruments de vol', target: [-0.153, -0.205, -0.75], fov: 40 },
-    3: { label: 'Magnétos, master et disjoncteurs', target: [-0.34, -0.47, -0.75], fov: 30 },
-    4: { label: 'Interrupteurs et avionique', target: [-0.25, -0.46, -0.75], fov: 27 },
-    5: { label: 'Volets, aération, boîte à gants', target: [0.25, -0.46, -0.75], fov: 30 },
-    6: { label: 'Radios (NAV/COM, DME, transpondeur)', target: [0.09, -0.27, -0.75], fov: 25 },
-    7: { label: 'Gaz, mixture, éclairage', target: [0.02, -0.46, -0.75], fov: 27 },
-    8: { label: 'Pupitre (trim, robinet)', target: [0, -0.657, -0.6], fov: 38 },
-    9: { label: 'Sélecteur de réservoir', target: [0, -0.884, -0.45], fov: 38 },
-    0: { label: 'Aile gauche', yaw: 1.35, pitch: 0.05, fov: COCKPIT_FOV },
+    1: { label: 'Pilote', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
+    2: { label: 'Instruments de vol', eye: [-0.17, -0.02, -0.25], target: [-0.153, -0.23, -0.75], fov: 50, close: true },
+    3: { label: 'Magnétos, master et disjoncteurs', eye: [-0.36, -0.12, -0.3], target: [-0.36, -0.43, -0.75], fov: 45, close: true },
+    4: { label: 'Interrupteurs et avionique', eye: [-0.25, -0.12, -0.3], target: [-0.25, -0.46, -0.75], fov: 45, close: true },
+    5: { label: 'Volets, aération, boîte à gants', eye: [0.2, -0.1, -0.3], target: [0.27, -0.45, -0.75], fov: 50, close: true },
+    6: { label: 'Radios (NAV/COM, DME, transpondeur)', eye: [0.0, -0.05, -0.3], target: [0.09, -0.27, -0.75], fov: 45, close: true },
+    7: { label: 'Gaz, mixture, éclairage', eye: [-0.05, -0.12, -0.3], target: [0.02, -0.46, -0.75], fov: 45, close: true },
+    8: { label: 'Pupitre (trim, robinet)', eye: [-0.1, -0.2, -0.25], target: [0, -0.657, -0.6], fov: 50, close: true },
+    9: { label: 'Sélecteur de réservoir', eye: [-0.05, -0.3, -0.25], target: [0, -0.884, -0.45], fov: 50, close: true },
+    0: { label: 'Côté gauche', yaw: 1.0, pitch: 0.25, fov: 75 },
 };
-let headTarget = null;   // vue en cours de rejointe (glissement doux)
+const VIEW_ORDER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+let cabinView = 1;
+let headTarget = null;               // regard en cours de rejointe (glissement doux)
+const eyeTarget = PILOT_EYE.clone(); // l'œil glisse vers sa place
 
 function setCabinViewPreset(number) {
     const preset = CABIN_VIEWS[number];
     if (!preset) return;
     if (chaseView) toggleView();
+    cabinView = number;
+    cockpit.setYokesHiddenByView(Boolean(preset.close));
+    if (preset.eye) eyeTarget.fromArray(preset.eye);
+    else eyeTarget.copy(PILOT_EYE);
     let { yaw, pitch } = preset;
     if (preset.target) {
         const [tx, ty, tz] = preset.target;
-        const dx = tx - cockpit.eye.x, dy = ty - cockpit.eye.y, dz = tz - cockpit.eye.z;
+        const dx = tx - eyeTarget.x, dy = ty - eyeTarget.y, dz = tz - eyeTarget.z;
         yaw = Math.atan2(-dx, -dz);
         pitch = Math.atan2(dy, Math.hypot(dx, dz)) - COCKPIT_TILT;
     }
     headTarget = { yaw, pitch, fov: preset.fov };
+    showViewLabel(preset.label);
+}
+
+// Nom de la caméra, affiché brièvement en haut de l'écran
+const viewLabel = document.getElementById('nom-vue');
+let viewLabelTimer = 0;
+function showViewLabel(text) {
+    viewLabel.textContent = text;
+    viewLabel.classList.add('visible');
+    clearTimeout(viewLabelTimer);
+    viewLabelTimer = setTimeout(() => viewLabel.classList.remove('visible'), 1500);
 }
 
 function updateHeadTarget(delta) {
-    if (!headTarget || chaseView) return;
+    if (chaseView) return;
     const k = 1 - Math.exp(-8 * delta);
+    cockpit.eye.lerp(eyeTarget, k);
+    if (!headTarget) return;
     head.yaw += (headTarget.yaw - head.yaw) * k;
     head.pitch += (headTarget.pitch - head.pitch) * k;
     camera.fov += (headTarget.fov - camera.fov) * k;
@@ -347,13 +371,27 @@ function updateHeadTarget(delta) {
 }
 
 window.addEventListener('keydown', (event) => {
-    if (event.repeat || isTypingTarget(event.target)) return;
+    if (isTypingTarget(event.target)) return;
+    if (event.code === 'Tab') {
+        // Caméra suivante (Maj : précédente) ; depuis la vue extérieure : place du pilote
+        event.preventDefault();
+        if (event.repeat) return;
+        const i = VIEW_ORDER.indexOf(cabinView);
+        const step = event.shiftKey ? -1 : 1;
+        setCabinViewPreset(chaseView ? 1 : VIEW_ORDER[(i + step + VIEW_ORDER.length) % VIEW_ORDER.length]);
+        return;
+    }
+    if (event.repeat) return;
     const match = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
     if (match) setCabinViewPreset(Number(match[1]));
 });
 
 function recenterCamera() {
     headTarget = null;
+    cabinView = 1;
+    cockpit.setYokesHiddenByView(false);
+    eyeTarget.copy(PILOT_EYE);
+    cockpit.eye.copy(PILOT_EYE);
     Object.assign(orbit, { yaw: 0, pitch: CHASE_PITCH, distance: CHASE_DISTANCE });
     Object.assign(head, { yaw: 0, pitch: 0 });
     camera.fov = chaseView ? CAM_FOV : COCKPIT_FOV;

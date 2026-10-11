@@ -523,6 +523,27 @@ img{margin: 0px;
     border-radius: 5px;
     pointer-events: none;
   }
+  /* Nom de la caméra de la cabine (Tab, 1 à 9), affiché un instant */
+  #nom-vue {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: end;
+    justify-self: center;
+    z-index: 2;
+    margin-bottom: 18px;
+    padding: 5px 14px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 15px;
+    color: white;
+    background: rgba(20, 20, 20, 0.7);
+    border-radius: 5px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #nom-vue.visible {
+    opacity: 1;
+  }
   #alarme {
     grid-column: 4/15;
     grid-row: 10/17;
@@ -738,6 +759,7 @@ img{margin: 0px;
   /* Écran de vol et éléments superposés : toute la largeur, sous la barre */
   #simulator:fullscreen > #ecran,
   #simulator:fullscreen > #alarme,
+  #simulator:fullscreen > #nom-vue,
   #simulator:fullscreen > #crash,
   #simulator:fullscreen > #perf,
   #simulator:fullscreen > #ils-bouton,
