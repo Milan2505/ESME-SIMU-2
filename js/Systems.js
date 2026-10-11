@@ -9,7 +9,6 @@ const LOW_FUEL = 5;                    // alarme carburant bas (gal)
 const START_TIME = 1.2;                // moteur amorcé : il démarre après 1,2 s de démarreur
 const START_TIME_UNPRIMED = 4.5;       // sans amorçage (pompe), il faut insister : ~4,5 s de démarreur en tout
 const PRIME_TIME = 2;                  // amorçage : pompe allumée ~2 s, moteur arrêté, mixture poussée
-const FLOOD_TIME = 30;                 // au-delà de ~30 s de pompe moteur arrêté (sans démarreur) : moteur noyé
 const LOW_FUEL_FEED = 1.5;             // réservoir presque vide (gal) : sans pompe, l'alimentation est irrégulière
 const STARTER_HOLD = 1.6;              // durée d'un appui sur START (s) : la clé revient seule sur BOTH
 const FUEL_STARVE_TIME = 4;            // sans alimentation, le moteur s'arrête après ~4 s (carburant dans les tuyaux)
@@ -67,7 +66,7 @@ class Systems extends EventTarget {
         this._crank = 0;                // temps de démarreur restant (s)
         this._cranked = 0;              // temps de démarreur écoulé
         this._starve = 0;               // temps sans carburant
-        this.prime = 0;                 // carburant injecté pour le démarrage (s de pompe) ; > FLOOD_TIME : noyé
+        this.prime = 0;                 // carburant injecté pour le démarrage (s de pompe)
         this._changed();
     }
 
@@ -202,10 +201,6 @@ class Systems extends EventTarget {
         return this.switches.fuelPump && this.busPowered;
     }
 
-    get flooded() {
-        return this.prime > FLOOD_TIME;
-    }
-
     // Réservoir(s) choisi(s) presque vide(s) : sans la pompe électrique, le moteur tousse
     get _fuelFeedWeak() {
         const tanks = [[this.fuel[0]], [this.fuel[0], this.fuel[1]], [this.fuel[1]]][this.fuelSelector];
@@ -239,20 +234,18 @@ class Systems extends EventTarget {
     update(delta, throttle, airspeed) {
         this._throttle = throttle;
         this._time = (this._time ?? 0) + delta;
-        // Amorçage : pompe en marche, moteur arrêté, mixture poussée -> du carburant arrive aux cylindres (trop : noyé) ;
-        // il s'évapore lentement ; démarreur avec la mixture tirée : on dénoie le moteur
+        // Amorçage : pompe en marche, moteur arrêté, mixture poussée -> du carburant arrive aux cylindres (démarrage
+        // plus facile) ; il s'évapore lentement. Le moteur ne se noie pas, même pompe laissée allumée
         if (!this.running) {
-            // (pendant le démarreur, les cylindres aspirent ce carburant : il ne s'accumule pas)
-            if (this.fuelPumpRunning && this.mixture > 0.3 && this.fuelAvailable && this._crank <= 0) this.prime += delta;
+            if (this.fuelPumpRunning && this.mixture > 0.3 && this.fuelAvailable) this.prime = Math.min(PRIME_TIME * 2, this.prime + delta);
             else this.prime = Math.max(0, this.prime - delta / 30);
-            if (this._crank > 0 && this.mixture < 0.2) this.prime = Math.max(0, this.prime - delta * 3);
         }
         // Démarreur : la clé tenue sur START lance le moteur (batterie, carburant, magnétos, mixture)
         const starting = this._crank > 0;
         if (starting) {
             this._crank -= delta;
             this._cranked += delta;
-            const canStart = this.switches.masterBat && this.battery > 0.05 && this.fuelAvailable && this.mixture > 0.25 && !this.flooded;
+            const canStart = this.switches.masterBat && this.battery > 0.05 && this.fuelAvailable && this.mixture > 0.25;
             const needed = this.prime >= PRIME_TIME ? START_TIME : START_TIME_UNPRIMED;
             if (!this.running && canStart && this._cranked > needed) {
                 this.running = true;
@@ -302,7 +295,6 @@ class Systems extends EventTarget {
         if (this.fuelShutoff) return 'Pas de carburant : robinet coupé (pupitre, bouton rouge à pousser)';
         if (!this.fuelAvailable) return 'Pas de carburant : réservoir choisi vide (sélecteur au plancher)';
         if (this.mixture <= 0.25) return 'Mixture tirée : poussez la manette rouge';
-        if (this.flooded) return 'Moteur noyé : coupez la pompe, tirez la mixture et actionnez le démarreur, puis repoussez la mixture';
         return 'Le moteur tousse sans partir : insistez au démarreur (ou amorcez 2-3 s avec la pompe)';
     }
 

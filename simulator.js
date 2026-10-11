@@ -1433,6 +1433,12 @@ function renderVoiceStatus() {
         : state === 'error' ? "Voix réalistes indisponibles : voix de l'ordinateur"
         : '';
     atcVoiceStatus.hidden = !atcVoiceStatus.textContent;
+    // Aussi dans l'écran de choix du départ (les voix se téléchargent pendant ce temps)
+    const departVoice = document.getElementById('depart-voix');
+    departVoice.textContent = radioVoices.mode === 'neural' && state === 'loading'
+        ? `Voix radio réalistes : téléchargement ${Math.round(progress * 100)} % (une seule fois, continue en vol)`
+        : radioVoices.mode === 'neural' && state === 'ready' ? 'Voix radio réalistes prêtes ✓' : '';
+    departVoice.hidden = !departVoice.textContent;
 }
 radioVoices.addEventListener('status', renderVoiceStatus);
 
@@ -1480,6 +1486,9 @@ atcTransponder.addEventListener('keydown', (event) => {
         radioVoices.mode = localStorage.getItem('atc-voix-type') === 'system' ? 'system' : 'neural';
     } catch { /* stockage indisponible */ }
     atcVoiceType.value = radioVoices.mode;
+    // Voix réalistes téléchargées et préparées dès l'ouverture de la page (fil séparé : rien ne se fige), pour être
+    // prêtes au premier message radio
+    radioVoices.preload();
     setAtcLanguage(lang);
     setAtcVoice(voice);
     atc.setPersons(persons);
