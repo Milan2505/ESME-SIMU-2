@@ -14,6 +14,62 @@
 		    }
 		}
 	</script>
+	<!-- Préchargement de tous les modules dès le début (sinon ils sont découverts en cascade, un aller-retour par niveau d'import) -->
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.core.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/GLTFLoader.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/MTLLoader.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/OBJLoader.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/math/ImprovedNoise.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/objects/Sky.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/EffectComposer.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/OutputPass.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/RenderPass.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/UnrealBloomPass.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/Pass.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/ShaderPass.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/postprocessing/MaskPass.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/shaders/CopyShader.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/shaders/LuminosityHighPassShader.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/shaders/OutputShader.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/utils/BufferGeometryUtils.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/mqtt@5.14.1/dist/mqtt.esm.js">
+	<link rel="modulepreload" href="simulator.js">
+	<link rel="modulepreload" href="js/Utils3d.js">
+	<link rel="modulepreload" href="js/PlaneControls.js">
+	<link rel="modulepreload" href="js/FlightModel.js">
+	<link rel="modulepreload" href="js/Cessna172.js">
+	<link rel="modulepreload" href="js/DataLoader.js">
+	<link rel="modulepreload" href="js/Terrain.js">
+	<link rel="modulepreload" href="js/Clouds.js">
+	<link rel="modulepreload" href="js/CloudLayer.js">
+	<link rel="modulepreload" href="js/StallWarning.js">
+	<link rel="modulepreload" href="js/EngineSound.js">
+	<link rel="modulepreload" href="js/SoundEffects.js">
+	<link rel="modulepreload" href="js/Graphics.js">
+	<link rel="modulepreload" href="js/Multiplayer.js">
+	<link rel="modulepreload" href="js/Liveries.js">
+	<link rel="modulepreload" href="js/RemotePlayers.js">
+	<link rel="modulepreload" href="js/AircraftLights.js">
+	<link rel="modulepreload" href="js/LightFlare.js">
+	<link rel="modulepreload" href="js/Airport.js">
+	<link rel="modulepreload" href="js/MergeStatic.js">
+	<link rel="modulepreload" href="js/NightSky.js">
+	<link rel="modulepreload" href="js/Storm.js">
+	<link rel="modulepreload" href="js/Cockpit.js">
+	<link rel="modulepreload" href="js/Controls3D.js">
+	<link rel="modulepreload" href="js/PanelControls.js">
+	<link rel="modulepreload" href="js/Systems.js">
+	<link rel="modulepreload" href="js/VOR.js">
+	<link rel="modulepreload" href="js/CrashEffect.js">
+	<link rel="modulepreload" href="js/ControlSurfaces.js">
+	<link rel="modulepreload" href="js/Settings.js">
+	<link rel="modulepreload" href="js/ILS.js">
+	<link rel="modulepreload" href="js/Radio.js">
+	<link rel="modulepreload" href="js/MapView.js">
+	<link rel="modulepreload" href="js/ATC.js">
+	<link rel="modulepreload" href="js/Wind.js">
+	<link rel="modulepreload" href="js/RadioVoices.js">
 </head>
 	
 <body>

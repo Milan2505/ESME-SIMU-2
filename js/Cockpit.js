@@ -20,6 +20,7 @@ import {
     SRGBColorSpace,
     Vector3
 } from 'three';
+import { mergeStatic } from './MergeStatic.js';
 import { Controls3D } from './Controls3D.js';
 import { Hotspots, drawSubpanel, drawEngineGauges, drawAnnunciators, drawPedestal, drawFuelSelector } from './PanelControls.js';
 
@@ -784,6 +785,9 @@ class Cockpit {
         this.panelTexture = new CanvasTexture(canvas);
         this.panelTexture.colorSpace = SRGBColorSpace;
         this.panelTexture.anisotropy = 8;
+        // Le tableau est entièrement opaque : le déclarer « prémultiplié » (comme le canvas l'est déjà) évite au
+        // navigateur une conversion pixel par pixel à chaque envoi (25 fois par seconde) ; même image, ~+10 i/s en cabine
+        this.panelTexture.premultiplyAlpha = true;
 
         const plastic = new MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.85 });
         const frame = new MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.7 });
@@ -1003,6 +1007,11 @@ class Cockpit {
             child.receiveShadow = true; // la coque fait de l'ombre à l'intérieur en vue extérieure
             if (cabinOnly.has(child.material)) child.userData.cabinOnly = true;
         });
+        // Pièces fixes fusionnées par matériau (même image, bien moins d'appels de dessin) ; restent à part ce qui
+        // bouge ou se clique : manches, gaz, mixture, frein, commandes 3D, pare-brise, surfaces cliquables
+        const dynamic = new Set([this._throttle, this._mixture, this._brakeLever, this._windshield,
+            ...this._yokes.map((yoke) => yoke.column), ...(this._controls3D._roots ?? []), ...this.clickables]);
+        mergeStatic(this.group, (node) => dynamic.has(node));
     }
 
     // exterior : vue extérieure (on voit l'intérieur à travers les vitres du modèle)
@@ -1053,15 +1062,24 @@ class Cockpit {
         return this._hotspots[surface].at(hit.uv.x * canvas.width, (1 - hit.uv.y) * canvas.height);
     }
 
+    // Pupitre et sélecteur de réservoir : redessinés (et renvoyés à la carte graphique) seulement quand ce
+    // qu'ils affichent change (trim, frein, robinet, réservoir)
     _drawPedestal(state) {
         const trim = { deg: state.trim, min: state.trimLimits[0], max: state.trimLimits[1], takeoff: state.takeoffTrim };
-        const p = this._pedestal, f = this._fuelPlate;
-        this._hotspots.pedestal.clear();
-        drawPedestal(p.ctx, this._hotspots.pedestal, p.ctx.canvas.width, p.ctx.canvas.height, state.systems, trim);
-        p.texture.needsUpdate = true;
-        this._hotspots.fuel.clear();
-        drawFuelSelector(f.ctx, this._hotspots.fuel, f.ctx.canvas.width, f.ctx.canvas.height, state.systems);
-        f.texture.needsUpdate = true;
+        const p = this._pedestal, f = this._fuelPlate, sys = state.systems;
+        const pedestalKey = `${trim.deg.toFixed(2)}|${trim.min}|${trim.max}|${trim.takeoff}|${sys.brake}|${sys.fuelShutoff}`;
+        if (pedestalKey !== this._pedestalKey) {
+            this._pedestalKey = pedestalKey;
+            this._hotspots.pedestal.clear();
+            drawPedestal(p.ctx, this._hotspots.pedestal, p.ctx.canvas.width, p.ctx.canvas.height, sys, trim);
+            p.texture.needsUpdate = true;
+        }
+        if (sys.fuelSelector !== this._fuelKey) {
+            this._fuelKey = sys.fuelSelector;
+            this._hotspots.fuel.clear();
+            drawFuelSelector(f.ctx, this._hotspots.fuel, f.ctx.canvas.width, f.ctx.canvas.height, sys);
+            f.texture.needsUpdate = true;
+        }
     }
 
     setRain(intensity) {
@@ -1098,10 +1116,11 @@ class Cockpit {
         u.uTime.value = this._time;
         u.uSpeed.value = state.speed;
 
-        // Le tableau de bord (canvas 1536×512, puis envoi à la carte graphique) est coûteux :
-        // ~25 fois par seconde suffit pour des aiguilles fluides
+        // Le tableau de bord (canvas 1536×691, puis envoi à la carte graphique avec ses mipmaps) est coûteux :
+        // ~25 fois par seconde en cabine suffit pour des aiguilles fluides ; en vue extérieure, on ne le voit
+        // que par les vitres : 6 fois par seconde
         this._sinceDraw += delta;
-        if (this._sinceDraw >= 1 / 25) {
+        if (this._sinceDraw >= (this._exterior ? 1 / 6 : 1 / 25)) {
             this._sinceDraw = 0;
             this._drawPanel(state);
             this._drawPedestal(state);

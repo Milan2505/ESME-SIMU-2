@@ -32,6 +32,7 @@ import {
     Vector3
 } from 'three';
 import { flareTexture } from './LightFlare.js';
+import { mergeStatic } from './MergeStatic.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
 // Tout est modélisé ici (pas de modèle externe) ; le relief est aplani autour (voir reliefFactor).
@@ -107,15 +108,27 @@ function canvasTexture(width, height, draw, { repeat = null, anisotropy = 8 } = 
     return texture;
 }
 
-// Grain d'enrobé / de béton
+// Grain d'enrobé / de béton : petits points de 1 à 3 pixels, plus clairs ou plus foncés. Calculé directement sur
+// les pixels (le même grain dessiné point par point avec fillRect prenait ~0,5 s au chargement)
 function speckle(ctx, width, height, base, amount, count) {
     ctx.fillStyle = base;
     ctx.fillRect(0, 0, width, height);
+    const image = ctx.getImageData(0, 0, width, height);
+    const data = image.data;
     for (let i = 0; i < count; i++) {
         const v = Math.random() * amount * 2 - amount;
-        ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
-        ctx.fillRect(Math.random() * width, Math.random() * height, 1 + Math.random() * 2, 1 + Math.random() * 2);
+        const alpha = Math.abs(v), target = v > 0 ? 255 * alpha : 0;
+        const x0 = Math.floor(Math.random() * width), y0 = Math.floor(Math.random() * height);
+        const x1 = Math.min(width, x0 + 1 + Math.round(Math.random() * 2)), y1 = Math.min(height, y0 + 1 + Math.round(Math.random() * 2));
+        for (let y = y0; y < y1; y++) {
+            for (let x = x0, k = (y * width + x0) * 4; x < x1; x++, k += 4) {
+                data[k] = data[k] * (1 - alpha) + target;
+                data[k + 1] = data[k + 1] * (1 - alpha) + target;
+                data[k + 2] = data[k + 2] * (1 - alpha) + target;
+            }
+        }
     }
+    ctx.putImageData(image, 0, 0);
 }
 
 // Marquages OACI (piste de 30 m) : seuil "piano" de 8 bandes centrées, numéros 36 / 18,
@@ -472,6 +485,10 @@ class Airport {
                 child.castShadow = !child.userData.flat;
             }
         });
+        // Pièces fixes fusionnées par matériau (~240 appels de dessin -> ~60, même image) ; restent à part ce qui
+        // bouge : vantaux des portes de hangar, feu à éclats de la tour, manche à air
+        const dynamic = new Set([this._beacon, this._sockPivot, ...this._hangars.flatMap((h) => h.panels.map((panel) => panel.mesh))]);
+        mergeStatic(this.group, (node) => dynamic.has(node));
         return this.group;
     }
 
@@ -482,6 +499,8 @@ class Airport {
             { x: 338, z: -60, color: 0x2e86c1 },
             { x: 338, z: -40, color: 0xf1c40f },
         ];
+        const parked = new Group();
+        this.group.add(parked);
         for (const spot of spots) {
             const plane = model.clone();
             plane.visible = true;
@@ -497,10 +516,11 @@ class Airport {
             holder.position.set(spot.x, wheelHeight - 0.01, spot.z); // roues posées sur le parking
             holder.rotation.y = Math.PI / 2;           // nez vers la piste (ouest)
             holder.add(plane);
-            this.group.add(holder);
+            parked.add(holder);
             holder.updateMatrixWorld(true);
             this.obstacles.push(new Box3().setFromObject(holder).expandByScalar(-1));
         }
+        mergeStatic(parked);   // les 3 avions garés : une pièce par matériau
     }
 
     // Mâts d'éclairage du parking. La nuit : halo sur chaque projecteur et flaque de lumière au sol
@@ -508,11 +528,13 @@ class Airport {
     addFloodlights(model) {
         model.traverse((child) => { if (child.isMesh) child.castShadow = true; });
         const lamps = [];
+        const masts = new Group();
+        this.group.add(masts);
         for (const [fx, z] of FLOODLIGHTS.points) {
             const mast = model.clone();
             mast.position.set(fx, 0, z);
             mast.scale.setScalar(FLOODLIGHTS.scale);
-            this.group.add(mast);
+            masts.add(mast);
             // Obstacle : le mât seul (les bras sont trop haut pour un avion qui roule)
             this.obstacles.push(new Box3(new Vector3(fx - 0.5, 0, z - 0.5), new Vector3(fx + 0.5, 12, z + 0.5)));
             for (const [dx, dz] of FLOODLIGHT_LAMPS) {
@@ -526,6 +548,7 @@ class Airport {
             size: 5, map: flareTexture(), color: 0xffd9a0, transparent: true,
             depthWrite: false, blending: AdditiveBlending,
         });
+        mergeStatic(masts);
         this._floodlightHalos = new Points(geometry, this._floodlightMaterial);
         this.group.add(this._floodlightHalos);
 
