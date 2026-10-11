@@ -33,8 +33,8 @@ const deg = MathUtils.degToRad;
 const LIGHTS = [
     { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.06],  sector: [deg(-110), deg(0)],  size: 1.1 },
     { kind: 'nav',     color: 0x18ff3c, position: [5.64, 1.165, -2.06],   sector: [deg(0), deg(110)],   size: 1.1 },
-    { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.86],      sector: [deg(110), deg(250)], size: 0.8 },
-    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.71, 3.27],                                     size: 1.6 },
+    { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.86],      sector: [deg(110), deg(250)], size: 0.8, rudder: true },
+    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.71, 3.27],                                     size: 1.6, rudder: true },
     { kind: 'strobe',  color: 0xf2f6ff, position: [-5.645, 1.165, -2.04],                              size: 3.2 },
     { kind: 'strobe',  color: 0xf2f6ff, position: [5.645, 1.165, -2.04],                               size: 3.2 },
     { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.142, -2.29],                               size: 3.5 },
@@ -156,6 +156,7 @@ function createFixture(def) {
 }
 
 const _eye = new Vector3();
+const _hinge = new Vector3();
 const _worldLight = new Vector3();
 const _ray = new Vector3();
 const _raycaster = new Raycaster();
@@ -288,16 +289,39 @@ class AircraftLights {
         this.occluder = model;
     }
 
+    // Gouverne de direction (pivot sur sa charnière, voir C172Model.js) : dans ce modèle, elle forme le haut de la
+    // dérive et porte le feu anticollision et le feu de queue, qui la suivent quand elle braque
+    setRudder(pivot) {
+        this.rudder = pivot;
+    }
+
+    _followRudder() {
+        const pivot = this.rudder;
+        if (!pivot?.parent) return;
+        // Charnière dans le repère des feux
+        _hinge.copy(pivot.position);
+        pivot.parent.localToWorld(_hinge);
+        this.group.worldToLocal(_hinge);
+        for (const light of this.lights) {
+            if (!light.rudder) continue;
+            light.position.copy(light.base).sub(_hinge).applyQuaternion(pivot.quaternion).add(_hinge);
+            light.bulb.position.copy(light.position);
+            light.bulb.quaternion.copy(pivot.quaternion);
+        }
+    }
+
     update(camera, time) {
         const delta = Math.min(0.1, Math.max(0, time - this._lastTime));
         this._lastTime = time;
         _eye.copy(camera.position);
-        this.parent.worldToLocal(_eye);
+        this.group.updateWorldMatrix(true, false);
+        this.group.worldToLocal(_eye);                      // repère des feux (agrandi avec l'avion)
         const occluder = this._cabin ? null : this.occluder; // pas de test en cabine (modèle caché, sauf l'hélice)
         const beaconPhase = (time % 1) * Math.PI * 2;      // anticollision : un tour par seconde
         const strobe = time % 1.4;                          // strobes : double éclat toutes les 1,4 s
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
         const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight };
+        this._followRudder();
         for (const light of this.tipLights) {
             const flash = strobeOn && sw.strobe;
             if (flash) light.color.setRGB(1, 1, 1);
@@ -329,7 +353,7 @@ class AircraftLights {
             // Occultation par l'avion : rayon de la caméra vers le feu, fondu rapide pour éviter le clignotement
             let target = 1;
             if (occluder && intensity > 0.02) {
-                _worldLight.copy(light.position).applyMatrix4(this.parent.matrixWorld);
+                _worldLight.copy(light.position).applyMatrix4(this.group.matrixWorld);
                 _ray.subVectors(_worldLight, camera.position);
                 const far = _ray.length() - 0.35; // le feu est fixé contre la carlingue : on ne teste pas les derniers cm
                 _raycaster.set(camera.position, _ray.normalize());

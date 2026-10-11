@@ -227,6 +227,7 @@ loadAircraft().then(({ model, template, parts }) => {
     setRegistration(model, atc.registration);
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
+    aircraftLights.setRudder(parts.pivots.rudder);
     remotePlayers.setTemplate(template);
     airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
         setRegistration(plane, registration);
