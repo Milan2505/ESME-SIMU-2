@@ -7,6 +7,7 @@
             "label": "Serveur local",
             "type": "shell",
             "command": "python -u .vscode/serveur.py",
+            "options": { "env": { "OPEN_BROWSER": "0" } },
             "isBackground": true,
             "problemMatcher": {
                 "pattern": { "regexp": "^$" },

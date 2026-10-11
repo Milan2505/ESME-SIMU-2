@@ -1,11 +1,21 @@
 {
-    // F5 : démarre le serveur local, ouvre Edge sur le simulateur, puis y attache le débogueur.
-    // On s'attache à un Edge déjà ouvert plutôt que de le faire lancer par VS Code : avec Edge 154, le lancement
-    // direct échouait ("Unable to attach to browser" / "Could not find any debuggable target").
+    // F5 : « Simulateur » démarre le serveur local et ouvre le simulateur dans le navigateur.
+    //      Une seule session ; Shift+F5 (ou le carré rouge) arrête le serveur.
+    // « Débogage JS (Edge) » : pour mettre des points d'arrêt dans le code JS depuis VS Code.
+    //      On s'attache à un Edge lancé par une tâche plutôt que de le faire lancer par VS Code : avec Edge 154,
+    //      le lancement direct échouait ("Unable to attach to browser" / "Could not find any debuggable target").
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch Edge",
+            "name": "Simulateur",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/.vscode/serveur.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Débogage JS (Edge)",
             "request": "attach",
             "type": "msedge",
             "port": 9222,

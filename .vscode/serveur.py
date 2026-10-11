@@ -1,5 +1,7 @@
-# Serveur local de développement (tâche "Serveur local", lancée par F5 / Run).
+# Serveur local de développement (F5 « Simulateur », ou tâche "Serveur local").
 # - Sert le dossier du projet, quel que soit le dossier d'où il est lancé
+# - Ouvre le simulateur dans le navigateur (OPEN_BROWSER=0 pour ne pas l'ouvrir)
+# - Si ce même serveur tourne déjà, ouvre simplement la page au lieu d'échouer
 # - Désactive le cache du navigateur : chaque rechargement prend la dernière version des fichiers
 # - Refuse de démarrer si le port est déjà pris (sinon, sous Windows, un ancien serveur
 #   lancé depuis un autre dossier peut continuer à répondre à sa place)
@@ -8,9 +10,14 @@ import http.server
 import os
 import socket
 import sys
+import threading
+import urllib.request
+import webbrowser
 
 PORT = 8080
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+URL = f'http://localhost:{PORT}'
+OPEN_BROWSER = os.environ.get('OPEN_BROWSER', '1') != '0'
 
 
 class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
@@ -41,6 +48,23 @@ def port_in_use(port):
     return False
 
 
+def serves_this_project():
+    # Le serveur déjà lancé renvoie-t-il notre index.html ?
+    try:
+        with urllib.request.urlopen(URL + '/index.html', timeout=2) as response:
+            remote = response.read()
+        with open(os.path.join(ROOT, 'index.html'), 'rb') as f:
+            return remote == f.read()
+    except OSError:
+        return False
+
+
+if port_in_use(PORT) and serves_this_project():
+    print(f'Le serveur tourne déjà : ouverture de {URL}')
+    if OPEN_BROWSER:
+        webbrowser.open(URL)
+    sys.exit(0)
+
 try:
     if port_in_use(PORT):
         raise OSError
@@ -51,4 +75,10 @@ except OSError:
     sys.exit(1)
 
 print(f'Serving HTTP on port {PORT} : {ROOT}', flush=True)
-server.serve_forever()
+print(f'Simulateur : {URL}   (Shift+F5 ou Ctrl+C pour arrêter)', flush=True)
+if OPEN_BROWSER:
+    threading.Timer(0.5, webbrowser.open, (URL,)).start()
+try:
+    server.serve_forever()
+except KeyboardInterrupt:
+    pass
