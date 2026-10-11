@@ -171,7 +171,7 @@ class Graphics {
         this.sky = new Sky();
         this.sky.scale.setScalar(2500); // doit rester dans le champ de la caméra (far)
         const skyMaterial = this.sky.material;
-        skyMaterial.uniforms.mieCoefficient.value = 0.003;
+        skyMaterial.uniforms.mieCoefficient.value = 0.0025;   // halo blanc autour du soleil, sans voiler tout le ciel
         skyMaterial.uniforms.mieDirectionalG.value = 0.8;
         // Exposition propre au ciel (sinon il sature en blanc avec l'exposition de la scène)
         skyMaterial.uniforms.uSkyExposure = { value: 0.45 };

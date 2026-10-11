@@ -95,7 +95,8 @@ const DEFAULT_SCALE = [10, 20, 10];
 const WEATHERS = {
     jour:       { label: 'Jour',       sky: 0x5dade2, fogNear: 400, fogFar: 2400, hemi: 1.2, sun: 2.0, turbulence: 0,
                   night: 0, wind: 0.35,
-                  atmosphere: { elevation: 40, azimuth: 150, turbidity: 2, rayleigh: 3, fog: 0x8fb4d6 },
+                  // rayleigh bas : ciel bien bleu (avec ce shader, plus de diffusion Rayleigh blanchit le ciel) ; brume bleutée assortie
+                  atmosphere: { elevation: 40, azimuth: 150, turbidity: 1.8, rayleigh: 1, fog: 0x86acd8 },
                   clouds: { coverage: 0.45, light: 0xffffff, dark: 0x8f9bb0 } },
     // Ciel couvert : ciel gris uniforme (pas de ciel bleu), soleil voilé, tous les nuages aux dessous gris, un peu de vent
     nuageux:    { label: 'Nuageux',    sky: 0x9ba5ae, fogNear: 220, fogFar: 1500, hemi: 1.15, sun: 0.7, turbulence: 0.35,
@@ -1392,7 +1393,7 @@ const atcCom = document.getElementById('atc-com');
 const atcPersons = document.getElementById('atc-bord');
 const atcTransponder = document.getElementById('atc-xpdr');
 const atcSquawk = document.getElementById('atc-code-demande');
-const ATC_SHORT = { ground: 'SOL', tower: 'TOUR', approach: 'APP' };
+const ATC_SHORT = { ground: 'SOL', tower: 'TOUR', approach: 'APP', info: 'INFO' };
 document.getElementById('atc-indicatif').textContent = atc.registration;
 atcButton.textContent = `Tour · ${airport.aerodrome.frequencies.tower}`;
 window.speechSynthesis?.getVoices();   // charge la liste des voix à l'avance
@@ -1425,6 +1426,8 @@ function setAtcVoice(on) {
 }
 atcVoiceButton.addEventListener('click', () => { setAtcVoice(!atc.voice); view.focus(); });
 atcAtisButton.addEventListener('click', () => { sounds.unlock(); atc.playAtis(); view.focus(); });
+const atcLeaveButton = document.getElementById('atc-quitter');
+atcLeaveButton.addEventListener('click', () => { sounds.unlock(); atc.leaveFrequency(); view.focus(); });
 
 // Type de voix : réalistes (neuronales) ou de l'ordinateur ; état du téléchargement
 const atcVoiceType = document.getElementById('atc-voix-type');
@@ -1516,6 +1519,7 @@ function renderAtc() {
     document.getElementById('atc-etat').textContent = atc.status;
     atcAtisButton.textContent = `Écouter l'ATIS · ${atc.atisLetter}`;
     atcAtisButton.disabled = atc.busy;
+    atcLeaveButton.disabled = !atc.canLeaveFrequency;
     atcJournal.replaceChildren(...atc.log.slice(-8).map(({ from, text, station: who }) => {
         const item = document.createElement('li');
         item.className = `atc-${from}`;

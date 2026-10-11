@@ -21,6 +21,7 @@ const CAST = {
     fr: {
         pilot:    { model: 'fr_FR-tom-medium', lengthScale: 0.9 },
         tower:    { model: 'fr_FR-siwis-medium', lengthScale: 0.85 },
+        info:     { model: 'fr_FR-siwis-medium', lengthScale: 0.9, rate: 0.92 },    // Siwis, voix plus grave
         ground:   { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },     // Pierre
         approach: { model: 'fr_FR-upmc-medium', speaker: 0, lengthScale: 0.85 },     // Jessica
         atis:     { model: 'fr_FR-siwis-medium', lengthScale: 1 },
@@ -28,6 +29,7 @@ const CAST = {
     en: {
         pilot:    { model: 'en_GB-alan-medium', lengthScale: 0.9 },
         tower:    { model: 'en_GB-jenny_dioco-medium', lengthScale: 0.85 },
+        info:     { model: 'en_GB-alba-medium', lengthScale: 0.9, rate: 0.92 },
         ground:   { model: 'en_GB-northern_english_male-medium', lengthScale: 0.85 },
         approach: { model: 'en_GB-alba-medium', lengthScale: 0.85 },
         atis:     { model: 'en_GB-jenny_dioco-medium', lengthScale: 1 },
@@ -102,7 +104,7 @@ class RadioVoices extends EventTarget {
                 // Autres pilotes : même modèle que le pilote, voix plus grave ou plus aiguë selon le joueur
                 const other = role === 'otherPilot';
                 const cast = other ? CAST[this.lang].pilot : CAST[this.lang][role] ?? CAST[this.lang].tower;
-                const rate = other ? [0.88, 0.93, 1.07, 1.12][[...seed].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 4] : 1;
+                const rate = other ? [0.88, 0.93, 1.07, 1.12][[...seed].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 4] : cast.rate ?? 1;
                 // Pilote : message découpé aux virgules, la suite se calcule pendant qu'il parle (il commence tout de
                 // suite) ; ATIS : phrase par phrase ; contrôleurs : message entier (calculé pendant leur temps de réaction)
                 const parts = role === 'pilot' || other ? this._chunks(spoken)

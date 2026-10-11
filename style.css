@@ -1137,6 +1137,20 @@ img{margin: 0px;
     border-radius: 6px;
     cursor: pointer;
   }
+  #atc-quitter {
+    padding: 3px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    color: #ffb000;
+    background: transparent;
+    border: 1px solid #ffb000;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #atc-quitter:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
   #atc-atis:disabled {
     opacity: 0.4;
     cursor: default;

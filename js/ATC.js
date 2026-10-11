@@ -8,7 +8,9 @@ import { EventDispatcher } from 'three';
 
 const FT = 0.3048;
 const NM = 1852;
-const ZONE_NM = 2;              // rayon de la zone de la tour ; au-delà : Approche
+const ZONE_NM = 1;              // rayon de la zone de la tour ; au-delà : Approche
+const LEAVE_AT_NM = ZONE_NM * 0.8;    // la sortie de zone s'annonce en arrivant à la limite
+const HANDOFF_NM = ZONE_NM + 0.3;     // marge autour de la limite pour passer de la Tour à l'Approche (et retour)
 const READBACK_TIMEOUT = 20;    // s sans collationnement : le contrôleur le réclame
 const SQUAWK_GRACE = 30;        // s pour afficher le code transpondeur demandé avant le rappel
 const PHONETIC = {
@@ -29,6 +31,7 @@ const STATIONS = {
     ground:   { fr: 'Sol', en: 'Ground' },
     tower:    { fr: 'Tour', en: 'Tower' },
     approach: { fr: 'Approche', en: 'Approach' },
+    info:     { fr: 'Info', en: 'Information' },     // information de vol (SIV), sur toute la carte
 };
 // Vent et bulletin ATIS de chaque météo (variation : amplitude de la direction ; le QNH reste standard :
 // l'altimètre de l'avion n'a pas de calage)
@@ -51,7 +54,9 @@ const LABELS = {
     inboundJoin: 'Intégration · vent arrière', inboundStraight: 'Intégration · finale directe',
     vacated: 'Piste dégagée', groundIn: 'Appel Sol · roulage vers le parking', parked: 'Au parking · fin de vol',
     approachOut: 'Premier appel Approche · sortie de zone', approachIn: 'Premier appel Approche · retour au terrain',
-    returnRequest: 'Demande de retour au terrain', report2nm: 'À 2 NM du terrain', leaveFrequency: 'Quitter la fréquence',
+    returnRequest: 'Demande de retour au terrain', report2nm: `À ${ZONE_NM} NM du terrain`, leaveFrequency: 'Quitter la fréquence',
+    infoFirst: 'Premier contact · information de vol', infoWeather: 'Demande de météo', infoTraffic: 'Demande de trafic',
+    infoPosition: 'Report de position',
     readback: 'Collationner', sayAgain: 'Répétez',
 };
 const STATUS = {
@@ -61,7 +66,7 @@ const STATUS = {
     downwind: 'Rappeler en finale', continue: "Continuer l'approche", landing: "Autorisé à l'atterrissage",
     touchgo: 'Autorisé toucher', landed: 'Atterri', vacate: 'Dégager la piste, rappeler piste dégagée',
     toGround: 'Contacter le Sol', taxiIn: 'Roulage vers le parking', leaving: 'Rappeler sortie de zone',
-    toApproach: "Contacter l'Approche", outbound: "Identifié par l'Approche", appIn: 'Rappeler à 2 NM du terrain',
+    toApproach: "Contacter l'Approche", outbound: "Identifié par l'Approche", appIn: `Rappeler à ${ZONE_NM} NM du terrain`,
     toTower: 'Contacter la Tour',
 };
 const TOWER_STATES = ['holding', 'lineup', 'takeoff', 'circuit', 'inbound', 'downwind', 'continue', 'landing', 'touchgo', 'landed', 'vacate', 'leaving'];
@@ -127,6 +132,7 @@ class ATC extends EventDispatcher {
     }
 
     get status() {
+        if (this.freq === 'info') return this.contacted.has('info') ? "Information de vol : ESME Info (trafic, météo)" : "Pas de contact avec ESME Info";
         if (!this.contact) return STATUS.idle;
         if (this.state === 'taxiIn') return `Roulage vers le parking ${this.assignedStand}`;
         const handoff = { toGround: 'ground', toApproach: 'approach', toTower: 'tower' }[this.state];
@@ -134,7 +140,7 @@ class ATC extends EventDispatcher {
         // Sortie de zone : distance jusqu'à la limite (le message est proposé à partir de 1,5 NM du terrain)
         if (this.state === 'leaving' && this.s) {
             const d = this.s.distance.toFixed(1).replace('.', ',');
-            return this.s.distance > ZONE_NM - 0.5 ? `Limite de zone atteinte (${d} NM) : annoncez la sortie de zone`
+            return this.s.distance > LEAVE_AT_NM ? `Limite de zone atteinte (${d} NM) : annoncez la sortie de zone`
                 : `Rappeler sortie de zone : limite à ${ZONE_NM} NM du terrain, vous êtes à ${d} NM`;
         }
         return STATUS[this.state] ?? '';
@@ -242,6 +248,53 @@ class ATC extends EventDispatcher {
     choose(id) {
         const option = this.options.find((o) => o.id === id);
         if (!option || this.busy) return;
+        this._send(option);
+    }
+
+    // Bouton "Quitter la fréquence" : possible sur toute fréquence où l'on est en contact, hors échange en cours
+    get canLeaveFrequency() {
+        return Boolean(this.s) && !this.busy && !this.pending && !this._frequencyBusy() && this.contacted.has(this.freq);
+    }
+
+    leaveFrequency() {
+        if (!this.canLeaveFrequency) return;
+        const station = this.freq;
+        const cs = this._pilotCs();
+        this._send({
+            id: 'leaveFrequency',
+            message: this._t(() => msg`${cs}, quittons la fréquence.`, () => msg`${cs}, leaving the frequency.`),
+            reply: () => this._leaveReply(station),
+        });
+    }
+
+    // "Au revoir" ; dernier contact radio : transpondeur sur 7000. Quitter le Sol, la Tour ou l'Approche met fin à
+    // l'autorisation en cours (il faudra rappeler)
+    _leaveReply(station) {
+        const last = this.contacted.size <= 1;
+        const code = last && this.squawk && this.squawk !== VFR_SQUAWK ? this._code(VFR_SQUAWK) : null;
+        const sq = code ? this._t(() => msg`affichez ${code}, `, () => msg`squawk ${code}, `) : '';
+        const sqRb = code ? this._t(() => msg`${code}, `, () => msg`Squawk ${code}, `) : '';
+        const abbr = this._abbr();
+        return {
+            message: this._t(() => msg`${abbr}, ${sq}au revoir.`, () => msg`${abbr}, ${sq}goodbye.`),
+            readback: this._t(() => msg`${sqRb}${code ? 'au revoir' : 'Au revoir'}, ${abbr}.`, () => msg`${sqRb}${code ? 'goodbye' : 'Goodbye'}, ${abbr}.`),
+            then: () => {
+                this.contacted.delete(station);
+                if (station !== 'info') {
+                    this.state = 'idle';
+                    this._handoffAtHolding = false;
+                }
+                if (!this.contacted.size) {
+                    this._endContact();
+                    this.squawk = VFR_SQUAWK;
+                }
+                this._optionsKey = '';
+                this._changed();
+            },
+        };
+    }
+
+    _send(option) {
         const pilotClip = option.clip ?? this._prepare('pilot', option.message);
         option.action?.();
         const gen = this._gen;
@@ -350,7 +403,7 @@ class ATC extends EventDispatcher {
 
     // Autres avions en vol dans la zone de la tour (ceux en finale exceptés si exclude)
     _circuitTraffic(exclude = null) {
-        return this._others().filter((o) => !o.onGround && o.distance <= ZONE_NM + 0.5 && !(exclude === 'final' && o.final));
+        return this._others().filter((o) => !o.onGround && o.distance <= HANDOFF_NM && !(exclude === 'final' && o.final));
     }
 
     // Autres avions en vol à moins de 5 NM de nous (Approche)
@@ -464,7 +517,7 @@ class ATC extends EventDispatcher {
         }
         if (st === 'toApproach' || st === 'outbound' || st === 'appIn') return 'approach';
         if (st === 'toTower' || st === 'leaving') return 'tower';
-        if (s.distance > ZONE_NM + 0.5 && !TOWER_STATES.includes(st)) return 'approach';
+        if (s.distance > HANDOFF_NM && !TOWER_STATES.includes(st)) return 'approach';
         return 'tower';
     }
 
@@ -669,6 +722,7 @@ class ATC extends EventDispatcher {
 
         if (this.freq === 'ground') this._groundOptions(s, add);
         else if (this.freq === 'tower') this._towerOptions(s, add);
+        else if (this.freq === 'info') this._infoOptions(s, add);
         else this._approachOptions(s, add);
 
         if (this.lastAtc && this.contact && this.lastAtc.station === this.freq) sayAgain();
@@ -810,7 +864,7 @@ class ATC extends EventDispatcher {
             };
         });
         if (this.state === 'leaving') {
-            if (s.distance > ZONE_NM - 0.5) leaveZone();   // on l'annonce en arrivant à la limite de la zone
+            if (s.distance > LEAVE_AT_NM) leaveZone();   // on l'annonce en arrivant à la limite de la zone
             return;
         }
 
@@ -873,7 +927,7 @@ class ATC extends EventDispatcher {
                 readback: this._t(() => msg`Rappellerons sortie de zone, ${this._abbr()}.`, () => msg`Wilco, ${this._abbr()}.`),
             };
         });
-        if (!approach && s.distance > ZONE_NM - 0.5) leaveZone();
+        if (!approach && s.distance > LEAVE_AT_NM) leaveZone();
     }
 
     _approachOptions(s, add) {
@@ -907,19 +961,55 @@ class ATC extends EventDispatcher {
                 () => msg`${cs()}, ${this._position(s)}, demandons le retour vers ${this._stationName()} pour un atterrissage.`,
                 () => msg`${cs()}, ${this._position(s)}, request rejoining ${this._stationName()} for landing.`),
             () => this._approachInboundReply(s));
-            add('leaveFrequency', this._t(() => msg`${cs()}, quittons la fréquence.`, () => msg`${cs()}, request frequency change.`), () => {
-                const code = this._code(VFR_SQUAWK);
-                const message = this._t(() => msg`${this._abbr()}, affichez ${code}, changement de fréquence approuvé, au revoir.`,
-                    () => msg`${this._abbr()}, squawk ${code}, frequency change approved, goodbye.`);
-                const readback = this._t(() => msg`${code}, au revoir, ${this._abbr()}.`, () => msg`Squawk ${code}, goodbye, ${this._abbr()}.`);
-                return { message, readback, then: () => {
-                    this._endContact();
-                    this.squawk = VFR_SQUAWK;
-                } };
-            });
         }
-        if (this.state === 'appIn' && s.distance <= ZONE_NM + 0.5) add('report2nm', this._t(
+        if (this.state === 'appIn' && s.distance <= HANDOFF_NM) add('report2nm', this._t(
             () => msg`${cs()}, ${this._position(s)}.`, () => msg`${cs()}, ${this._position(s)}.`), () => this._handToTower());
+    }
+
+    // ESME Info (service d'information de vol) : partout sur la carte, en vol. Ne donne pas d'autorisation :
+    // code transpondeur, QNH, trafic, météo ; ne change rien au déroulement avec le Sol, la Tour et l'Approche
+    _infoOptions(s, add) {
+        if (!s.airborne) return;
+        const cs = () => this._pilotCs();
+        if (!this.contacted.has('info')) {
+            const call = this._callup('info');
+            add('infoFirst', this._t(
+                () => msg`${call}${this._position(s)}, vol local, demandons l'information de vol.`,
+                () => msg`${call}${this._position(s)}, local flight, request flight information service.`), () => {
+                const open = this._opening('info');
+                const code = this._assignSquawk();
+                const sq = code ? this._t(() => msg`affichez ${code}, `, () => msg`squawk ${code}, `) : '';
+                const sqRb = code ? this._t(() => msg`${code}, `, () => msg`Squawk ${code}, `) : '';
+                return this._addTraffic({
+                    message: this._t(() => msg`${this._abbr()}, ${open}${sq}${this._qnh()}, rappelez avant de quitter la fréquence.`,
+                        () => msg`${this._abbr()}, ${open}${sq}${this._qnh()}, report before leaving the frequency.`),
+                    readback: this._t(() => msg`${sqRb}${this._qnh()}, ${this._abbr()}.`, () => msg`${sqRb}${this._qnh()}, wilco, ${this._abbr()}.`),
+                }, this._nearbyTraffic(s));
+            });
+            return;
+        }
+        const m = this.metar;
+        add('infoWeather', this._t(() => msg`${cs()}, demandons la météo d'${this._stationName()}.`,
+            () => msg`${cs()}, request ${this._stationName()} weather.`), () => {
+            const rw = this._activeRunway();
+            return {
+                message: this._t(
+                    () => msg`${this._abbr()}, ${this._stationName()} : piste en service ${tok(rw.name, this._digits(rw.name))}, ${this._atisWind()}, visibilité ${m.vis[0]}, ${tok(m.clouds[0])}, température ${m.temp}, ${this._qnh()}.`,
+                    () => msg`${this._abbr()}, ${this._stationName()}: runway in use ${tok(rw.name, this._digits(rw.name))}, ${this._atisWind()}, visibility ${m.vis[1]}, ${tok(m.clouds[1])}, temperature ${m.temp}, ${this._qnh()}.`),
+                readback: this._t(() => msg`${this._qnh()}, ${this._abbr()}.`, () => msg`${this._qnh()}, ${this._abbr()}.`),
+            };
+        });
+        add('infoTraffic', this._t(() => msg`${cs()}, demandons le trafic.`, () => msg`${cs()}, request traffic information.`), () => {
+            const nearby = this._nearbyTraffic(s);
+            if (!nearby.length) return {
+                message: this._t(() => msg`${this._abbr()}, pas de trafic signalé à proximité.`, () => msg`${this._abbr()}, no reported traffic in your vicinity.`),
+            };
+            return this._addTraffic({ message: msg`${this._abbr()}.` }, nearby);
+        });
+        add('infoPosition', this._t(() => msg`${cs()}, ${this._position(s)}.`, () => msg`${cs()}, ${this._position(s)}.`), () => ({
+            message: this._t(() => msg`${this._abbr()}, bien reçu, ${this._qnh()}.`, () => msg`${this._abbr()}, roger, ${this._qnh()}.`),
+            readback: this._t(() => msg`${this._qnh()}, ${this._abbr()}.`, () => msg`${this._qnh()}, ${this._abbr()}.`),
+        }));
     }
 
     // --- Réponses des contrôleurs ---------------------------------------------------------------
@@ -1079,7 +1169,7 @@ class ATC extends EventDispatcher {
 
     // Arrivée à la Tour : trop loin, elle renvoie vers l'Approche ; sinon intégration (code transpondeur si besoin)
     _joinReply(rw, straightIn, s) {
-        if (s.distance > ZONE_NM + 1 && !this.contacted.has('approach')) {
+        if (s.distance > HANDOFF_NM + 0.4 && !this.contacted.has('approach')) {
             const open = this._opening('tower');
             const contact = this._contactTok('approach');
             this.state = 'toApproach';
@@ -1122,7 +1212,7 @@ class ATC extends EventDispatcher {
         const qnhPart = qnh ? msg`${qnh}, ` : '';
         this._inboundViaApproach = false;
         const nearby = this._nearbyTraffic(s);
-        if (s.distance <= ZONE_NM + 0.5) {
+        if (s.distance <= HANDOFF_NM) {
             this.state = 'toTower';
             const contact = this._contactTok('tower');
             return this._addTraffic({
@@ -1134,7 +1224,7 @@ class ATC extends EventDispatcher {
         this.state = 'appIn';
         return this._addTraffic({
             message: this._t(() => msg`${this._abbr()}, ${open}${sq}${qnhPart}rappelez à ${ZONE_NM} NM du terrain.`,
-                () => msg`${this._abbr()}, ${open}${sq}${qnhPart}report ${ZONE_NM} miles from the field.`),
+                () => msg`${this._abbr()}, ${open}${sq}${qnhPart}report ${ZONE_NM} mile${ZONE_NM > 1 ? 's' : ''} from the field.`),
             readback: this._t(() => msg`${sqRb}${qnhPart}rappellerons à ${ZONE_NM} NM, ${this._abbr()}.`,
                 () => msg`${sqRb}${qnhPart}wilco, ${this._abbr()}.`),
         }, nearby);

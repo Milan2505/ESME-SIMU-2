@@ -306,7 +306,7 @@ class Multiplayer extends EventTarget {
         if (data.atc && typeof data.atc === 'object') {
             const a = data.atc;
             const text = (v, max) => typeof v === 'string' && v.length <= max;
-            if (this.players.has(id) && ['ground', 'tower', 'approach'].includes(a.f) && ['pilot', 'atc'].includes(a.w)
+            if (this.players.has(id) && ['ground', 'tower', 'approach', 'info'].includes(a.f) && ['pilot', 'atc'].includes(a.w)
                 && text(a.t, 400) && text(a.s, 600) && (a.l === 'fr' || a.l === 'en')) {
                 this.dispatchEvent(new CustomEvent('atc', { detail: { id, freq: a.f, from: a.w, text: a.t, speech: a.s, lang: a.l, reply: a.r === true } }));
             }

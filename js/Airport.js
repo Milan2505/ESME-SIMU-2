@@ -56,7 +56,7 @@ const STANDS = [-80, -60, -40, -20, 15, 45, 75];
 // Noms des places (peints au sol, donnés par la tour) : N1 à N4 au nord du parking, H1 à H3 devant les hangars
 const STAND_NAMES = ['N1', 'N2', 'N3', 'N4', 'H1', 'H2', 'H3'];
 // Identité de l'aérodrome pour la tour de contrôle (code OACI fictif, en LF comme les terrains français)
-const AERODROME = { icao: 'LFXE', name: 'ESME', taxiway: 'A', frequencies: { ground: '121.875', tower: '118.300', approach: '120.450' } };
+const AERODROME = { icao: 'LFXE', name: 'ESME', taxiway: 'A', frequencies: { ground: '121.875', tower: '118.300', approach: '120.450', info: '124.550' } };
 const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 // Balise VOR de l'aérodrome (VOR conventionnel : abri, plan réflecteur circulaire, antenne centrale), au nord-est
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
