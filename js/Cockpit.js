@@ -448,10 +448,11 @@ function radio(ctx, x, y, label, active, standby, powered = true) {
     ctx.fillStyle = '#050505';
     ctx.fillRect(x + 60, y + 15, 250, 40);
     ctx.fillStyle = '#39ff6a';
-    ctx.font = 'bold 26px DejaVu Sans Mono, monospace';
+    const text = `${active}  ${standby}`;
+    ctx.font = `bold ${text.length > 14 ? 23 : 26}px DejaVu Sans Mono, monospace`;   // fréquences à 3 décimales
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    if (powered) ctx.fillText(`${active}  ${standby}`, x + 70, y + 36);
+    if (powered) ctx.fillText(text, x + 70, y + 36);
     caption(ctx, x + 30, y + 36, label, 14);
 }
 
@@ -1148,12 +1149,13 @@ class Cockpit {
         trimIndicator(ctx, 870, 215, state.trim, state.takeoffTrim, state.trimLimits, state.trimSpeed * KT);
 
         const avionics = sys.avionicsPowered;
-        radio(ctx, 960, 60, 'COM1', '118.30', '121.50', avionics);
+        // COM1 : fréquence affichée dans la fenêtre Tour (active) et la précédente (attente) ; transpondeur : code affiché
+        radio(ctx, 960, 60, 'COM1', state.com?.active ?? '118.300', state.com?.standby ?? '121.500', avionics);
         radio(ctx, 960, 150, 'NAV1', state.vor?.frequency ?? '113.50', '110.30', avionics);
         ilsButton(ctx, ILS_BUTTON, avionics ? state.ils : null);
         this._hotspots.panel.rect('ils', ILS_BUTTON.x, ILS_BUTTON.y, ILS_BUTTON.width, ILS_BUTTON.height);
         // Transpondeur
-        radio(ctx, 960, 240, 'XPDR', '7000', 'ALT', avionics);
+        radio(ctx, 960, 240, 'XPDR', state.transponder ?? '7000', 'ALT', avionics);
         // Instruments moteur et panneau d'alarmes (sous les radios)
         drawEngineGauges(ctx, 960, 372, sys);
         drawAnnunciators(ctx, 960, 438, 330, sys, this._time);

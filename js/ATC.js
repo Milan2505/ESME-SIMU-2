@@ -56,8 +56,8 @@ const LABELS = {
 };
 const STATUS = {
     idle: 'Pas de contact radio', startup: 'Mise en route approuvée', taxi: "Roulage vers le point d'attente",
-    holding: "Maintien au point d'attente", lineup: 'Maintien sur la piste', takeoff: 'Autorisé au décollage',
-    circuit: 'Tour de piste : rappeler vent arrière', inbound: 'Intégration : rappeler vent arrière',
+    holding: "Maintien au point d'attente", lineup: 'Maintien sur la piste', takeoff: 'Autorisé au décollage : décollez, puis rappelez vent arrière',
+    circuit: 'Tour de piste main gauche : rappeler vent arrière', inbound: 'Intégration : rappeler vent arrière',
     downwind: 'Rappeler en finale', continue: "Continuer l'approche", landing: "Autorisé à l'atterrissage",
     touchgo: 'Autorisé toucher', landed: 'Atterri', vacate: 'Dégager la piste, rappeler piste dégagée',
     toGround: 'Contacter le Sol', taxiIn: 'Roulage vers le parking', leaving: 'Rappeler sortie de zone',
@@ -106,7 +106,7 @@ class ATC extends EventDispatcher {
         this.log = [];
         this.busy = false;
         this.traffic = [];
-        this.atisIndex = Math.floor(Math.random() * 6);
+        this.atisIndex = Math.floor(Date.now() / 3600e3) % 6;   // même lettre pour tous les joueurs (change chaque heure)
         this._stampAtis();
         this.metar = { ...METARS.jour, night: false };
         this.options = [];
@@ -142,6 +142,8 @@ class ATC extends EventDispatcher {
         this._queued = 0;
         this.busy = false;
         this.freq = spawn && !spawn.cold ? 'tower' : 'ground';
+        this.standbyFreq = null;
+        this._hold = null;
         this._endContact();
         this.lastAtc = null;
         this.pending = null;
@@ -180,7 +182,9 @@ class ATC extends EventDispatcher {
 
     setFrequency(id) {
         if (!STATIONS[id] || this.freq === id) return;
+        this.standbyFreq = this.freq;
         this.freq = id;
+        this._hold = null;   // on n'entend plus l'échange en cours sur l'autre fréquence
         this._optionsKey = '';
         this._changed();
     }
@@ -236,7 +240,7 @@ class ATC extends EventDispatcher {
         option.action?.();
         const gen = this._gen;
         this._queue(async () => {
-            await this._transmit('pilot', option.message, gen, pilotClip);
+            await this._transmit('pilot', option.message, gen, pilotClip, Boolean(option.reply));
             if (!option.reply || gen !== this._gen) return;
             // Réponse décidée dès la fin du message, voix calculée pendant le temps de réaction du contrôleur
             const reply = option.reply();
@@ -281,17 +285,159 @@ class ATC extends EventDispatcher {
             final: null,
             downwind: false,
         };
-        for (const rw of runways) {
+        Object.assign(s, this._geometry(p, s.heading, zone, input.onGround, s.airborne, s.agl));
+        return s;
+    }
+
+    // Position par rapport aux pistes : aligné (au sol), en finale, en vent arrière main gauche, en montée initiale
+    _geometry(p, heading, zone, onGround, airborne, agl) {
+        const g = { aligned: null, final: null, finalDistance: 0, downwind: false, climbout: null };
+        const active = this._activeRunway();
+        const length = this.airport.runwayLength;
+        for (const rw of this.airport.runways) {
             const along = (p.x - rw.threshold.x) * rw.direction.x + (p.z - rw.threshold.z) * rw.direction.z;
             const lateral = (p.x - rw.threshold.x) * rw.left.x + (p.z - rw.threshold.z) * rw.left.z;
-            const hd = headingDiff(s.heading, rw.heading);
-            if (zone === 'runway' && input.onGround && hd < 35) s.aligned = rw;
-            if (s.airborne && along > -6000 && along < 200 && Math.abs(lateral) < 600 && hd < 40 && s.agl < 3000) s.final = rw;
+            const hd = headingDiff(heading, rw.heading);
+            if (zone === 'runway' && onGround && hd < 35) g.aligned = rw;
+            if (airborne && along > -6000 && along < 200 && Math.abs(lateral) < 600 && hd < 40 && agl < 3000) {
+                g.final = rw;
+                g.finalDistance = -along;
+            }
+            if (airborne && along > length - 200 && along < length + 2500 && Math.abs(lateral) < 500 && hd < 40 && agl < 1500) g.climbout = rw;
             // Vent arrière main gauche : à gauche de la piste en service, cap opposé
-            if (rw === s.active && s.airborne && lateral > 300 && lateral < 4000 && along > -3000 && along < 2500
-                && headingDiff(s.heading, rw.heading + 180) < 60) s.downwind = true;
+            if (rw === active && airborne && lateral > 300 && lateral < 4000 && along > -3000 && along < 2500
+                && headingDiff(heading, rw.heading + 180) < 60) g.downwind = true;
         }
-        return s;
+        return g;
+    }
+
+    // --- Trafic : les autres joueurs (multijoueur) ------------------------------------------------
+    // Où ils sont et ce qu'ils font, d'après leur position (indicatif : leur immatriculation)
+    _others() {
+        const runways = this.airport.runways;
+        const cx = (runways[0].threshold.x + runways[1].threshold.x) / 2;
+        const cz = (runways[0].threshold.z + runways[1].threshold.z) / 2;
+        const list = [];
+        for (const t of this.traffic) {
+            if (t.offline || t.crashed || !t.callsign) continue;
+            const p = t.position;
+            const zone = this.airport.zoneAt(p.x, p.z);
+            const onGround = t.altitude < 15;
+            const o = {
+                id: t.id, callsign: t.callsign, position: p, altitude: t.altitude, onGround, zone,
+                stand: onGround ? this.airport.standAt(p.x, p.z) : null,
+                nearHolding: (zone === 'taxiway' || zone === 'entry') && p.x < this.aerodrome.holdingX + 20,
+                distance: Math.hypot(p.x - cx, p.z - cz) / NM,
+                bearing: (Math.atan2(p.x - cx, -(p.z - cz)) * 180 / Math.PI + 360) % 360,
+            };
+            Object.assign(o, this._geometry(p, t.heading, zone, onGround, !onGround, t.altitude));
+            list.push(o);
+        }
+        return list;
+    }
+
+    // Autres avions au sol sur les voies de circulation ou la piste (pas ceux garés), les plus proches d'abord
+    _groundTraffic(s) {
+        return this._others().filter((o) => o.onGround && ['taxiway', 'entry', 'runway'].includes(o.zone))
+            .sort((a, b) => a.position.distanceTo(s.position) - b.position.distanceTo(s.position));
+    }
+
+    // Autres avions en vol dans la zone de la tour (ceux en finale exceptés si exclude)
+    _circuitTraffic(exclude = null) {
+        return this._others().filter((o) => !o.onGround && o.distance <= ZONE_NM + 0.5 && !(exclude === 'final' && o.final));
+    }
+
+    // Autres avions en vol à moins de 5 NM de nous (Approche)
+    _nearbyTraffic(s) {
+        return this._others().filter((o) => !o.onGround && o.position.distanceTo(s.position) < 5 * NM);
+    }
+
+    // "Cessna 172 F-GS"
+    _otherTok(o) {
+        return msg`${this.aircraftType} ${this._abbrOf(o.callsign)}`;
+    }
+
+    // Ce que fait l'autre avion : "au point d'attente A", "en vent arrière main gauche piste 36, 1000 pieds"…
+    _whatTok(o, withAltitude = true) {
+        const alt = Math.max(100, Math.round(o.altitude / 100) * 100);
+        const ft = withAltitude ? this._t(() => `, ${alt} pieds`, () => `, ${alt} feet`) : '';
+        if (o.onGround) {
+            if (o.stand) return this._t(() => msg`au ${this._stand(o.stand)}`, () => msg`on ${this._stand(o.stand)}`);
+            if (o.zone === 'apron') return this._t(() => tok('sur le parking'), () => tok('on the apron'));
+            if (o.zone === 'taxiway') return o.nearHolding
+                ? this._t(() => msg`au point d'attente ${this._twy()}`, () => msg`at holding point ${this._twy()}`)
+                : this._t(() => msg`roulant sur ${this._twy()}`, () => msg`taxiing on ${this._twy()}`);
+            const rw = o.aligned ?? this._activeRunway();
+            if (o.zone === 'entry') return this._t(() => msg`entrant sur la ${this._rwy(rw)}`, () => msg`entering ${this._rwy(rw)}`);
+            if (o.zone === 'runway') return this._t(() => msg`sur la ${this._rwy(rw)}`, () => msg`on ${this._rwy(rw)}`);
+            return this._t(() => tok('au sol'), () => tok('on the ground'));
+        }
+        if (o.final) {
+            const short = o.finalDistance < 1500;
+            return this._t(() => msg`en ${short ? 'courte ' : ''}finale ${this._rwy(o.final)}${ft}`, () => msg`on ${short ? 'short ' : ''}final ${this._rwy(o.final)}${ft}`);
+        }
+        if (o.downwind) return this._t(() => msg`en vent arrière main gauche ${this._rwy(this._activeRunway())}${ft}`,
+            () => msg`on left downwind ${this._rwy(this._activeRunway())}${ft}`);
+        if (o.climbout) return this._t(() => msg`en montée initiale ${this._rwy(o.climbout)}${ft}`, () => msg`climbing out ${this._rwy(o.climbout)}${ft}`);
+        return this._t(() => msg`à ${this._nm(o.distance)} ${this._au(o.bearing)} du terrain${ft}`,
+            () => msg`${this._nm(o.distance)} ${CARDINALS.en[this._octant(o.bearing)]} of the field${ft}`);
+    }
+
+    // "trafic, Cessna 172 F-GS, au point d'attente A"
+    _trafficTok(o) {
+        return this._t(() => msg`trafic, ${this._otherTok(o)}, ${this._whatTok(o)}`, () => msg`traffic, ${this._otherTok(o)}, ${this._whatTok(o)}`);
+    }
+
+    // Information de trafic ajoutée à un message (2 avions au plus) ; le pilote doit dire s'il le voit :
+    // collationnement "…, trafic en vue, F-SM" ou "…, recherchons le trafic, F-SM"
+    _addTraffic(reply, others) {
+        if (!others.length) return reply;
+        const info = others.slice(0, 2).map((o) => this._trafficTok(o)).reduce((all, m) => all ? msg`${all}, ${m}` : m, null);
+        const strip = (x) => x.replace(/\.\s*$/, '');
+        reply.message = { text: `${strip(reply.message.text)}, ${info.text}.`, speech: `${strip(reply.message.speech)}, ${info.speech}.` };
+        reply.message.d = reply.message.text;
+        reply.message.s = reply.message.speech;
+        const seen = this._t(() => tok('trafic en vue'), () => tok('traffic in sight'));
+        const looking = this._t(() => tok('recherchons le trafic'), () => tok('looking out'));
+        const cs = this._abbr();
+        if (reply.readback) {
+            reply.altReadback = this._insertAck(reply.readback, looking, cs);
+            reply.readback = this._insertAck(reply.readback, seen, cs);
+            reply.labels = ['Collationner · trafic en vue', 'Collationner · trafic pas en vue'];
+        } else {
+            reply.readback = msg`${this._capital(seen)}, ${cs}.`;
+            reply.altReadback = msg`${this._capital(looking)}, ${cs}.`;
+            reply.labels = ['Trafic en vue', 'Recherchons le trafic'];
+        }
+        return reply;
+    }
+
+    // "…, F-SM." -> "…, trafic en vue, F-SM."
+    _insertAck(readback, ack, cs) {
+        const cut = (x, c) => x.endsWith(`, ${c}.`) ? x.slice(0, -(c.length + 3)) : x.replace(/\.\s*$/, '');
+        const text = `${cut(readback.text, cs.d)}, ${ack.d}, ${cs.d}.`;
+        const speech = `${cut(readback.speech, cs.s)}, ${ack.s}, ${cs.s}.`;
+        return { text, speech, d: text, s: speech };
+    }
+
+    // Alerte de trafic en vol : position "horaire" par rapport à notre cap, distance, écart d'altitude
+    _trafficAlert(s, o, distance, dAlt) {
+        const bearing = (Math.atan2(o.position.x - s.position.x, -(o.position.z - s.position.z)) * 180 / Math.PI + 360) % 360;
+        const clock = Math.round(((bearing - s.heading + 360) % 360) / 30) % 12 || 12;
+        const nm = this._nm(distance / NM);
+        const diff = Math.round(Math.abs(dAlt) / 100) * 100;
+        const level = Math.abs(dAlt) < 200
+            ? this._t(() => tok('même altitude'), () => tok('same altitude'))
+            : this._t(() => tok(`${diff} pieds ${dAlt > 0 ? 'au-dessus' : 'au-dessous'}`), () => tok(`${diff} feet ${dAlt > 0 ? 'above' : 'below'}`));
+        const cs = this._abbr();
+        const reply = {
+            message: this._t(() => msg`${cs}, trafic à ${clock} heure${clock > 1 ? 's' : ''}, ${nm}, ${level}, ${this._otherTok(o)}, ${this._whatTok(o, false)}.`,
+                () => msg`${cs}, traffic, ${clock} o'clock, ${nm}, ${level}, ${this._otherTok(o)}, ${this._whatTok(o, false)}.`),
+        };
+        reply.readback = this._t(() => msg`Trafic en vue, ${cs}.`, () => msg`Traffic in sight, ${cs}.`);
+        reply.altReadback = this._t(() => msg`Recherchons le trafic, ${cs}.`, () => msg`Looking out, ${cs}.`);
+        reply.labels = ['Trafic en vue', 'Recherchons le trafic'];
+        return reply;
     }
 
     // Piste face au vent moyen (vent calme : la 36)
@@ -355,6 +501,7 @@ class ATC extends EventDispatcher {
         // Roulage collationné "au point d'attente, contactez la Tour" : le pilote passe sur Tour en y arrivant
         if (this._handoffAtHolding && s.onGround && s.nearHolding && this.freq === 'ground') {
             this._handoffAtHolding = false;
+            this.standbyFreq = this.freq;
             this.freq = 'tower';
             this._note(`Radio affichée sur ${this.aerodrome.name} ${STATIONS.tower.fr} ${this.aerodrome.frequencies.tower}`);
         }
@@ -456,14 +603,34 @@ class ATC extends EventDispatcher {
         }
         if (s.zone === 'taxiway' || s.zone === 'apron') this.warned.incursion = false;
         this._prevZone = s.zone;
+
+        // Autre avion proche en vol (moins de 1,5 NM, moins de 1000 ft d'écart) : alerte de trafic, une fois par
+        // avion toutes les 2 minutes
+        if (s.airborne && this.contact && this.freq !== 'ground' && this.contacted.has(this.freq) && !this.busy && !this.pending
+            && !this._frequencyBusy()) {
+            const now = performance.now();
+            this._alerts ??= new Map();
+            for (const o of this._others()) {
+                if (o.onGround) continue;
+                const distance = Math.hypot(o.position.x - s.position.x, o.position.z - s.position.z);
+                const dAlt = o.altitude - s.position.y / FT;
+                if (distance < 1.5 * NM && Math.abs(dAlt) < 1000 && now - (this._alerts.get(o.id) ?? -1e9) > 120e3) {
+                    this._alerts.set(o.id, now);
+                    this._sayReply(this.freq, this._trafficAlert(s, o, distance, dAlt));
+                    break;
+                }
+            }
+        }
     }
 
     // --- Messages proposés au pilote -------------------------------------------------------------
     _refreshOptions(s) {
-        const options = s && !this.busy ? this._buildOptions(s) : [];
+        const held = this._frequencyBusy();
+        this.blockedBy = held ? this._hold.name : null;
+        const options = s && !this.busy && !held ? this._buildOptions(s) : [];
         const expected = s ? this._expectedStation(s) : null;
         const suggestion = s && !this.busy && expected !== this.freq && !options.some((o) => o.id !== 'sayAgain') ? expected : null;
-        const key = options.map((o) => o.id + o.message.text).join('|') + this.busy + this.freq + suggestion;
+        const key = options.map((o) => o.id + o.message.text).join('|') + this.busy + this.freq + suggestion + this.blockedBy;
         if (key === this._optionsKey) return;
         this._optionsKey = key;
         this.options = options;
@@ -478,11 +645,17 @@ class ATC extends EventDispatcher {
 
         if (this.pending) {
             const pending = this.pending;
-            add('readback', pending.message, null, () => {
+            const done = () => {
                 this.pending = null;
                 pending.then?.();
-            });
+            };
+            add('readback', pending.message, null, done);
             list[list.length - 1].clip = pending.clip;   // voix déjà calculée
+            if (pending.labels) list[list.length - 1].label = pending.labels[0];
+            if (pending.alt) {
+                add('readbackAlt', pending.alt, null, done);
+                list[list.length - 1].label = pending.labels?.[1] ?? LABELS.readback;
+            }
             sayAgain();
             return list;
         }
@@ -520,14 +693,20 @@ class ATC extends EventDispatcher {
             add('groundIn', this._t(() => msg`${call}piste dégagée par ${this._twy()}, pour le parking.`,
                 () => msg`${call}runway vacated via ${this._twy()}, request taxi to the apron.`), () => {
                 const open = this._opening('ground');
+                // Place libre : pas celle où un autre joueur est garé
+                const occupied = new Set(this._others().map((o) => o.stand).filter(Boolean));
+                if (occupied.has(this.assignedStand)) {
+                    const free = this.aerodrome.stands.find((st) => st.free && !occupied.has(st.name));
+                    if (free) this.assignedStand = free.name;
+                }
                 const stand = this._stand(this.assignedStand);
                 this.state = 'taxiIn';
-                return {
+                return this._addTraffic({
                     message: this._t(() => msg`${this._abbr()}, ${open}roulez ${stand} via ${this._twy()}.`,
                         () => msg`${this._abbr()}, ${open}taxi to ${stand} via ${this._twy()}.`),
                     readback: this._t(() => msg`Roulons ${stand} via ${this._twy()}, ${this._abbr()}.`,
                         () => msg`Taxi to ${stand} via ${this._twy()}, ${this._abbr()}.`),
-                };
+                }, this._groundTraffic(s));
             });
             return;
         }
@@ -636,16 +815,31 @@ class ATC extends EventDispatcher {
             add('downwind', this._t(() => msg`${cs()}, vent arrière main gauche ${this._rwy(rw)}.`,
                 () => msg`${cs()}, left downwind ${this._rwy(rw)}.`), () => {
                 this.state = 'downwind';
-                const number = 1 + this._trafficInfo().onFinal;
+                const onFinal = this._others().filter((o) => o.final).sort((a, b) => b.finalDistance - a.finalDistance);
+                const number = 1 + Math.max(this._trafficInfo().onFinal, onFinal.length);
+                if (number > 1 && onFinal.length) {
+                    // Numéro 2 : suivre le dernier avion en finale, nommé
+                    const lead = onFinal[0];
+                    const cs = this._abbr();
+                    return {
+                        message: this._t(() => msg`${cs}, numéro ${number}, suivez le ${this._otherTok(lead)}, ${this._whatTok(lead)}, rappelez en finale.`,
+                            () => msg`${cs}, number ${number}, follow the ${this._otherTok(lead)}, ${this._whatTok(lead)}, report final.`),
+                        readback: this._t(() => msg`Numéro ${number}, trafic en vue, rappellerons en finale, ${cs}.`,
+                            () => msg`Number ${number}, traffic in sight, wilco, ${cs}.`),
+                        altReadback: this._t(() => msg`Numéro ${number}, recherchons le trafic, rappellerons en finale, ${cs}.`,
+                            () => msg`Number ${number}, looking out, wilco, ${cs}.`),
+                        labels: ['Collationner · trafic en vue', 'Collationner · trafic pas en vue'],
+                    };
+                }
                 return number > 1 ? {
                     message: this._t(() => msg`${this._abbr()}, numéro ${number}, suivez le trafic en finale, rappelez en finale.`,
                         () => msg`${this._abbr()}, number ${number}, follow the traffic on final, report final.`),
                     readback: this._t(() => msg`Numéro ${number}, trafic en vue, rappellerons en finale, ${this._abbr()}.`,
                         () => msg`Number ${number}, traffic in sight, wilco, ${this._abbr()}.`),
-                } : {
+                } : this._addTraffic({
                     message: this._t(() => msg`${this._abbr()}, numéro 1, rappelez en finale.`, () => msg`${this._abbr()}, number 1, report final.`),
                     readback: this._t(() => msg`Numéro 1, rappellerons en finale, ${this._abbr()}.`, () => msg`Number 1, wilco, ${this._abbr()}.`),
-                };
+                }, this._circuitTraffic('final'));
             });
         }
         if (!approach && (s.final || (this.state === 'downwind' && !reported))) {
@@ -686,12 +880,12 @@ class ATC extends EventDispatcher {
                     () => msg`${call}leaving ${this._stationName()} zone, ${this._position(s)}.`), () => {
                     const open = this._opening('approach');
                     this.state = 'outbound';
-                    return {
+                    return this._addTraffic({
                         message: this._t(() => msg`${this._abbr()}, ${open}identifié, ${this._qnh()}, rappelez pour le retour.`,
                             () => msg`${this._abbr()}, ${open}identified, ${this._qnh()}, report for rejoining.`),
                         readback: this._t(() => msg`${this._qnh()}, rappellerons pour le retour, ${this._abbr()}.`,
                             () => msg`${this._qnh()}, wilco, ${this._abbr()}.`),
-                    };
+                    }, this._nearbyTraffic(s));
                 });
             } else {
                 add('approachIn', this._t(
@@ -769,13 +963,13 @@ class ATC extends EventDispatcher {
         this.warned.taxi = false;
         const contact = this._contactTok('tower');
         const tower = msg`${this._stationShort('tower')} ${this._freqTok('tower')}`;
-        return {
+        return this._addTraffic({
             message: this._t(() => msg`${this._abbr()}, ${open}roulez point d'attente ${this._rwy(rw)} via ${this._twy()}${qnh}, au point d'attente ${contact}.`,
                 () => msg`${this._abbr()}, ${open}taxi to holding point ${this._rwy(rw)} via ${this._twy()}${qnh}, ${contact} at the holding point.`),
             readback: this._t(() => msg`Roulons point d'attente ${this._rwy(rw)} via ${this._twy()}${qnh}, au point d'attente ${tower}, ${this._abbr()}.`,
                 () => msg`Taxi to holding point ${this._rwy(rw)} via ${this._twy()}${qnh}, ${tower} at the holding point, ${this._abbr()}.`),
             then: () => { this._handoffAtHolding = true; },
-        };
+        }, this._groundTraffic(this.s));
     }
 
     // Prêt au départ : la Tour donne le code transpondeur, puis l'autorisation (ou l'attente s'il y a du trafic)
@@ -791,6 +985,21 @@ class ATC extends EventDispatcher {
         if (traffic.onRunway || traffic.onFinal > 0) {
             this.state = atHolding ? 'holding' : 'lineup';
             this._clearDelay = 0;
+            // L'avion qui gêne, nommé (sur la piste ou en finale)
+            const blocking = this._others().filter((o) => (o.onGround && o.zone === 'runway') || o.final);
+            if (blocking.length) {
+                return this._addTraffic(atHolding ? {
+                    message: this._t(() => msg`${this._abbr()}, ${open}${sq}maintenez point d'attente ${this._rwy(rw)}${qnh}.`,
+                        () => msg`${this._abbr()}, ${open}${sq}hold short of ${this._rwy(rw)}${qnh}.`),
+                    readback: this._t(() => msg`${sqRb}${first('Maintenons')} point d'attente ${this._rwy(rw)}${qnh}, ${this._abbr()}.`,
+                        () => msg`${sqRb}${first('Holding')} short ${this._rwy(rw)}${qnh}, ${this._abbr()}.`),
+                } : {
+                    message: this._t(() => msg`${this._abbr()}, ${open}${sq}maintenez position${qnh}.`,
+                        () => msg`${this._abbr()}, ${open}${sq}hold position${qnh}.`),
+                    readback: this._t(() => msg`${sqRb}${first('Maintenons')} position${qnh}, ${this._abbr()}.`,
+                        () => msg`${sqRb}${first('Holding')} position${qnh}, ${this._abbr()}.`),
+                }, blocking);
+            }
             const what = traffic.onRunway ? this._t(() => tok('sur la piste'), () => tok('on the runway'))
                 : this._t(() => tok('en finale'), () => tok('on final'));
             return atHolding ? {
@@ -807,7 +1016,7 @@ class ATC extends EventDispatcher {
         }
         this.state = 'takeoff';
         const [fr, en, rbFr, rbEn] = this._takeoffClearance(rw, atHolding, { open, sq, sqRb, qnh, code });
-        return { message: this._t(fr, en), readback: this._t(rbFr, rbEn) };
+        return this._addTraffic({ message: this._t(fr, en), readback: this._t(rbFr, rbEn) }, this._circuitTraffic('final'));
     }
 
     _takeoffClearance(rw, lineUp, { open = '', sq = '', sqRb = '', qnh = '', code = null } = {}) {
@@ -845,6 +1054,11 @@ class ATC extends EventDispatcher {
         this._touched = false;
         if (this._trafficInfo().onRunway) {
             this.state = 'continue';
+            const onRunway = this._others().filter((o) => o.onGround && o.zone === 'runway');
+            if (onRunway.length) return this._addTraffic({
+                message: this._t(() => msg`${this._abbr()}, continuez l'approche.`, () => msg`${this._abbr()}, continue approach.`),
+                readback: this._t(() => msg`Continuons l'approche, ${this._abbr()}.`, () => msg`Continuing approach, ${this._abbr()}.`),
+            }, onRunway);
             return {
                 message: this._t(() => msg`${this._abbr()}, continuez l'approche, trafic sur la piste.`,
                     () => msg`${this._abbr()}, continue approach, traffic on the runway.`),
@@ -878,7 +1092,7 @@ class ATC extends EventDispatcher {
         const qnh = this._qnhOnce('');
         const qnhPart = qnh ? msg`${qnh}, ` : '';
         this.state = straightIn ? 'downwind' : 'inbound';
-        return straightIn ? {
+        return this._addTraffic(straightIn ? {
             message: this._t(() => msg`${this._abbr()}, ${open}${sq}rejoignez la longue finale ${this._rwy(rw)}, ${qnhPart}rappelez en finale.`,
                 () => msg`${this._abbr()}, ${open}${sq}join long final ${this._rwy(rw)}, ${qnhPart}report final.`),
             readback: this._t(() => msg`${sqRb}${first('Rejoignons')} la longue finale ${this._rwy(rw)}, ${qnhPart}rappellerons en finale, ${this._abbr()}.`,
@@ -888,7 +1102,7 @@ class ATC extends EventDispatcher {
                 () => msg`${this._abbr()}, ${open}${sq}join left downwind ${this._rwy(rw)}, ${qnhPart}report downwind.`),
             readback: this._t(() => msg`${sqRb}${first('Rejoignons')} vent arrière main gauche ${this._rwy(rw)}, ${qnhPart}rappellerons vent arrière, ${this._abbr()}.`,
                 () => msg`${sqRb}${first('Join')} left downwind ${this._rwy(rw)}, ${qnhPart}wilco, ${this._abbr()}.`),
-        };
+        }, this._circuitTraffic());
     }
 
     // Approche, avion qui rentre : code transpondeur et QNH ; près du terrain, passage à la Tour
@@ -900,22 +1114,23 @@ class ATC extends EventDispatcher {
         const qnh = this._qnhOnce('');
         const qnhPart = qnh ? msg`${qnh}, ` : '';
         this._inboundViaApproach = false;
+        const nearby = this._nearbyTraffic(s);
         if (s.distance <= ZONE_NM + 0.5) {
             this.state = 'toTower';
             const contact = this._contactTok('tower');
-            return {
+            return this._addTraffic({
                 message: this._t(() => msg`${this._abbr()}, ${open}${sq}${qnhPart}${contact}.`, () => msg`${this._abbr()}, ${open}${sq}${qnhPart}${contact}.`),
                 readback: msg`${sqRb}${qnhPart}${this._stationShort('tower')} ${this._freqTok('tower')}, ${this._abbr()}.`,
                 then: () => this.setFrequency('tower'),
-            };
+            }, nearby);
         }
         this.state = 'appIn';
-        return {
+        return this._addTraffic({
             message: this._t(() => msg`${this._abbr()}, ${open}${sq}${qnhPart}rappelez à ${ZONE_NM} NM du terrain.`,
                 () => msg`${this._abbr()}, ${open}${sq}${qnhPart}report ${ZONE_NM} miles from the field.`),
             readback: this._t(() => msg`${sqRb}${qnhPart}rappellerons à ${ZONE_NM} NM, ${this._abbr()}.`,
                 () => msg`${sqRb}${qnhPart}wilco, ${this._abbr()}.`),
-        };
+        }, nearby);
     }
 
     _handToTower() {
@@ -950,6 +1165,19 @@ class ATC extends EventDispatcher {
         const gen = this._gen;
         const reply = { message: this._t(fr, en), readback: rbFr ? this._t(rbFr, rbEn) : null };
         this._queue(async () => {
+            while (this._frequencyBusy() && gen === this._gen) await wait(500);   // pas pendant l'échange d'un autre
+            const clip = this._prepare(station, reply.message);
+            await wait(400);
+            await this._controller(reply, gen, clip);
+        });
+    }
+
+    // Message spontané complet (avec collationnement éventuel et choix "trafic en vue / recherchons")
+    _sayReply(station, reply) {
+        if (this.freq !== station || !this.contacted.has(station)) return;
+        const gen = this._gen;
+        this._queue(async () => {
+            while (this._frequencyBusy() && gen === this._gen) await wait(500);
             const clip = this._prepare(station, reply.message);
             await wait(400);
             await this._controller(reply, gen, clip);
@@ -958,11 +1186,12 @@ class ATC extends EventDispatcher {
 
     async _controller(reply, gen, clip = null) {
         if (gen !== this._gen) return;
-        if (!reply.keepLast) this.lastAtc = { message: reply.message, readback: reply.readback, then: reply.then, station: this.freq };
-        await this._transmit('atc', reply.message, gen, clip);
+        if (!reply.keepLast) this.lastAtc = { message: reply.message, readback: reply.readback, altReadback: reply.altReadback,
+            labels: reply.labels, then: reply.then, station: this.freq };
+        await this._transmit('atc', reply.message, gen, clip, Boolean(reply.readback) || Boolean(reply.keepLast));
         if (gen !== this._gen || reply.keepLast) return;
-        this.pending = reply.readback ? { message: reply.readback, then: reply.then, time: 0, reminders: 0,
-            clip: this._prepare('pilot', reply.readback) } : null;
+        this.pending = reply.readback ? { message: reply.readback, alt: reply.altReadback ?? null, labels: reply.labels ?? null,
+            then: reply.then, time: 0, reminders: 0, clip: this._prepare('pilot', reply.readback) } : null;
         if (!reply.readback) reply.then?.();
         this._optionsKey = '';
         this._changed();
@@ -994,6 +1223,47 @@ class ATC extends EventDispatcher {
         this._changed();
     }
 
+    // --- Multijoueur : la radio est partagée ----------------------------------------------------
+    // Message d'un autre joueur ou de son contrôleur, entendu seulement sur la même fréquence. La fréquence reste
+    // occupée pendant tout l'échange (de son appel à son collationnement) : on ne peut pas transmettre
+    receiveRemote({ id, name, freq, from, text, speech, lang, reply }) {
+        if (freq !== this.freq) return;
+        const gen = this._gen;
+        this._hold = { id, name, until: performance.now() + 60000 };
+        const clip = this.voice ? this.voices.prepare(speech, from === 'pilot' ? 'otherPilot' : freq, { lang, seed: id }) : null;
+        clip?.catch(() => {});
+        this._changed();
+        this._queue(async () => {
+            const voice = await clip?.catch(() => null);
+            if (gen !== this._gen || freq !== this.freq) return;
+            const label = from === 'pilot' ? name.toUpperCase().slice(0, 12) : STATIONS[freq].fr.toUpperCase();
+            const kind = from === 'pilot' ? 'remote' : 'atc';
+            this.log.push({ from: kind, text, station: label });
+            if (this.log.length > 40) this.log.shift();
+            this.dispatchEvent({ type: 'transmit', from: kind, text, station: freq, label, on: true });
+            this._changed();
+            this.sounds?.squelch(0.16, 0.08);
+            if (voice && this.voice) await voice.play();
+            else await wait((0.8 + text.length * 0.065) * 1000);
+            this.sounds?.squelch(0.22, 0.14);
+            this.dispatchEvent({ type: 'transmit', from: kind, text, station: freq, label, on: false });
+            // Réponse attendue (du contrôleur ou le collationnement) : la fréquence reste tenue un moment
+            if (this._hold?.id === id) this._hold.until = performance.now() + (reply ? (from === 'pilot' ? 10000 : 30000) : 1200);
+        });
+    }
+
+    _frequencyBusy() {
+        return Boolean(this._hold) && performance.now() < this._hold.until;
+    }
+
+    // Immatriculation (multijoueur : une par joueur)
+    setRegistration(registration) {
+        if (registration === this.registration) return;
+        this.registration = registration;
+        this._optionsKey = '';
+        this._changed();
+    }
+
     // Voix d'un message (calculée à l'avance) ; null si la lecture à voix haute est coupée
     _prepare(role, message) {
         if (!this.voice) return null;
@@ -1002,11 +1272,13 @@ class ATC extends EventDispatcher {
         return clip;
     }
 
-    async _transmit(from, message, gen, prepared = null) {
+    async _transmit(from, message, gen, prepared = null, reply = false) {
         if (gen !== this._gen) return;
         const role = from === 'pilot' ? 'pilot' : from === 'atis' ? 'atis' : this.freq;
         const clip = await (prepared ?? this._prepare(role, message));
         if (gen !== this._gen) return;
+        // Multijoueur : les autres joueurs sur la même fréquence entendent l'échange (pas l'ATIS, propre à chacun)
+        if (from !== 'atis') this.dispatchEvent({ type: 'broadcast', message: { f: this.freq, w: from, t: message.text, s: message.speech, l: this.lang, r: reply } });
         this.log.push({ from, text: message.text, station: from === 'atc' ? STATIONS[this.freq].fr.toUpperCase() : null });
         if (this.log.length > 40) this.log.shift();
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: true });
@@ -1047,7 +1319,11 @@ class ATC extends EventDispatcher {
 
     // Indicatif abrégé : première lettre et deux dernières (F-HESM -> F-SM)
     _abbr() {
-        const r = this.registration.replace(/-/g, '');
+        return this._abbrOf(this.registration);
+    }
+
+    _abbrOf(registration) {
+        const r = registration.replace(/-/g, '');
         const short = `${r[0]}-${r.slice(-2)}`;
         return tok(short, this._spell(short));
     }

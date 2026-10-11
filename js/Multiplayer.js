@@ -181,6 +181,11 @@ class Multiplayer extends EventTarget {
         if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
     }
 
+    // Message de la radio de l'aérodrome (contrôle aérien) : entendu par les joueurs sur la même fréquence
+    sendAtc(message) {
+        if (this._joined) this._publish({ atc: message });
+    }
+
     // Paquet de voix de la radio (texte base64) ; part tout de suite, sans attendre l'état
     sendVoice(data, end = false) {
         if (this._joined) this._publish({ voice: data, end });
@@ -294,6 +299,16 @@ class Multiplayer extends EventTarget {
         if (typeof data.voice === 'string') {
             if (this.players.has(id) && data.voice.length <= MAX_VOICE) {
                 this.dispatchEvent(new CustomEvent('voice', { detail: { id, data: data.voice, end: data.end === true } }));
+            }
+            return;
+        }
+        // Contrôle aérien : message d'un joueur ou de son contrôleur
+        if (data.atc && typeof data.atc === 'object') {
+            const a = data.atc;
+            const text = (v, max) => typeof v === 'string' && v.length <= max;
+            if (this.players.has(id) && ['ground', 'tower', 'approach'].includes(a.f) && ['pilot', 'atc'].includes(a.w)
+                && text(a.t, 400) && text(a.s, 600) && (a.l === 'fr' || a.l === 'en')) {
+                this.dispatchEvent(new CustomEvent('atc', { detail: { id, freq: a.f, from: a.w, text: a.t, speech: a.s, lang: a.l, reply: a.r === true } }));
             }
             return;
         }

@@ -1514,7 +1514,8 @@ function renderAtc() {
         p.textContent = text;
         return p;
     };
-    if (atc.busy) atcChoices.replaceChildren(note('Émission en cours…'));
+    if (atc.blockedBy && !atc.busy) atcChoices.replaceChildren(note(`Fréquence occupée : ${atc.blockedBy} est en communication. Attendez la fin de l'échange.`));
+    else if (atc.busy) atcChoices.replaceChildren(note(atc.blockedBy ? `Fréquence occupée : ${atc.blockedBy} est en communication…` : 'Émission en cours…'));
     else {
         const children = atc.options.map((option) => {
             const button = document.createElement('button');
@@ -1552,12 +1553,31 @@ function renderAtc() {
 }
 atc.addEventListener('change', renderAtc);
 
+// Multijoueur : radio partagée (on entend l'échange des autres sur la même fréquence) ; une immatriculation par
+// joueur (F-H + 3 lettres tirées de son identifiant), F-HESM en solo
+atc.addEventListener('broadcast', ({ message }) => multiplayer.sendAtc(message));
+multiplayer.addEventListener('atc', ({ detail }) => {
+    atc.receiveRemote({ ...detail, name: multiplayer.players.get(detail.id)?.name ?? 'Pilote' });
+});
+function registrationFor(id) {
+    let h = 7;
+    for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    return `F-H${letters[h % 26]}${letters[(h >>> 5) % 26]}${letters[(h >>> 10) % 26]}`;
+}
+function updateRegistration() {
+    atc.setRegistration(multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM');
+    document.getElementById('atc-indicatif').textContent = atc.registration;
+}
+multiplayer.addEventListener('status', updateRegistration);
+updateRegistration();
+
 // Sous-titre de l'émission en cours ; la fenêtre s'ouvre d'elle-même quand un contrôleur attend un collationnement
 let atcSubtitleTimer = 0;
-atc.addEventListener('transmit', ({ from, text, station, on }) => {
+atc.addEventListener('transmit', ({ from, text, station, label, on }) => {
     clearTimeout(atcSubtitleTimer);
     if (on) {
-        const who = from === 'pilot' ? 'VOUS' : from === 'atis' ? 'ATIS' : ATC_SHORT[station];
+        const who = from === 'pilot' ? 'VOUS' : from === 'atis' ? 'ATIS' : from === 'remote' ? label : ATC_SHORT[station];
         atcSubtitle.textContent = `${who} : ${text}`;
         atcSubtitle.className = `atc-${from}`;
         atcSubtitle.hidden = false;
@@ -1579,7 +1599,7 @@ function updateAtc(delta) {
         speed: controls.getSpeed(),
         engine: systems.running,
         active: !choosingSpawn && !controls.isCrashed(),
-        traffic: multiplayer.code ? remotePlayers.list() : [],
+        traffic: multiplayer.code ? remotePlayers.list().map((p) => ({ ...p, callsign: registrationFor(p.id) })) : [],
     });
 }
 
@@ -1614,6 +1634,8 @@ function cockpitState() {
         stallWarning: controls.isNearStall(),
         ils: { ...ils.state, active: ils.active },
         vor: vor.state,
+        com: { active: airport.aerodrome.frequencies[atc.freq], standby: atc.standbyFreq ? airport.aerodrome.frequencies[atc.standbyFreq] : '121.500' },
+        transponder: atc.transponder,
         systems,
         flapLevel: controls.getFlapLevel(),
     };

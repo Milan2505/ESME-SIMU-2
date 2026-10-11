@@ -873,10 +873,11 @@ class Airport {
     }
 
     // Panneaux du point d'attente, de chaque côté de la bretelle, tournés vers les avions qui viennent du parking :
-    // obligatoire (rouge) "18 - 36" (à gauche la piste 18, à droite la 36), position "A" (noir), information
+    // obligatoire (rouge) "36 - 18" (convention OACI : le numéro de gauche est le seuil situé à gauche ; en roulant
+    // vers la piste, cap à l'ouest, le seuil 36 est à gauche, au sud), position "A" (noir), information
     // "TORA 700 m" (longueur de piste utilisable au décollage, jaune). Éclairés la nuit
     _buildSigns() {
-        const red = { text: '18 - 36', bg: '#c8102e', fg: '#ffffff', width: 1.9 };
+        const red = { text: '36 - 18', bg: '#c8102e', fg: '#ffffff', width: 1.9 };
         const location = { text: 'A', bg: '#111111', fg: YELLOW, width: 0.8, border: true };
         const info = { text: `TORA ${RUNWAY.length} m`, bg: YELLOW, fg: '#111111', width: 2.6, size: 54 };
         const back = new MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8 });

@@ -1257,3 +1257,8 @@ img{margin: 0px;
   #atc-sous-titre.atc-atis {
     border-color: #9fe3ff;
   }
+  /* Multijoueur : messages d'un autre joueur sur la fréquence */
+  .atc-remote b { color: #ffb000; }
+  #atc-sous-titre.atc-remote {
+    border-color: #ffb000;
+  }
