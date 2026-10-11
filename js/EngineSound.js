@@ -104,7 +104,7 @@ class RemoteEngine {
 }
 
 class EngineSound {
-    constructor({ volume = 0.5 } = {}) {
+    constructor({ volume = 1.4 } = {}) {
         this.volume = volume;
         this._audio = null;
         this._loops = null;
@@ -118,7 +118,13 @@ class EngineSound {
         this._audio = new AudioContext();
         this._master = this._audio.createGain();
         this._master.gain.value = this.volume;
-        this._master.connect(this._audio.destination);
+        // Les enregistrements de cabine sont surtout des graves (80-90 % de l'énergie sous 200 Hz), presque inaudibles
+        // sur des haut-parleurs d'ordinateur : on relève les médiums (harmoniques de l'échappement, de l'hélice),
+        // puis un limiteur évite la saturation à plein gaz et au démarrage
+        const body = new BiquadFilterNode(this._audio, { type: 'peaking', frequency: 350, Q: 0.8, gain: 7 });
+        const presence = new BiquadFilterNode(this._audio, { type: 'highshelf', frequency: 1200, gain: 5 });
+        const limiter = new DynamicsCompressorNode(this._audio, { threshold: -10, knee: 6, ratio: 12, attack: 0.003, release: 0.15 });
+        this._master.connect(body).connect(presence).connect(limiter).connect(this._audio.destination);
 
         const urls = [...LAYERS.map(({ name, url }) => [name, url]), ...Object.entries(ONE_SHOTS)];
         const entries = await Promise.all(urls.map(async ([name, url]) => [name, await loadBuffer(this._audio, url)]));
