@@ -1,6 +1,8 @@
 import {
     BackSide,
     Box3,
+    BufferAttribute,
+    BufferGeometry,
     BoxGeometry,
     CanvasTexture,
     CylinderGeometry,
@@ -107,6 +109,9 @@ function prepare(scene) {
             child.receiveShadow = true;
         }
     });
+    // Pare-brise : ses flancs en avant des portes sont en tôle sur un vrai Cessna 172 (le montant avant longe le bord
+    // de la porte) ; dans le modèle, c'était du verre, et on voyait le ciel par-dessus la porte, à l'emplanture de l'aile
+    if (meshes.glas) splitWindshieldSides(meshes.glas, scene);
     // Hélice : cône et pales tournent ensemble autour de l'axe du cône
     const box = new Box3().setFromObject(meshes.Propeller);
     const center = box.getCenter(new Vector3());
@@ -171,6 +176,52 @@ function prepare(scene) {
     root.scale.setScalar(AIRCRAFT_SCALE);   // après les pivots (calculés dans le repère du modèle)
     root.userData = { registration: 'F-HESM', liveryColor: null, textureSize: 2048 };
     return root;
+}
+
+// Triangles verticaux du pare-brise (normale selon x) en avant des portes (z < -2,1, repère avion) : retirés du verre,
+// ils forment un panneau peint (même place, faces tournées vers l'extérieur ; garniture à l'intérieur : buildCabinShell)
+function splitWindshieldSides(glass, scene) {
+    scene.updateMatrixWorld(true);
+    const geometry = glass.geometry.index ? glass.geometry.toNonIndexed() : glass.geometry;
+    const position = geometry.attributes.position, matrix = glass.matrixWorld;
+    const a = new Vector3(), b = new Vector3(), c = new Vector3(), normal = new Vector3(), edge = new Vector3();
+    const keep = [], side = [];
+    for (let i = 0; i < position.count; i += 3) {
+        a.fromBufferAttribute(position, i).applyMatrix4(matrix);
+        b.fromBufferAttribute(position, i + 1).applyMatrix4(matrix);
+        c.fromBufferAttribute(position, i + 2).applyMatrix4(matrix);
+        normal.subVectors(b, a).cross(edge.subVectors(c, a)).normalize();
+        const x = (a.x + b.x + c.x) / 3, z = (a.z + b.z + c.z) / 3;
+        if (Math.abs(normal.x) > 0.9 && z < -2.1) side.push({ i, flip: Math.sign(normal.x) !== Math.sign(x) });
+        else keep.push({ i, flip: false });
+    }
+    if (!side.length) return;
+    // Nouvelle géométrie avec les triangles choisis (flip : sommets 2 et 3 inversés, face tournée vers l'extérieur)
+    const pick = (list) => {
+        const out = new BufferGeometry();
+        for (const name of ['position', 'uv']) {
+            const attribute = geometry.attributes[name];
+            if (!attribute) continue;
+            const size = attribute.itemSize, array = new Float32Array(list.length * 3 * size);
+            list.forEach(({ i, flip }, k) => {
+                const order = flip ? [0, 2, 1] : [0, 1, 2];
+                order.forEach((v, j) => {
+                    for (let n = 0; n < size; n++) array[(k * 3 + j) * size + n] = attribute.getComponent(i + v, n);
+                });
+            });
+            out.setAttribute(name, new BufferAttribute(array, size));
+        }
+        out.computeVertexNormals();
+        return out;
+    };
+    glass.geometry = pick(keep);
+    const skin = new Mesh(pick(side), ambient(new MeshStandardMaterial({ color: 0xe4e6e8, roughness: 0.55, metalness: 0.05, emissive: 0x2e2f30 })));
+    skin.name = 'windshieldside';
+    skin.position.copy(glass.position);
+    skin.quaternion.copy(glass.quaternion);
+    skin.scale.copy(glass.scale);
+    skin.castShadow = skin.receiveShadow = true;
+    glass.parent.add(skin);
 }
 
 // Pièces mobiles d'un avion : { propeller, pivots (gouvernes) }
@@ -315,7 +366,7 @@ function buildCabinShell(model) {
     const trim = ambient(new MeshStandardMaterial({ color: 0xbca684, roughness: 0.85, side: BackSide, emissive: 0x3a342a }));
     model.updateMatrixWorld(true);
     const inverse = model.matrixWorld.clone().invert();
-    for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top']) {
+    for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top', 'windshieldside']) {
         const source = model.getObjectByName(name);
         if (!source) continue;
         const inner = new Mesh(source.geometry, trim);
