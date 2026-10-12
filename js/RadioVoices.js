@@ -120,9 +120,7 @@ class RadioVoices extends EventTarget {
                     },
                 };
             } catch (error) {
-                console.error('Voix réaliste en échec, voix de l\'ordinateur :', error);
-                this.status = { state: 'error', progress: 0 };
-                this._emit();
+                this._failed(error);
             }
         }
         return { play: () => this._speakSystem(spoken, role) };
@@ -186,14 +184,19 @@ class RadioVoices extends EventTarget {
             this._voiceWorker.onerror = (event) => {
                 for (const request of this._requests.values()) request.reject(new Error(event.message || 'voix : erreur du fil de calcul'));
                 this._requests.clear();
+                // Fil planté : recréé à la prochaine demande (modèles relus depuis le cache du navigateur)
+                this._voiceWorker.terminate();
+                this._voiceWorker = null;
+                this._models.clear();
             };
         }
         return this._voiceWorker;
     }
 
-    _ask(message) {
+    _ask(message, ids = null) {
         const worker = this._worker();
         const id = this._nextId++;
+        ids?.push(id);
         return new Promise((resolve, reject) => {
             this._requests.set(id, { resolve, reject });
             worker.postMessage({ ...message, id });
@@ -210,10 +213,12 @@ class RadioVoices extends EventTarget {
     }
 
     // Les calculs passent un par un dans le fil de calcul (dans l'ordre des demandes)
-    async _synthesize(cast, text) {
+    // ids : liste où noter le numéro de la demande (pour l'annuler, voir stopInstructor)
+    async _synthesize(cast, text, ids = null) {
         const { samples, sampleRate } = await this._ask({ type: 'synth', model: cast.model, base: VOICES_URL + MODELS[cast.model],
-            text, speaker: cast.speaker ?? 0, lengthScale: cast.lengthScale ?? 1 });
+            text, speaker: cast.speaker ?? 0, lengthScale: cast.lengthScale ?? 1 }, ids);
         this._loaded.add(cast.model);
+        this._failures = 0;
         return { samples, sampleRate };
     }
 
@@ -257,6 +262,17 @@ class RadioVoices extends EventTarget {
         });
     }
 
+    // Échec d'un calcul : ce message passe à la voix de l'ordinateur ; la voix réaliste n'est abandonnée qu'après trois
+    // échecs de suite (avant : un seul échec, par exemple une phrase illisible, la coupait pour tout le vol)
+    _failed(error) {
+        console.error("Voix réaliste en échec pour ce message, voix de l'ordinateur :", error);
+        this._failures = (this._failures ?? 0) + 1;
+        if (this._failures >= 3) {
+            this.status = { state: 'error', progress: 0 };
+            this._emit();
+        }
+    }
+
     // --- Moniteur (mode Initiation) ---------------------------------------------------------------
     // Dit un texte avec la voix du moniteur ; renvoie une promesse résolue à la fin (ou à l'interruption). Voix réaliste
     // si elle est prête, sinon voix de l'ordinateur tout de suite (pas d'attente du téléchargement)
@@ -267,7 +283,8 @@ class RadioVoices extends EventTarget {
         if (this.mode === 'neural' && this.status.state === 'ready') {
             try {
                 const cast = CAST[this.lang].instructor;
-                const audios = this._chunks(spoken).map((part) => this._synthesize(cast, part));
+                token.ids = [];
+                const audios = this._chunks(spoken).map((part) => this._synthesize(cast, part, token.ids));
                 audios.forEach((a) => a.catch(() => {}));
                 for (const audio of audios) {
                     const data = await audio;
@@ -277,7 +294,8 @@ class RadioVoices extends EventTarget {
                 }
                 return;
             } catch (error) {
-                console.error("Voix du moniteur en échec, voix de l'ordinateur :", error);
+                if (token !== this._instructorToken) return;   // interrompu : pas un échec
+                this._failed(error);
             }
         }
         if (token !== this._instructorToken) return;
@@ -287,6 +305,9 @@ class RadioVoices extends EventTarget {
     }
 
     stopInstructor() {
+        // Calculs de la phrase interrompue pas encore faits : annulés (sinon la radio attendait derrière eux)
+        const ids = this._instructorToken?.ids;
+        if (ids?.length && this._voiceWorker) this._voiceWorker.postMessage({ type: 'cancel', ids });
         this._instructorToken = null;
         for (const finish of [...this._playing]) {
             if (finish.role !== 'instructor') continue;

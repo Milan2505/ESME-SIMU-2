@@ -587,13 +587,14 @@ class Airport {
     }
 
     // windDirection : d'où vient le vent (°, 0 = nord) ; la manche à air s'oriente sous le vent
-    update(delta, windStrength, camera, windDirection = WIND_DIRECTION) {
+    // pilotEye : position de l'œil du pilote (couleur des PAPI) ; sinon la caméra
+    update(delta, windStrength, camera, windDirection = WIND_DIRECTION, pilotEye = null) {
         if (this._sockPivot) {
             const target = -windDirection * Math.PI / 180;
             const diff = Math.atan2(Math.sin(target - this._sockPivot.rotation.y), Math.cos(target - this._sockPivot.rotation.y));
             this._sockPivot.rotation.y += diff * Math.min(1, delta * 1.5);
         }
-        this._updatePapi(camera);
+        this._updatePapi(camera, pilotEye);
         this._time += delta;
         const t = this._time;
         // Manche à air : se gonfle avec le vent, flotte en rafales
@@ -624,17 +625,24 @@ class Airport {
         }
     }
 
-    _updatePapi(camera) {
+    // Couleur vue de l'œil du pilote (pas de la caméra : en vue extérieure, elle suit l'avion plus haut et les feux
+    // restaient toujours blancs) ; visibilité et taille à l'écran vues de la caméra
+    _updatePapi(camera, pilotEye = null) {
         if (!camera) return;
         for (const papi of this._papi) {
+            if (pilotEye) {
+                const fromPilot = _toEye.subVectors(pilotEye, papi.light.position);
+                const pilotBefore = -fromPilot.dot(papi.runway.direction);
+                papi.pilotAbove = pilotBefore <= 0 || Math.atan2(fromPilot.y, Math.hypot(fromPilot.x, fromPilot.z)) > papi.angle;
+            }
             const toEye = _toEye.subVectors(camera.position, papi.light.position);
             const before = -toEye.dot(papi.runway.direction);   // distance en amont du feu, dans l'axe d'approche
             // Optique directionnelle : visible seulement depuis l'approche
             const visible = before > 0 && Math.abs(toEye.dot(papi.runway.left)) < before * 0.6;
             papi.light.visible = visible;
             if (!visible) continue;
-            const elevation = Math.atan2(toEye.y, Math.hypot(toEye.x, toEye.z));
-            papi.light.material.color.set(elevation > papi.angle ? 0xffffff : 0xff2010).multiplyScalar(2 + 4 * this._night);
+            const above = pilotEye ? papi.pilotAbove : Math.atan2(toEye.y, Math.hypot(toEye.x, toEye.z)) > papi.angle;
+            papi.light.material.color.set(above ? 0xffffff : 0xff2010).multiplyScalar(2 + 4 * this._night);
             // Taille quasi constante à l'écran : reste visible de loin
             papi.light.scale.setScalar(Math.max(2.5, toEye.length() * 0.012));
         }

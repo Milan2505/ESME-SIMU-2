@@ -14,12 +14,22 @@ let ortPromise = null;
 let phonemizerPromise = null;
 let chain = Promise.resolve(); // un calcul à la fois
 
+const cancelled = new Set();   // demandes annulées avant leur tour (phrase du moniteur interrompue)
+
 self.onmessage = ({ data }) => {
+    if (data.type === 'cancel') {
+        for (const id of data.ids) cancelled.add(id);
+        return;
+    }
     chain = chain.then(() => handle(data)).catch(() => {});
 };
 
 async function handle(data) {
     const { id, type } = data;
+    if (cancelled.delete(id)) {
+        self.postMessage({ id, type: 'error', message: 'annulé' });
+        return;
+    }
     try {
         if (type === 'load') {
             await load(data.model, data.base);
@@ -113,7 +123,17 @@ async function synthesize({ model, base, text, speaker = 0, lengthScale = 1 }) {
     const sampleRate = config.audio.sample_rate;
     const parts = [];
     for (const sentence of text.split(/(?<=[.!?])\s+/).filter((s) => s.trim())) {
-        const ids = await phonemize(sentence.trim(), config.espeak.voice);
+        // Phrase que le phonétiseur ne sait pas lire (symboles, guillemets…) : nettoyée et réessayée, sinon sautée ;
+        // un échec faisait taire la voix réaliste pour tout le reste du vol
+        let ids;
+        try {
+            ids = await phonemize(sentence.trim(), config.espeak.voice);
+        } catch {
+            const clean = sentence.replace(/[«»"“”°()\[\]{}<>*_#|~^]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (!clean) continue;
+            try { ids = await phonemize(clean, config.espeak.voice); } catch { continue; }
+        }
+        if (!ids?.length) continue;
         const inputs = {
             input: new runtime.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
             input_lengths: new runtime.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
@@ -125,6 +145,7 @@ async function synthesize({ model, base, text, speaker = 0, lengthScale = 1 }) {
         parts.push(trim(output.data, sampleRate));
         parts.push(new Float32Array(Math.round(sampleRate * 0.15)));   // pause entre les phrases
     }
+    if (!parts.length) throw new Error('aucune phrase lisible');
     const samples = new Float32Array(parts.reduce((sum, p) => sum + p.length, 0));
     let offset = 0;
     for (const part of parts) {

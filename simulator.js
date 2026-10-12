@@ -861,6 +861,7 @@ controls.addEventListener('crash', ({ reason }) => {
 const cloudFogColor = new THREE.Color();
 const flashColor = new THREE.Color(0xc8d0ff);
 const shadowCenter = new THREE.Vector3();
+const pilotEyeWorld = new THREE.Vector3();
 
 const ABOVE_CLOUDS_SKY = new THREE.Color(0x6f9fd2), ABOVE_CLOUDS_FOG = new THREE.Color(0xc4d4e3);
 const ABOVE_CLOUDS_SUN = 2.0, ABOVE_CLOUDS_HEMI = 1.2;   // plein jour au-dessus de la nappe, même par temps d'orage
@@ -2152,7 +2153,9 @@ renderer.setAnimationLoop((time)=>{
     }
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
-    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction );
+    // PAPI : couleur vue de l'œil du pilote, même en vue extérieure
+    pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
+    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld );
     airport.updateHangars( delta, aircraft.position );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
