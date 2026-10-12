@@ -1653,7 +1653,10 @@ var initiation = new Initiation({
         panel: $('moniteur'), phase: $('moniteur-phase'), count: $('moniteur-compte'), progress: $('moniteur-progression'),
         title: $('moniteur-titre'), text: $('moniteur-texte'), why: $('moniteur-pourquoi'), hint: $('moniteur-souffle'),
         advice: $('moniteur-conseil'), praise: $('moniteur-bravo'), next: $('moniteur-continuer'),
+        buttons: { next: $('moniteur-continuer'), repeat: $('moniteur-repeter'), show: $('moniteur-montrer'), skip: $('moniteur-passer'), quit: $('moniteur-quitter') },
     },
+    // Leçon en anglais : contrôleurs en anglais aussi (phraséologie OACI) ; langue d'avant rétablie à la fin
+    setRadioLanguage: (lang) => setAtcLanguage(lang),
     // Départ : avion éteint au parking N4, en solo, vue cabine
     startCold: () => {
         multiplayer.leave();
@@ -1681,18 +1684,32 @@ for (const button of initiationDialog.querySelectorAll('[data-niveau]')) {
         initiationDialog.close();
         sounds.unlock();
         radioVoices.preload();
-        initiation.start(Number(button.dataset.niveau), $('initiation-camera').checked);
+        const lang = initiationDialog.querySelector('[data-langue-lecon].actif')?.dataset.langueLecon ?? 'fr';
+        try { localStorage.setItem('initiation-langue', lang); } catch { /* stockage indisponible */ }
+        initiation.start(Number(button.dataset.niveau), $('initiation-camera').checked, lang);
         view.focus();
     });
 }
 $('initiation-annuler').addEventListener('click', () => initiationDialog.close());
+// Langue de la leçon : boutons Français / English (retenue d'une visite à l'autre)
+const lessonLanguages = [...initiationDialog.querySelectorAll('[data-langue-lecon]')];
+function setLessonLanguage(lang) {
+    for (const button of lessonLanguages) button.classList.toggle('actif', button.dataset.langueLecon === lang);
+}
+for (const button of lessonLanguages) button.addEventListener('click', () => setLessonLanguage(button.dataset.langueLecon));
+{
+    let lang = 'fr';
+    try { lang = localStorage.getItem('initiation-langue') ?? 'fr'; } catch { /* stockage indisponible */ }
+    setLessonLanguage(lang === 'en' ? 'en' : 'fr');
+}
 const keepFocus = (handler) => () => { handler(); view.focus(); };
 $('moniteur-continuer').addEventListener('click', keepFocus(() => initiation.continue()));
 $('moniteur-repeter').addEventListener('click', keepFocus(() => initiation.repeat()));
 $('moniteur-montrer').addEventListener('click', keepFocus(() => initiation.show()));
 $('moniteur-passer').addEventListener('click', keepFocus(() => initiation.skip()));
 $('moniteur-quitter').addEventListener('click', keepFocus(() => {
-    if (confirm('Quitter l\'initiation ? L\'avion reste où il est, en solo.')) initiation.stop();
+    const message = initiation.lang === 'en' ? 'Quit the lesson? The aeroplane stays where it is, in solo mode.' : 'Quitter l\'initiation ? L\'avion reste où il est, en solo.';
+    if (confirm(message)) initiation.stop();
 }));
 updateModes();
 

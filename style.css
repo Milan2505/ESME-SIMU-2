@@ -1429,6 +1429,28 @@ img{margin: 0px;
 .initiation-option {
   font-size: 13px;
 }
+.initiation-langues {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.initiation-langues button {
+  padding: 4px 10px;
+  font-family: inherit;
+  color: #114E69;
+  background: white;
+  border: 2px solid #114E69;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.initiation-langues button.actif {
+  color: white;
+  background: #114E69;
+}
+.initiation-note {
+  font-size: 12px;
+}
 
 /* Panneau du moniteur : en haut à gauche de l'écran de vol */
 #moniteur {
