@@ -712,11 +712,13 @@ for (const [name, w] of Object.entries(WEATHERS)) {
     meteoButtons.appendChild(button);
 }
 
-// Météo Jour : curseur de quantité de nuages (0 = ciel clair, 100 % = tous les nuages), retenu d'une visite à l'autre
+// Météo Jour : curseur de quantité de nuages (0 = ciel clair ; 50 % = couverture 1, les autres météos nuageuses ;
+// 100 % = 4 fois plus de nuages), retenu d'une visite à l'autre. Progressif : réglage fin dans les ciels peu nuageux
 const cloudCover = document.getElementById('couverture');
 const cloudCoverInput = document.getElementById('couverture-curseur');
+const MAX_COVERAGE = 4;
 function setDayCoverage(percent) {
-    WEATHERS.jour.clouds.coverage = percent / 100;
+    WEATHERS.jour.clouds.coverage = MAX_COVERAGE * (percent / 100) ** 2;
     cloudCoverInput.value = percent;
     document.getElementById('couverture-valeur').textContent = `${percent} %`;
     if (weather === WEATHERS.jour) {
@@ -724,14 +726,15 @@ function setDayCoverage(percent) {
         atc.setCloudCover(weather.clouds.coverage);
     }
 }
+let dayPercent = 35;   // ~ couverture 0,5 : quelques beaux cumulus
 try {
-    const saved = localStorage.getItem('couverture-jour');
-    if (saved !== null) WEATHERS.jour.clouds.coverage = Math.min(100, Math.max(0, Number(saved) || 0)) / 100;
+    const saved = localStorage.getItem('nuages-jour');
+    if (saved !== null) dayPercent = Math.min(100, Math.max(0, Number(saved) || 0));
 } catch { /* stockage indisponible : valeur par défaut */ }
-setDayCoverage(Math.round(WEATHERS.jour.clouds.coverage * 100));
+setDayCoverage(dayPercent);
 cloudCoverInput.addEventListener('input', () => {
     setDayCoverage(Number(cloudCoverInput.value));
-    try { localStorage.setItem('couverture-jour', cloudCoverInput.value); } catch { /* sans effet */ }
+    try { localStorage.setItem('nuages-jour', cloudCoverInput.value); } catch { /* sans effet */ }
 });
 cloudCoverInput.addEventListener('change', () => cloudCoverInput.blur()); // garde le clavier pour le pilotage
 

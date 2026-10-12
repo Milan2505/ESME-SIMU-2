@@ -251,12 +251,12 @@ class ATC extends EventDispatcher {
         this._changed();
     }
 
-    // Quantité de nuages réglée par le joueur (météo Jour) : 0 = ciel clair, 1 = couvert ; reprise dans l'ATIS
+    // Quantité de nuages réglée par le joueur (météo Jour) : 0 = ciel clair -> 4 = très nuageux ; reprise dans l'ATIS
     setCloudCover(coverage) {
         const [fr, en] = coverage <= 0 ? ['ciel clair', 'sky clear']
             : coverage < 0.3 ? ['peu nombreux', 'few clouds']
-            : coverage < 0.6 ? ['épars', 'scattered']
-            : coverage < 0.9 ? ['fragmentés', 'broken'] : ['couvert', 'overcast'];
+            : coverage < 0.8 ? ['épars', 'scattered']
+            : coverage < 2 ? ['fragmentés', 'broken'] : ['couvert', 'overcast'];
         this.metar.clouds = coverage <= 0 ? [fr, en] : [`${fr} à 3000 pieds`, `${en} 3000 feet`];
     }
 

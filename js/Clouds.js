@@ -89,7 +89,8 @@ function random(min, max) {
 // Nuages "volumétriques" : chaque nuage est un amas de bouffées en forme de cumulus
 class Clouds {
     constructor({
-        count = 70,           // nombre de nuages
+        count = 70,           // nombre de nuages pour une couverture de 1
+        maxCoverage = 4,      // couverture maximale (météo Jour à 100 % : 4 fois plus de nuages)
         radius = 2800,        // zone couverte autour du centre
         minBase = 180,        // altitude de la base des nuages
         maxBase = 360,
@@ -99,7 +100,7 @@ class Clouds {
         this.clouds = [];
         const puffs = [];
 
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < count * maxCoverage; i++) {
             const width = random(minWidth, maxWidth);
             // Bouffées resserrées : réparties dans 75 % du volume, mais gardent la taille prévue pour le nuage
             // entier -> elles se chevauchent davantage, le nuage paraît compact au lieu d'un amas de morceaux
@@ -109,7 +110,7 @@ class Clouds {
                 y: random(minBase, maxBase),
                 z: random(-radius, radius),
                 rx: width / 2 * PUFF_SPREAD, ry: height, rz: width / 2 * PUFF_SPREAD * random(0.6, 1),
-                rank: Math.random(),  // les nuages de rang < couverture sont visibles
+                rank: Math.random() * maxCoverage,  // les nuages de rang < couverture sont visibles
             };
             this.clouds.push(cloud);
 
@@ -170,15 +171,20 @@ class Clouds {
         this.mesh.frustumCulled = false;
         this.mesh.renderOrder = 1;
 
-        this._order = puffs.map((_, i) => i);
+        this._order = [];
         this._distances = new Float32Array(puffs.length);
         this._frame = 0;
+        this._coverage = 0.5;
+        this._detail = 1;
+        this._camera = { x: 0, y: 0, z: 0 };
         this._sort(0, 0, 0);
     }
 
-    // couverture : 0 = ciel dégagé, 1 = tous les nuages ; couleurs éclairée / ombre
+    // couverture : 0 = ciel dégagé, 1 = ciel bien nuageux, 4 = maximum (météo Jour à 100 %) ; couleurs éclairée / ombre
     setWeather({ coverage, light, dark, opacity = 1, brightness = 2 }) {
         this.material.uniforms.uCoverage.value = coverage;
+        this._coverage = coverage;
+        this._resort();
         this.material.uniforms.uLight.value.set(light);
         this.material.uniforms.uDark.value.set(dark);
         this.material.uniforms.uOpacity.value = opacity;
@@ -195,6 +201,8 @@ class Clouds {
     setDetail(detail) {
         this.mesh.visible = detail > 0;
         this.material.uniforms.uDetail.value = detail;
+        this._detail = detail;
+        this._resort();
     }
 
     // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur), pour le "jour blanc"
@@ -219,12 +227,24 @@ class Clouds {
         }
     }
 
+    // Couverture ou qualité changée : nouvelle liste des bouffées dessinées
+    _resort() {
+        const c = this._camera;
+        this._sort(c.x, c.y, c.z);
+    }
+
     _sort(cx, cy, cz) {
         const { puffs, _order: order, _distances: distances } = this;
+        this._camera = { x: cx, y: cy, z: cz };
+        // Seules les bouffées visibles (couverture, qualité) sont triées et dessinées
+        order.length = 0;
         for (let i = 0; i < puffs.length; i++) {
             const p = puffs[i];
+            if (p.rank > this._coverage || p.lod > this._detail) continue;
             distances[i] = (p.x - cx) ** 2 + (p.y - cy) ** 2 + (p.z - cz) ** 2;
+            order.push(i);
         }
+        this.mesh.geometry.instanceCount = order.length;
         order.sort((a, b) => distances[b] - distances[a]);
 
         const attr = this.mesh.geometry.attributes;
