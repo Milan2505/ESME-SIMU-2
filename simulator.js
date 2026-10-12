@@ -1133,19 +1133,27 @@ function updateMultiResume() {
     updateOnlineList();
 }
 
-// Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs
-const multiLivree = document.getElementById('multi-livree');
-for (const [id, livery] of Object.entries(LIVERIES)) multiLivree.add(new Option(livery.label, id));
-try {
-    const saved = localStorage.getItem('livree');
-    if (isLivery(saved)) multiplayer.livery = saved;
-} catch { /* stockage indisponible */ }
-multiLivree.value = multiplayer.livery;
-multiLivree.addEventListener('change', () => {
-    multiplayer.livery = isLivery(multiLivree.value) ? multiLivree.value : DEFAULT_LIVERY;
+// Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs. Choisie dans le menu Profil
+// (solo et multijoueur) ou dans le panneau Multijoueur : les deux listes restent d'accord
+const liverySelects = ['profil-livree', 'multi-livree'].map((id) => document.getElementById(id)).filter(Boolean);
+for (const select of liverySelects) {
+    for (const [id, livery] of Object.entries(LIVERIES)) select.add(new Option(livery.label, id));
+}
+function setLivery(id, save = true) {
+    multiplayer.livery = isLivery(id) ? id : DEFAULT_LIVERY;
+    for (const select of liverySelects) select.value = multiplayer.livery;
     if (aircraftModel) paintAircraft(aircraftModel, multiplayer.livery);
-    try { localStorage.setItem('livree', multiplayer.livery); } catch { /* stockage indisponible */ }
-});
+    if (save) try { localStorage.setItem('livree', multiplayer.livery); } catch { /* stockage indisponible */ }
+}
+let savedLivery = null;
+try { savedLivery = localStorage.getItem('livree'); } catch { /* stockage indisponible */ }
+setLivery(isLivery(savedLivery) ? savedLivery : multiplayer.livery, false);
+for (const select of liverySelects) {
+    select.addEventListener('change', () => {
+        setLivery(select.value);
+        select.blur();   // garde le clavier pour le pilotage
+    });
+}
 
 // Liste "En ligne" du bandeau : joueurs de la partie, distance et altitude, qui parle à la radio
 const onlineMenu = document.getElementById('online');

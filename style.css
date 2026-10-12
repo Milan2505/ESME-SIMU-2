@@ -173,6 +173,22 @@ img{margin: 0px;
     grid-row: 2/4;
 	  border: 3px solid;
   }
+  #profil .menu-contenu {
+    min-width: 260px;
+  }
+  .profil-livree {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 13px;
+    font-weight: bold;
+  }
+  .profil-livree select {
+    font: inherit;
+    font-weight: normal;
+    padding: 3px;
+  }
   #online .menu-contenu {
     left: auto;
     right: -3px;
@@ -257,7 +273,7 @@ img{margin: 0px;
     cursor: pointer;
   }
   /* Cases du bandeau : texte centré dans sa case */
-  #titre, #profil, #paramètre, #initiation, #solo, #multi {
+  #titre, #paramètre, #initiation, #solo, #multi {
     display: flex;
     flex-direction: column;
     align-items: center;

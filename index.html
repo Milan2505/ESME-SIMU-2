@@ -95,8 +95,13 @@
 	<h3>ESME flight simulator</h3>
 	</div>
 	
-	<div id="profil">
-	<h4>Profil</h4>
+	<!-- Profil : livrée de l'avion (solo et multijoueur) -->
+	<div id="profil" class="menu">
+		<button class="menu-titre" aria-expanded="false">Profil <span class="menu-fleche">▾</span></button>
+		<div class="menu-contenu" hidden>
+			<label class="profil-livree">Livrée de l'avion <select id="profil-livree"></select></label>
+			<p class="menu-note">En multijoueur, les autres joueurs voient votre avion à ces couleurs.</p>
+		</div>
 	</div>
 	
 	<div id="paramètre" role="button" tabindex="0" title="Qualité graphique et aides au pilotage">

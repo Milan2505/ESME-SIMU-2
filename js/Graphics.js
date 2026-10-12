@@ -6,7 +6,7 @@ import {
     HalfFloatType,
     MathUtils,
     Mesh,
-    PCFShadowMap,
+    PCFSoftShadowMap,
     Scene,
     ShaderChunk,
     ShaderMaterial,
@@ -209,7 +209,9 @@ class Graphics {
         renderer.toneMapping = ACESFilmicToneMapping;
         renderer.toneMappingExposure = 0.75;
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = PCFShadowMap; // ombres filtrées, nettement moins coûteuses que PCFSoft
+        // Ombres filtrées avec interpolation : bords sans escaliers, même là où le soleil frappe en rasant (garnitures
+        // de la cabine : chaque texel s'y étire sur plusieurs centimètres)
+        renderer.shadowMap.type = PCFSoftShadowMap;
 
         // Ombres : les zones couvertes suivent l'avion ; carte fine : lumière sans éclairage, seulement pour son ombre
         this.detailLight = patchDetailShadow() ? new DirectionalLight(0xffffff, 0) : null;

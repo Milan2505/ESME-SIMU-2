@@ -14,6 +14,7 @@ import {
     PlaneGeometry,
     RepeatWrapping,
     SRGBColorSpace,
+    Vector2,
     Vector3
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -109,9 +110,9 @@ function prepare(scene) {
             child.receiveShadow = true;
         }
     });
-    // Pare-brise : ses flancs en avant des portes sont en tôle sur un vrai Cessna 172 (le montant avant longe le bord
-    // de la porte) ; dans le modèle, c'était du verre, et on voyait le ciel par-dessus la porte, à l'emplanture de l'aile
-    if (meshes.glas) splitWindshieldSides(meshes.glas, scene);
+    // Emplanture de l'aile au-dessus du pare-brise : dans le modèle, le verre y monte jusque sous l'aile sans rien
+    // derrière (le carénage manque) et on voyait le ciel par-dessus la porte. Ce verre devient de la tôle
+    if (meshes.glas) closeWingRoot(meshes.glas, scene);
     // Hélice : cône et pales tournent ensemble autour de l'axe du cône
     const box = new Box3().setFromObject(meshes.Propeller);
     const center = box.getCenter(new Vector3());
@@ -178,44 +179,73 @@ function prepare(scene) {
     return root;
 }
 
-// Triangles verticaux du pare-brise (normale selon x) en avant des portes (z < -2,1, repère avion) : retirés du verre,
-// ils forment un panneau peint (même place, faces tournées vers l'extérieur ; garniture à l'intérieur : buildCabinShell)
-function splitWindshieldSides(glass, scene) {
+// Verre du pare-brise sous l'emplanture de l'aile (repère avion, z < -2,1 : devant la cabine) : la partie des flancs
+// au-dessus du haut des portes (y > WING_ROOT_Y) et les faces horizontales sous l'aile. Les triangles des flancs sont
+// coupés à cette hauteur : en dessous, c'est le vrai pare-brise qui s'enroule jusqu'au bord avant de la porte (il reste
+// du verre). Le haut devient une tôle blanche comme l'aile (faces vers l'extérieur ; garniture : buildCabinShell)
+const WING_ROOT_Y = 1.0;
+function closeWingRoot(glass, scene) {
     scene.updateMatrixWorld(true);
     const geometry = glass.geometry.index ? glass.geometry.toNonIndexed() : glass.geometry;
-    const position = geometry.attributes.position, matrix = glass.matrixWorld;
-    const a = new Vector3(), b = new Vector3(), c = new Vector3(), normal = new Vector3(), edge = new Vector3();
-    const keep = [], side = [];
+    const position = geometry.attributes.position, uv = geometry.attributes.uv;
+    const matrix = glass.matrixWorld, inverse = matrix.clone().invert();
+    const vertex = (i) => ({ p: new Vector3().fromBufferAttribute(position, i).applyMatrix4(matrix), uv: uv ? new Vector2().fromBufferAttribute(uv, i) : new Vector2() });
+    const lerp = (a, b, t) => ({ p: a.p.clone().lerp(b.p, t), uv: a.uv.clone().lerp(b.uv, t) });
+    // Polygone coupé par le plan y = WING_ROOT_Y : [dessous, dessus]
+    const clip = (poly) => {
+        const below = [], above = [];
+        poly.forEach((a, k) => {
+            const b = poly[(k + 1) % poly.length];
+            (a.p.y <= WING_ROOT_Y ? below : above).push(a);
+            if ((a.p.y - WING_ROOT_Y) * (b.p.y - WING_ROOT_Y) < 0) {
+                const cut = lerp(a, b, (WING_ROOT_Y - a.p.y) / (b.p.y - a.p.y));
+                below.push(cut);
+                above.push(cut);
+            }
+        });
+        return [below, above];
+    };
+    const fan = (poly, out) => { for (let k = 1; k + 1 < poly.length; k++) out.push([poly[0], poly[k], poly[k + 1]]); };
+    const keep = [], roof = [];
+    const normal = new Vector3(), edge = new Vector3();
     for (let i = 0; i < position.count; i += 3) {
-        a.fromBufferAttribute(position, i).applyMatrix4(matrix);
-        b.fromBufferAttribute(position, i + 1).applyMatrix4(matrix);
-        c.fromBufferAttribute(position, i + 2).applyMatrix4(matrix);
-        normal.subVectors(b, a).cross(edge.subVectors(c, a)).normalize();
-        const x = (a.x + b.x + c.x) / 3, z = (a.z + b.z + c.z) / 3;
-        if (Math.abs(normal.x) > 0.9 && z < -2.1) side.push({ i, flip: Math.sign(normal.x) !== Math.sign(x) });
-        else keep.push({ i, flip: false });
+        const tri = [vertex(i), vertex(i + 1), vertex(i + 2)];
+        normal.subVectors(tri[1].p, tri[0].p).cross(edge.subVectors(tri[2].p, tri[0].p)).normalize();
+        const z = (tri[0].p.z + tri[1].p.z + tri[2].p.z) / 3, y = (tri[0].p.y + tri[1].p.y + tri[2].p.y) / 3;
+        if (z < -2.1 && Math.abs(normal.x) > 0.9) {
+            const [below, above] = clip(tri);
+            fan(below, keep);
+            fan(above, roof);
+        } else if (z < -2.1 && normal.y > 0.9 && y > WING_ROOT_Y + 0.1) {
+            roof.push(tri);
+        } else keep.push(tri);
     }
-    if (!side.length) return;
-    // Nouvelle géométrie avec les triangles choisis (flip : sommets 2 et 3 inversés, face tournée vers l'extérieur)
-    const pick = (list) => {
-        const out = new BufferGeometry();
-        for (const name of ['position', 'uv']) {
-            const attribute = geometry.attributes[name];
-            if (!attribute) continue;
-            const size = attribute.itemSize, array = new Float32Array(list.length * 3 * size);
-            list.forEach(({ i, flip }, k) => {
-                const order = flip ? [0, 2, 1] : [0, 1, 2];
-                order.forEach((v, j) => {
-                    for (let n = 0; n < size; n++) array[(k * 3 + j) * size + n] = attribute.getComponent(i + v, n);
-                });
+    if (!roof.length) return;
+    // Géométrie (repère du verre) ; outward : faces tournées vers l'extérieur (flancs) ou vers le haut (sous l'aile)
+    const build = (tris, outward) => {
+        const positions = new Float32Array(tris.length * 9), uvs = new Float32Array(tris.length * 6);
+        const local = new Vector3();
+        tris.forEach((tri, k) => {
+            if (outward) {
+                normal.subVectors(tri[1].p, tri[0].p).cross(edge.subVectors(tri[2].p, tri[0].p));
+                const center = tri[0].p.clone().add(tri[1].p).add(tri[2].p);
+                const facing = Math.abs(normal.x) > Math.abs(normal.y) ? Math.sign(normal.x) === Math.sign(center.x) : normal.y > 0;
+                if (!facing) tri = [tri[0], tri[2], tri[1]];
+            }
+            tri.forEach((v, j) => {
+                local.copy(v.p).applyMatrix4(inverse);
+                positions.set([local.x, local.y, local.z], (k * 3 + j) * 3);
+                uvs.set([v.uv.x, v.uv.y], (k * 3 + j) * 2);
             });
-            out.setAttribute(name, new BufferAttribute(array, size));
-        }
+        });
+        const out = new BufferGeometry();
+        out.setAttribute('position', new BufferAttribute(positions, 3));
+        out.setAttribute('uv', new BufferAttribute(uvs, 2));
         out.computeVertexNormals();
         return out;
     };
-    glass.geometry = pick(keep);
-    const skin = new Mesh(pick(side), ambient(new MeshStandardMaterial({ color: 0xe4e6e8, roughness: 0.55, metalness: 0.05, emissive: 0x2e2f30 })));
+    glass.geometry = build(keep, false);
+    const skin = new Mesh(build(roof, true), ambient(new MeshStandardMaterial({ color: 0xe2e3e5, roughness: 0.6, metalness: 0.05, emissive: 0x2e2f30 })));
     skin.name = 'windshieldside';
     skin.position.copy(glass.position);
     skin.quaternion.copy(glass.quaternion);
