@@ -130,7 +130,13 @@ const _shadowRight = new Vector3();
 const _shadowUp = new Vector3();
 const _shadowCenter = new Vector3();
 
-const SHADOW_SIZE = 120;        // demi-côté de la zone d'ombres autour de l'avion (m)
+// Demi-côté de la zone d'ombres autour de l'avion (m). Une seule carte d'ombres : plus la zone est grande, plus les
+// ombres sont grossières (à 120 m, un texel faisait ~12 cm : ombre de l'avion pixelisée). Vue extérieure : 60 m
+// (~6 cm au réglage Haut, 3 cm en Ultra), le décor plus loin n'a pas d'ombre
+const SHADOW_SIZE = 60;
+// Vue cabine : zone resserrée sur l'avion (cabine d'un mètre : ombres de l'aile et des montants), jusqu'à 30 m
+const COCKPIT_SHADOW_SIZE = 30;
+const NORMAL_BIAS_TEXELS = 2.5; // décalage anti-acné des ombres, en texels de la carte (0,3 m à 120 m)
 const SUN_DISTANCE = 400;
 
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
@@ -163,7 +169,8 @@ class Graphics {
             near: 1, far: SUN_DISTANCE * 2,
         });
         sunLight.shadow.bias = -0.0005;
-        sunLight.shadow.normalBias = 0.3;
+        this._shadowSize = SHADOW_SIZE;
+        this._setShadowSize(SHADOW_SIZE);
         scene.add(sunLight.target);
 
         // Ciel : diffusion atmosphérique (Rayleigh / Mie). Il ne dépend que de la météo : calculé une fois
@@ -248,6 +255,7 @@ class Graphics {
             this.sunLight.shadow.mapSize.set(size, size);
             this.sunLight.shadow.map?.dispose();
             this.sunLight.shadow.map = null; // recréée à la bonne taille
+            this._setShadowSize(this._shadowSize);
         }
     }
 
@@ -330,12 +338,24 @@ class Graphics {
         this.composer.setSize(width, height);
     }
 
-    // shadowCenter : point autour duquel calculer les ombres (le sol sous l'avion)
-    update(shadowCenter) {
+    // Demi-côté de la zone d'ombres (m) ; le décalage anti-acné suit la taille des texels
+    _setShadowSize(size) {
+        this._shadowSize = size;
+        const camera = this.sunLight.shadow.camera;
+        Object.assign(camera, { left: -size, right: size, top: size, bottom: -size });
+        camera.updateProjectionMatrix();
+        this.sunLight.shadow.normalBias = NORMAL_BIAS_TEXELS * (2 * size) / this.sunLight.shadow.mapSize.x;
+    }
+
+    // shadowCenter : point autour duquel calculer les ombres (l'avion) ;
+    // cockpit : vue cabine (ombres fines, zone resserrée)
+    update(shadowCenter, cockpit = false) {
         this.skyDome.position.copy(this.camera.position);
+        const size = cockpit ? COCKPIT_SHADOW_SIZE : SHADOW_SIZE;
+        if (size !== this._shadowSize) this._setShadowSize(size);
         // Zone d'ombres calée sur la grille des texels de la carte d'ombres (dans le plan face au soleil) :
         // sinon, en suivant l'avion au centimètre près, les bords des ombres scintillent quand il avance
-        const texel = (2 * SHADOW_SIZE) / this.sunLight.shadow.mapSize.x;
+        const texel = (2 * size) / this.sunLight.shadow.mapSize.x;
         _shadowRight.crossVectors(_worldUp, this.sunDirection).normalize(); // mêmes axes que la caméra d'ombre (lookAt)
         _shadowUp.crossVectors(this.sunDirection, _shadowRight);
         const x = Math.round(shadowCenter.dot(_shadowRight) / texel) * texel;

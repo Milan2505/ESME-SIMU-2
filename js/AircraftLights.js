@@ -1,12 +1,7 @@
 import {
     AdditiveBlending,
-    BoxGeometry,
-    CapsuleGeometry,
-    CircleGeometry,
     Color,
     ConeGeometry,
-    CylinderGeometry,
-    ExtrudeGeometry,
     DoubleSide,
     Group,
     MathUtils,
@@ -14,9 +9,7 @@ import {
     MeshStandardMaterial,
     SpotLight,
     Raycaster,
-    Shape,
     ShaderMaterial,
-    SphereGeometry,
     Sprite,
     SpriteMaterial,
     Vector3
@@ -28,131 +21,29 @@ import { AIRCRAFT_SCALE } from './C172Model.js';
 // Feux de navigation directionnels (règles OACI) : rouge à gauche et vert à droite visibles de l'avant
 // jusqu'à 110° sur leur côté, blanc de queue visible de l'arrière (les 140° restants).
 const deg = MathUtils.degToRad;
-// Positions sur le modèle (C172Model.js) : feux de bout d'aile à x ±5,64, feu de queue au bord de fuite de la
-// direction, gyrophare au sommet de la dérive, phare dans le bord d'attaque de l'aile gauche
+// Positions : les feux du modèle (C172Model.js, repère avion avant agrandissement). mesh : pièces du modèle qui
+// servent de verre (elles s'allument) ; rudder : feu porté par la gouverne de direction (il la suit quand elle braque)
 const LIGHTS = [
-    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.06],  sector: [deg(-110), deg(0)],  size: 1.1 },
-    { kind: 'nav',     color: 0x18ff3c, position: [5.64, 1.165, -2.06],   sector: [deg(0), deg(110)],   size: 1.1 },
-    { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.86],      sector: [deg(110), deg(250)], size: 0.8, rudder: true },
-    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.71, 3.27],                                     size: 1.6, rudder: true },
-    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.645, 1.165, -2.04],                              size: 3.2 },
-    { kind: 'strobe',  color: 0xf2f6ff, position: [5.645, 1.165, -2.04],                               size: 3.2 },
-    { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.142, -2.29],                               size: 3.5 },
+    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.086], sector: [deg(-110), deg(0)],  size: 1.1, mesh: ['LeftNavLight'] },
+    { kind: 'nav',     color: 0x18ff3c, position: [5.641, 1.169, -2.087], sector: [deg(0), deg(110)],   size: 1.1, mesh: ['RightNavLight'] },
+    // Feu de queue : au bord de fuite de la gouverne de direction
+    { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.85],      sector: [deg(110), deg(250)], size: 0.8, mesh: ['RearNavLight'], rudder: true },
+    // Anticollision : au sommet de la dérive (partie fixe, au-dessus de la gouverne)
+    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.69, 3.27],                                      size: 1.6, mesh: ['Beacon'] },
+    // Strobes : dans le même feu de bout d'aile (il éclate en blanc)
+    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.645, 1.165, -2.086],                              size: 3.2 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [5.645, 1.169, -2.087],                               size: 3.2 },
+    { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.143, -2.28],                                size: 3.5, mesh: ['lightlanding', 'lighttaxi'] },
 ];
 const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 
-// --- Luminaires (modélisés d'après ceux d'un Cessna 172) -------------------------------------
-// Chaque feu a un boîtier et un verre teinté ; le verre s'illumine (émissif, capté par le halo) quand le feu
-// éclaire l'observateur, et reste coloré éteint, comme un vrai verre de feu. Repère du luminaire = repère avion.
-const metalMaterial = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.25, metalness: 0.85 });   // socle, réflecteur
-const blackMaterial = new MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7 });
-// Enjoliveur argenté (pas tout à fait métallique : sans carte d'environnement, un métal pur paraît noir)
-const chromeMaterial = new MeshStandardMaterial({ color: 0xd4d8dc, roughness: 0.22, metalness: 0.55 });
-
-// Verre teinté qui s'allume : couleur du verre éclaircie, transparent, émissif à la couleur du feu
-function lensMaterial(color, opacity = 0.75) {
+// Verre des feux du modèle : teinté à la couleur du feu (un peu éclairci), lumineux quand le feu éclaire
+// l'observateur (émissif, capté par le halo), et coloré éteint, comme un vrai verre de feu
+function lensMaterial(color) {
     return new MeshStandardMaterial({
-        color: new Color(color).lerp(new Color(0xffffff), 0.08), emissive: color, emissiveIntensity: 0.1,
-        roughness: 0.08, metalness: 0, transparent: true, opacity, depthWrite: false,
+        color: new Color(color).lerp(new Color(0xffffff), 0.15), emissive: color, emissiveIntensity: 0.1,
+        roughness: 0.1, metalness: 0,
     });
-}
-
-// Contour en amande (pointu aux deux bouts), largeur w, hauteur h, centré
-function almond(w, h) {
-    const shape = new Shape();
-    shape.moveTo(-w / 2, 0);
-    shape.quadraticCurveTo(0, h, w / 2, 0);
-    shape.quadraticCurveTo(0, -h, -w / 2, 0);
-    return shape;
-}
-
-// Diodes de strobe logées dans le bloc du feu de navigation, par côté (-1 gauche, 1 droite) : le strobe y fait clignoter la sienne
-const strobeLeds = new Map();
-
-// Feu encastré en amande, tourné vers -z : enjoliveur chromé, verre bombé, diode derrière le verre.
-// strobeSide : 0 = une seule diode ; -1 / 1 = diode du feu côté intérieur et diode blanche de strobe côté saumon
-function addAlmondLight(group, glows, w, h, color, opacity, strobeSide = 0) {
-    const bezelShape = almond(w + 0.022, h + 0.016);
-    bezelShape.holes.push(almond(w, h));
-    const bezelGeometry = new ExtrudeGeometry(bezelShape, {
-        depth: 0.006, bevelEnabled: true, bevelThickness: 0.003, bevelSize: 0.003, bevelSegments: 2, curveSegments: 20,
-    });
-    bezelGeometry.rotateY(Math.PI);                         // extrudé vers -z (vers l'avant de la surface)
-    const bezel = new Mesh(bezelGeometry, chromeMaterial);
-    bezel.castShadow = true;
-    // Verre bombé : demi-ellipsoïde qui sort à peine de l'enjoliveur
-    const glass = new Mesh(new SphereGeometry(1, 28, 14), lensMaterial(color, opacity));
-    glass.scale.set(w * 0.47, h * 0.42, 0.012);
-    glass.renderOrder = 1;
-    // Diode (bloc lumineux) visible à travers le verre
-    const ledMaterial = new MeshStandardMaterial({ color: 0x333333, emissive: color, emissiveIntensity: 0.1, roughness: 0.4 });
-    const ledWidth = strobeSide ? w * 0.22 : w * 0.38;
-    const led = new Mesh(new BoxGeometry(ledWidth, h * 0.32, 0.006), ledMaterial);
-    led.position.set(-strobeSide * w * 0.13, 0, -0.002);
-    const base = new Mesh(new BoxGeometry(w * 0.6, h * 0.5, 0.004), blackMaterial);  // fond du logement
-    base.position.z = 0.001;
-    group.add(base, led, glass, bezel);
-    glows.push(glass.material, ledMaterial);
-    if (strobeSide) {
-        const strobeMaterial = new MeshStandardMaterial({ color: 0xcfd4d8, emissive: 0xf2f6ff, emissiveIntensity: 0.1, roughness: 0.3 });
-        const strobe = new Mesh(new BoxGeometry(w * 0.16, h * 0.28, 0.006), strobeMaterial);
-        strobe.position.set(strobeSide * w * 0.15, 0, -0.002);
-        group.add(strobe);
-        strobeLeds.set(strobeSide, strobeMaterial);
-    }
-}
-
-function createFixture(def) {
-    const group = new Group();
-    const glows = [];
-    const lens = (geometry, material, x = 0, y = 0, z = 0) => {
-        const mesh = new Mesh(geometry, material);
-        mesh.position.set(x, y, z);
-        mesh.renderOrder = 1;
-        group.add(mesh);
-        glows.push(material);
-        return mesh;
-    };
-    const part = (geometry, material, x = 0, y = 0, z = 0) => {
-        const mesh = new Mesh(geometry, material);
-        mesh.position.set(x, y, z);
-        mesh.castShadow = true;
-        group.add(mesh);
-        return mesh;
-    };
-    const side = Math.sign(def.position[0]);
-    if (def.kind === 'nav' && Math.abs(def.position[0]) > 2) {
-        // Bout d'aile : feu en amande encastré à l'avant du saumon, comme sur les Cessna 172 récents (verre teinté
-        // rouge à gauche, vert à droite) ; allongé dans le sens de la corde, tourné vers l'extérieur et 20° vers l'avant.
-        // Diode du feu à l'avant, diode du strobe derrière
-        addAlmondLight(group, glows, 0.15, 0.05, def.color, 0.6, side);
-        group.rotation.y = -side * deg(70);
-    } else if (def.kind === 'nav') {
-        // Feu de queue : petit verre blanc au bout du cône de queue, sur une embase
-        part(new CylinderGeometry(0.032, 0.036, 0.04, 14), metalMaterial, 0, 0, -0.03).rotation.x = Math.PI / 2;
-        lens(new SphereGeometry(0.03, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), lensMaterial(def.color, 0.65), 0, 0, -0.01)
-            .rotation.x = Math.PI / 2;                      // dôme tourné vers l'arrière
-    } else if (def.kind === 'beacon') {
-        // Gyrophare sur la dérive : socle, verre rouge cylindrique à dôme
-        part(new CylinderGeometry(0.035, 0.05, 0.035, 16), metalMaterial, 0, -0.06, 0);
-        lens(new CapsuleGeometry(0.03, 0.045, 6, 16), lensMaterial(def.color, 0.8), 0, -0.005, 0);
-    } else if (def.kind === 'strobe') {
-        // Strobe : pas de luminaire à lui, il fait éclater sa diode dans le bloc du feu de navigation
-        const led = strobeLeds.get(side);
-        if (led) glows.push(led);
-    } else {
-        // Phare d'atterrissage : capot transparent affleurant le bord d'attaque, réflecteur et ampoule derrière
-        // (le bord d'attaque est plein : réflecteur et ampoule juste devant lui, sous le capot)
-        part(new CircleGeometry(0.045, 20), metalMaterial, 0, 0, 0.004).rotation.y = Math.PI;   // face vers l'avant
-        lens(new CircleGeometry(0.02, 16), new MeshStandardMaterial({ color: 0xfff6e0, emissive: def.color, emissiveIntensity: 0.1 }), 0, 0, 0.001)
-            .rotation.y = Math.PI;
-        const cover = new Mesh(new BoxGeometry(0.28, 0.1, 0.008), lensMaterial(0xe8f0f4, 0.3));
-        cover.position.z = -0.006;
-        cover.renderOrder = 1;
-        group.add(cover);
-    }
-    group.position.fromArray(def.position);
-    return { group, glows };
 }
 
 const _eye = new Vector3();
@@ -229,17 +120,16 @@ class AircraftLights {
         this._lastTime = 0;
         this.lights = LIGHTS.map((def) => {
             const position = new Vector3(...def.position);
-            // Luminaire : boîtier et verre, qui s'illumine (voir createFixture)
-            const { group: bulb, glows } = createFixture(def);
             // Halo optique
             const flare = new Sprite(new SpriteMaterial({
                 map: flareTexture(), color: def.color, blending: AdditiveBlending, transparent: true, depthWrite: false,
             }));
             flare.position.copy(position);
-            this.group.add(bulb, flare);
+            this.group.add(flare);
             // Feux portés par l'aile (bouts d'aile, phare) : recalés sur l'aile de la cabine en vue intérieure
             const wing = Math.abs(def.position[0]) > 2;
-            return { ...def, wing, base: position.clone(), position, bulb, glows, flare, baseColor: flare.material.color.clone(), visibility: 1 };
+            // glows : matériaux des verres (feux du modèle, voir setOccluder)
+            return { ...def, wing, base: position.clone(), position, glows: [], flare, baseColor: flare.material.color.clone(), visibility: 1 };
         });
         // Une lumière par bout d'aile : couleur du feu de navigation, blanche pendant l'éclat du strobe. Les feux sont
         // tournés vers l'extérieur : projecteur au faisceau très large (80° autour de l'axe) dirigé vers l'extérieur
@@ -285,12 +175,27 @@ class AircraftLights {
         this.beam.material.uniforms.uStrength.value = cabin ? 0.09 : 0.11;
     }
 
+    // Modèle de l'avion : il cache les feux qui sont derrière lui, et ses feux (verres) s'allument
     setOccluder(model) {
         this.occluder = model;
+        for (const light of this.lights) {
+            light.glows = [];
+            for (const name of light.mesh ?? []) {
+                const mesh = model.getObjectByName(name);
+                if (!mesh?.isMesh) continue;
+                mesh.material = lensMaterial(light.color);   // propre à ce feu (le matériau d'origine est partagé)
+                light.glows.push(mesh.material);
+            }
+        }
+        // Strobes : ils font éclater en blanc le verre du feu de bout d'aile du même côté
+        for (const strobe of this.lights.filter((light) => light.kind === 'strobe')) {
+            const nav = this.lights.find((light) => light.kind === 'nav' && light.wing && Math.sign(light.base.x) === Math.sign(strobe.base.x));
+            strobe.nav = nav;
+        }
     }
 
-    // Gouverne de direction (pivot sur sa charnière, voir C172Model.js) : dans ce modèle, elle forme le haut de la
-    // dérive et porte le feu anticollision et le feu de queue, qui la suivent quand elle braque
+    // Gouverne de direction (pivot sur sa charnière, voir C172Model.js) : elle porte le feu de queue (le verre du modèle
+    // y est rattaché ; ici, son halo la suit). L'anticollision est sur la partie fixe de la dérive
     setRudder(pivot) {
         this.rudder = pivot;
     }
@@ -305,8 +210,6 @@ class AircraftLights {
         for (const light of this.lights) {
             if (!light.rudder) continue;
             light.position.copy(light.base).sub(_hinge).applyQuaternion(pivot.quaternion).add(_hinge);
-            light.bulb.position.copy(light.position);
-            light.bulb.quaternion.copy(pivot.quaternion);
         }
     }
 
@@ -370,6 +273,15 @@ class AircraftLights {
             // allumé, plus faiblement, la nuit
             if (light.kind === 'nav' && sw.nav) glow = Math.max(glow, 0.1 + 0.9 * this.night);
             for (const material of light.glows) material.emissiveIntensity = glow;
+            // Éclat du strobe : le verre du feu de bout d'aile devient blanc éclatant
+            if (light.kind === 'strobe' && light.nav) {
+                for (const material of light.nav.glows) {
+                    if (intensity > 0.02) {
+                        material.emissive.setHex(light.color);
+                        material.emissiveIntensity = Math.max(material.emissiveIntensity, glow);
+                    } else material.emissive.setHex(light.nav.color);
+                }
+            }
             light.flare.visible = intensity > 0.02;
             if (!light.flare.visible) continue;
             light.flare.position.copy(light.position).addScaledVector(toEye, FLARE_OFFSET / Math.max(distance, 0.01));

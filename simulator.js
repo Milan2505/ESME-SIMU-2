@@ -2047,8 +2047,10 @@ renderer.setAnimationLoop((time)=>{
     updateFog();
     updateStallWarning();
 
-    shadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
-    graphics.update( shadowCenter );
+    // Ombres : zone centrée sur l'avion (elle s'étend dans l'axe du soleil : l'ombre de l'avion au sol y reste, même en
+    // vol) ; en cabine, zone resserrée (ombres fines dans l'habitacle)
+    shadowCenter.copy(aircraft.position);
+    graphics.update( shadowCenter, !chaseView );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     graphics.render();
     updatePerf(performance.now() - frameStart);

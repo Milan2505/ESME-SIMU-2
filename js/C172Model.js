@@ -160,6 +160,13 @@ function prepare(scene) {
     pivot('flapLeft', ['flaps'], 'x');
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
+    // Feu de queue : sur le bord de fuite de la gouverne de direction, il la suit (l'anticollision, lui, est sur la
+    // partie fixe de la dérive)
+    if (pivots.rudder && meshes.RearNavLight) {
+        const hinge = pivots.rudder.position;
+        meshes.RearNavLight.geometry.translate(-hinge.x, -hinge.y, -hinge.z);
+        pivots.rudder.add(meshes.RearNavLight);
+    }
     PARTS.set(root, { propeller, pivots });
     root.scale.setScalar(AIRCRAFT_SCALE);   // après les pivots (calculés dans le repère du modèle)
     root.userData = { registration: 'F-HESM', liveryColor: null, textureSize: 2048 };
@@ -335,10 +342,11 @@ function buildCabin() {
     carpet.position.set(0, FLOOR_Y + 0.01, -1.75);
     group.add(carpet);
     // Sièges avant (tissu gris bleuté, cuir beige, appui-tête), banquette arrière
-    // Dossiers à la hauteur du toit, qui descend vers l'arrière (1,09 m au-dessus des sièges avant, 0,88 m au-dessus de la
-    // banquette) : appuis-tête juste dessous
+    // Dossiers à la hauteur du toit, qui descend vers l'arrière : appuis-tête juste dessous. Banquette à la mesure du
+    // fuselage, qui se resserre et s'abaisse vers l'arrière (plus en arrière, plus large ou plus haute, elle traversait
+    // les flancs et le toit) : ~2,5 cm de marge partout
     for (const x of [-0.23, 0.23]) group.add(seat(x, SEAT_Z, FLOOR_Y + 0.27, false, 0.92));
-    group.add(seat(0, SEAT_Z + 0.8, FLOOR_Y + 0.25, true, 0.8));
+    group.add(seat(0, SEAT_Z + 0.65, FLOOR_Y + 0.25, true, 0.75, 0.9));
     for (const side of [-1, 1]) {
         // Accoudoir de porte
         const arm = new Mesh(new RoundedBoxGeometry(0.05, 0.05, 0.45, 3, 0.02), tan);
@@ -418,27 +426,27 @@ function fabric() {
 }
 
 // Siège : assise, dossier incliné, appui-tête ; liserés et joues en cuir beige ; bench : banquette à deux places ;
-// backHeight : hauteur relative du dossier
-function seat(x, z, height, bench, backHeight = 1) {
+// backHeight : hauteur relative du dossier ; width : largeur de la banquette
+function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) {
     const g = new Group();
     g.position.set(x, 0, z);
     const leather = ambient(new MeshStandardMaterial({ color: 0xb59b74, roughness: 0.6, emissive: 0x2e2719 }));
-    const width = bench ? 0.98 : 0.46;
     const cushion = new Mesh(new RoundedBoxGeometry(width, 0.11, 0.48, 4, 0.04), fabric());
     cushion.position.set(0, height, 0);
     const base = new Mesh(new RoundedBoxGeometry(width + 0.02, 0.06, 0.5, 3, 0.02), leather);
     base.position.set(0, height - 0.075, 0);
     g.add(cushion, base);
     // Dossier(s) et appuis-tête
-    for (const dx of bench ? [-0.245, 0.245] : [0]) {
+    const backWidth = bench ? width / 2 - 0.02 : 0.47;   // coque d'un dossier
+    for (const dx of bench ? [-width / 4, width / 4] : [0]) {
         const back = new Group();
         back.position.set(dx, height + 0.04, 0.25);
         // Dossier incliné vers l'arrière (~13°) : nez vers -z, donc un angle positif pousse le haut du dossier vers +z
         back.rotation.x = 0.22;
         back.scale.y = backHeight;
-        const pad = new Mesh(new RoundedBoxGeometry(0.44, 0.6, 0.1, 4, 0.04), fabric());
+        const pad = new Mesh(new RoundedBoxGeometry(backWidth - 0.03, 0.6, 0.1, 4, 0.04), fabric());
         pad.position.y = 0.3;
-        const shell = new Mesh(new RoundedBoxGeometry(0.47, 0.62, 0.06, 3, 0.025), leather);
+        const shell = new Mesh(new RoundedBoxGeometry(backWidth, 0.62, 0.06, 3, 0.025), leather);
         shell.position.set(0, 0.3, 0.05);
         const head = new Mesh(new RoundedBoxGeometry(0.26, 0.17, 0.09, 4, 0.04), fabric());
         head.position.set(0, 0.7, 0.01);
