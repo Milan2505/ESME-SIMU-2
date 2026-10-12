@@ -674,6 +674,21 @@ img{margin: 0px;
     font-weight: bold;
     border-width: 3px;
   }
+  /* Quantité de nuages (météo Jour) */
+  #couverture {
+    display: block;
+    margin-top: 10px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 13px;
+  }
+  #couverture[hidden] {
+    display: none;
+  }
+  #couverture input {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+  }
   /* Aide des touches */
   .menu-contenu .aide {
     margin-top: 10px;

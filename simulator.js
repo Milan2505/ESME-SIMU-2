@@ -668,6 +668,9 @@ function setWeather(name) {
 
     for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
     document.getElementById('météo-actuelle').textContent = w.label;
+    // Quantité de nuages réglable seulement en météo Jour
+    cloudCover.hidden = name !== 'jour';
+    if (name === 'jour') atc.setCloudCover(w.clouds.coverage);
 }
 
 // Menus du bandeau (Commandes, Météo) : un clic sur la case déroule son contenu ; clic ailleurs ou Échap : fermé
@@ -708,6 +711,30 @@ for (const [name, w] of Object.entries(WEATHERS)) {
     });
     meteoButtons.appendChild(button);
 }
+
+// Météo Jour : curseur de quantité de nuages (0 = ciel clair, 100 % = tous les nuages), retenu d'une visite à l'autre
+const cloudCover = document.getElementById('couverture');
+const cloudCoverInput = document.getElementById('couverture-curseur');
+function setDayCoverage(percent) {
+    WEATHERS.jour.clouds.coverage = percent / 100;
+    cloudCoverInput.value = percent;
+    document.getElementById('couverture-valeur').textContent = `${percent} %`;
+    if (weather === WEATHERS.jour) {
+        clouds.setWeather(weather.clouds);
+        atc.setCloudCover(weather.clouds.coverage);
+    }
+}
+try {
+    const saved = localStorage.getItem('couverture-jour');
+    if (saved !== null) WEATHERS.jour.clouds.coverage = Math.min(100, Math.max(0, Number(saved) || 0)) / 100;
+} catch { /* stockage indisponible : valeur par défaut */ }
+setDayCoverage(Math.round(WEATHERS.jour.clouds.coverage * 100));
+cloudCoverInput.addEventListener('input', () => {
+    setDayCoverage(Number(cloudCoverInput.value));
+    try { localStorage.setItem('couverture-jour', cloudCoverInput.value); } catch { /* sans effet */ }
+});
+cloudCoverInput.addEventListener('change', () => cloudCoverInput.blur()); // garde le clavier pour le pilotage
+
 setWeather('jour');
 
 // Caméra placée directement derrière l'avion au démarrage
