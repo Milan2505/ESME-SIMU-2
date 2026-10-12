@@ -287,9 +287,23 @@ img{margin: 0px;
     margin: 0;
     text-align: center;
   }
+  #solo:hover,
   #multi:hover,
   #paramètre:hover {
     background: #C3E6F5;
+  }
+  #solo {
+    cursor: pointer;
+  }
+  /* Mode de jeu en cours (Solo ou Multijoueur) : case surlignée */
+  #solo.actif,
+  #multi.actif {
+    background: #DDF1E1;
+    box-shadow: inset 0 0 0 3px #2e8b57;
+  }
+  #solo span, #multi span {
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
   }
   #paramètre {
     cursor: pointer;

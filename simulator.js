@@ -1130,8 +1130,31 @@ function updateMultiResume() {
     multiResume.textContent = multiplayer.code
         ? `Partie ${multiplayer.code} · ${count + 1} joueur${count ? 's' : ''}`
         : 'Hors ligne';
+    updateModes();
     updateOnlineList();
 }
+
+// Modes de jeu : Solo (aucune partie) ou Multijoueur (partie en cours ou en connexion). Solo quitte la partie
+const soloCase = document.getElementById('solo');
+const soloResume = document.getElementById('solo-resume');
+function updateModes() {
+    const multi = Boolean(multiplayer.code);
+    soloCase.classList.toggle('actif', !multi);
+    document.getElementById('multi').classList.toggle('actif', multi);
+    soloResume.textContent = multi ? 'Quitter la partie' : 'Mode actuel';
+}
+function playSolo() {
+    if (multiplayer.code && !confirm(`Quitter la partie ${multiplayer.code} et voler en solo ?`)) return;
+    multiplayer.leave();
+    multiDialog.close();
+    updateModes();
+    view.focus();   // clavier rendu au pilotage
+}
+soloCase.addEventListener('click', playSolo);
+soloCase.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') playSolo();
+});
+updateModes();
 
 // Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs. Choisie dans le menu Profil
 // (solo et multijoueur) ou dans le panneau Multijoueur : les deux listes restent d'accord
