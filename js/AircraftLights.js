@@ -35,7 +35,10 @@ const LIGHTS = [
     // les Cessna 172) ; luminaire ajouté au modèle (voir strobeFixture)
     { kind: 'strobe',  color: 0xf2f6ff, position: [-5.652, 1.172, -1.94],                               size: 3.2 },
     { kind: 'strobe',  color: 0xf2f6ff, position: [5.652, 1.172, -1.94],                                size: 3.2 },
-    { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.143, -2.28],                                size: 3.5, mesh: ['lightlanding', 'lighttaxi'] },
+    // Phares dans le bord d'attaque de l'aile gauche : atterrissage (extérieur, faisceau étroit vers l'avant) et
+    // roulage (intérieur, faisceau large)
+    { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.143, -2.28],                                size: 3.5, mesh: ['lightlanding'] },
+    { kind: 'taxi',    color: 0xfff4dc, position: [-2.807, 1.14, -2.282],                               size: 2.6, mesh: ['lighttaxi'] },
 ];
 const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 
@@ -96,18 +99,18 @@ function sectorVisibility(azimuth, [start, end]) {
 
 // Faisceau du phare d'atterrissage : cône de lumière additive qui s'estompe avec la distance,
 // visible la nuit (poussière, humidité de l'air). Légèrement incliné vers le sol.
-function createBeam() {
-    const length = 45;
-    const geometry = new ConeGeometry(7, length, 24, 1, true);
+// length, radius : longueur et rayon au bout du cône (m) ; tilt : angle sous l'horizon
+function createBeam(length = 45, radius = 7, tilt = deg(2)) {
+    const geometry = new ConeGeometry(radius, length, 24, 1, true);
     geometry.translate(0, -length / 2, 0);        // sommet du cône au phare
-    geometry.rotateX(Math.PI / 2 - deg(2));       // pointe vers l'avant (-z), un peu vers le bas (comme le SpotLight)
+    geometry.rotateX(Math.PI / 2 - tilt);         // pointe vers l'avant (-z), un peu vers le bas (comme le SpotLight)
     const material = new ShaderMaterial({
         uniforms: { uLength: { value: length }, uStrength: { value: 0.11 } },
         vertexShader: /* glsl */`
             varying float vAlong;
             varying float vEdge;
             void main() {
-                vAlong = length(position) / 45.0;
+                vAlong = length(position) / ${length.toFixed(1)};
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                 vec3 n = normalize(normalMatrix * normal);
                 vEdge = abs(dot(n, normalize(-mvPosition.xyz)));   // bords du cône plus transparents
@@ -173,10 +176,16 @@ class AircraftLights {
             this.group.add(light, light.target);
             return light;
         });
+        // Faisceaux : atterrissage (long, étroit, presque à l'horizontale), roulage (court, large, plongeant)
         this.beam = createBeam();
         this.beam.position.set(-2.92, 1.14, -2.4);
-        this.beam.visible = false;
-        this.group.add(this.beam);
+        this.taxiBeam = createBeam(14, 6, deg(8));
+        this.taxiBeam.position.set(-2.807, 1.14, -2.4);
+        this.taxiBeam.material.uniforms.uStrength.value = 0.05;
+        for (const beam of [this.beam, this.taxiBeam]) {
+            beam.visible = false;
+            this.group.add(beam);
+        }
         parent.add(this.group);
     }
 
@@ -184,7 +193,7 @@ class AircraftLights {
     setNight(night, landingLight = night >= 0.5) {
         this.night = night;
         this.landingLight = landingLight;
-        this.beam.visible = landingLight;
+        this.beam.visible = this.taxiBeam.visible = landingLight;
         // De nuit seulement, comme le phare (voir simulator.js) : le jour, elles ne se verraient pas
         for (const light of this.tipLights) light.visible = landingLight;
     }
@@ -194,6 +203,7 @@ class AircraftLights {
         this.switches = switches;
         this.landingLight = switches.land;
         this.beam.visible = switches.land && this.night >= 0.5;
+        this.taxiBeam.visible = switches.taxi && this.night >= 0.5;
         for (const light of this.tipLights) light.visible = this.night >= 0.5 && (switches.nav || switches.strobe);
     }
 
@@ -201,7 +211,9 @@ class AircraftLights {
     // de la cabine (on est tout près du cône)
     setCabinView(cabin) {
         this._cabin = cabin;
+        // Roulage : faisceau large et proche, plus discret (sinon, devant l'avion, on est dedans et l'image blanchit)
         this.beam.material.uniforms.uStrength.value = cabin ? 0.09 : 0.11;
+        this.taxiBeam.material.uniforms.uStrength.value = cabin ? 0.04 : 0.05;
     }
 
     // Modèle de l'avion : il cache les feux qui sont derrière lui, et ses feux (verres) s'allument
@@ -248,7 +260,7 @@ class AircraftLights {
         const beaconPhase = (time % 1) * Math.PI * 2;      // anticollision : un tour par seconde
         const strobe = time % 1.4;                          // strobes : double éclat toutes les 1,4 s
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
-        const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight };
+        const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight, taxi: this.landingLight };
         this._followRudder();
         for (const light of this.tipLights) {
             const flash = strobeOn && sw.strobe;
@@ -261,15 +273,16 @@ class AircraftLights {
             const toEye = _eye.clone().sub(light.position);
             const distance = toEye.length();
             let intensity = 1;
-            const enabled = light.kind === 'landing' ? sw.land : sw[light.kind];
+            const enabled = light.kind === 'landing' ? sw.land : sw[light.kind];   // taxi : sw.taxi
             if (!enabled) {
                 intensity = 0;
             } else if (light.kind === 'nav') {
                 intensity = sectorVisibility(Math.atan2(toEye.x, -toEye.z), light.sector);
-            } else if (light.kind === 'landing') {
-                // Faisceau vers l'avant : éblouit quand on est dans l'axe, invisible de côté et de l'arrière
+            } else if (light.kind === 'landing' || light.kind === 'taxi') {
+                // Faisceau vers l'avant : éblouit quand on est dans l'axe, invisible de côté et de l'arrière (roulage :
+                // faisceau large, visible sur un angle plus grand)
                 const facing = -toEye.z / Math.max(distance, 0.01);
-                intensity = this.landingLight ? Math.pow(Math.max(0, facing), 4) : 0;
+                intensity = Math.pow(Math.max(0, facing), light.kind === 'taxi' ? 2 : 4);
             } else if (light.kind === 'beacon') {
                 // Faisceau tournant : éclat bref quand il balaie vers l'observateur
                 const azimuth = Math.atan2(toEye.x, -toEye.z);
@@ -294,7 +307,7 @@ class AircraftLights {
             // Verre toujours en place : teinté quand le feu ne nous éclaire pas (hors secteur, entre deux éclats),
             // très lumineux sinon (au-delà de 1 : capté par le halo du bloom). Feux colorés de jour : éclat modéré (un
             // rouge saturé très lumineux vire à l'orange au rendu ; le halo suffit à les voir) ; strobe : éclair blanc
-            const peak = light.kind === 'strobe' || light.kind === 'landing' ? 3 : 0.8 + 2.2 * this.night;
+            const peak = light.kind === 'strobe' || light.kind === 'landing' || light.kind === 'taxi' ? 3 : 0.8 + 2.2 * this.night;
             let glow = 0.1 + peak * Math.min(1, intensity * 1.5);
             // Feu de navigation vu hors de son secteur (de l'arrière, règle OACI : pas de halo) : le verre reste
             // allumé, plus faiblement, la nuit

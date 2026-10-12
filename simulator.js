@@ -194,13 +194,19 @@ aircraft.add(cockpit.group);
 const airframe = new THREE.Group();
 aircraft.add(airframe);
 const aircraftLights = new AircraftLights(airframe, { castLight: true });
-const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(20), 0.65, 1.6); // phare unique : atterrissage et roulage
+const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(20), 0.65, 1.6); // phare d'atterrissage
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
 landingLight.position.set(-2.92, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
 landingLight.target.position.set(-1.2, -2.4, -80);
 airframe.add(landingLight, landingLight.target);
+// Phare de roulage : à côté, faisceau large et court, plongeant vers le sol devant l'avion (vers 10-25 m), un peu
+// tourné vers l'extérieur : éclaire la voie de circulation et ses bords dans les virages
+const taxiLight = new THREE.SpotLight(0xfff3d6, 0, 120, THREE.MathUtils.degToRad(38), 0.8, 1.6);
+taxiLight.position.set(-2.807, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
+taxiLight.target.position.set(-4.5, -3.2, -22);
+airframe.add(taxiLight, taxiLight.target);
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
 // verraient pas et chaque lumière alourdit le rendu)
@@ -209,6 +215,7 @@ function applyLights() {
     const dark = (weather?.night ?? 0) >= 0.5;
     aircraftLights.setSwitches(lights);
     landingLight.visible = lights.land && dark;
+    taxiLight.visible = lights.taxi && dark;
 }
 systems.addEventListener('change', applyLights);
 // Démarrage raté : message à l'écran (raison et marche à suivre)
@@ -667,6 +674,7 @@ function setWeather(name) {
     if (systems.running) systems.switches.land = w.night >= 0.5;
     systems.dispatchEvent(new Event('change'));
     landingLight.intensity = 12000;
+    taxiLight.intensity = 4500;
 
     for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
     document.getElementById('météo-actuelle').textContent = w.label;

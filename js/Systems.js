@@ -202,8 +202,8 @@ class Systems extends EventTarget {
         const on = this.busPowered;
         return {
             beacon: on && this.switches.beacon, nav: on && this.switches.nav, strobe: on && this.switches.strobe,
-            // Un seul phare dans l'aile : allumé par LAND ou par TAXI
-            land: on && (this.switches.land || this.switches.taxi), taxi: on && this.switches.taxi,
+            // Deux phares dans le bord d'attaque de l'aile gauche : atterrissage (LAND) et roulage (TAXI)
+            land: on && this.switches.land, taxi: on && this.switches.taxi,
         };
     }
 

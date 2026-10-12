@@ -176,7 +176,7 @@ class Multiplayer extends EventTarget {
             c: this.livery,
             x: crashes,
             k: crashed ? 1 : 0,
-            l: lights ? (lights.land ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
+            l: lights ? (lights.land || lights.taxi ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
         };
         if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
     }
