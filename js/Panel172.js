@@ -72,6 +72,7 @@ const LAYOUT = {
     glovebox: { x0: 1939, y0: 853, x1: 2225, y1: 987 },
     elt: { x: 1972, y: 326 },
     hobbs: { x: 2062, y: 333 },
+    stallLed: { x: 705, y: 250 },
     annunciator: { x0: 1000, y0: 213, x1: 1162, y1: 247 },
     stack: { x0: 1378, y0: 300, x1: 1678, y1: 757 },
     yokes: [{ x: 930, y: 700 }, { x: 1767, y: 700 }],
@@ -638,6 +639,15 @@ class Panel172 {
         const hobbs = new Mesh(mapUV(new PlaneGeometry(m(46), m(14)), DISPLAY.hobbs, 1024, 512), this._display);
         hobbs.position.copy(at(h.x, h.y, 0.0005));
         this.group.add(hobbs);
+        // Alarme de décrochage : petite LED rouge en haut à gauche de l'anémomètre, clignote un peu avant le décrochage
+        const s = LAYOUT.stallLed;
+        const ledRing = zCylinder(m(10), 0.002, this._bezel, 16);
+        ledRing.position.copy(at(s.x, s.y, 0.001));
+        this.group.add(ledRing);
+        this._p.stallLed = zCylinder(m(7), 0.003, new MeshStandardMaterial({ color: 0x3a0604, emissive: 0xff2010, emissiveIntensity: 0 }), 16);
+        this._p.stallLed.position.copy(at(s.x, s.y, 0.0015));
+        this.group.add(this._p.stallLed);
+        this.dynamic.push(this._p.stallLed);
         // Passages des manches : fourreau noir (cliquable : remet les manches cachés)
         for (const y of LAYOUT.yokes) {
             const root = new Group();
@@ -774,6 +784,7 @@ class Panel172 {
         const replying = s.xpdrPowered && (av.xpdr.mode === 'ON' || av.xpdr.mode === 'ALT') && (performance.now() % 2300 < 90 || performance.now() < av.xpdr.identUntil)
             || s.xpdrPowered && av.xpdr.mode === 'TST';
         p.reply.material.emissiveIntensity = replying ? 2 : 0;
+        p.stallLed.material.emissiveIntensity = s.stallWarning && Math.sin(performance.now() / 50) > 0 ? 3 : 0;
         p.glovebox.rotation.x += ((s.gloveboxOpen ? 1.25 : 0) - p.glovebox.rotation.x) * k;
 
         // Afficheurs : redessinés quand leur contenu change (au plus 10 fois par seconde)

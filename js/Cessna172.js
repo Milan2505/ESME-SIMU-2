@@ -42,7 +42,7 @@ const CESSNA_172 = {
 	stallPitchDown: 0.4,              // abattée au décrochage (rad/s)
 	stallWingDrop: 0.5,               // une aile tombe au décrochage (rad/s)
 	// Profondeur : la position du manche fixe l'incidence visée, par rapport à celle du trim
-	elevatorUp: deg( 6 ),             // manche tiré à fond : +6° (au trim de décollage : ~l'incidence d'envol, loin du décrochage)
+	elevatorUp: deg( 6 ),             // manche tiré : +6° par course de manche près du neutre ; à fond, jusqu'à la limite ci-dessous
 	elevatorDown: deg( 10 ),          // manche poussé à fond : -10°
 	pitchRateMax: 0.35,               // rotation en tangage au plus 20°/s
 	phugoidDamping: 1.5,              // manche lâché : amortit les longues oscillations de trajectoire (s)

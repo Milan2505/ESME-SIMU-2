@@ -293,8 +293,13 @@ class FlightModel extends EventDispatcher {
 		// la stabilité y amène l'avion
 		const limit = stallAlpha + ( this.assists.stallProtection ? A.elevatorLimitProtected : A.elevatorLimit );
 		const authority = Math.min( 1, effect * 1.5 );
-		let alphaTarget = trimAlpha + input.pitch * ( input.pitch > 0 ? A.elevatorUp : A.elevatorDown ) * authority
-			- A.groundEffectPitch * this.groundEffect;
+		// Manche tiré : +elevatorUp près du neutre (pilotage fin inchangé), puis, en fin de course, jusqu'à la limite :
+		// manche à fond, on atteint l'alarme et le décrochage quel que soit le trim
+		const pull = Math.max( 0, input.pitch );
+		const elevator = input.pitch > 0
+			? A.elevatorUp * pull + Math.max( 0, limit - trimAlpha - A.elevatorUp ) * pull ** 3
+			: A.elevatorDown * input.pitch;
+		let alphaTarget = trimAlpha + elevator * authority - A.groundEffectPitch * this.groundEffect;
 		if ( input.pitch > 0 ) alphaTarget = Math.min( alphaTarget, Math.max( limit, trimAlpha ) );
 		// Manche lâché : amortissement des longues oscillations de trajectoire (phugoïde) ; quand la trajectoire
 		// se redresse, l'incidence baisse un peu, et inversement (sans effet en vol stabilisé, ni à l'arrondi)
