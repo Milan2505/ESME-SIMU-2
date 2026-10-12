@@ -194,18 +194,21 @@ aircraft.add(cockpit.group);
 const airframe = new THREE.Group();
 aircraft.add(airframe);
 const aircraftLights = new AircraftLights(airframe, { castLight: true });
-const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(20), 0.65, 1.6); // phare d'atterrissage
+// Intensités (cd) : sol éclairé au niveau d'un éclairage de jour (soleil : 2), pas au-delà ; cônes serrés : le bas du
+// faisceau ne touche le sol que loin devant (un cône de 20° l'éclairait à 5 m de l'avion : sol brûlé, pilote ébloui)
+const LANDING_LIGHT = 3000, TAXI_LIGHT = 320;
+const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(11), 0.55, 1.6); // phare d'atterrissage
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
 landingLight.position.set(-2.92, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
-landingLight.target.position.set(-1.2, -2.4, -80);
+landingLight.target.position.set(-1.2, -1.8, -80);
 airframe.add(landingLight, landingLight.target);
 // Phare de roulage : à côté, faisceau large et court, plongeant vers le sol devant l'avion (vers 10-25 m), un peu
 // tourné vers l'extérieur : éclaire la voie de circulation et ses bords dans les virages
-const taxiLight = new THREE.SpotLight(0xfff3d6, 0, 120, THREE.MathUtils.degToRad(38), 0.8, 1.6);
+const taxiLight = new THREE.SpotLight(0xfff3d6, 0, 120, THREE.MathUtils.degToRad(28), 0.75, 1.6);
 taxiLight.position.set(-2.807, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
-taxiLight.target.position.set(-4.5, -3.2, -22);
+taxiLight.target.position.set(-5, -2.8, -30);
 airframe.add(taxiLight, taxiLight.target);
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
@@ -671,8 +674,8 @@ function setWeather(name) {
     // Avion éteint au parking : on ne touche à rien, c'est au pilote de tout allumer
     if (systems.running) systems.switches.land = w.night >= 0.5;
     systems.dispatchEvent(new Event('change'));
-    landingLight.intensity = 12000;
-    taxiLight.intensity = 4500;
+    landingLight.intensity = LANDING_LIGHT;
+    taxiLight.intensity = TAXI_LIGHT;
 
     for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
     document.getElementById('météo-actuelle').textContent = w.label;

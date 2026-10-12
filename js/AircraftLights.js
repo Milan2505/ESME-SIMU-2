@@ -212,8 +212,9 @@ class AircraftLights {
     setCabinView(cabin) {
         this._cabin = cabin;
         // Roulage : faisceau large et proche, plus discret (sinon, devant l'avion, on est dedans et l'image blanchit)
-        this.beam.material.uniforms.uStrength.value = cabin ? 0.09 : 0.11;
-        this.taxiBeam.material.uniforms.uStrength.value = cabin ? 0.04 : 0.05;
+        // Vue cabine : on est juste derrière les faisceaux, leur voile couvrait la vue : à peine visibles
+        this.beam.material.uniforms.uStrength.value = cabin ? 0.03 : 0.11;
+        this.taxiBeam.material.uniforms.uStrength.value = cabin ? 0.012 : 0.05;
     }
 
     // Modèle de l'avion : il cache les feux qui sont derrière lui, et ses feux (verres) s'allument
