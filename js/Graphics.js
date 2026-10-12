@@ -150,7 +150,8 @@ const SUN_DISTANCE = 400;
 // ou l'aile, et l'ombre de la cabine au sol restait pleine). Les trois lumières à ombres sont les seules lumières
 // directionnelles : celle qui éclaire est le soleil, des deux autres, la carte la plus fine est celle du détail
 const GLASS_LAYER = 5;
-const GLASS_TRANSMISSION = 0.5;   // part de la lumière qui passe par les vitres, quoi qu'il y ait derrière
+const GLASS_TRANSMISSION = 0.3;   // part de la lumière qui passe par les vitres, quoi qu'il y ait derrière
+const GLASS_BLUR = 6;             // filtrage de la carte des vitres (texels) : taches de lumière aux bords doux, sans escaliers
 const SHADOW_LINE = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
 const B = '( UNROLLED_LOOP_INDEX + 1 ) % 3', C = '( UNROLLED_LOOP_INDEX + 2 ) % 3';
 const DETAIL_SHADOW = /* glsl */`
@@ -226,6 +227,7 @@ class Graphics {
         this._setShadowSize(sunLight, SHADOW_SIZE);
         if (patched) {
             this.glassLight.shadow.mapSize.set(1024, 1024);
+            this.glassLight.shadow.radius = GLASS_BLUR;
             // three.js choisit les objets d'une carte d'ombres d'après les calques de la caméra principale : la carte
             // des vitres est dessinée à part, la caméra réduite au calque des vitres le temps de ce passage
             const shadowMap = renderer.shadowMap, renderShadows = shadowMap.render.bind(shadowMap);
