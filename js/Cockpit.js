@@ -25,6 +25,8 @@ import {
     Vector3
 } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mergeStatic } from './MergeStatic.js';
 import { Controls3D } from './Controls3D.js';
 import { Panel172, PANEL_LAYOUT, panelPoint, panelLength, PANEL_FACE_Z } from './Panel172.js';
@@ -242,6 +244,10 @@ const YOKE_OUTER = [[0, 146], [180, 142], [262, 120], [296, 78], [292, 25], [266
 const YOKE_OPENING = [[92, -78], [128, -78], [148, -44], [176, 14], [200, 56], [192, 74], [92, 74]];
 
 const YOKE_SCALE = 0.75;          // un peu plus petit que sur le schéma (largeur 32 cm, comme le vrai)
+// Volants du Cessna 172P de FlightGear (Models/Interior/Yoke/yoke.ac, GPL-2.0 : asset/c172p-LICENCE.txt), convertis
+// en GLB : origine au bout de la colonne, sur son axe (repère de la cabine). Remplacent le volant dessiné ci-dessous
+// dès qu'ils sont chargés
+const YOKE_URL = 'asset/c172p-yoke.glb';
 
 function yokeGeometry() {
     const k = YOKE_SCALE / 1557;
@@ -343,7 +349,7 @@ class Cockpit {
             const base = panelPoint(x, y);
             column.position.set(base.x, base.y, PANEL_FACE_Z);
             // Colonne chromée : dépasse de 16 cm au neutre, le reste est caché dans le tableau
-            const shaft = new Mesh(new CylinderGeometry(0.0145, 0.0145, 0.42, 16), chromeShaft);
+            const shaft = new Mesh(new CylinderGeometry(0.012, 0.012, 0.42, 16), chromeShaft);   // diamètre de la colonne du modèle FlightGear
             shaft.rotation.x = Math.PI / 2;
             shaft.position.z = YOKE_OUT - 0.21;
             const wheel = new Group();
@@ -381,6 +387,7 @@ class Cockpit {
             this.group.add(column);
             return { column, wheel, z: PANEL_FACE_Z };
         });
+        this._loadYokes().catch((error) => console.error(error));
 
         // Manette des gaz (gros bouton gris moleté) et de mixture (rouge, crantée) : tirées vers le pilote = réduit /
         // appauvri ; une tige les relie au tableau
@@ -524,6 +531,26 @@ class Cockpit {
     addCabinShell(shell) {
         shell.position.copy(this._interior.position);
         this.group.add(shell);
+    }
+
+    // Volants modélisés (FlightGear) à la place des volants dessinés : même axe, même bout de colonne
+    async _loadYokes() {
+        const gltf = await new GLTFLoader().loadAsync(YOKE_URL);
+        const models = ['LeftYoke', 'RightYoke'].map((name) => gltf.scene.getObjectByName(name));
+        if (models.some((model) => !model?.isMesh)) return;
+        for (const model of models) {
+            model.geometry = toCreasedNormals(model.geometry, MathUtils.degToRad(30));   // arêtes vives, surfaces lisses
+            model.material.map.anisotropy = 8;
+        }
+        this._yokes.forEach((yoke, index) => {
+            yoke.wheel.clear();
+            const model = models[index].clone();
+            model.position.set(0, 0, 0);
+            yoke.wheel.add(model);
+        });
+        this._yokeClickables = [];
+        for (const yoke of this._yokes) yoke.column.traverse((child) => { if (child.isMesh) this._yokeClickables.push(child); });
+        this._applyYokes();
     }
 
     // Manches visibles ou cachés (pour voir et toucher le bas du tableau, comme dans les simulateurs du commerce)

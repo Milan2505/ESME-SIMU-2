@@ -23,8 +23,8 @@ import {
 import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';
 import { XPDR_MODES, DAVTRON_TOP, DAVTRON_BOTTOM, formatCom, formatNav } from './Avionics.js';
 import {
-    ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SCALE, FACE, DISPLAY,
-    asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawDisplays
+    ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
+    asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawLabels, drawDisplays
 } from './InstrumentArt.js';
 
 // Tableau de bord du Cessna 172 en 3D, d'après le schéma de référence (Cessna 172, Cockpit Revolution) :
@@ -44,6 +44,11 @@ const deg = (d) => d * Math.PI / 180;
 function at(ax, ay, dz = 0) {
     return new Vector3((ax - X0) / S, TOP - (ay - Y0) / S, FACE_Z + dz);
 }
+
+// Façades radio et inscriptions du sous-panneau : part d'auto-éclairage toujours présente (inscriptions blanches
+// lisibles dans l'ombre de la casquette)
+const PLATE_GLOW = 0.45;
+const LABEL_GLOW = 0.15;
 
 // Positions des instruments et commandes (px du schéma)
 const BIG = { hole: 71, dial: 61, depth: 0.012 };
@@ -195,6 +200,9 @@ class Panel172 {
         const face = new CanvasTexture(drawFace(LAYOUT));
         face.colorSpace = SRGBColorSpace;
         face.anisotropy = 8;
+        const labels = new CanvasTexture(drawLabels(LAYOUT));
+        labels.colorSpace = SRGBColorSpace;
+        labels.anisotropy = 8;
         const displayCanvas = document.createElement('canvas');
         displayCanvas.width = 1024;
         displayCanvas.height = 512;
@@ -207,6 +215,8 @@ class Panel172 {
         const lit = (map, extra = {}) => new MeshStandardMaterial({ map, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0.3, roughness: 0.75, ...extra });
         this.materials = {
             face: lit(face, { roughness: 0.8 }),
+            // Inscriptions du sous-panneau, éclairées comme la face
+            labels: lit(labels, { roughness: 0.8, transparent: true, depthWrite: false }),
             dial: lit(this.atlas),
             sprite: lit(this.atlas, { transparent: true }),
             plates: lit(plates, { roughness: 0.6 }),
@@ -216,7 +226,7 @@ class Panel172 {
         this._bezel = new MeshStandardMaterial({ color: 0x18181a, roughness: 0.45, metalness: 0.3, side: DoubleSide });
         this._black = new MeshStandardMaterial({ color: 0x0e0e0f, roughness: 0.6 });
         this._knurled = new MeshStandardMaterial({ map: knurlTexture(), color: 0x6a6d72, metalness: 0.4, roughness: 0.4 });
-        this._knobBlack = new MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.45, metalness: 0.2 });
+        this._knobBlack = new MeshStandardMaterial({ color: 0x3e3f45, roughness: 0.3, metalness: 0.4 });
         this._knobCap = new MeshStandardMaterial({ color: 0x141416, roughness: 0.35, metalness: 0.3 });
         this._white = new MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.4, emissive: 0xffffff, emissiveIntensity: 0.05 });
         this._lamp = new MeshStandardMaterial({ color: 0x3a2400, emissive: 0xffa000, emissiveIntensity: 0 });
@@ -251,6 +261,10 @@ class Panel172 {
         const geometry = toCabin(new ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 40 }), 0, depth);
         this.sheet = new Mesh(geometry, [this.materials.face, this._edge]);
         this.group.add(this.sheet);
+        const labels = new Mesh(new PlaneGeometry(m(LABELS.width), m(LABELS.height)), this.materials.labels);
+        labels.position.copy(at(LABELS.x0 + LABELS.width / 2, LABELS.y0 + LABELS.height / 2, 0.0004));
+        labels.renderOrder = 1;
+        this.group.add(labels);
         // Dos du tableau (vu de l'extérieur à travers le pare-brise ; fond de la pile radio et des passages)
         const backDepth = 0.17 * S;
         const back = toCabin(new ExtrudeGeometry(panelOutline(new Shape()), { depth: backDepth, bevelEnabled: false, curveSegments: 24 }), -0.03, backDepth);
@@ -524,7 +538,7 @@ class Panel172 {
             this.group.add(box);
             if (!u.plate) continue;
             const plate = PLATES[u.plate];
-            const front = new Mesh(mapUV(new PlaneGeometry(w, h), { x: 0, y: plate.y * PLATE_SCALE, w: 1024, h: plate.h * PLATE_SCALE }, 1024), this.materials.plates);
+            const front = new Mesh(mapUV(new PlaneGeometry(w, h), { x: 0, y: plate.y * PLATE_SCALE, w: PLATE_SIZE, h: plate.h * PLATE_SCALE }, PLATE_SIZE), this.materials.plates);
             front.position.set(center.x, center.y, FACE_Z + 0.0031);
             this.group.add(front);
             u.local = (ux, uy, dz = 0) => at(st.x0 + ux, u.y0 + uy, 0.0031 + dz);
@@ -716,8 +730,8 @@ class Panel172 {
     setLighting(emissive, intensity, night = 0) {
         for (const [key, material] of Object.entries(this.materials)) {
             material.emissive.copy(emissive);
-            const factor = key === 'face' ? 0.55 - 0.45 * Math.min(1, night * 1.5) : key === 'plates' ? 0.55 : 1;
-            material.emissiveIntensity = intensity * factor;
+            const factor = key === 'face' || key === 'labels' ? 0.55 - 0.45 * Math.min(1, night * 1.5) : key === 'plates' ? 0.55 : 1;
+            material.emissiveIntensity = intensity * factor + (key === 'plates' ? PLATE_GLOW : key === 'labels' ? LABEL_GLOW : 0);
         }
         instrumentGlass.uniforms.uLight.value = Math.max(0.15, 1 - intensity);
     }

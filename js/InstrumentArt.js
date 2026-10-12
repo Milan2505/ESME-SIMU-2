@@ -646,15 +646,16 @@ function drawAtlas() {
     return canvas;
 }
 
-// --- Façades des radios (1024 x 1024 ; 3,41 px par px de la référence) -----------------------------------------
-const PLATE_SCALE = 1024 / 300;
+// --- Façades des radios (2048 x 2048 ; 6,83 px par px de la référence : petites inscriptions lisibles) ----------
+const PLATE_SIZE = 2048;
+const PLATE_SCALE = PLATE_SIZE / 300;
 const PLATES = {
     audio: { y: 0, h: 63 }, navcom: { y: 63, h: 94 }, dme: { y: 157, h: 58 }, xpdr: { y: 215, h: 69 },
 };
 
 function drawPlates() {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 1024;
+    canvas.width = canvas.height = PLATE_SIZE;
     const ctx = canvas.getContext('2d');
     const plate = (key, color, draw) => {
         const p = PLATES[key];
@@ -674,7 +675,9 @@ function drawPlates() {
         draw(p.h);
         ctx.restore();
     };
-    const t = (str, x, y, size, color = '#e8e8e8', align = 'center') => text(ctx, str, x, y, size, color, align);
+    // Inscriptions 20 % plus grandes que celles du schéma sur les façades noires (lisibles depuis la place du pilote)
+    let k = 1;
+    const t = (str, x, y, size, color = '#ffffff', align = 'center') => text(ctx, str, x, y, size * k, color, align);
     // Boîte de mélange audio (gris clair) : marqueurs, rangées haut-parleur / casque, sélecteur micro
     plate('audio', '#c9cbce', (h) => {
         t('BENDIX/KING', 6, 6, 4, '#333', 'left');
@@ -699,10 +702,11 @@ function drawPlates() {
         t('EXT', 290, 38, 3.4, '#222');
         t('MIC', 268, h - 6, 3.6, '#222');
     });
+    k = 1.2;
     // NAV/COM : afficheur sur toute la largeur, puis commandes COM (gauche) et NAV (droite)
     plate('navcom', '#18181a', (h) => {
-        t('BENDIX/KING', 5, 5, 3.6, '#d0d0d0', 'left');
-        t('KX 155A TSO', 295, 5, 3.6, '#d0d0d0', 'right');
+        t('BENDIX/KING', 5, 5, 3.6, '#f2f2f2', 'left');
+        t('KX 155A TSO', 295, 5, 3.6, '#f2f2f2', 'right');
         ctx.fillStyle = '#050505';
         ctx.fillRect(12, 9, 276, 30);
         t('COMM', 37, 52, 4.2);
@@ -723,13 +727,13 @@ function drawPlates() {
         ctx.fillRect(8, 5, 212, 25);
         t('NM', 30, 33, 3.6, '#c88a2a');
         t('MHZ', 120, 33, 3.6, '#c88a2a');
-        t('BENDIX/KING', 6, h - 5, 3.6, '#d0d0d0', 'left');
+        t('BENDIX/KING', 6, h - 5, 3.6, '#f2f2f2', 'left');
         t('RMT', 236, 9, 3.6);
         t('FREQ', 254, 9, 3.6);
         t('GS/T', 274, 9, 3.6);
-        t('DME', 290, 9, 3.6, '#d0d0d0', 'right');
+        t('DME', 290, 9, 3.6, '#f2f2f2', 'right');
         t('OFF', 210, 41, 3.6);
-        t('KN 62A', 294, h - 5, 3.6, '#d0d0d0', 'right');
+        t('KN 62A', 294, h - 5, 3.6, '#f2f2f2', 'right');
     });
     plate('xpdr', '#18181a', (h) => {
         t('ON', 33, 9, 3.8);
@@ -739,8 +743,8 @@ function drawPlates() {
         t('TST', 51, 33, 3.8);
         t('IDENT', 84, 40, 3.8);
         t('R', 84, 14, 3.8);
-        t('KT 76A', 6, h - 9, 3.6, '#d0d0d0', 'left');
-        t('BENDIX/KING', 6, h - 3, 3.4, '#d0d0d0', 'left');
+        t('KT 76A', 6, h - 9, 3.6, '#f2f2f2', 'left');
+        t('BENDIX/KING', 6, h - 3, 3.4, '#f2f2f2', 'left');
     });
     return canvas;
 }
@@ -841,10 +845,34 @@ function drawFace(layout) {
     ctx.fillRect(FACE.x0, 848, FACE.width, 3);
     for (const [x, y] of [[434, 860], [434, 985], [505, 860], [505, 985], [1050, 860], [1050, 985], [895, 860], [895, 985],
         [1690, 985], [2245, 860], [2245, 985]]) screw(x, y, 6, '#9a9b9d', '#3a3b3d');
+    // Volets : échelle UP / 10° / 20° / FULL (fonds ; les inscriptions sont dans drawLabels)
+    const f = layout.flaps;
+    [['#2b3c9c'], ['#3da2e0'], ['#f4f4f4'], ['#f4f4f4']].forEach(([color], i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(f.scaleX - 12, f.top + i * f.step - f.step / 2, 24, f.step);
+    });
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(f.slotX - 4, f.top - 8, 8, f.step * 3 + 16);
+    return canvas;
+}
+const MAG_LABELS = [['OFF', -70], ['R', -38], ['L', -8], ['BOTH', 24], ['START', 58]];
+
+// --- Inscriptions du sous-panneau noir (couche transparente devant la face, 4 px par px de la référence) -----------
+// Sur la face (1,5 px par px), une inscription de 6 px ne faisait que 9 pixels de haut : floue de près
+const LABELS = { x0: 390, y0: 845, width: 1560, height: 160, scale: 4 };
+const MAG_LABEL_RADIUS = 48;    // autour de l'anneau chromé de la clé (rayon extérieur ~36 px)
+
+function drawLabels(layout) {
+    const canvas = document.createElement('canvas');
+    canvas.width = LABELS.width * LABELS.scale;
+    canvas.height = LABELS.height * LABELS.scale;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(LABELS.scale, 0, 0, LABELS.scale, -LABELS.x0 * LABELS.scale, -LABELS.y0 * LABELS.scale);
+    const t = (str, x, y, size, color = '#f4f4f4', align = 'center', weight = 'bold') => text(ctx, str, x, y, size, color, align, weight);
     const L = layout;
-    t('MAGNETOS', L.mags.x, 878, 6.5);
+    t('MAGNETOS', L.mags.x, 861, 6.5);
     MAG_LABELS.forEach(([str, a]) => {
-        const [x, y] = polar(L.mags.x, L.mags.y, 36, deg(a));
+        const [x, y] = polar(L.mags.x, L.mags.y, MAG_LABEL_RADIUS, deg(a));
         t(str, x, y, 6);
     });
     t('MASTER', L.master.x, 876, 7);
@@ -861,11 +889,11 @@ function drawFace(layout) {
     const l0 = lights[0].x - 12, l1 = lights[lights.length - 1].x + 12;
     ctx.strokeStyle = '#e8e8e8';
     ctx.lineWidth = 1.4;
+    const lm = (l0 + l1) / 2;
     ctx.beginPath();
-    ctx.moveTo(l0, 926); ctx.lineTo(l0, 920); ctx.lineTo(l1, 920); ctx.lineTo(l1, 926);
+    ctx.moveTo(l0, 926); ctx.lineTo(l0, 920); ctx.lineTo(lm - 18, 920);
+    ctx.moveTo(lm + 18, 920); ctx.lineTo(l1, 920); ctx.lineTo(l1, 926);
     ctx.stroke();
-    ctx.fillStyle = '#1c1c1e';
-    ctx.fillRect((l0 + l1) / 2 - 18, 915, 36, 10);
     t('LIGHTS', (l0 + l1) / 2, 920, 6.2);
     t('AVIONICS\nMASTER', L.avionics.x, 876, 6.2);
     t('ON', L.avionics.x - 30, 902, 6);
@@ -885,18 +913,14 @@ function drawFace(layout) {
     const zones = [['#2b3c9c', 'UP', '110'], ['#3da2e0', '10°', '85'], ['#f4f4f4', '20°', ''], ['#f4f4f4', 'FULL', '']];
     zones.forEach(([color, label, speed], i) => {
         const y0 = f.top + i * f.step - f.step / 2;
-        ctx.fillStyle = color;
-        ctx.fillRect(f.scaleX - 12, y0, 24, f.step);
         if (speed) t(speed, f.scaleX, y0 + f.step / 2, 6.2, i === 0 ? '#fff' : '#111');
         t(label, f.scaleX + 30, y0 + f.step / 2, 6.2);
     });
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(f.slotX - 4, f.top - 8, 8, f.step * 3 + 16);
     t('CABIN AIR\nPULL\nON', L.cabinAir.x - 46, L.cabinAir.y, 6.2);
     t('CABIN HEAT\nPULL\nON', L.cabinHeat.x - 46, L.cabinHeat.y, 6.2);
     return canvas;
 }
-const MAG_LABELS = [['OFF', -70], ['R', -38], ['L', -8], ['BOTH', 24], ['START', 58]];
+
 
 // --- Afficheurs ------------------------------------------------------------------------------------------------
 // Zones du canvas des afficheurs (1024 x 512) ; leur proportion est celle de la fenêtre en 3D
@@ -1052,6 +1076,6 @@ function drawDisplays(ctx, d) {
 }
 
 export {
-    ATLAS_SIZE, CELLS, SPRITES, R as ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SCALE, FACE, DISPLAY,
-    asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawDisplays,
+    ATLAS_SIZE, CELLS, SPRITES, R as ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
+    asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawLabels, drawDisplays,
 };

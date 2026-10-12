@@ -7,6 +7,7 @@ import {
     MathUtils,
     Mesh,
     MeshStandardMaterial,
+    SphereGeometry,
     SpotLight,
     Raycaster,
     ShaderMaterial,
@@ -30,20 +31,47 @@ const LIGHTS = [
     { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.85],      sector: [deg(110), deg(250)], size: 0.8, mesh: ['RearNavLight'], rudder: true },
     // Anticollision : au sommet de la dérive (partie fixe, au-dessus de la gouverne)
     { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.69, 3.27],                                      size: 1.6, mesh: ['Beacon'] },
-    // Strobes : dans le même feu de bout d'aile (il éclate en blanc)
-    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.645, 1.165, -2.086],                              size: 3.2 },
-    { kind: 'strobe',  color: 0xf2f6ff, position: [5.645, 1.169, -2.087],                               size: 3.2 },
+    // Strobes : verre clair à part, en goutte, sur le flanc du saumon juste derrière le feu de navigation (comme sur
+    // les Cessna 172) ; luminaire ajouté au modèle (voir strobeFixture)
+    { kind: 'strobe',  color: 0xf2f6ff, position: [-5.652, 1.172, -1.94],                               size: 3.2 },
+    { kind: 'strobe',  color: 0xf2f6ff, position: [5.652, 1.172, -1.94],                                size: 3.2 },
     { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.143, -2.28],                                size: 3.5, mesh: ['lightlanding', 'lighttaxi'] },
 ];
 const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
 
-// Verre des feux du modèle : teinté à la couleur du feu (un peu éclairci), lumineux quand le feu éclaire
-// l'observateur (émissif, capté par le halo), et coloré éteint, comme un vrai verre de feu
+// Verre des feux du modèle : teinté à la couleur du feu (rouge ou vert profond de jour, éclairci il paraissait
+// saumon), lumineux quand le feu éclaire l'observateur (émissif, capté par le halo)
 function lensMaterial(color) {
     return new MeshStandardMaterial({
-        color: new Color(color).lerp(new Color(0xffffff), 0.15), emissive: color, emissiveIntensity: 0.1,
-        roughness: 0.1, metalness: 0,
+        color: new Color(color).multiplyScalar(0.7), emissive: color, emissiveIntensity: 0.1,
+        roughness: 0.12, metalness: 0,
     });
+}
+
+// Strobe de bout d'aile : embase grise plate contre le saumon, verre clair bombé et allongé dans le sens de la corde
+// (pointe vers l'arrière). Repère avion (avant agrandissement) ; side : -1 gauche, 1 droite. Rend le matériau du verre
+function strobeFixture(group, position, side) {
+    const fixture = new Group();
+    fixture.position.fromArray(position);
+    const base = new Mesh(new SphereGeometry(1, 24, 12), new MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.3, metalness: 0.2 }));
+    base.scale.set(0.004, 0.026, 0.06);
+    const lens = new Mesh(new SphereGeometry(1, 28, 16), new MeshStandardMaterial({
+        color: 0xe9eef2, emissive: 0xf2f6ff, emissiveIntensity: 0.1, roughness: 0.05, metalness: 0,
+        transparent: true, opacity: 0.85,
+    }));
+    lens.scale.set(0.014, 0.019, 0.05);
+    lens.position.set(side * 0.003, 0, 0.004);
+    // Bulbe vers l'avant, pointe vers l'arrière : la moitié arrière du verre est étirée
+    const position_ = lens.geometry.attributes.position;
+    for (let i = 0; i < position_.count; i++) {
+        const z = position_.getZ(i);
+        if (z > 0) position_.setZ(i, z * 1.5);
+    }
+    lens.geometry.computeVertexNormals();
+    base.position.x = -side * 0.003;
+    fixture.add(base, lens);
+    group.add(fixture);
+    return lens.material;
 }
 
 const _eye = new Vector3();
@@ -128,8 +156,9 @@ class AircraftLights {
             this.group.add(flare);
             // Feux portés par l'aile (bouts d'aile, phare) : recalés sur l'aile de la cabine en vue intérieure
             const wing = Math.abs(def.position[0]) > 2;
-            // glows : matériaux des verres (feux du modèle, voir setOccluder)
-            return { ...def, wing, base: position.clone(), position, glows: [], flare, baseColor: flare.material.color.clone(), visibility: 1 };
+            // glows : matériaux des verres (feux du modèle, voir setOccluder ; strobes : leur propre verre)
+            const glows = def.kind === 'strobe' ? [strobeFixture(this.group, def.position, Math.sign(def.position[0]))] : [];
+            return { ...def, wing, base: position.clone(), position, glows, flare, baseColor: flare.material.color.clone(), visibility: 1 };
         });
         // Une lumière par bout d'aile : couleur du feu de navigation, blanche pendant l'éclat du strobe. Les feux sont
         // tournés vers l'extérieur : projecteur au faisceau très large (80° autour de l'axe) dirigé vers l'extérieur
@@ -179,18 +208,14 @@ class AircraftLights {
     setOccluder(model) {
         this.occluder = model;
         for (const light of this.lights) {
+            if (!light.mesh) continue;
             light.glows = [];
-            for (const name of light.mesh ?? []) {
+            for (const name of light.mesh) {
                 const mesh = model.getObjectByName(name);
                 if (!mesh?.isMesh) continue;
                 mesh.material = lensMaterial(light.color);   // propre à ce feu (le matériau d'origine est partagé)
                 light.glows.push(mesh.material);
             }
-        }
-        // Strobes : ils font éclater en blanc le verre du feu de bout d'aile du même côté
-        for (const strobe of this.lights.filter((light) => light.kind === 'strobe')) {
-            const nav = this.lights.find((light) => light.kind === 'nav' && light.wing && Math.sign(light.base.x) === Math.sign(strobe.base.x));
-            strobe.nav = nav;
         }
     }
 
@@ -267,21 +292,14 @@ class AircraftLights {
             intensity *= light.kind === 'strobe' ? target : light.visibility; // l'éclair d'un strobe est trop bref pour un fondu
 
             // Verre toujours en place : teinté quand le feu ne nous éclaire pas (hors secteur, entre deux éclats),
-            // très lumineux sinon (au-delà de 1 : capté par le halo du bloom)
-            let glow = 0.1 + 3 * Math.min(1, intensity * 1.5);
+            // très lumineux sinon (au-delà de 1 : capté par le halo du bloom). Feux colorés de jour : éclat modéré (un
+            // rouge saturé très lumineux vire à l'orange au rendu ; le halo suffit à les voir) ; strobe : éclair blanc
+            const peak = light.kind === 'strobe' || light.kind === 'landing' ? 3 : 0.8 + 2.2 * this.night;
+            let glow = 0.1 + peak * Math.min(1, intensity * 1.5);
             // Feu de navigation vu hors de son secteur (de l'arrière, règle OACI : pas de halo) : le verre reste
             // allumé, plus faiblement, la nuit
             if (light.kind === 'nav' && sw.nav) glow = Math.max(glow, 0.1 + 0.9 * this.night);
             for (const material of light.glows) material.emissiveIntensity = glow;
-            // Éclat du strobe : le verre du feu de bout d'aile devient blanc éclatant
-            if (light.kind === 'strobe' && light.nav) {
-                for (const material of light.nav.glows) {
-                    if (intensity > 0.02) {
-                        material.emissive.setHex(light.color);
-                        material.emissiveIntensity = Math.max(material.emissiveIntensity, glow);
-                    } else material.emissive.setHex(light.nav.color);
-                }
-            }
             light.flare.visible = intensity > 0.02;
             if (!light.flare.visible) continue;
             light.flare.position.copy(light.position).addScaledVector(toEye, FLARE_OFFSET / Math.max(distance, 0.01));

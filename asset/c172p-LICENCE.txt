@@ -5,3 +5,6 @@ Licence : GNU General Public License, version 2 (GPL-2.0) - https://www.gnu.org/
 Fichier converti depuis Models/c172-common.ac et ses textures (fuselage.png, tail.png, wing.png, glass-alpha.png)
 du dépôt c172p : extérieur seulement (intérieur, zones cliquables et effets de lumière retirés), textures
 opaques enregistrées en JPEG. Ce fichier converti reste sous licence GPL-2.0.
+
+asset/c172p-yoke.glb : volants (yokes) du même Cessna 172P, convertis depuis Models/Interior/Yoke/yoke.ac et sa
+texture yoke.png du dépôt c172p (volants seuls, recentrés sur l'axe de leur colonne). Même licence GPL-2.0.

@@ -2,11 +2,13 @@ import {
     ACESFilmicToneMapping,
     BackSide,
     CubeCamera,
+    DirectionalLight,
     HalfFloatType,
     MathUtils,
     Mesh,
     PCFShadowMap,
     Scene,
+    ShaderChunk,
     ShaderMaterial,
     SphereGeometry,
     Vector2,
@@ -130,14 +132,42 @@ const _shadowRight = new Vector3();
 const _shadowUp = new Vector3();
 const _shadowCenter = new Vector3();
 
-// Demi-côté de la zone d'ombres autour de l'avion (m). Une seule carte d'ombres : plus la zone est grande, plus les
-// ombres sont grossières (à 120 m, un texel faisait ~12 cm : ombre de l'avion pixelisée). Vue extérieure : 60 m
-// (~6 cm au réglage Haut, 3 cm en Ultra), le décor plus loin n'a pas d'ombre
-const SHADOW_SIZE = 60;
-// Vue cabine : zone resserrée sur l'avion (cabine d'un mètre : ombres de l'aile et des montants), jusqu'à 30 m
-const COCKPIT_SHADOW_SIZE = 30;
-const NORMAL_BIAS_TEXELS = 2.5; // décalage anti-acné des ombres, en texels de la carte (0,3 m à 120 m)
+// Ombres du soleil sur deux cartes : une large pour le décor, une fine qui suit l'avion (avec une seule carte de 240 m,
+// un texel faisait ~12 cm : ombre de l'avion et ombres de la cabine en escalier). Demi-côtés des zones (m) :
+const SHADOW_SIZE = 120;         // décor : ~12 cm par texel au réglage Haut
+const DETAIL_SIZE = 12;          // avion et son ombre au sol (envergure 13 m) : ~1 cm par texel
+const COCKPIT_DETAIL_SIZE = 6;   // vue cabine : habitacle, aile et montants : ~6 mm par texel
+const NORMAL_BIAS_TEXELS = 2.5;  // décalage anti-acné des ombres, en texels de la carte (0,3 m à 120 m)
 const SUN_DISTANCE = 400;
+
+// Éclairage des matériaux : le soleil prend son ombre dans la carte fine là où elle couvre (fondu sur ses bords), dans
+// la carte large ailleurs. La carte fine est celle d'une seconde lumière directionnelle, d'intensité nulle (elle
+// n'éclaire rien) : avec deux lumières à ombres, l'autre est toujours celle-là (aucune autre lumière directionnelle)
+const SHADOW_LINE = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+const DETAIL_SHADOW = /* glsl */`
+		#if NUM_DIR_LIGHT_SHADOWS == 2 && UNROLLED_LOOP_INDEX < 2
+		if ( directLight.visible && receiveShadow && dot( directLight.color, directLight.color ) > 0.0 ) {
+			DirectionalLightShadow detailShadow = directionalLightShadows[ 1 - UNROLLED_LOOP_INDEX ];
+			vec4 detailCoord = vDirectionalShadowCoord[ 1 - UNROLLED_LOOP_INDEX ];
+			vec3 detailPoint = detailCoord.xyz / detailCoord.w;
+			float edge = max( abs( detailPoint.x - 0.5 ), abs( detailPoint.y - 0.5 ) ) * 2.0;
+			float coarse = detailPoint.z > 1.0 ? 1.0 : smoothstep( 0.75, 0.95, edge );   // 0 : carte fine, 1 : carte large
+			float sharpShadow = coarse < 1.0 ? getShadow( directionalShadowMap[ 1 - UNROLLED_LOOP_INDEX ], detailShadow.shadowMapSize, detailShadow.shadowIntensity, detailShadow.shadowBias, detailShadow.shadowRadius, detailCoord ) : 1.0;
+			float coarseShadow = coarse > 0.0 ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+			directLight.color *= mix( sharpShadow, coarseShadow, coarse );
+		}
+		#else
+		${SHADOW_LINE}
+		#endif`;
+let detailShadowPatched = false;
+function patchDetailShadow() {
+    if (detailShadowPatched) return true;
+    const chunk = ShaderChunk.lights_fragment_begin;
+    if (!chunk.includes(SHADOW_LINE)) return false;   // autre version de three.js : une seule carte
+    ShaderChunk.lights_fragment_begin = chunk.replace(SHADOW_LINE, DETAIL_SHADOW);
+    detailShadowPatched = true;
+    return true;
+}
 
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
 // Jamais sous un pixel calculé par pixel CSS : en dessous, l'image agrandie paraît pixelisée malgré l'anticrénelage
@@ -161,17 +191,20 @@ class Graphics {
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = PCFShadowMap; // ombres filtrées, nettement moins coûteuses que PCFSoft
 
-        // Ombres : la zone couverte suit l'avion
-        sunLight.castShadow = true;
-        sunLight.shadow.mapSize.set(2048, 2048);
-        Object.assign(sunLight.shadow.camera, {
-            left: -SHADOW_SIZE, right: SHADOW_SIZE, top: SHADOW_SIZE, bottom: -SHADOW_SIZE,
-            near: 1, far: SUN_DISTANCE * 2,
-        });
-        sunLight.shadow.bias = -0.0005;
-        this._shadowSize = SHADOW_SIZE;
-        this._setShadowSize(SHADOW_SIZE);
-        scene.add(sunLight.target);
+        // Ombres : les zones couvertes suivent l'avion ; carte fine : lumière sans éclairage, seulement pour son ombre
+        this.detailLight = patchDetailShadow() ? new DirectionalLight(0xffffff, 0) : null;
+        for (const light of [sunLight, this.detailLight]) {
+            if (!light) continue;
+            light.castShadow = true;
+            light.shadow.mapSize.set(2048, 2048);
+            light.shadow.camera.near = 1;
+            light.shadow.camera.far = SUN_DISTANCE * 2;
+            light.shadow.bias = -0.0005;
+            scene.add(light.target);
+        }
+        if (this.detailLight) scene.add(this.detailLight);
+        this._setShadowSize(sunLight, SHADOW_SIZE);
+        if (this.detailLight) this._setShadowSize(this.detailLight, DETAIL_SIZE);
 
         // Ciel : diffusion atmosphérique (Rayleigh / Mie). Il ne dépend que de la météo : calculé une fois
         // dans une cubemap (voir setAtmosphere), la scène n'affiche qu'un dôme qui lit cette texture.
@@ -250,12 +283,15 @@ class Graphics {
     setShadows(size) {
         const enabled = size > 0;
         this.renderer.shadowMap.enabled = enabled;
-        this.sunLight.castShadow = enabled;
-        if (enabled && this.sunLight.shadow.mapSize.x !== size) {
-            this.sunLight.shadow.mapSize.set(size, size);
-            this.sunLight.shadow.map?.dispose();
-            this.sunLight.shadow.map = null; // recréée à la bonne taille
-            this._setShadowSize(this._shadowSize);
+        for (const light of [this.sunLight, this.detailLight]) {
+            if (!light) continue;
+            light.castShadow = enabled;
+            if (enabled && light.shadow.mapSize.x !== size) {
+                light.shadow.mapSize.set(size, size);
+                light.shadow.map?.dispose();
+                light.shadow.map = null; // recréée à la bonne taille
+                this._setShadowSize(light, light.userData.shadowSize);
+            }
         }
     }
 
@@ -338,32 +374,39 @@ class Graphics {
         this.composer.setSize(width, height);
     }
 
-    // Demi-côté de la zone d'ombres (m) ; le décalage anti-acné suit la taille des texels
-    _setShadowSize(size) {
-        this._shadowSize = size;
-        const camera = this.sunLight.shadow.camera;
+    // Demi-côté de la zone d'ombres d'une lumière (m) ; le décalage anti-acné suit la taille des texels
+    _setShadowSize(light, size) {
+        light.userData.shadowSize = size;
+        const camera = light.shadow.camera;
         Object.assign(camera, { left: -size, right: size, top: size, bottom: -size });
         camera.updateProjectionMatrix();
-        this.sunLight.shadow.normalBias = NORMAL_BIAS_TEXELS * (2 * size) / this.sunLight.shadow.mapSize.x;
+        light.shadow.normalBias = NORMAL_BIAS_TEXELS * (2 * size) / light.shadow.mapSize.x;
     }
 
-    // shadowCenter : point autour duquel calculer les ombres (l'avion) ;
-    // cockpit : vue cabine (ombres fines, zone resserrée)
+    // Zone d'ombres d'une lumière autour de center, calée sur la grille des texels de sa carte (dans le plan face au
+    // soleil) : sinon, en suivant l'avion au centimètre près, les bords des ombres scintillent quand il avance
+    _placeShadow(light, center) {
+        const texel = (2 * light.userData.shadowSize) / light.shadow.mapSize.x;
+        const x = Math.round(center.dot(_shadowRight) / texel) * texel;
+        const y = Math.round(center.dot(_shadowUp) / texel) * texel;
+        const z = center.dot(this.sunDirection);
+        _shadowCenter.copy(_shadowRight).multiplyScalar(x).addScaledVector(_shadowUp, y).addScaledVector(this.sunDirection, z);
+        light.target.position.copy(_shadowCenter);
+        light.position.copy(_shadowCenter).addScaledVector(this.sunDirection, SUN_DISTANCE);
+    }
+
+    // shadowCenter : point autour duquel calculer les ombres (l'avion : les zones s'étendent dans l'axe du soleil, son
+    // ombre au sol y reste même en vol) ; cockpit : vue cabine (carte fine resserrée sur l'habitacle)
     update(shadowCenter, cockpit = false) {
         this.skyDome.position.copy(this.camera.position);
-        const size = cockpit ? COCKPIT_SHADOW_SIZE : SHADOW_SIZE;
-        if (size !== this._shadowSize) this._setShadowSize(size);
-        // Zone d'ombres calée sur la grille des texels de la carte d'ombres (dans le plan face au soleil) :
-        // sinon, en suivant l'avion au centimètre près, les bords des ombres scintillent quand il avance
-        const texel = (2 * size) / this.sunLight.shadow.mapSize.x;
         _shadowRight.crossVectors(_worldUp, this.sunDirection).normalize(); // mêmes axes que la caméra d'ombre (lookAt)
         _shadowUp.crossVectors(this.sunDirection, _shadowRight);
-        const x = Math.round(shadowCenter.dot(_shadowRight) / texel) * texel;
-        const y = Math.round(shadowCenter.dot(_shadowUp) / texel) * texel;
-        const z = shadowCenter.dot(this.sunDirection);
-        _shadowCenter.copy(_shadowRight).multiplyScalar(x).addScaledVector(_shadowUp, y).addScaledVector(this.sunDirection, z);
-        this.sunLight.target.position.copy(_shadowCenter);
-        this.sunLight.position.copy(_shadowCenter).addScaledVector(this.sunDirection, SUN_DISTANCE);
+        this._placeShadow(this.sunLight, shadowCenter);
+        if (this.detailLight) {
+            const size = cockpit ? COCKPIT_DETAIL_SIZE : DETAIL_SIZE;
+            if (size !== this.detailLight.userData.shadowSize) this._setShadowSize(this.detailLight, size);
+            this._placeShadow(this.detailLight, shadowCenter);
+        }
     }
 
     render() {
