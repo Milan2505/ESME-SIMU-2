@@ -1,8 +1,6 @@
 import {
     BackSide,
     Box3,
-    BufferAttribute,
-    BufferGeometry,
     BoxGeometry,
     CanvasTexture,
     CylinderGeometry,
@@ -13,8 +11,9 @@ import {
     MeshStandardMaterial,
     PlaneGeometry,
     RepeatWrapping,
+    Shape,
+    ShapeGeometry,
     SRGBColorSpace,
-    Vector2,
     Vector3
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -110,12 +109,15 @@ function prepare(scene) {
             child.receiveShadow = true;
         }
     });
-    // Emplanture de l'aile au-dessus du pare-brise : dans le modèle, le verre y monte jusque sous l'aile sans rien
-    // derrière (le carénage manque) et on voyait le ciel par-dessus la porte. Ce verre devient de la tôle
-    if (meshes.glas) closeWingRoot(meshes.glas, scene);
-    // Hélice : cône et pales tournent ensemble autour de l'axe du cône
+    // Emplanture de l'aile : dans le modèle, l'aile traverse le fuselage sans nervure (vue de la cabine à travers le
+    // pare-brise, sa face intérieure n'est pas dessinée : on voyait le ciel). Fermée par son propre profil
+    closeWingRoot(meshes, scene);
+    // Hélice : cône et pales tournent ensemble autour de l'axe du cône. Centre pris dans le repère du modèle (setFromObject
+    // donne le repère du monde, qui comprend MODEL_OFFSET : l'axe se trouvait 0,64 m plus haut et 2,23 m plus en arrière
+    // que le moyeu, et l'hélice, dès qu'elle avait tourné, orbitait autour du nez et rentrait dans le capot)
+    scene.updateMatrixWorld(true);
     const box = new Box3().setFromObject(meshes.Propeller);
-    const center = box.getCenter(new Vector3());
+    const center = scene.worldToLocal(box.getCenter(new Vector3()));
     const propeller = new Group();
     propeller.name = 'Propeller_Cone';
     propeller.position.copy(center);
@@ -179,79 +181,67 @@ function prepare(scene) {
     return root;
 }
 
-// Verre du pare-brise sous l'emplanture de l'aile (repère avion, z < -2,1 : devant la cabine) : la partie des flancs
-// au-dessus du haut des portes (y > WING_ROOT_Y) et les faces horizontales sous l'aile. Les triangles des flancs sont
-// coupés à cette hauteur : en dessous, c'est le vrai pare-brise qui s'enroule jusqu'au bord avant de la porte (il reste
-// du verre). Le haut devient une tôle blanche comme l'aile (faces vers l'extérieur ; garniture : buildCabinShell)
-const WING_ROOT_Y = 1.0;
-function closeWingRoot(glass, scene) {
+// Nervures d'emplanture : coupe de l'aile (partie centrale et bord d'attaque) au ras du fuselage, de chaque côté,
+// remplie : même profil bombé que l'aile, blanc comme elle, visible des deux faces
+const WING_ROOT_X = 0.52;
+const WING_ROOT_BACK = -2.12;   // bord avant des portes (repère avion, avant agrandissement)
+function closeWingRoot(meshes, scene) {
+    const parts = ['wing_center', 'wing_leading_edge_center'].map((name) => meshes[name]).filter(Boolean);
+    if (!parts.length) return;
     scene.updateMatrixWorld(true);
-    const geometry = glass.geometry.index ? glass.geometry.toNonIndexed() : glass.geometry;
-    const position = geometry.attributes.position, uv = geometry.attributes.uv;
-    const matrix = glass.matrixWorld, inverse = matrix.clone().invert();
-    const vertex = (i) => ({ p: new Vector3().fromBufferAttribute(position, i).applyMatrix4(matrix), uv: uv ? new Vector2().fromBufferAttribute(uv, i) : new Vector2() });
-    const lerp = (a, b, t) => ({ p: a.p.clone().lerp(b.p, t), uv: a.uv.clone().lerp(b.uv, t) });
-    // Polygone coupé par le plan y = WING_ROOT_Y : [dessous, dessus]
-    const clip = (poly) => {
-        const below = [], above = [];
-        poly.forEach((a, k) => {
-            const b = poly[(k + 1) % poly.length];
-            (a.p.y <= WING_ROOT_Y ? below : above).push(a);
-            if ((a.p.y - WING_ROOT_Y) * (b.p.y - WING_ROOT_Y) < 0) {
-                const cut = lerp(a, b, (WING_ROOT_Y - a.p.y) / (b.p.y - a.p.y));
-                below.push(cut);
-                above.push(cut);
+    const material = ambient(new MeshStandardMaterial({ color: 0xe2e3e5, roughness: 0.6, metalness: 0.05, emissive: 0x2e2f30, side: DoubleSide }));
+    const toScene = scene.matrixWorld.clone().invert();
+    const a = new Vector3(), b = new Vector3(), c = new Vector3();
+    for (const side of [-1, 1]) {
+        const x0 = side * WING_ROOT_X;
+        // Segments de la coupe (z, y)
+        const segments = [];
+        for (const mesh of parts) {
+            const position = mesh.geometry.attributes.position, index = mesh.geometry.index;
+            const count = index ? index.count : position.count;
+            const at = (k, v) => v.fromBufferAttribute(position, index ? index.getX(k) : k).applyMatrix4(mesh.matrixWorld);
+            for (let k = 0; k < count; k += 3) {
+                const tri = [at(k, a), at(k + 1, b), at(k + 2, c)];
+                const points = [];
+                for (let j = 0; j < 3; j++) {
+                    const p = tri[j], q = tri[(j + 1) % 3];
+                    if ((p.x - x0) * (q.x - x0) < 0) {
+                        const t = (x0 - p.x) / (q.x - p.x);
+                        points.push([p.z + (q.z - p.z) * t, p.y + (q.y - p.y) * t]);
+                    }
+                }
+                if (points.length === 2) segments.push(points);
             }
-        });
-        return [below, above];
-    };
-    const fan = (poly, out) => { for (let k = 1; k + 1 < poly.length; k++) out.push([poly[0], poly[k], poly[k + 1]]); };
-    const keep = [], roof = [];
-    const normal = new Vector3(), edge = new Vector3();
-    for (let i = 0; i < position.count; i += 3) {
-        const tri = [vertex(i), vertex(i + 1), vertex(i + 2)];
-        normal.subVectors(tri[1].p, tri[0].p).cross(edge.subVectors(tri[2].p, tri[0].p)).normalize();
-        const z = (tri[0].p.z + tri[1].p.z + tri[2].p.z) / 3, y = (tri[0].p.y + tri[1].p.y + tri[2].p.y) / 3;
-        if (z < -2.1 && Math.abs(normal.x) > 0.9) {
-            const [below, above] = clip(tri);
-            fan(below, keep);
-            fan(above, roof);
-        } else if (z < -2.1 && normal.y > 0.9 && y > WING_ROOT_Y + 0.1) {
-            roof.push(tri);
-        } else keep.push(tri);
+        }
+        if (!segments.length) continue;
+        // Profil : extrados et intrados tous les centimètres de corde, du bord d'attaque jusqu'aux portes (plus en
+        // arrière, l'aile est au-dessus du toit de la cabine : la nervure dépassait dans l'habitacle)
+        const zs = segments.flat().map(([z]) => z);
+        const z0 = Math.min(...zs), z1 = Math.min(Math.max(...zs), WING_ROOT_BACK), top = [], bottom = [];
+        for (let z = z0; z <= z1 + 1e-6; z += 0.01) {
+            const ys = [];
+            for (const [[za, ya], [zb, yb]] of segments) {
+                if ((za - z) * (zb - z) <= 0 && za !== zb) ys.push(ya + (yb - ya) * (z - za) / (zb - za));
+            }
+            if (ys.length < 2) continue;
+            top.push([z, Math.max(...ys)]);
+            bottom.push([z, Math.min(...ys)]);
+        }
+        if (top.length < 3) continue;
+        const shape = new Shape();
+        [...top, ...bottom.reverse()].forEach(([z, y], i) => (i ? shape.lineTo(z, y) : shape.moveTo(z, y)));
+        const geometry = new ShapeGeometry(shape);
+        const position = geometry.attributes.position;
+        for (let i = 0; i < position.count; i++) {
+            a.set(x0, position.getY(i), position.getX(i)).applyMatrix4(toScene);
+            position.setXYZ(i, a.x, a.y, a.z);
+        }
+        geometry.computeVertexNormals();
+        const rib = new Mesh(geometry, material);
+        rib.name = 'wingroot';
+        rib.castShadow = rib.receiveShadow = true;
+        scene.add(rib);
     }
-    if (!roof.length) return;
-    // Géométrie (repère du verre) ; outward : faces tournées vers l'extérieur (flancs) ou vers le haut (sous l'aile)
-    const build = (tris, outward) => {
-        const positions = new Float32Array(tris.length * 9), uvs = new Float32Array(tris.length * 6);
-        const local = new Vector3();
-        tris.forEach((tri, k) => {
-            if (outward) {
-                normal.subVectors(tri[1].p, tri[0].p).cross(edge.subVectors(tri[2].p, tri[0].p));
-                const center = tri[0].p.clone().add(tri[1].p).add(tri[2].p);
-                const facing = Math.abs(normal.x) > Math.abs(normal.y) ? Math.sign(normal.x) === Math.sign(center.x) : normal.y > 0;
-                if (!facing) tri = [tri[0], tri[2], tri[1]];
-            }
-            tri.forEach((v, j) => {
-                local.copy(v.p).applyMatrix4(inverse);
-                positions.set([local.x, local.y, local.z], (k * 3 + j) * 3);
-                uvs.set([v.uv.x, v.uv.y], (k * 3 + j) * 2);
-            });
-        });
-        const out = new BufferGeometry();
-        out.setAttribute('position', new BufferAttribute(positions, 3));
-        out.setAttribute('uv', new BufferAttribute(uvs, 2));
-        out.computeVertexNormals();
-        return out;
-    };
-    glass.geometry = build(keep, false);
-    const skin = new Mesh(build(roof, true), ambient(new MeshStandardMaterial({ color: 0xe2e3e5, roughness: 0.6, metalness: 0.05, emissive: 0x2e2f30 })));
-    skin.name = 'windshieldside';
-    skin.position.copy(glass.position);
-    skin.quaternion.copy(glass.quaternion);
-    skin.scale.copy(glass.scale);
-    skin.castShadow = skin.receiveShadow = true;
-    glass.parent.add(skin);
 }
 
 // Pièces mobiles d'un avion : { propeller, pivots (gouvernes) }
@@ -396,7 +386,7 @@ function buildCabinShell(model) {
     const trim = ambient(new MeshStandardMaterial({ color: 0xbca684, roughness: 0.85, side: BackSide, emissive: 0x3a342a }));
     model.updateMatrixWorld(true);
     const inverse = model.matrixWorld.clone().invert();
-    for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top', 'windshieldside']) {
+    for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top']) {
         const source = model.getObjectByName(name);
         if (!source) continue;
         const inner = new Mesh(source.geometry, trim);
