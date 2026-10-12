@@ -25,6 +25,7 @@ const CAST = {
         ground:   { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },     // Pierre
         approach: { model: 'fr_FR-upmc-medium', speaker: 0, lengthScale: 0.85 },     // Jessica
         atis:     { model: 'fr_FR-siwis-medium', lengthScale: 1 },
+        instructor: { model: 'fr_FR-tom-medium', lengthScale: 1.02 },   // moniteur (mode Initiation), à côté de l'élève
     },
     en: {
         pilot:    { model: 'en_GB-alan-medium', lengthScale: 0.9 },
@@ -33,6 +34,7 @@ const CAST = {
         ground:   { model: 'en_GB-northern_english_male-medium', lengthScale: 0.85 },
         approach: { model: 'en_GB-alba-medium', lengthScale: 0.85 },
         atis:     { model: 'en_GB-jenny_dioco-medium', lengthScale: 1 },
+        instructor: { model: 'en_GB-alan-medium', lengthScale: 1.02 },
     },
 };
 const ROLE_ORDER = ['pilot', 'ground', 'tower', 'approach', 'atis'];
@@ -219,7 +221,8 @@ class RadioVoices extends EventTarget {
     // le pilote s'entend dans son casque (un peu moins filtré)
     _play({ samples, sampleRate }, role, last = true, rate = 1) {
         const ctx = this._context();
-        const radio = role !== 'pilot';
+        const instructor = role === 'instructor';
+        const radio = role !== 'pilot' && !instructor;
         // Entre deux morceaux d'un même message : pause courte (celle de fin de phrase est raccourcie)
         const length = last ? samples.length : Math.max(1, samples.length - Math.round(sampleRate * 0.1));
         const buffer = ctx.createBuffer(1, length, sampleRate);
@@ -230,7 +233,9 @@ class RadioVoices extends EventTarget {
         const presence = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1700, Q: 1, gain: radio ? 5 : 2 });
         const shaper = new WaveShaperNode(ctx, { curve: this._clipCurve(radio ? 2.2 : 1.3) });
         const gain = new GainNode(ctx, { gain: radio ? 0.9 : 0.8 });
-        source.connect(highpass).connect(lowpass).connect(presence).connect(shaper).connect(gain).connect(ctx.destination);
+        // Moniteur : voix directe dans la cabine (pas de casque ni de radio), juste un peu adoucie
+        if (instructor) source.connect(new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 7000 })).connect(new GainNode(ctx, { gain: 0.95 })).connect(ctx.destination);
+        else source.connect(highpass).connect(lowpass).connect(presence).connect(shaper).connect(gain).connect(ctx.destination);
         let hiss = null;
         if (radio) {
             hiss = new AudioBufferSourceNode(ctx, { buffer: this._noise(ctx), loop: true });
@@ -244,10 +249,54 @@ class RadioVoices extends EventTarget {
                 try { hiss?.stop(); } catch { /* contexte déjà fermé */ }
                 resolve();
             };
+            finish.role = role;
+            finish.source = source;
             this._playing.add(finish);
             source.onended = finish;
             source.start();
         });
+    }
+
+    // --- Moniteur (mode Initiation) ---------------------------------------------------------------
+    // Dit un texte avec la voix du moniteur ; renvoie une promesse résolue à la fin (ou à l'interruption). Voix réaliste
+    // si elle est prête, sinon voix de l'ordinateur tout de suite (pas d'attente du téléchargement)
+    async speakInstructor(text) {
+        this.stopInstructor();
+        const token = this._instructorToken = {};
+        const spoken = text.replace(/«|»/g, '');
+        if (this.mode === 'neural' && this.status.state === 'ready') {
+            try {
+                const cast = CAST[this.lang].instructor;
+                const audios = this._chunks(spoken).map((part) => this._synthesize(cast, part));
+                audios.forEach((a) => a.catch(() => {}));
+                for (const audio of audios) {
+                    const data = await audio;
+                    if (token !== this._instructorToken) return;
+                    await this._play(data, 'instructor', audio === audios[audios.length - 1]);
+                    if (token !== this._instructorToken) return;
+                }
+                return;
+            } catch (error) {
+                console.error("Voix du moniteur en échec, voix de l'ordinateur :", error);
+            }
+        }
+        if (token !== this._instructorToken) return;
+        this._instructorUtterance = true;
+        await this._speakSystem(spoken, 'instructor');
+        this._instructorUtterance = false;
+    }
+
+    stopInstructor() {
+        this._instructorToken = null;
+        for (const finish of [...this._playing]) {
+            if (finish.role !== 'instructor') continue;
+            try { finish.source.stop(); } catch { /* déjà arrêtée */ }
+            finish();
+        }
+        if (this._instructorUtterance) {
+            window.speechSynthesis?.cancel();
+            this._instructorUtterance = false;
+        }
     }
 
     _context() {
@@ -287,7 +336,7 @@ class RadioVoices extends EventTarget {
         const voices = [...all].sort((a, b) => score(b) - score(a));
         const used = new Set(this._systemVoices.values());
         const pick = (list) => list.find((v) => !used.has(v)) ?? list[0];
-        const voice = role === 'pilot' || role === 'otherPilot'
+        const voice = role === 'pilot' || role === 'otherPilot' || role === 'instructor'
             ? pick(voices.filter((v) => MALE_VOICE.test(v.name))) ?? pick(voices)
             : pick(voices.filter((v) => !MALE_VOICE.test(v.name) || role === 'ground')) ?? pick(voices);
         this._systemVoices.set(key, voice);
@@ -303,7 +352,7 @@ class RadioVoices extends EventTarget {
             const voice = this._systemVoice(role, lang);
             if (voice) utterance.voice = voice;
             utterance.lang = lang === 'fr' ? 'fr-FR' : 'en-GB';
-            utterance.rate = role === 'atis' ? 1.05 : role === 'pilot' ? 1.1 : 1.15;
+            utterance.rate = role === 'instructor' ? 1.02 : role === 'atis' ? 1.05 : role === 'pilot' ? 1.1 : 1.15;
             let done = false;
             const timer = setTimeout(() => finish(), estimate * 2000 + 3000);
             const finish = () => {
@@ -317,12 +366,13 @@ class RadioVoices extends EventTarget {
         });
     }
 
+    // Coupe la radio (nouveau départ, voix coupée) ; le moniteur continue de parler
     stop() {
-        window.speechSynthesis?.cancel();
-        for (const finish of [...this._playing]) finish();
-        if (this._ctx) {
-            this._ctx.close();
-            this._ctx = null;
+        if (!this._instructorUtterance) window.speechSynthesis?.cancel();
+        for (const finish of [...this._playing]) {
+            if (finish.role === 'instructor') continue;
+            try { finish.source.stop(); } catch { /* déjà arrêtée */ }
+            finish();
         }
     }
 

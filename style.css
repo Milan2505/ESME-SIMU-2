@@ -287,15 +287,21 @@ img{margin: 0px;
     margin: 0;
     text-align: center;
   }
+  #initiation:hover,
   #solo:hover,
   #multi:hover,
   #paramètre:hover {
     background: #C3E6F5;
   }
-  #solo {
+  #solo, #initiation {
     cursor: pointer;
   }
+  #initiation span {
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 11px;
+  }
   /* Mode de jeu en cours (Solo ou Multijoueur) : case surlignée */
+  #initiation.actif,
   #solo.actif,
   #multi.actif {
     background: #DDF1E1;
@@ -1377,3 +1383,188 @@ img{margin: 0px;
     grid-column: 1 / 7;
     grid-row: 2;
   }
+
+
+/* --- Mode Initiation ------------------------------------------------------------------------------------------- */
+#initiation-dialog {
+  max-width: 520px;
+  border: 3px solid #114E69;
+  border-radius: 10px;
+  font-family: DejaVu Sans Mono, monospace;
+}
+#initiation-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+#initiation-dialog h3 {
+  margin-top: 0;
+}
+.initiation-niveaux {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.initiation-niveaux button,
+#initiation-annuler {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  font-family: inherit;
+  text-align: left;
+  color: #114E69;
+  background: #EAF6FB;
+  border: 2px solid #114E69;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.initiation-niveaux button span {
+  font-size: 12px;
+  color: #333;
+}
+.initiation-niveaux button:hover,
+#initiation-annuler:hover {
+  background: #C3E6F5;
+}
+.initiation-option {
+  font-size: 13px;
+}
+
+/* Panneau du moniteur : en haut à gauche de l'écran de vol */
+#moniteur {
+  grid-column: 4/15;
+  grid-row: 10/17;
+  align-self: start;
+  justify-self: start;
+  z-index: 4;
+  margin: 10px;
+  width: min(340px, 37%);   /* à côté du panneau radio (à droite, 60 % au plus) */
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-family: DejaVu Sans Mono, monospace;
+  color: white;
+  background: rgba(15, 18, 22, 0.88);
+  border: 2px solid #ffd23c;
+  border-radius: 10px;
+}
+#moniteur[hidden] {
+  display: none;
+}
+#simulator:fullscreen > #moniteur,
+#simulator:fullscreen > #initiation-dialog {
+  grid-column: 1 / 7;
+  grid-row: 2;
+}
+#moniteur header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #ffd23c;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.moniteur-barre {
+  height: 4px;
+  margin: 6px 0 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+#moniteur-progression {
+  height: 100%;
+  width: 0;
+  background: #ffd23c;
+  border-radius: 2px;
+  transition: width 0.4s;
+}
+#moniteur h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: white;
+}
+#moniteur p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  text-indent: 0;
+  text-align: left;
+  color: #f2f2f2;   /* le style général des paragraphes est noir */
+}
+#moniteur #moniteur-pourquoi {
+  color: #b9d7e6;
+  font-style: italic;
+}
+#moniteur #moniteur-souffle {
+  padding: 6px 8px;
+  color: #111;
+  background: #ffd23c;
+  border-radius: 6px;
+  font-weight: bold;
+}
+#moniteur-conseil,
+#moniteur-bravo {
+  display: block;
+  font-size: 13px;
+  font-weight: bold;
+  opacity: 0;
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+#moniteur #moniteur-conseil {
+  color: #ff8a7a;
+}
+#moniteur-bravo {
+  color: #7be08f;
+}
+#moniteur-conseil.visible,
+#moniteur-bravo.visible {
+  height: auto;
+  margin: 0 0 8px;
+  animation: moniteur-flash 4s forwards;
+}
+@keyframes moniteur-flash {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.moniteur-boutons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.moniteur-boutons button {
+  padding: 4px 9px;
+  font-family: inherit;
+  font-size: 12px;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.moniteur-boutons button:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+#moniteur-continuer {
+  color: #111;
+  font-weight: bold;
+  background: #ffd23c;
+  border-color: #ffd23c;
+}
+#moniteur-continuer:hover {
+  background: #ffe27a;
+}
+#moniteur-continuer[hidden] {
+  display: none;
+}
+/* Élément de la page à utiliser (panneau radio) : il clignote */
+.tuto-cible {
+  outline: 3px solid #ffd23c !important;
+  outline-offset: 2px;
+  animation: tuto-clignote 0.9s ease-in-out infinite;
+}
+@keyframes tuto-clignote {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 210, 60, 0.9); }
+  50% { box-shadow: 0 0 14px 4px rgba(255, 210, 60, 0.9); }
+}

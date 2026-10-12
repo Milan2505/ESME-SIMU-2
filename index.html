@@ -76,6 +76,7 @@
 	<link rel="modulepreload" href="js/ATC.js">
 	<link rel="modulepreload" href="js/Wind.js">
 	<link rel="modulepreload" href="js/RadioVoices.js">
+	<link rel="modulepreload" href="js/Initiation.js">
 </head>
 	
 <body>
@@ -167,8 +168,9 @@
 		</div>
 	</div>
 	
-	<div id="initiation">
+	<div id="initiation" role="button" tabindex="0" title="Apprendre à piloter avec un moniteur">
 	<h4>Initiation</h4>
+	<span id="initiation-resume">Avec un moniteur</span>
 	</div>
 	
 	<!-- Modes de jeu : Solo (hors ligne) ou Multijoueur (partie privée) ; la case du mode en cours est surlignée -->
@@ -235,6 +237,41 @@
 
 	<div id="radio-indicateur" hidden></div>
 	<div id="atc-sous-titre" hidden></div>
+
+	<!-- Mode Initiation : choix du niveau, puis panneau du moniteur (consigne, pourquoi, message radio à dire) -->
+	<dialog id="initiation-dialog">
+		<h3>Initiation au pilotage</h3>
+		<p class="reglages-intro">Un moniteur vous accompagne de l'avion éteint au parking jusqu'à l'arrêt du moteur après un tour de piste : il explique chaque geste, la commande à utiliser clignote et la caméra s'y tourne.</p>
+		<div class="initiation-niveaux">
+			<button data-niveau="1"><strong>Niveau 1 · Pilotage</strong><span>Le moniteur fait la radio : concentrez-vous sur l'avion.</span></button>
+			<button data-niveau="2"><strong>Niveau 2 · Pilotage et radio</strong><span>Vous parlez aux contrôleurs, le moniteur vous souffle quoi dire.</span></button>
+		</div>
+		<label class="initiation-option"><input type="checkbox" id="initiation-camera" checked> Caméra guidée vers les commandes</label>
+		<p class="reglages-intro">Le vol part du parking N4, en solo (une partie multijoueur en cours est quittée).</p>
+		<div class="multi-ligne">
+			<button id="initiation-annuler">Annuler</button>
+		</div>
+	</dialog>
+	<section id="moniteur" hidden aria-live="polite">
+		<header>
+			<span id="moniteur-phase"></span>
+			<span id="moniteur-compte"></span>
+		</header>
+		<div class="moniteur-barre"><div id="moniteur-progression"></div></div>
+		<h4 id="moniteur-titre"></h4>
+		<p id="moniteur-texte"></p>
+		<p id="moniteur-pourquoi" hidden></p>
+		<p id="moniteur-souffle" hidden></p>
+		<p id="moniteur-conseil"></p>
+		<span id="moniteur-bravo"></span>
+		<div class="moniteur-boutons">
+			<button id="moniteur-continuer" hidden>Continuer ▸</button>
+			<button id="moniteur-repeter" title="Redire la consigne">Répéter</button>
+			<button id="moniteur-montrer" title="Tourner la caméra vers la commande">Montrer</button>
+			<button id="moniteur-passer" title="Passer cette étape">Passer</button>
+			<button id="moniteur-quitter" title="Quitter l'initiation">Quitter</button>
+		</div>
+	</section>
 	<div id="atc" hidden>
 		<div class="carte-entete">
 			<strong id="atc-titre">Tour</strong>

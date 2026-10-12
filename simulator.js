@@ -27,6 +27,7 @@ import { MapView } from './js/MapView.js';
 import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
+import { Initiation } from './js/Initiation.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
@@ -366,6 +367,19 @@ function showViewLabel(text) {
     viewLabel.classList.add('visible');
     clearTimeout(viewLabelTimer);
     viewLabelTimer = setTimeout(() => viewLabel.classList.remove('visible'), 1500);
+}
+
+// Mode Initiation : la caméra se tourne vers une commande (centre et rayon dans le repère de la cabine) ; l'œil s'en
+// approche un peu, comme un pilote qui se penche, manches cachés le temps de la vue
+function focusCabin(target, radius) {
+    if (chaseView) toggleView();
+    const direction = target.clone().sub(PILOT_EYE);
+    const distance = direction.length();
+    const keep = THREE.MathUtils.clamp(radius * 9, 0.3, 0.55);
+    eyeTarget.copy(PILOT_EYE).addScaledVector(direction, Math.max(0, distance - keep) / distance);
+    cockpit.setYokesHiddenByView(true);
+    const dx = target.x - eyeTarget.x, dy = target.y - eyeTarget.y, dz = target.z - eyeTarget.z;
+    headTarget = { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) - COCKPIT_TILT, fov: 48 };
 }
 
 function updateHeadTarget(delta) {
@@ -911,6 +925,7 @@ const multiPartage = document.getElementById('multi-partage');
 const multiLien = document.getElementById('multi-lien');
 
 multiplayer.addEventListener('status', ({ detail }) => {
+    if (multiplayer.code && initiation?.active) initiation.stop();
     multiStatut.textContent = detail.text;
     multiStatut.classList.toggle('erreur', detail.error);
     updateMultiResume();
@@ -1142,12 +1157,17 @@ const soloCase = document.getElementById('solo');
 const soloResume = document.getElementById('solo-resume');
 function updateModes() {
     const multi = Boolean(multiplayer.code);
-    soloCase.classList.toggle('actif', !multi);
+    const lesson = Boolean(initiation?.active);
+    soloCase.classList.toggle('actif', !multi && !lesson);
     document.getElementById('multi').classList.toggle('actif', multi);
-    soloResume.textContent = multi ? 'Quitter la partie' : 'Mode actuel';
+    document.getElementById('initiation').classList.toggle('actif', lesson);
+    document.getElementById('initiation-resume').textContent = lesson ? `Niveau ${initiation.level} en cours` : 'Avec un moniteur';
+    soloResume.textContent = multi ? 'Quitter la partie' : lesson ? 'Quitter l\'initiation' : 'Mode actuel';
 }
 function playSolo() {
     if (multiplayer.code && !confirm(`Quitter la partie ${multiplayer.code} et voler en solo ?`)) return;
+    if (initiation?.active && !confirm('Quitter l\'initiation et voler en solo ?')) return;
+    initiation?.stop();
     multiplayer.leave();
     multiDialog.close();
     updateModes();
@@ -1520,6 +1540,7 @@ function renderAtc() {
     else {
         const children = atc.options.map((option) => {
             const button = document.createElement('button');
+            button.dataset.option = option.id;
             if (option.id === 'readback') button.className = 'atc-collationner';
             if (option.id === 'sayAgain') button.className = 'atc-repetez';
             const label = document.createElement('strong');
@@ -1551,6 +1572,7 @@ function renderAtc() {
             : 'Rien à transmettre pour le moment : les messages proposés suivent la phase du vol.'));
         atcChoices.replaceChildren(...children);
     }
+    initiation?.refreshHtml();
 }
 atc.addEventListener('change', renderAtc);
 
@@ -1620,6 +1642,58 @@ function updateAtc(delta) {
         traffic: multiplayer.code ? remotePlayers.list().map((p) => ({ ...p, callsign: registrationFor(p.id) })) : [],
     });
 }
+
+// --- Mode Initiation : un moniteur guide l'élève (voir Initiation.js) -----------------------------------------------
+const $ = (id) => document.getElementById(id);
+var initiation = new Initiation({
+    systems, controls, avionics, atc, cockpit, airport, scene, aircraft, voices: radioVoices,
+    groundHeight: (x, z) => terrain.heightAt(x, z),
+    ui: {
+        panel: $('moniteur'), phase: $('moniteur-phase'), count: $('moniteur-compte'), progress: $('moniteur-progression'),
+        title: $('moniteur-titre'), text: $('moniteur-texte'), why: $('moniteur-pourquoi'), hint: $('moniteur-souffle'),
+        advice: $('moniteur-conseil'), praise: $('moniteur-bravo'), next: $('moniteur-continuer'),
+    },
+    // Départ : avion éteint au parking N4, en solo, vue cabine
+    startCold: () => {
+        multiplayer.leave();
+        const spawn = airport.spawns.find((sp) => sp.id === 'stand4') ?? airport.spawns.find((sp) => sp.cold);
+        if (choosingSpawn) closeSpawnDialog();
+        spawnAt(spawn);
+        setCabinViewPreset(1);
+    },
+    focusCabin,
+    pilotView: () => setCabinViewPreset(1),
+    openAtc: (open) => { if (atcPanel.hidden === open) toggleAtc(open); },
+    onChange: () => updateModes(),
+});
+const initiationDialog = $('initiation-dialog');
+function openInitiation() {
+    initiationDialog.showModal();
+}
+$('initiation').addEventListener('click', openInitiation);
+$('initiation').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') openInitiation();
+});
+for (const button of initiationDialog.querySelectorAll('[data-niveau]')) {
+    button.addEventListener('click', () => {
+        if (multiplayer.code && !confirm(`Quitter la partie ${multiplayer.code} pour l'initiation ?`)) return;
+        initiationDialog.close();
+        sounds.unlock();
+        radioVoices.preload();
+        initiation.start(Number(button.dataset.niveau), $('initiation-camera').checked);
+        view.focus();
+    });
+}
+$('initiation-annuler').addEventListener('click', () => initiationDialog.close());
+const keepFocus = (handler) => () => { handler(); view.focus(); };
+$('moniteur-continuer').addEventListener('click', keepFocus(() => initiation.continue()));
+$('moniteur-repeter').addEventListener('click', keepFocus(() => initiation.repeat()));
+$('moniteur-montrer').addEventListener('click', keepFocus(() => initiation.show()));
+$('moniteur-passer').addEventListener('click', keepFocus(() => initiation.skip()));
+$('moniteur-quitter').addEventListener('click', keepFocus(() => {
+    if (confirm('Quitter l\'initiation ? L\'avion reste où il est, en solo.')) initiation.stop();
+}));
+updateModes();
 
 // Lien d'invitation : index.html?partie=CODE rejoint directement la partie
 const invitation = new URLSearchParams(location.search).get('partie');
@@ -2027,6 +2101,7 @@ renderer.setAnimationLoop((time)=>{
         shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
     }
     updateHeadTarget( delta );
+    initiation.update( delta );
     updateSpawnMarkers();
     updateAtc( delta );
     updateCamera( delta );
