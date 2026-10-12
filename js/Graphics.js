@@ -22,10 +22,26 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
+// Pixel aberrant de la scène (rendu HDR en demi-flottants) : un reflet extrême peut dépasser leur limite (infini), un
+// calcul dégénéré donner NaN. Le flou du halo l'étalait sur une grande zone, que la passe finale rendait noire : éclairs
+// noirs par moments. Valeurs plafonnées (sous Direct3D, clamp ramène aussi un NaN dans les bornes ; isnan n'existe pas
+// dans le shader de la passe finale, et le compilateur peut le supprimer)
+const SANITIZE = 'clamp(%s, 0.0, 64.0)';
+const sanitize = (expr) => SANITIZE.replaceAll('%s', expr);
+
 // Halo lumineux (bloom) dont le résultat reste dans sa propre texture (quart de résolution) : il est ajouté
 // à l'image dans la passe finale. L'original le recollait dans la texture de la scène (multi-échantillonnée) :
 // une passe plein écran en MSAA 4x et une seconde résolution MSAA à chaque image.
 class BloomPass extends UnrealBloomPass {
+    constructor(...args) {
+        super(...args);
+        const material = this.materialHighPassFilter;
+        material.fragmentShader = material.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );',
+            `vec4 texel = texture2D( tDiffuse, vUv );
+            texel.rgb = ${sanitize('texel.rgb')};`);
+        material.needsUpdate = true;
+    }
+
     get texture() {
         return this.renderTargetsHorizontal[0].texture;
     }
@@ -97,7 +113,11 @@ class FinalPass extends OutputPass {
                 uniform float uSaturation;
                 uniform float uAlarm;`)
             .replace('gl_FragColor = texture2D( tDiffuse, vUv );', /* glsl */`gl_FragColor = texture2D( tDiffuse, vUv );
-                if (uBloom > 0.0) gl_FragColor.rgb += texture2D( tBloom, vUv ).rgb;
+                gl_FragColor.rgb = ${sanitize('gl_FragColor.rgb')};
+                if (uBloom > 0.0) {
+                    vec3 bloom = texture2D( tBloom, vUv ).rgb;
+                    gl_FragColor.rgb += ${sanitize('bloom')};
+                }
 
                 float luma = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
                 gl_FragColor.rgb = mix(vec3(luma), gl_FragColor.rgb, uSaturation);
