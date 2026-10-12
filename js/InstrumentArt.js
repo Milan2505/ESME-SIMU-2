@@ -942,44 +942,46 @@ const SEGMENTS = {
     0: 'abcdef', 1: 'bc', 2: 'abdeg', 3: 'abcdg', 4: 'bcfg', 5: 'acdfg', 6: 'acdefg', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg',
     '-': 'g', E: 'adefg', F: 'aefg', C: 'adef', A: 'abcefg', L: 'def', U: 'bcdef', T: 'defg', H: 'bcefg', P: 'abefg', r: 'eg',
 };
+// Afficheur à 7 segments : chiffre droit (segments hexagonaux, petits jours aux angles), puis incliné d'un bloc comme
+// les afficheurs à LED des radios ; largeur fixe par chiffre (un « 1 » occupe sa case, à droite, comme sur le vrai)
+const SEG_SLANT = 0.1;   // inclinaison (décalage horizontal par unité de hauteur)
 function seg7(ctx, str, x, y, h, color, align = 'left') {
-    const w = h * 0.52, gap = h * 0.2, t = h * 0.12;
-    // Largeur d'un caractère : points étroits, « 1 » étroit (segments de droite seulement)
-    const advance = (ch) => (ch === '.' || ch === ':' ? h * 0.18 : ch === '1' ? w * 0.3 + gap : w + gap);
-    const width = [...str].reduce((s, ch) => s + advance(ch), 0);
+    const w = h * 0.5, gap = h * 0.17, t = h * 0.13, j = t * 0.12;   // largeur, espace, épaisseur, jour aux angles
+    const advance = (ch) => (ch === '.' || ch === ':' ? h * 0.17 : w + gap);
+    const width = [...str].reduce((sum, ch) => sum + advance(ch), 0);
     let px = align === 'right' ? x - width : align === 'center' ? x - width / 2 : x;
-    ctx.save();
-    ctx.fillStyle = color;
-    const seg = (x0, y0, horizontal, length) => {
+    // Segment entre deux points de son axe, bouts en pointe
+    const segment = (x0, y0, x1, y1) => {
+        const horizontal = y0 === y1, k = t / 2;
         ctx.beginPath();
         if (horizontal) {
-            ctx.moveTo(x0, y0); ctx.lineTo(x0 + t / 2, y0 - t / 2); ctx.lineTo(x0 + length - t / 2, y0 - t / 2);
-            ctx.lineTo(x0 + length, y0); ctx.lineTo(x0 + length - t / 2, y0 + t / 2); ctx.lineTo(x0 + t / 2, y0 + t / 2);
+            ctx.moveTo(x0, y0); ctx.lineTo(x0 + k, y0 - k); ctx.lineTo(x1 - k, y0 - k);
+            ctx.lineTo(x1, y0); ctx.lineTo(x1 - k, y0 + k); ctx.lineTo(x0 + k, y0 + k);
         } else {
-            ctx.moveTo(x0, y0); ctx.lineTo(x0 + t / 2, y0 + t / 2); ctx.lineTo(x0 + t / 2, y0 + length - t / 2);
-            ctx.lineTo(x0, y0 + length); ctx.lineTo(x0 - t / 2, y0 + length - t / 2); ctx.lineTo(x0 - t / 2, y0 + t / 2);
+            ctx.moveTo(x0, y0); ctx.lineTo(x0 + k, y0 + k); ctx.lineTo(x0 + k, y1 - k);
+            ctx.lineTo(x0, y1); ctx.lineTo(x0 - k, y1 - k); ctx.lineTo(x0 - k, y0 + k);
         }
+        ctx.closePath();
         ctx.fill();
     };
+    // Axes des segments dans la case (origine en haut à gauche, y vers le bas)
+    const l = t / 2, r = w - t / 2, top = t / 2, mid = h / 2, bottom = h - t / 2;
+    const SEG = {
+        a: [l + j, top, r - j, top], g: [l + j, mid, r - j, mid], d: [l + j, bottom, r - j, bottom],
+        f: [l, top + j, l, mid - j], b: [r, top + j, r, mid - j], e: [l, mid + j, l, bottom - j], c: [r, mid + j, r, bottom - j],
+    };
+    ctx.save();
+    ctx.fillStyle = color;
     for (const ch of str) {
-        if (ch === '.' || ch === ':') {
-            if (ch === '.') ctx.fillRect(px + h * 0.02, y + h - t, t, t);
-            else { ctx.fillRect(px + h * 0.03, y + h * 0.3, t, t); ctx.fillRect(px + h * 0.03, y + h * 0.65, t, t); }
-            px += h * 0.18;
-            continue;
-        }
-        const on = SEGMENTS[ch] ?? '';
-        const s = 0.08 * h;   // inclinaison
-        const half = h / 2;
-        if (ch === '1') px -= w * 0.7;   // « 1 » : segments de droite, cellule étroite
-        if (on.includes('a')) seg(px + s * 2, y, true, w);
-        if (on.includes('g')) seg(px + s, y + half, true, w);
-        if (on.includes('d')) seg(px, y + h, true, w);
-        if (on.includes('f')) seg(px + s * 2, y, false, half);
-        if (on.includes('b')) seg(px + w + s * 2, y, false, half);
-        if (on.includes('e')) seg(px + s, y + half, false, half);
-        if (on.includes('c')) seg(px + w + s, y + half, false, half);
-        px += ch === '1' ? w * 0.7 + w * 0.3 + gap : w + gap;
+        ctx.save();
+        // Case du caractère, inclinée : le haut penche vers la droite
+        ctx.translate(px + SEG_SLANT * h, y);
+        ctx.transform(1, 0, -SEG_SLANT, 1, 0, 0);
+        if (ch === '.') ctx.fillRect(-h * 0.02, h - t, t, t);
+        else if (ch === ':') { ctx.fillRect(h * 0.02, h * 0.28, t, t); ctx.fillRect(h * 0.02, h * 0.62, t, t); }
+        else for (const name of SEGMENTS[ch] ?? '') segment(...SEG[name]);
+        ctx.restore();
+        px += advance(ch);
     }
     ctx.restore();
     return width;
