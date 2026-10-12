@@ -3,11 +3,9 @@ import {
     BackSide,
     CubeCamera,
     DirectionalLight,
-    DoubleSide,
     HalfFloatType,
     MathUtils,
     Mesh,
-    MeshBasicMaterial,
     PCFShadowMap,
     Scene,
     ShaderChunk,
@@ -144,35 +142,19 @@ const SUN_DISTANCE = 400;
 
 // Éclairage des matériaux : le soleil prend son ombre dans la carte fine là où elle couvre (fondu sur ses bords), dans
 // la carte large ailleurs. La carte fine est celle d'une seconde lumière directionnelle, d'intensité nulle (elle
-// n'éclaire rien). Une troisième, d'intensité nulle elle aussi, ne voit que les vitres de l'avion (copies sur le calque
-// GLASS_LAYER) : là où le rayon vers le soleil traverse une vitre, une part de la lumière passe toujours (effet simulé :
-// avec la vraie géométrie de la cabine, presque tout rayon entré par une vitre bute sur la porte d'en face, le plancher
-// ou l'aile, et l'ombre de la cabine au sol restait pleine). Les trois lumières à ombres sont les seules lumières
-// directionnelles : celle qui éclaire est le soleil, des deux autres, la carte la plus fine est celle du détail
-const GLASS_LAYER = 5;
-const GLASS_TRANSMISSION = 0.3;   // part de la lumière qui passe par les vitres, quoi qu'il y ait derrière
-const GLASS_BLUR = 6;             // filtrage de la carte des vitres (texels) : taches de lumière aux bords doux, sans escaliers
+// n'éclaire rien) : avec deux lumières à ombres, l'autre est toujours celle-là (aucune autre lumière directionnelle)
 const SHADOW_LINE = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
-const B = '( UNROLLED_LOOP_INDEX + 1 ) % 3', C = '( UNROLLED_LOOP_INDEX + 2 ) % 3';
 const DETAIL_SHADOW = /* glsl */`
-		#if NUM_DIR_LIGHT_SHADOWS == 3 && UNROLLED_LOOP_INDEX < 3
+		#if NUM_DIR_LIGHT_SHADOWS == 2 && UNROLLED_LOOP_INDEX < 2
 		if ( directLight.visible && receiveShadow && dot( directLight.color, directLight.color ) > 0.0 ) {
-			DirectionalLightShadow shadowB = directionalLightShadows[ ${B} ];
-			DirectionalLightShadow shadowC = directionalLightShadows[ ${C} ];
-			vec4 coordB = vDirectionalShadowCoord[ ${B} ];
-			vec4 coordC = vDirectionalShadowCoord[ ${C} ];
-			float shadowOfB = getShadow( directionalShadowMap[ ${B} ], shadowB.shadowMapSize, shadowB.shadowIntensity, shadowB.shadowBias, shadowB.shadowRadius, coordB );
-			float shadowOfC = getShadow( directionalShadowMap[ ${C} ], shadowC.shadowMapSize, shadowC.shadowIntensity, shadowC.shadowBias, shadowC.shadowRadius, coordC );
-			bool bIsDetail = shadowB.shadowMapSize.x > shadowC.shadowMapSize.x;
-			vec4 detailCoord = bIsDetail ? coordB : coordC;
-			float sharpShadow = bIsDetail ? shadowOfB : shadowOfC;
-			float glassShadow = bIsDetail ? shadowOfC : shadowOfB;
+			DirectionalLightShadow detailShadow = directionalLightShadows[ 1 - UNROLLED_LOOP_INDEX ];
+			vec4 detailCoord = vDirectionalShadowCoord[ 1 - UNROLLED_LOOP_INDEX ];
 			vec3 detailPoint = detailCoord.xyz / detailCoord.w;
 			float edge = max( abs( detailPoint.x - 0.5 ), abs( detailPoint.y - 0.5 ) ) * 2.0;
 			float coarse = detailPoint.z > 1.0 ? 1.0 : smoothstep( 0.75, 0.95, edge );   // 0 : carte fine, 1 : carte large
+			float sharpShadow = coarse < 1.0 ? getShadow( directionalShadowMap[ 1 - UNROLLED_LOOP_INDEX ], detailShadow.shadowMapSize, detailShadow.shadowIntensity, detailShadow.shadowBias, detailShadow.shadowRadius, detailCoord ) : 1.0;
 			float coarseShadow = coarse > 0.0 ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
-			float sunShadow = mix( sharpShadow, coarseShadow, coarse );
-			directLight.color *= max( sunShadow, ${GLASS_TRANSMISSION.toFixed(2)} * ( 1.0 - glassShadow ) );
+			directLight.color *= mix( sharpShadow, coarseShadow, coarse );
 		}
 		#else
 		${SHADOW_LINE}
@@ -209,41 +191,20 @@ class Graphics {
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = PCFShadowMap; // ombres filtrées, nettement moins coûteuses que PCFSoft
 
-        // Ombres : les zones couvertes suivent l'avion ; carte fine et carte des vitres : lumières sans éclairage,
-        // seulement pour leur ombre. Carte des vitres deux fois moins fine que celle du détail (c'est ainsi que le
-        // shader les distingue), elle ne voit que le calque des vitres
-        const patched = patchDetailShadow();
-        this.detailLight = patched ? new DirectionalLight(0xffffff, 0) : null;
-        this.glassLight = patched ? new DirectionalLight(0xffffff, 0) : null;
-        for (const light of this._shadowLights()) {
+        // Ombres : les zones couvertes suivent l'avion ; carte fine : lumière sans éclairage, seulement pour son ombre
+        this.detailLight = patchDetailShadow() ? new DirectionalLight(0xffffff, 0) : null;
+        for (const light of [sunLight, this.detailLight]) {
+            if (!light) continue;
             light.castShadow = true;
             light.shadow.mapSize.set(2048, 2048);
             light.shadow.camera.near = 1;
             light.shadow.camera.far = SUN_DISTANCE * 2;
             light.shadow.bias = -0.0005;
             scene.add(light.target);
-            if (light !== sunLight) scene.add(light);
         }
+        if (this.detailLight) scene.add(this.detailLight);
         this._setShadowSize(sunLight, SHADOW_SIZE);
-        if (patched) {
-            this.glassLight.shadow.mapSize.set(1024, 1024);
-            this.glassLight.shadow.radius = GLASS_BLUR;
-            // three.js choisit les objets d'une carte d'ombres d'après les calques de la caméra principale : la carte
-            // des vitres est dessinée à part, la caméra réduite au calque des vitres le temps de ce passage
-            const shadowMap = renderer.shadowMap, renderShadows = shadowMap.render.bind(shadowMap);
-            shadowMap.render = (lights, scene, camera) => {
-                const glass = lights.includes(this.glassLight);
-                renderShadows(glass ? lights.filter((light) => light !== this.glassLight) : lights, scene, camera);
-                if (!glass) return;
-                const mask = camera.layers.mask;
-                camera.layers.set(GLASS_LAYER);
-                shadowMap.needsUpdate = true;
-                renderShadows([this.glassLight], scene, camera);
-                camera.layers.mask = mask;
-            };
-            this._setShadowSize(this.detailLight, DETAIL_SIZE);
-            this._setShadowSize(this.glassLight, DETAIL_SIZE);
-        }
+        if (this.detailLight) this._setShadowSize(this.detailLight, DETAIL_SIZE);
 
         // Ciel : diffusion atmosphérique (Rayleigh / Mie). Il ne dépend que de la météo : calculé une fois
         // dans une cubemap (voir setAtmosphere), la scène n'affiche qu'un dôme qui lit cette texture.
@@ -322,11 +283,11 @@ class Graphics {
     setShadows(size) {
         const enabled = size > 0;
         this.renderer.shadowMap.enabled = enabled;
-        for (const light of this._shadowLights()) {
+        for (const light of [this.sunLight, this.detailLight]) {
+            if (!light) continue;
             light.castShadow = enabled;
-            const mapSize = light === this.glassLight ? Math.max(512, size / 2) : size;   // vitres : moins fine
-            if (enabled && light.shadow.mapSize.x !== mapSize) {
-                light.shadow.mapSize.set(mapSize, mapSize);
+            if (enabled && light.shadow.mapSize.x !== size) {
+                light.shadow.mapSize.set(size, size);
                 light.shadow.map?.dispose();
                 light.shadow.map = null; // recréée à la bonne taille
                 this._setShadowSize(light, light.userData.shadowSize);
@@ -413,24 +374,6 @@ class Graphics {
         this.composer.setSize(width, height);
     }
 
-    _shadowLights() {
-        return [this.sunLight, this.detailLight, this.glassLight].filter(Boolean);
-    }
-
-    // Vitres de l'avion (maillages) : leurs copies, sur le calque des vitres, ne sont vues que par la carte des vitres
-    // (ni par la caméra, ni par les autres cartes d'ombres, ni par les rayons de la souris)
-    addGlass(meshes) {
-        if (!this.glassLight) return;
-        const material = new MeshBasicMaterial({ side: DoubleSide });
-        for (const mesh of meshes) {
-            const proxy = new Mesh(mesh.geometry, material);
-            proxy.layers.set(GLASS_LAYER);
-            proxy.castShadow = true;
-            proxy.receiveShadow = false;
-            mesh.add(proxy);
-        }
-    }
-
     // Demi-côté de la zone d'ombres d'une lumière (m) ; le décalage anti-acné suit la taille des texels
     _setShadowSize(light, size) {
         light.userData.shadowSize = size;
@@ -461,10 +404,8 @@ class Graphics {
         this._placeShadow(this.sunLight, shadowCenter);
         if (this.detailLight) {
             const size = cockpit ? COCKPIT_DETAIL_SIZE : DETAIL_SIZE;
-            for (const light of [this.detailLight, this.glassLight]) {
-                if (size !== light.userData.shadowSize) this._setShadowSize(light, size);
-                this._placeShadow(light, shadowCenter);
-            }
+            if (size !== this.detailLight.userData.shadowSize) this._setShadowSize(this.detailLight, size);
+            this._placeShadow(this.detailLight, shadowCenter);
         }
     }
 

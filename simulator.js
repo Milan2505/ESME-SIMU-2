@@ -235,8 +235,6 @@ loadAircraft().then(({ model, template, parts }) => {
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
     aircraftLights.setRudder(parts.pivots.rudder);
-    // Vitres : une part de la lumière les traverse toujours (ombre de la cabine au sol, soleil dans l'habitacle)
-    graphics.addGlass(['glas', 'leftwindow', 'rightwindow'].map((name) => model.getObjectByName(name)).filter((mesh) => mesh?.isMesh));
     remotePlayers.setTemplate(template);
     airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
         setRegistration(plane, registration);
