@@ -12,7 +12,7 @@
             "problemMatcher": {
                 "pattern": { "regexp": "^$" },
                 "background": {
-                    "activesBegin": true,
+                    "activeOnStart": true,
                     "beginsPattern": "Serving HTTP",
                     "endsPattern": "Serving HTTP"
                 }
