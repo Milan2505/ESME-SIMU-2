@@ -38,6 +38,8 @@ const CAST = {
     },
 };
 const ROLE_ORDER = ['pilot', 'ground', 'tower', 'approach', 'atis'];
+// Voix des pilotes : un même modèle, plus ou moins grave selon le joueur (voir _pilotRate)
+const PILOT_RATES = [1, 0.93, 1.07, 0.89, 1.11];
 // Alphabet OACI prononcé à la française (sinon "Mike" est lu "mik", "Juliett" "juliète"…)
 const PHONETIC_FR = {
     Alpha: 'Alfa', Charlie: 'Tcharli', Echo: 'Écho', Foxtrot: 'Foxtrotte', Hotel: 'Hôtel', India: 'Indiya',
@@ -96,34 +98,64 @@ class RadioVoices extends EventTarget {
         })();
     }
 
+    // Joueur local (multijoueur : son identifiant) : sa voix de pilote, la même que celle que les autres entendent
+    setPlayerId(id) {
+        this.playerId = id || '';
+    }
+
+    // Voix attitrée d'un pilote : même modèle pour tous, voix plus grave ou plus aiguë selon l'identifiant du joueur
+    // (calculée pareil chez tout le monde : un joueur s'entend comme les autres l'entendent). Solo : voix normale
+    _pilotRate(seed) {
+        if (!seed) return 1;
+        const hash = [...seed].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+        return PILOT_RATES[hash % PILOT_RATES.length];
+    }
+
     // Prépare un message (calcul de la voix pendant que l'autre parle) ; renvoie un objet { play() }.
-    // Autre joueur (multijoueur) : role 'otherPilot', seed = son identifiant (sa voix, toujours la même), lang = sa langue
+    // Autre joueur (multijoueur) : role 'otherPilot', seed = son identifiant, lang = la langue de son message.
+    // Chaque rôle garde toujours la même voix : voix réaliste dans toutes les langues ; un calcul raté est refait
+    // (pas de voix de l'ordinateur pour un seul message) ; la voix de l'ordinateur ne sert que si les voix réalistes
+    // sont abandonnées pour toute la session, ou choisies dans les réglages
     async prepare(text, role, { lang = this.lang, seed = '' } = {}) {
-        if (lang !== this.lang) return { play: () => this._speakSystem(text, role, lang) };   // autre langue : voix de l'ordinateur
-        const spoken = this.lang === 'fr' ? text.replace(/\b(Alpha|Charlie|Echo|Foxtrot|Hotel|India|Juliett|Mike|November|Quebec|Romeo|Sierra|Uniform|Whiskey|X-ray|Yankee|Zulu)\b/g, (w) => PHONETIC_FR[w]) : text;
+        const language = CAST[lang] ? lang : this.lang;
+        const spoken = language === 'fr' ? text.replace(/\b(Alpha|Charlie|Echo|Foxtrot|Hotel|India|Juliett|Mike|November|Quebec|Romeo|Sierra|Uniform|Whiskey|X-ray|Yankee|Zulu)\b/g, (w) => PHONETIC_FR[w]) : text;
         if (this.mode === 'neural' && this.status.state !== 'error') {
+            const pilot = role === 'pilot' || role === 'otherPilot';
+            const cast = pilot ? CAST[language].pilot : CAST[language][role] ?? CAST[language].tower;
+            const rate = pilot ? this._pilotRate(role === 'pilot' ? this.playerId : seed) : cast.rate ?? 1;
+            // Pilote : message découpé aux virgules, la suite se calcule pendant qu'il parle (il commence tout de
+            // suite) ; ATIS : phrase par phrase ; contrôleurs : message entier (calculé pendant leur temps de réaction)
+            const parts = pilot ? this._chunks(spoken) : role === 'atis' ? spoken.split(/(?<=[.])\s+/) : [spoken];
+            const audios = parts.map((part) => this._synthesizeRetry(cast, part));
+            audios.forEach((a) => a.catch(() => {}));
             try {
-                // Autres pilotes : même modèle que le pilote, voix plus grave ou plus aiguë selon le joueur
-                const other = role === 'otherPilot';
-                const cast = other ? CAST[this.lang].pilot : CAST[this.lang][role] ?? CAST[this.lang].tower;
-                const rate = other ? [0.88, 0.93, 1.07, 1.12][[...seed].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 4] : cast.rate ?? 1;
-                // Pilote : message découpé aux virgules, la suite se calcule pendant qu'il parle (il commence tout de
-                // suite) ; ATIS : phrase par phrase ; contrôleurs : message entier (calculé pendant leur temps de réaction)
-                const parts = role === 'pilot' || other ? this._chunks(spoken)
-                    : role === 'atis' ? spoken.split(/(?<=[.])\s+/) : [spoken];   // ATIS : phrase par phrase
-                const audios = parts.map((part) => this._synthesize(cast, part));
-                audios.forEach((a) => a.catch(() => {}));
                 await audios[0];
                 return {
                     play: async () => {
-                        for (const audio of audios) await this._play(await audio, role, audio === audios[audios.length - 1], rate);
+                        for (const audio of audios) {
+                            const data = await audio.catch(() => null);   // morceau perdu : on passe au suivant, même voix
+                            if (data) await this._play(data, role, audio === audios[audios.length - 1], rate);
+                        }
                     },
                 };
             } catch (error) {
                 this._failed(error);
+                if (this.status.state !== 'error') return { play: () => wait(300) };   // message perdu, voix inchangée
             }
         }
-        return { play: () => this._speakSystem(spoken, role) };
+        return { play: () => this._speakSystem(spoken, role === 'otherPilot' ? 'pilot' : role, language) };
+    }
+
+    // Calcul refait jusqu'à deux fois (le fil de calcul planté est recréé entre-temps)
+    async _synthesizeRetry(cast, text, ids = null) {
+        for (let attempt = 0; ; attempt++) {
+            try {
+                return await this._synthesize(cast, text, ids);
+            } catch (error) {
+                if (attempt >= 2 || /annulé/.test(error.message)) throw error;
+                await wait(300);
+            }
+        }
     }
 
     // --- Voix réalistes ---------------------------------------------------------------------------
@@ -262,10 +294,10 @@ class RadioVoices extends EventTarget {
         });
     }
 
-    // Échec d'un calcul : ce message passe à la voix de l'ordinateur ; la voix réaliste n'est abandonnée qu'après trois
-    // échecs de suite (avant : un seul échec, par exemple une phrase illisible, la coupait pour tout le vol)
+    // Échec d'un calcul (déjà refait deux fois) : la voix réaliste n'est abandonnée, pour toute la session et tous les
+    // rôles à la fois, qu'après trois échecs de suite ; jamais de changement de voix message par message
     _failed(error) {
-        console.error("Voix réaliste en échec pour ce message, voix de l'ordinateur :", error);
+        console.error('Voix réaliste en échec (calcul refait, voix inchangée) :', error);
         this._failures = (this._failures ?? 0) + 1;
         if (this._failures >= 3) {
             this.status = { state: 'error', progress: 0 };
@@ -274,17 +306,17 @@ class RadioVoices extends EventTarget {
     }
 
     // --- Moniteur (mode Initiation) ---------------------------------------------------------------
-    // Dit un texte avec la voix du moniteur ; renvoie une promesse résolue à la fin (ou à l'interruption). Voix réaliste
-    // si elle est prête, sinon voix de l'ordinateur tout de suite (pas d'attente du téléchargement)
+    // Dit un texte avec la voix du moniteur ; renvoie une promesse résolue à la fin (ou à l'interruption). Toujours la
+    // même voix : la voix réaliste (au premier lancement, il parle quand elle est téléchargée ; son texte est affiché)
     async speakInstructor(text) {
         this.stopInstructor();
         const token = this._instructorToken = {};
         const spoken = text.replace(/«|»/g, '');
-        if (this.mode === 'neural' && this.status.state === 'ready') {
+        if (this.mode === 'neural' && this.status.state !== 'error') {
             try {
                 const cast = CAST[this.lang].instructor;
                 token.ids = [];
-                const audios = this._chunks(spoken).map((part) => this._synthesize(cast, part, token.ids));
+                const audios = this._chunks(spoken).map((part) => this._synthesizeRetry(cast, part, token.ids));
                 audios.forEach((a) => a.catch(() => {}));
                 for (const audio of audios) {
                     const data = await audio;

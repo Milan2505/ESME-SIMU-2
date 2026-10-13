@@ -1590,6 +1590,8 @@ function registrationFor(id) {
     return `F-H${letters[h % 26]}${letters[(h >>> 5) % 26]}${letters[(h >>> 10) % 26]}`;
 }
 function updateRegistration() {
+    // Voix de pilote attitrée : celle que les autres joueurs entendent (calculée d'après l'identifiant), la même toute la partie
+    radioVoices.setPlayerId(multiplayer.code ? multiplayer.id : '');
     atc.setRegistration(multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM');
     if (aircraftModel) setRegistration(aircraftModel, atc.registration);   // peinte sur le fuselage
     document.getElementById('atc-indicatif').textContent = atc.registration;

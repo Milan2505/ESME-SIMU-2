@@ -349,7 +349,10 @@ class Initiation {
         }
         // Étape faite (et le moniteur a fini sa phrase, sauf urgence en vol)
         const done = step.done ? safe(() => step.done(c, this._state.flags, delta)) : Boolean(step.radio);
-        const talked = !this._state.speaking || (step.urgent && this._time - this._state.entered > 2.5);
+        // Voix réaliste encore en téléchargement (premier lancement) : on n'attend pas qu'il ait parlé, juste le temps
+        // de lire la consigne
+        const reading = this.voices.status?.state === 'loading' && this._time - (this._state.spokenAt ?? 0) > 2 + (this.ui.text.textContent.length * 0.05);
+        const talked = !this._state.speaking || reading || (step.urgent && this._time - this._state.entered > 2.5);
         const radioDone = !step.radio || (safe(() => step.radio.until(c)) && !this.atc.busy && !this.atc.pending);
         if (step.next) {
             this.ui.next.hidden = false;
