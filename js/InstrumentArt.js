@@ -218,10 +218,9 @@ function drawPlanes(ctx) {
     ctx.lineWidth = 2;
     const wing = (sign) => {
         ctx.beginPath();
+        // Aile droite, posée sur l'arceau du support (voir Panel172 : aiMountTexture), sans retour vers le centre
         ctx.moveTo(200 + sign * 150, 96);
-        ctx.lineTo(200 + sign * 52, 96);
-        ctx.lineTo(200 + sign * 30, 118);
-        ctx.lineTo(200 + sign * 20, 118);
+        ctx.lineTo(200 + sign * 44, 96);
         ctx.lineTo(200 + sign * 44, 106);
         ctx.lineTo(200 + sign * 150, 106);
         ctx.closePath();

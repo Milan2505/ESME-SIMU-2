@@ -175,7 +175,8 @@ function prepare(scene) {
         meshes.RearNavLight.geometry.translate(-hinge.x, -hinge.y, -hinge.z);
         pivots.rudder.add(meshes.RearNavLight);
     }
-    PARTS.set(root, { propeller, pivots });
+    const gear = buildGear(meshes, scene);
+    PARTS.set(root, { propeller, pivots, gear });
     root.scale.setScalar(AIRCRAFT_SCALE);   // après les pivots (calculés dans le repère du modèle)
     root.userData = { registration: 'F-HESM', liveryColor: null, textureSize: 2048 };
     return root;
@@ -244,7 +245,54 @@ function closeWingRoot(meshes, scene) {
     }
 }
 
-// Pièces mobiles d'un avion : { propeller, pivots (gouvernes) }
+// Train d'atterrissage animé (repère du modèle ; la géométrie des pièces est dans ce repère, comme pour les gouvernes) :
+// - roulette de nez orientable : jambe, axe, carénage et roue tournent autour de l'axe de la jambe (inclinée vers l'avant)
+// - roues qui roulent : roulette (dans la partie orientable) et roues principales, chacune autour de son axe (x)
+// Rend { steer (axe : userData.axis), spins: [roues], radius (m, avant agrandissement) }, ou null
+function buildGear(meshes, scene) {
+    const strut = meshes.NoseWheelStrut, wheel = meshes.NoseWheel;
+    if (!strut || !wheel) return null;
+    // Axe de la jambe : centre de ses sommets du haut et du bas
+    const p = strut.geometry.attributes.position;
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < p.count; i++) { minY = Math.min(minY, p.getY(i)); maxY = Math.max(maxY, p.getY(i)); }
+    const top = new Vector3(), bottom = new Vector3();
+    let nTop = 0, nBottom = 0;
+    for (let i = 0; i < p.count; i++) {
+        const v = new Vector3(p.getX(i), p.getY(i), p.getZ(i));
+        if (v.y > maxY - 0.04) { top.add(v); nTop++; }
+        if (v.y < minY + 0.04) { bottom.add(v); nBottom++; }
+    }
+    top.divideScalar(nTop);
+    bottom.divideScalar(nBottom);
+    const steer = new Group();
+    steer.name = 'noseSteer';
+    steer.position.copy(bottom);
+    steer.userData.axis = top.clone().sub(bottom).normalize();
+    for (const mesh of [strut, meshes.Axle, meshes.fairing1].filter(Boolean)) {
+        mesh.geometry.translate(-bottom.x, -bottom.y, -bottom.z);
+        steer.add(mesh);
+    }
+    scene.add(steer);
+    // Roue autour de son centre ; dans la partie orientable pour la roulette
+    const spinner = (mesh, parent, origin) => {
+        mesh.geometry.computeBoundingBox();
+        const center = mesh.geometry.boundingBox.getCenter(new Vector3());
+        mesh.geometry.translate(-center.x, -center.y, -center.z);
+        const group = new Group();
+        group.position.copy(center).sub(origin);
+        group.add(mesh);
+        parent.add(group);
+        return group;
+    };
+    const spins = [spinner(wheel, steer, bottom)];
+    for (const name of ['LeftWheel', 'RightWheel']) if (meshes[name]) spins.push(spinner(meshes[name], scene, new Vector3()));
+    wheel.geometry.computeBoundingBox();
+    const radius = (wheel.geometry.boundingBox.max.y - wheel.geometry.boundingBox.min.y) / 2;
+    return { steer, spins, radius };
+}
+
+// Pièces mobiles d'un avion : { propeller, pivots (gouvernes), gear (train) }
 function aircraftParts(model) {
     return PARTS.get(model);
 }

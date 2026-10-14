@@ -18,7 +18,7 @@ import { Cockpit, vorIndicator } from './js/Cockpit.js';
 import { VOR } from './js/VOR.js';
 import { Systems } from './js/Systems.js';
 import { CrashEffect } from './js/CrashEffect.js';
-import { ControlSurfaces } from './js/ControlSurfaces.js';
+import { ControlSurfaces, Gear } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
 import { AircraftLights } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
@@ -161,6 +161,7 @@ let propeller = null;
 let propellerParts = new Set();   // pièces de l'hélice (estompées quand elle tourne vite)
 let propellerDisc = null;          // disque de flou de l'hélice qui tourne vite
 let controlSurfaces = null;
+let gear = null;                  // roulette de nez orientable, roues qui roulent
 let chaseView = true;
 const clock = new THREE.Clock();
 
@@ -232,6 +233,7 @@ loadAircraft().then(({ model, template, parts }) => {
     aircraftModel = model;
     propeller = parts.propeller;
     controlSurfaces = new ControlSurfaces(parts.pivots);
+    gear = parts.gear ? new Gear(parts.gear, AIRCRAFT_SCALE) : null;
     setupPropellerBlur(propeller);
     airframe.add(model);
     cockpit.addCabinShell(buildCabinShell(model));   // garnitures intérieures : l'envers de la carrosserie
@@ -2181,6 +2183,10 @@ renderer.setAnimationLoop((time)=>{
     updateIls();
     updateVor( delta );
     controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps() );
+    if (gear) {
+        const inputs = controls.getInputs();
+        gear.update( delta, inputs.yaw + inputs.roll * 0.5, controls.getSpeed(), controls.isOnGround() );   // même braquage que FlightModel
+    }
     // Instruments et manches animés en cabine, et en vue extérieure quand on est assez près pour les voir
     if (!chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
     updateFog();

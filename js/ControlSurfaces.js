@@ -43,4 +43,28 @@ class ControlSurfaces {
     }
 }
 
-export { ControlSurfaces };
+// Train d'atterrissage (C172Model.js : buildGear) : roulette de nez orientée par le palonnier au sol (recentrée en vol,
+// comme le vrai train : la jambe se détend et se recentre), roues qui tournent à la vitesse de roulage
+const NOSE_STEER = 20;    // braquage max de la roulette (degrés)
+class Gear {
+    // gear : { steer, spins, radius } ; scale : agrandissement du modèle (rayon réel des roues)
+    constructor(gear, scale = 1) {
+        this.gear = gear;
+        this.radius = gear.radius * scale;
+        this.angle = 0;
+        this.roll = 0;
+    }
+
+    // steer : commande au sol (-1 -> 1, + = gauche) ; speed : vitesse de roulage (m/s) ; onGround
+    update(delta, steer, speed, onGround) {
+        const { steer: pivot, spins } = this.gear;
+        const target = onGround ? MathUtils.clamp(steer, -1, 1) * NOSE_STEER : 0;
+        this.angle += (target - this.angle) * (1 - Math.exp(-6 * delta));
+        pivot.quaternion.setFromAxisAngle(pivot.userData.axis, MathUtils.degToRad(this.angle));
+        // Roues : au sol elles roulent ; en l'air elles ralentissent peu à peu
+        this.roll = onGround ? speed / this.radius : this.roll * Math.exp(-0.4 * delta);
+        for (const wheel of spins) wheel.rotation.x -= this.roll * delta;   // vers l'avant : le haut de la roue avance
+    }
+}
+
+export { ControlSurfaces, Gear };
