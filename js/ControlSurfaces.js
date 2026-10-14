@@ -45,7 +45,7 @@ class ControlSurfaces {
 
 // Train d'atterrissage (C172Model.js : buildGear) : roulette de nez orientée par le palonnier au sol (recentrée en vol,
 // comme le vrai train : la jambe se détend et se recentre), roues qui tournent à la vitesse de roulage
-const NOSE_STEER = 20;    // braquage max de la roulette (degrés)
+const NOSE_STEER = 30;    // braquage max de la roulette (degrés) : celui d'un vrai C172, palonnier et frein différentiel
 class Gear {
     // gear : { steer, spins, radius } ; scale : agrandissement du modèle (rayon réel des roues)
     constructor(gear, scale = 1) {
