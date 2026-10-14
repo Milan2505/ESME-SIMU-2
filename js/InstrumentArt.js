@@ -30,7 +30,9 @@ const C = CELLS.compass;
 const SPRITES = {
     asiNeedle: needleSlot(0), altLong: needleSlot(1), altShort: needleSlot(2), alt10k: needleSlot(3),
     vsiNeedle: needleSlot(4), tachNeedle: needleSlot(5), smallNeedle: needleSlot(6),
-    aiPlane: { x: CELLS.planes.x, y: CELLS.planes.y, w: 400, h: 200, px: 200, py: 100 },
+    // Maquette de l'horizon (dessinée de y 87 à 127) : zone resserrée autour d'elle ; collée au bord de la case du dessus
+    // (anémomètre), elle en reprenait un trait sombre au filtrage de la texture
+    aiPlane: { x: CELLS.planes.x + 40, y: CELLS.planes.y + 70, w: 320, h: 70, px: 160, py: 30 },
     tcPlane: { x: CELLS.planes.x, y: CELLS.planes.y + 200, w: 400, h: 200, px: 200, py: 100 },
     adfNeedle: { x: C.x, y: C.y + 170, w: 360, h: 40, px: 180, py: 20 },
     flagTO: { x: C.x + 370, y: C.y + 170, w: 80, h: 40, px: 40, py: 20 },
