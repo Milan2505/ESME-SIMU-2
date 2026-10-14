@@ -254,7 +254,7 @@ function drawAlt(ctx) {
     // Fenêtre du calage (affichée par-dessus) et zone hachurée sous 10 000 ft
     ctx.fillStyle = '#000';
     ctx.fillRect(cx + R * 0.38, cy - R * 0.1, R * 0.36, R * 0.2);
-    text(ctx, 'hPa', cx + R * 0.56, cy + R * 0.18, R * 0.06, '#cfcfcf');
+    text(ctx, 'hPa', cx + R * 0.42, cy + R * 0.17, R * 0.06, '#cfcfcf');   // sous la fenêtre, à gauche du 3
     ctx.save();
     ctx.beginPath();
     ctx.rect(cx + R * 0.02, cy + R * 0.4, R * 0.22, R * 0.14);
@@ -399,8 +399,9 @@ function drawVsi(ctx) {
         for (const s of v === 2000 ? [1] : [-1, 1]) radialLabel(ctx, String(v / 100), cx, cy, R * 0.6, vsiAngle(s * v), R * 0.17);
     }
     radialLabel(ctx, '0', cx, cy, R * 0.6, vsiAngle(0), R * 0.17);
-    text(ctx, 'UP', cx - R * 0.42, cy - R * 0.33, R * 0.09);
-    text(ctx, 'DOWN', cx - R * 0.38, cy + R * 0.33, R * 0.09);
+    // UP / DOWN entre le centre et les chiffres 5 (à 0,6 rayon : ils les recouvraient)
+    text(ctx, 'UP', cx - R * 0.2, cy - R * 0.32, R * 0.09);
+    text(ctx, 'DOWN', cx - R * 0.2, cy + R * 0.32, R * 0.09);
     text(ctx, 'VERTICAL SPEED', cx + R * 0.1, cy - R * 0.12, R * 0.075);
     text(ctx, '100 FEET PER MINUTE', cx + R * 0.1, cy + R * 0.04, R * 0.055);
 }

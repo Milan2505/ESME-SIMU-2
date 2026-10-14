@@ -289,7 +289,8 @@ class Panel172 {
             sprite: lit(this.atlas, { transparent: true }),
             plates: lit(plates, { roughness: 0.6 }),
             // Support de la maquette de l'horizon et cache du bas (fixes, devant la carte)
-            aiMount: lit(aiMountTexture(), { transparent: true, roughness: 0.55 }),
+            // (ne masque pas la profondeur : sinon, transparent partout ailleurs, il cachait le repère d'inclinaison)
+            aiMount: lit(aiMountTexture(), { transparent: true, depthWrite: false, roughness: 0.55 }),
         };
         this._display = new MeshBasicMaterial({ map: this.displayTexture, color: 0xe8e8e8 });
         this._edge = new MeshStandardMaterial({ color: 0x3a3b3e, roughness: 0.7 });
@@ -503,7 +504,8 @@ class Panel172 {
         this._disc(i, 'aiRing', 2, roll);
         p.aiRoll = roll;
         p.aiCard = card;
-        this._sprite(i, 'bankPointer', 3, { y: i.rd * 0.86 });
+        // Repère d'inclinaison : triangle orange fixe, pointe vers le haut, juste sous la couronne graduée (qui tourne)
+        this._sprite(i, 'bankPointer', 5, { y: i.rd * 0.66 }).scale.setScalar(1.5);
         // Support de la maquette : arceau noir sous les ailes, pied qui descend jusqu'au cache du bas (VACUUM), comme sur
         // le vrai instrument (la maquette ne flotte pas dans le vide)
         const mount = new Mesh(new CircleGeometry(i.rd, 64), this.materials.aiMount);
