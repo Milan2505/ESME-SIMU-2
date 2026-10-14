@@ -122,6 +122,69 @@ function mapUV(geometry, region, size = ATLAS_SIZE, height = size) {
     return geometry;
 }
 
+// Support de la maquette de l'horizon artificiel (disque du cadran, 512 px = 2 rayons ; centre = maquette) : arceau
+// sous les ailes, pied en trapèze, cache du bas avec l'inscription VACUUM ; transparent ailleurs
+function aiMountTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const c = 256, r = 256, k = r / 200;   // k : px du canevas par px de l'atlas (maquette : ailes à ±150, centre en 0)
+    const chord = c + 0.6 * r;            // haut du cache du bas
+    const dark = '#242426', edge = '#3c3c40';
+    // Cache du bas : segment de disque
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(c, c, r, 0, Math.PI * 2);
+    ctx.clip();
+    const g = ctx.createLinearGradient(0, chord, 0, 2 * r);
+    g.addColorStop(0, edge);
+    g.addColorStop(0.15, dark);
+    g.addColorStop(1, '#161618');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, chord);
+    ctx.quadraticCurveTo(c, chord - 18, 2 * r, chord);
+    ctx.lineTo(2 * r, 2 * r);
+    ctx.lineTo(0, 2 * r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    // Pied : du dessous de l'arceau au cache, en s'élargissant
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(c - 9, c + 52 * k);
+    ctx.lineTo(c + 9, c + 52 * k);
+    ctx.lineTo(c + 58, chord + 6);
+    ctx.lineTo(c - 58, chord + 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Arceau : tient les ailes par leurs racines (±46 px de l'atlas) et passe sous le point central
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 11;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(c, c + 4, 46 * k, Math.PI * 0.06, Math.PI * 0.94);
+    ctx.stroke();
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(c, c + 4, 46 * k - 5, Math.PI * 0.1, Math.PI * 0.9);
+    ctx.stroke();
+    // Inscription
+    ctx.fillStyle = '#d8d8d8';
+    ctx.font = 'bold 26px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('VACUUM', c, chord + 46);
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
+    texture.anisotropy = 8;
+    return texture;
+}
+
 function zCylinder(r, length, material, segments = 24) {
     const geometry = new CylinderGeometry(r, r, length, segments);
     geometry.rotateX(Math.PI / 2);
@@ -220,6 +283,8 @@ class Panel172 {
             dial: lit(this.atlas),
             sprite: lit(this.atlas, { transparent: true }),
             plates: lit(plates, { roughness: 0.6 }),
+            // Support de la maquette de l'horizon et cache du bas (fixes, devant la carte)
+            aiMount: lit(aiMountTexture(), { transparent: true, roughness: 0.55 }),
         };
         this._display = new MeshBasicMaterial({ map: this.displayTexture, color: 0xe8e8e8 });
         this._edge = new MeshStandardMaterial({ color: 0x3a3b3e, roughness: 0.7 });
@@ -434,6 +499,12 @@ class Panel172 {
         p.aiRoll = roll;
         p.aiCard = card;
         this._sprite(i, 'bankPointer', 3, { y: i.rd * 0.86 });
+        // Support de la maquette : arceau noir sous les ailes, pied qui descend jusqu'au cache du bas (VACUUM), comme sur
+        // le vrai instrument (la maquette ne flotte pas dans le vide)
+        const mount = new Mesh(new CircleGeometry(i.rd, 64), this.materials.aiMount);
+        mount.position.z = i.z + 3.5 * 0.0005;
+        mount.renderOrder = 3;
+        i.root.add(mount);
         p.aiPlane = this._sprite(i, 'aiPlane', 4);
         this._knob('ai', 938, 418, 9, { length: 0.01 });
 
