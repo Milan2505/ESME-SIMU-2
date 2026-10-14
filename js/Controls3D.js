@@ -121,22 +121,59 @@ class Controls3D {
         mags.add(key);
         this._parts.magKey = key;
 
-        // Rockers : master ALT / BAT (rouges), avionique BUS 1 / BUS 2 (blancs), ELT (rouge) ; basculent en haut = ON
-        const rocker = (id, x, y, w, h, color) => {
+        // Rockers : master ALT / BAT (rouges), avionique BUS 1 / BUS 2 (blancs), ELT (rouge) ; basculent en haut = ON.
+        // Comme sur le vrai tableau : chaque moitié est une bascule à deux pans (haut plus sombre, bas plus clair, liseré
+        // clair et lèvre sombre au pied), les deux moitiés côte à côte dans un cadre noir encastré
+        const rocker = (id, x, y, w, h, colors) => {
             const root = this._add(`switch:${id}`, panelPoint(x, y));
-            const size = [px(w) * 0.94, px(h) * 0.96, 0.012];
-            const body = new Mesh(new BoxGeometry(...size), new MeshStandardMaterial({ color, roughness: 0.45 }));
-            body.position.z = 0.006;
-            const ridge = new Mesh(new BoxGeometry(size[0] * 0.9, 0.0025, 0.002), new MeshStandardMaterial({ color: 0x000000, roughness: 0.8 }));
-            ridge.position.z = 0.0125;
-            root.add(body, ridge);
+            const width = px(w) * 0.97, height = px(h) * 0.94;
+            const mat = (color, roughness = 0.45) => new MeshStandardMaterial({ color, roughness });
+            const tilt = 0.16;   // pente des deux pans (rad)
+            const upper = new Mesh(new BoxGeometry(width, height * 0.5, 0.006), mat(colors.upper));
+            upper.position.set(0, height * 0.25, 0.007);
+            upper.rotation.x = -tilt;
+            // Pan du bas : tourné à l'opposé de la lumière du tableau, un peu auto-éclairé pour garder sa teinte claire
+            const lower = new Mesh(new BoxGeometry(width, height * 0.5, 0.006), new MeshStandardMaterial({
+                color: colors.lower, roughness: 0.38, emissive: colors.lower, emissiveIntensity: 0.28 }));
+            lower.position.set(0, -height * 0.25, 0.007);
+            lower.rotation.x = tilt;
+            const stripe = new Mesh(new BoxGeometry(width * 0.96, height * 0.035, 0.0012), mat(colors.stripe, 0.3));
+            stripe.position.set(0, -height * 0.36, 0.0097);
+            stripe.rotation.x = tilt;
+            const lip = new Mesh(new BoxGeometry(width, height * 0.07, 0.006), mat(colors.lip, 0.6));
+            lip.position.set(0, -height * 0.47, 0.0066);
+            lip.rotation.x = tilt;
+            const core = new Mesh(new BoxGeometry(width * 0.98, height * 0.96, 0.008), mat(colors.lip, 0.7));   // corps sous les pans
+            core.position.z = 0.004;
+            root.add(core, upper, lower, stripe, lip);
             this._parts[id] = root;
         };
-        rocker('masterAlt', L.master.x - 12.5, L.master.y, 25, 74, 0xd8402a);
-        rocker('masterBat', L.master.x + 12.5, L.master.y, 25, 74, 0xe3542f);
-        rocker('avionics', L.avionics.x - 10.5, L.avionics.y, 21, 74, 0xf0f0f0);
-        rocker('avionics2', L.avionics.x + 10.5, L.avionics.y, 21, 74, 0xf0f0f0);
-        rocker('elt', L.elt.x, L.elt.y, 16, 42, 0xd8241b);
+        // Cadre noir encastré autour d'une paire de bascules (centre, largeur et hauteur en px du schéma)
+        const frame = (x, y, w, h) => {
+            const group = new Group();
+            group.position.copy(panelPoint(x, y));
+            const black = new MeshStandardMaterial({ color: 0x101012, roughness: 0.5 });
+            const border = px(5), W = px(w), H = px(h);
+            for (const [bw, bh, bx, by] of [[W, border, 0, (H - border) / 2], [W, border, 0, -(H - border) / 2],
+                [border, H, -(W - border) / 2, 0], [border, H, (W - border) / 2, 0]]) {
+                const bar = new Mesh(new BoxGeometry(bw, bh, 0.01), black);
+                bar.position.set(bx, by, 0.005);
+                group.add(bar);
+            }
+            const well = new Mesh(new BoxGeometry(W, H, 0.002), new MeshStandardMaterial({ color: 0x060607, roughness: 0.9 }));
+            well.position.z = 0.0005;
+            group.add(well);
+            this.group.add(group);
+        };
+        const RED = { upper: 0xb83a2c, lower: 0xd2734c, stripe: 0xf3c9a4, lip: 0x8c2219 };
+        const WHITE = { upper: 0xd9dadc, lower: 0xf4f4f4, stripe: 0xffffff, lip: 0x8f9194 };
+        frame(L.master.x, L.master.y, 60, 84);
+        rocker('masterAlt', L.master.x - 12.5, L.master.y, 25, 74, RED);
+        rocker('masterBat', L.master.x + 12.5, L.master.y, 25, 74, RED);
+        frame(L.avionics.x, L.avionics.y, 52, 84);
+        rocker('avionics', L.avionics.x - 10.5, L.avionics.y, 21, 74, WHITE);
+        rocker('avionics2', L.avionics.x + 10.5, L.avionics.y, 21, 74, WHITE);
+        rocker('elt', L.elt.x, L.elt.y, 16, 42, { upper: 0xb8241b, lower: 0xd8402a, stripe: 0xf3b0a0, lip: 0x7a1510 });
 
         // Disjoncteurs : bouton noir chiffré, collerette blanche visible quand il est sorti
         for (const b of [...L.breakers, ...L.avionicsBreakers]) {
