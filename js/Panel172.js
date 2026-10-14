@@ -347,6 +347,19 @@ class Panel172 {
         return inst;
     }
 
+    // Carte de l'horizon artificiel : coordonnées de texture du disque décalées de offset (m, vers le haut) ; l'image de
+    // l'atlas couvre 2,1 x 4,2 rayons (comme l'ancienne carte rectangulaire)
+    _aiPitch(card, rd, offset) {
+        const position = card.geometry.attributes.position, uv = card.geometry.attributes.uv, cell = CELLS.aiCard;
+        for (let k = 0; k < position.count; k++) {
+            const x = position.getX(k), y = position.getY(k) - offset;
+            const px = cell.x + (x / (2.1 * rd) + 0.5) * cell.w;
+            const py = cell.y + (0.5 - y / (4.2 * rd)) * cell.h;
+            uv.setXY(k, px / ATLAS_SIZE, 1 - py / ATLAS_SIZE);
+        }
+        uv.needsUpdate = true;
+    }
+
     // Disque de l'atlas (cadran, rose) au fond du boîtier ; layer : décalage vers la vitre (0,5 mm par couche)
     _disc(inst, cellKey, layer = 0, parent = inst.root) {
         const geometry = mapUV(new CircleGeometry(inst.rd, 64), CELLS[cellKey]);
@@ -408,9 +421,13 @@ class Panel172 {
         const roll = new Group();
         roll.position.z = 0;
         i.root.add(roll);
-        const card = new Mesh(mapUV(new PlaneGeometry(i.rd * 2.1, i.rd * 4.2), CELLS.aiCard), this.materials.dial);
+        // Carte : disque de la taille du cadran, l'image (ciel, sol, échelle) y glisse selon l'assiette (voir _aiPitch).
+        // Avant : un rectangle de 2 x 4 rayons qui glissait lui-même ; il dépassait derrière la tôle jusque sous le
+        // trou du conservateur de cap, où on le voyait
+        const card = new Mesh(new CircleGeometry(i.rd, 64), this.materials.dial);
         card.position.z = i.z;
         roll.add(card);
+        this._aiPitch(card, i.rd, 0);
         // Fond noir derrière la carte (vu en biais)
         this._disc(i, 'back', 0).position.z = i.z - 0.0008;
         this._disc(i, 'aiRing', 2, roll);
@@ -743,7 +760,7 @@ class Panel172 {
         z(p.asiNeedle, asiAngle(s.speedKt));
         // Horizon : carte décalée de r/30 par degré, groupe tourné de l'inclinaison
         p.aiRoll.rotation.z = -s.gyro.roll;
-        p.aiCard.position.y = -Math.max(-25, Math.min(25, s.gyro.pitch)) * (p.ai.rd / 30);
+        this._aiPitch(p.aiCard, p.ai.rd, -Math.max(-25, Math.min(25, s.gyro.pitch)) * (p.ai.rd / 30));
         p.aiPlane.position.y = av.aiOffset * 0.001;
         const ft = s.altitudeFt + (av.baro - 1013) * 27.3;
         z(p.altLong, (ft / 1000) * Math.PI * 2);
