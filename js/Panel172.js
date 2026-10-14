@@ -173,6 +173,11 @@ function aiMountTexture() {
     ctx.beginPath();
     ctx.arc(c, c + 4, 46 * k - 5, Math.PI * 0.1, Math.PI * 0.9);
     ctx.stroke();
+    // Tige : tient le point orange de la maquette, du centre jusqu'au bas de l'arceau
+    ctx.fillStyle = dark;
+    ctx.fillRect(c - 4, c, 8, 4 + 46 * k);
+    ctx.fillStyle = edge;
+    ctx.fillRect(c + 2, c + 6, 2, 46 * k - 6);
     // Inscription
     ctx.fillStyle = '#d8d8d8';
     ctx.font = 'bold 26px Arial, sans-serif';
