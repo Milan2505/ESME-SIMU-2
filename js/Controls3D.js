@@ -125,7 +125,7 @@ class Controls3D {
         // Rockers : master ALT / BAT (rouges), avionique BUS 1 / BUS 2 (blancs), ELT (rouge) ; basculent en haut = ON.
         // Comme sur le vrai tableau : chaque moitié est une bascule à deux pans (haut plus sombre, bas plus clair, liseré
         // clair et lèvre sombre au pied), les deux moitiés côte à côte dans un cadre noir encastré
-        const rocker = (id, x, y, w, h, colors) => {
+        const rocker = (id, x, y, w, h, colors) => {   // colors : couleur unique de la bascule
             const root = this._add(`switch:${id}`, panelPoint(x, y));
             const width = px(w) * 0.97, height = px(h) * 0.94;
             const mat = (color, roughness = 0.45) => new MeshStandardMaterial({ color, roughness });
@@ -142,25 +142,9 @@ class Controls3D {
             const bodyGeometry = new ExtrudeGeometry(profile, { depth: width, bevelEnabled: false });
             bodyGeometry.rotateY(-Math.PI / 2);   // profil dans le plan (z, y), épaisseur le long de x
             bodyGeometry.translate(width / 2, 0, 0);
-            const body = new Mesh(bodyGeometry, mat(colors.lip, 0.6));
-            // Les deux pans de la face, colorés (posés sur le V)
-            const phi = Math.atan2(notch, h2), length = Math.hypot(notch, h2);
-            const pan = (up, material) => {
-                const mesh = new Mesh(new BoxGeometry(width * 0.995, length, 0.0012), material);
-                mesh.rotation.x = up ? phi : -phi;
-                const n = new Vector3(0, up ? -Math.sin(phi) : Math.sin(phi), Math.cos(phi));   // normale extérieure
-                mesh.position.set(0, (up ? 1 : -1) * h2 / 2, D - notch / 2).addScaledVector(n, 0.0007);
-                return mesh;
-            };
-            const upper = pan(true, mat(colors.upper));
-            // Pan du bas : un peu auto-éclairé pour garder sa teinte claire
-            const lower = pan(false, new MeshStandardMaterial({ color: colors.lower, roughness: 0.38, emissive: colors.lower, emissiveIntensity: 0.28 }));
-            const stripe = new Mesh(new BoxGeometry(width * 0.96, height * 0.035, 0.0006), mat(colors.stripe, 0.3));
-            stripe.position.set(0, -length * 0.22, 0.0009);
-            const lip = new Mesh(new BoxGeometry(width, height * 0.07, 0.0006), mat(colors.lip, 0.6));
-            lip.position.set(0, -length * 0.45, 0.0009);
-            lower.add(stripe, lip);
-            root.add(body, upper, lower);
+            // Une seule couleur pour toute la bascule (corps et face) : seule la lumière marque les deux pans
+            const body = new Mesh(bodyGeometry, mat(colors, 0.45));
+            root.add(body);
             this._parts[id] = root;
         };
         // Cadre noir encastré autour d'une paire de bascules (centre, largeur et hauteur en px du schéma)
@@ -180,15 +164,14 @@ class Controls3D {
             group.add(well);
             this.group.add(group);
         };
-        const RED = { upper: 0xb83a2c, lower: 0xd2734c, stripe: 0xf3c9a4, lip: 0x8c2219 };
-        const WHITE = { upper: 0xd9dadc, lower: 0xf4f4f4, stripe: 0xffffff, lip: 0x8f9194 };
+        const RED = 0xc23a2b, WHITE = 0xe6e7e9;
         frame(L.master.x, L.master.y, 60, 84);
         rocker('masterAlt', L.master.x - 12.5, L.master.y, 25, 74, RED);
         rocker('masterBat', L.master.x + 12.5, L.master.y, 25, 74, RED);
         frame(L.avionics.x, L.avionics.y, 52, 84);
         rocker('avionics', L.avionics.x - 10.5, L.avionics.y, 21, 74, WHITE);
         rocker('avionics2', L.avionics.x + 10.5, L.avionics.y, 21, 74, WHITE);
-        rocker('elt', L.elt.x, L.elt.y, 16, 42, { upper: 0xb8241b, lower: 0xd8402a, stripe: 0xf3b0a0, lip: 0x7a1510 });
+        rocker('elt', L.elt.x, L.elt.y, 16, 42, 0xc0281e);
 
         // Disjoncteurs : bouton noir chiffré, collerette blanche visible quand il est sorti
         for (const b of [...L.breakers, ...L.avionicsBreakers]) {
