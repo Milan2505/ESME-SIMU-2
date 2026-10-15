@@ -476,10 +476,16 @@ function buildCabin() {
     const group = new Group();
     const tan = ambient(new MeshStandardMaterial({ color: 0xc3ab83, roughness: 0.75, emissive: 0x2e281e }));
     const dark = new MeshStandardMaterial({ color: 0x29292b, roughness: 0.9 });
-    // Ciel de toit (sous l'aile), pare-feu derrière le tableau
-    const headliner = new Mesh(new PlaneGeometry(1.0, 1.25), ambient(new MeshStandardMaterial({ color: 0xd6ccb4, roughness: 0.9, emissive: 0x4a463c })));
-    headliner.rotation.x = Math.PI / 2;
-    headliner.position.set(0, 1.155, -1.72);
+    // Ciel de toit, pare-feu derrière le tableau. Le ciel de toit suit le dessous de l'aile (intrados de la partie
+    // centrale : y 1,04 au haut du pare-brise, 0,89 au bord de fuite), 1,5 cm plus bas. Plat à 1,155, il traversait
+    // le dessus de l'aile, qui descend vers l'arrière : une plaque apparaissait sur l'aile vue de l'extérieur
+    const roofFront = new Vector3(0, 1.02, -2.2), roofBack = new Vector3(0, 0.88, -1.1);
+    const roofLength = roofFront.distanceTo(roofBack);
+    const roofY = (z) => roofFront.y + (z - roofFront.z) / (roofBack.z - roofFront.z) * (roofBack.y - roofFront.y);
+    const headliner = new Mesh(new PlaneGeometry(1.0, roofLength), ambient(new MeshStandardMaterial({ color: 0xd6ccb4, roughness: 0.9, emissive: 0x4a463c })));
+    // Face vers le bas (cabine), penché : l'arrière plus bas
+    headliner.rotation.x = Math.PI / 2 + Math.atan2(roofFront.y - roofBack.y, roofBack.z - roofFront.z);
+    headliner.position.copy(roofFront).add(roofBack).multiplyScalar(0.5);
     const firewall = new Mesh(new PlaneGeometry(1.0, 0.8), dark);
     firewall.position.set(0, FLOOR_Y + 0.4, -2.9);
     group.add(headliner, firewall);
@@ -499,14 +505,15 @@ function buildCabin() {
         arm.position.set(side * 0.46, FLOOR_Y + 0.5, SEAT_Z + 0.05);
         group.add(arm);
         // Harnais : du toit derrière le siège vers la boucle
-        const top = new Vector3(side * 0.43, 1.1, SEAT_Z + 0.2), bottom = new Vector3(side * 0.1, FLOOR_Y + 0.3, SEAT_Z + 0.07);
+        const top = new Vector3(side * 0.43, roofY(SEAT_Z + 0.2) - 0.03, SEAT_Z + 0.2), bottom = new Vector3(side * 0.1, FLOOR_Y + 0.3, SEAT_Z + 0.07);
         const strap = new Mesh(new BoxGeometry(0.045, top.distanceTo(bottom), 0.005), new MeshStandardMaterial({ color: 0xa69b85, roughness: 0.9 }));
         strap.position.copy(top).add(bottom).multiplyScalar(0.5);
         strap.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), top.clone().sub(bottom).normalize());
         group.add(strap);
     }
     const dome = new Mesh(new CylinderGeometry(0.05, 0.05, 0.015, 20), new MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.4 }));
-    dome.position.set(0, 1.15, -1.6);
+    dome.position.set(0, roofY(-1.6) - 0.008, -1.6);   // plafonnier, contre le ciel de toit
+    dome.rotation.x = headliner.rotation.x - Math.PI / 2;
     group.add(dome);
     // Palonniers (deux paires, freins en haut) : déplacés par le pilote (voir Cockpit)
     const pedals = [];
