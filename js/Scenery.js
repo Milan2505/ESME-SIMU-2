@@ -43,11 +43,16 @@ const SPECIES = [
     { preset: 'Pine Large', height: [18, 25], weight: 2, kind: 'pine' },
 ];
 const HOUSES = 'abcdefghijklmnopqrstu'.split('').map((c) => `asset/houses/building-type-${c}.glb`);
-const HOUSE_SCALE = 8;           // modèles Kenney (~1,3 unité) -> maisons de ~10 m
-const TREE_COUNT = 12000;        // arbres à 100 % du réglage « Arbres et décor » (massifs denses : ~1 arbre / 12 m)
+const HOUSE_SCALE = 12;          // modèles Kenney (~1,3 unité) -> maisons de ~15 m de long, 9 à 14 m au faîtage
+const STREET = [36, 40];         // m : pas de la grille des rues (entre maisons, entre rangées)
+// Sol en herbe uniquement (le terrain se peint en roche au-delà, voir Terrain.js : pente 0,12, altitude ~75 m)
+const TREE_SLOPE = 0.08;         // 1 - normale.y
+const HOUSE_SLOPE = 0.035;
+const GRASS_TOP = 65;            // m
+const TREE_COUNT = 8000;         // arbres à 100 % du réglage « Arbres et décor » (massifs denses)
 const NEAR = 100;                // m : arbres complets en deçà, imposteurs au-delà
-const NEAR_MAX = 30;             // arbres complets au plus, par espèce (les plus proches)
-const SHADOW_RANGE = 180;        // m : arbres qui projettent une ombre (au-delà de la zone d'ombres du soleil)
+const NEAR_MAX = 12;             // arbres complets au plus, par espèce (les plus proches)
+const SHADOW_RANGE = 140;        // m : arbres qui projettent une ombre (au-delà de la zone d'ombres du soleil)
 const SHADOW_MAX = 400;          // par espèce
 const MAX_TILT = 0.7;            // rad : inclinaison des imposteurs vers une caméra placée au-dessus
 const FAR = 2600;                // m : au-delà, plus rien (le brouillard les cache)
@@ -63,8 +68,7 @@ const SHADOW_ONLY = new ShaderMaterial({
     side: DoubleSide
 });
 
-// Copie d'un attribut en flottants : les modèles Kenney sont quantifiés (entiers normalisés), on ne peut pas y appliquer
-// une matrice ni les fusionner tels quels
+// Copie d'un attribut (en flottants) : chaque maison placée transforme sa propre copie, pas les sommets du modèle
 function floats(attribute) {
     const size = attribute.itemSize, array = new Float32Array(attribute.count * size);
     for (let i = 0; i < attribute.count; i++) for (let c = 0; c < size; c++) array[i * size + c] = attribute.getComponent(i, c);
@@ -177,14 +181,31 @@ class Scenery {
         return !villages.some((v) => Math.hypot(x - v.x, z - v.z) < v.radius + margin);
     }
 
+    // Vrai si le sol en (x, z) est de l'herbe assez plate : pente (1 - normale.y) sous maxSlope, sous la roche
+    _grass(x, z, maxSlope) {
+        const h = this.terrain.heightAt(x, z);
+        if (h > GRASS_TOP) return false;
+        const e = 6;
+        const dx = this.terrain.heightAt(x + e, z) - this.terrain.heightAt(x - e, z);
+        const dz = this.terrain.heightAt(x, z + e) - this.terrain.heightAt(x, z - e);
+        return 1 - 2 * e / Math.hypot(dx, 2 * e, dz) < maxSlope;
+    }
+
+    // Villages : en plaine (fond de vallée, autour de l'aérodrome), là où presque tout le disque est plat
     _placeVillages(rnd) {
         const villages = [];
-        for (let tries = 0; villages.length < 5 && tries < 400; tries++) {
-            const angle = rnd() * Math.PI * 2, distance = 700 + rnd() * 1500;
-            const x = 300 + Math.cos(angle) * distance, z = Math.sin(angle) * distance;
-            const radius = 70 + rnd() * 60;
-            if (!this._free(x, z, villages, radius + 300)) continue;
-            villages.push({ x, z, radius });
+        for (let tries = 0; villages.length < 4 && tries < 3000; tries++) {
+            const x = (rnd() * 2 - 1) * 2600, z = (rnd() * 2 - 1) * 2600;
+            const radius = 130 + rnd() * 70;
+            if (!this._free(x, z, villages, radius + 250) || Math.hypot(x - 220, z) < 500) continue;
+            let flat = 0, total = 0;
+            for (let r = 0; r <= radius; r += radius / 3) {
+                for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+                    total++;
+                    if (this._grass(x + Math.cos(a) * r, z + Math.sin(a) * r, HOUSE_SLOPE)) flat++;
+                }
+            }
+            if (flat / total > 0.85) villages.push({ x, z, radius });
         }
         return villages;
     }
@@ -194,7 +215,7 @@ class Scenery {
         const patches = [];
         for (let tries = 0; patches.length < 30 && tries < 2000; tries++) {
             const x = (rnd() * 2 - 1) * 2600, z = (rnd() * 2 - 1) * 2600;
-            if (!this._free(x, z, villages, 40)) continue;
+            if (!this._free(x, z, villages, 40) || !this._grass(x, z, TREE_SLOPE)) continue;
             patches.push({ x, z, radius: 80 + rnd() * 160, pine: rnd() < 0.4 });
         }
         const weights = SPECIES.map((s) => s.weight);
@@ -211,7 +232,7 @@ class Scenery {
             for (let k = 0, tries = 0; k < count && tries < count * 4; tries++) {
                 const r = p.radius * Math.sqrt(rnd()) * (0.6 + 0.4 * rnd()), a = rnd() * Math.PI * 2;
                 const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
-                if (!this._free(x, z, villages, 15)) continue;
+                if (!this._free(x, z, villages, 15) || !this._grass(x, z, TREE_SLOPE)) continue;
                 const species = pick(p.pine);
                 const [h0, h1] = SPECIES[species].height;
                 trees.push({ x, z, species, height: h0 + (h1 - h0) * rnd(), angle: rnd() * Math.PI * 2, order: rnd() });
@@ -323,12 +344,14 @@ class Scenery {
             // Rues : grille de 24 m, maisons tournées vers la rue
             const angle = rnd() * Math.PI;
             const cos = Math.cos(angle), sin = Math.sin(angle);
-            for (let i = -4; i <= 4; i++) {
-                for (let j = -4; j <= 4; j++) {
-                    const u = i * 24, w = j * 26;
-                    if (Math.hypot(u, w) > v.radius || rnd() < 0.3) continue;
+            for (let i = -6; i <= 6; i++) {
+                for (let j = -6; j <= 6; j++) {
+                    const u = i * STREET[0] + (rnd() - 0.5) * 4, w = j * STREET[1];
+                    // Plus clairsemé vers le bord du village
+                    const edge = Math.hypot(u, w) / v.radius;
+                    if (edge > 1 || rnd() < 0.15 + 0.45 * edge * edge) continue;
                     const x = v.x + u * cos - w * sin, z = v.z + u * sin + w * cos;
-                    if (this.airport.contains(x, z, 60) || this.corridor(x, z)) continue;
+                    if (this.airport.contains(x, z, 60) || this.corridor(x, z) || !this._grass(x, z, HOUSE_SLOPE)) continue;
                     const facing = angle + (j % 2 ? 0 : Math.PI) + (rnd() - 0.5) * 0.08;
                     const k = Math.floor(rnd() * models.length), box = boxes[k];
                     // Posée au plus bas des quatre coins (pas de maison qui flotte sur une pente)

@@ -160,7 +160,7 @@ let decorDensity = 1;
 let decorStyle = 'realiste';   // 'classique' (arbres stylisés), 'realiste' (forêts et villages), 'mixte' (les deux)
 const CLASSIC_TREES = new Set(['TREE', 'TREE_F']);
 // Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
-const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => Math.abs(x - 220) < 260 && Math.abs(z) < 3000 });
+const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => Math.abs(x - 220) < 150 && Math.abs(z) < 3000 });
 let aircraftModel = null;
 let propeller = null;
 let propellerParts = new Set();   // pièces de l'hélice (estompées quand elle tourne vite)
