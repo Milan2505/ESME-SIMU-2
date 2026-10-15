@@ -291,7 +291,9 @@ class Graphics {
         // dessinée dans la 1re, la 2e ne sert pas -> pas de multi-échantillonnage pour elle.
         this.composer.renderTarget2.samples = 0;
         this.composer.addPass(new RenderPass(scene, camera));
-        this.bloom = new BloomPass(new Vector2(256, 256), 0.25, 0.4, 0.92);
+        // Seuil 2 : seuls les feux, éclairs et explosions dépassent (de jour, ciel et nuages montent à ~1,8 avant tone
+        // mapping ; à 0,92, tout le ciel « bavait » et voilait l'image d'un blanc laiteux, surtout en altitude)
+        this.bloom = new BloomPass(new Vector2(256, 256), 0.25, 0.4, 2.0);
         // Halo calculé à mi-résolution : il est flou de toute façon, 4 fois moins de pixels à traiter
         const setBloomSize = this.bloom.setSize.bind(this.bloom);
         this.bloom.setSize = (width, height) => setBloomSize(Math.ceil(width / 2), Math.ceil(height / 2));

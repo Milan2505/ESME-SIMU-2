@@ -168,20 +168,29 @@ function prepare(scene) {
     pivot('flapLeft', ['flaps'], 'x');
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
-    // Compensateur (tab de trim) : sur le bord de fuite de la gouverne de profondeur droite ; il la suit et braque en
-    // plus selon le trim (pivot sur son bord d'attaque, dans le repère de la gouverne)
+    // Compensateur (tab de trim) : dans la découpe du bord de fuite de la gouverne de profondeur droite ; il la suit et
+    // braque en plus selon le trim. Charnière le long de son bord d'attaque, qui est en biais (plus en arrière côté
+    // fuselage) : un axe transversal le faisait sortir de sa découpe dès qu'il braquait
     if (pivots.elevator && meshes.elevatortrim) {
         const tab = meshes.elevatortrim;
         const p = tab.geometry.attributes.position;
-        let front = Infinity, y = 0, n = 0;
-        for (let i = 0; i < p.count; i++) front = Math.min(front, p.getZ(i));
-        for (let i = 0; i < p.count; i++) if (p.getZ(i) < front + 0.01) { y += p.getY(i); n++; }
-        const hinge = new Vector3(0, y / n, front);
-        tab.geometry.translate(0, -hinge.y, -hinge.z);
+        const points = [];
+        for (let i = 0; i < p.count; i++) points.push(new Vector3(p.getX(i), p.getY(i), p.getZ(i)));
+        const lo = Math.min(...points.map((v) => v.x)), hi = Math.max(...points.map((v) => v.x)), end = 0.05 * (hi - lo);
+        // Bout du bord d'attaque : point le plus en avant de chaque extrémité, à mi-épaisseur
+        const corner = (filter) => {
+            const side = points.filter(filter), front = Math.min(...side.map((v) => v.z));
+            const edge = side.filter((v) => v.z < front + 0.008);
+            return edge.reduce((sum, v) => sum.add(v), new Vector3()).divideScalar(edge.length);
+        };
+        const a = corner((v) => v.x < lo + end), b = corner((v) => v.x > hi - end);
+        // (sommets déjà dans le repère de la gouverne : voir pivot)
+        const hinge = a.clone();
+        tab.geometry.translate(-a.x, -a.y, -a.z);
         const group = new Group();
         group.name = 'trimTab';
         group.position.copy(hinge);
-        group.userData.axis = new Vector3(1, 0, 0);   // angle positif : bord de fuite vers le bas (trim à cabrer)
+        group.userData.axis = b.sub(a).normalize();   // vers l'extérieur (+x) : angle positif = bord de fuite vers le bas
         group.add(tab);
         pivots.elevator.add(group);
         pivots.trimTab = group;
