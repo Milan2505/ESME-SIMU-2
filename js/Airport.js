@@ -134,7 +134,7 @@ function speckle(ctx, width, height, base, amount, count) {
 // Marquages OACI (piste de 30 m) : seuil "piano" de 8 bandes centrées, numéros 36 / 18,
 // plots de point d'aiming, axe discontinu, bandes de bord. Distances en mètres depuis chaque extrémité.
 const THRESHOLD_OFFSET = 6;      // début des bandes de seuil
-const AIMING_POINT = 150;        // point visé à l'atterrissage (PAPI et pente ILS calés dessus)
+const AIMING_POINT = 240;        // point visé à l'atterrissage (PAPI et pente ILS calés dessus) : 3° -> seuil passé à ~41 ft (150 m : 26 ft, trop bas)
 
 function runwayTexture(maxAnisotropy) {
     const { width: w, length: l } = RUNWAY;

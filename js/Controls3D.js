@@ -11,7 +11,8 @@ import {
     Shape,
     SphereGeometry,
     SRGBColorSpace,
-    TorusGeometry
+    TorusGeometry,
+    Vector3
 } from 'three';
 import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';
 
@@ -128,24 +129,38 @@ class Controls3D {
             const root = this._add(`switch:${id}`, panelPoint(x, y));
             const width = px(w) * 0.97, height = px(h) * 0.94;
             const mat = (color, roughness = 0.45) => new MeshStandardMaterial({ color, roughness });
-            const tilt = 0.16;   // pente des deux pans (rad)
-            const upper = new Mesh(new BoxGeometry(width, height * 0.5, 0.006), mat(colors.upper));
-            upper.position.set(0, height * 0.25, 0.007);
-            upper.rotation.x = -tilt;
-            // Pan du bas : tourné à l'opposé de la lumière du tableau, un peu auto-éclairé pour garder sa teinte claire
-            const lower = new Mesh(new BoxGeometry(width, height * 0.5, 0.006), new MeshStandardMaterial({
-                color: colors.lower, roughness: 0.38, emissive: colors.lower, emissiveIntensity: 0.28 }));
-            lower.position.set(0, -height * 0.25, 0.007);
-            lower.rotation.x = tilt;
-            const stripe = new Mesh(new BoxGeometry(width * 0.96, height * 0.035, 0.0012), mat(colors.stripe, 0.3));
-            stripe.position.set(0, -height * 0.36, 0.0097);
-            stripe.rotation.x = tilt;
-            const lip = new Mesh(new BoxGeometry(width, height * 0.07, 0.006), mat(colors.lip, 0.6));
-            lip.position.set(0, -height * 0.47, 0.0066);
-            lip.rotation.x = tilt;
-            const core = new Mesh(new BoxGeometry(width * 0.98, height * 0.96, 0.008), mat(colors.lip, 0.7));   // corps sous les pans
-            core.position.z = 0.004;
-            root.add(core, upper, lower, stripe, lip);
+            // Profil (vu de côté) comme le vrai : bloc épais (38 % de sa hauteur) dont la face est en V rentrant, les bouts
+            // haut et bas ressortent vers le pilote, le milieu est enfoncé de 16 % de la hauteur
+            const D = height * 0.38, notch = height * 0.16, h2 = height / 2;
+            const profile = new Shape();
+            profile.moveTo(0, -h2);
+            profile.lineTo(D, -h2);
+            profile.lineTo(D - notch, 0);
+            profile.lineTo(D, h2);
+            profile.lineTo(0, h2);
+            profile.lineTo(0, -h2);
+            const bodyGeometry = new ExtrudeGeometry(profile, { depth: width, bevelEnabled: false });
+            bodyGeometry.rotateY(-Math.PI / 2);   // profil dans le plan (z, y), épaisseur le long de x
+            bodyGeometry.translate(width / 2, 0, 0);
+            const body = new Mesh(bodyGeometry, mat(colors.lip, 0.6));
+            // Les deux pans de la face, colorés (posés sur le V)
+            const phi = Math.atan2(notch, h2), length = Math.hypot(notch, h2);
+            const pan = (up, material) => {
+                const mesh = new Mesh(new BoxGeometry(width * 0.995, length, 0.0012), material);
+                mesh.rotation.x = up ? phi : -phi;
+                const n = new Vector3(0, up ? -Math.sin(phi) : Math.sin(phi), Math.cos(phi));   // normale extérieure
+                mesh.position.set(0, (up ? 1 : -1) * h2 / 2, D - notch / 2).addScaledVector(n, 0.0007);
+                return mesh;
+            };
+            const upper = pan(true, mat(colors.upper));
+            // Pan du bas : un peu auto-éclairé pour garder sa teinte claire
+            const lower = pan(false, new MeshStandardMaterial({ color: colors.lower, roughness: 0.38, emissive: colors.lower, emissiveIntensity: 0.28 }));
+            const stripe = new Mesh(new BoxGeometry(width * 0.96, height * 0.035, 0.0006), mat(colors.stripe, 0.3));
+            stripe.position.set(0, -length * 0.22, 0.0009);
+            const lip = new Mesh(new BoxGeometry(width, height * 0.07, 0.0006), mat(colors.lip, 0.6));
+            lip.position.set(0, -length * 0.45, 0.0009);
+            lower.add(stripe, lip);
+            root.add(body, upper, lower);
             this._parts[id] = root;
         };
         // Cadre noir encastré autour d'une paire de bascules (centre, largeur et hauteur en px du schéma)

@@ -640,7 +640,13 @@ class Cockpit {
         s.vs += (state.verticalSpeed - s.vs) * (1 - Math.exp(-2 * delta));   // variomètre : un peu de retard
         s.oilTemp += ((sys.running ? 0.62 : 0) - s.oilTemp) * (1 - Math.exp(-delta / 90));
 
-        for (const pedal of this._interior.userData.pedals) pedal.position.z = pedal.userData.z + pedal.userData.side * s.yaw * 0.05;
+        // Palonniers : avancent / reculent avec la direction ; freins (touche B, pas le frein de parc) : le haut des quatre
+        // pédales bascule vers l'avant, enfoncé par la pointe des pieds
+        s.brake = (s.brake ?? 0) + ((state.parkingBrake ? 0 : state.inputs.brake) - (s.brake ?? 0)) * (1 - Math.exp(-12 * delta));
+        for (const pedal of this._interior.userData.pedals) {
+            pedal.position.z = pedal.userData.z + pedal.userData.side * s.yaw * 0.05;
+            pedal.userData.plate.rotation.x = -0.9 - 0.4 * s.brake;
+        }
         for (const yoke of this._yokes) {
             yoke.column.position.z = yoke.z + s.pitch * YOKE_TRAVEL;   // tiré vers le pilote pour cabrer
             yoke.wheel.rotation.z = s.roll * YOKE_TURN;                // volant tourné jusqu'à 90°

@@ -251,6 +251,7 @@ class RadioVoices extends EventTarget {
             text, speaker: cast.speaker ?? 0, lengthScale: cast.lengthScale ?? 1 }, ids);
         this._loaded.add(cast.model);
         this._failures = 0;
+        this._worked = true;
         return { samples, sampleRate };
     }
 
@@ -299,7 +300,9 @@ class RadioVoices extends EventTarget {
     _failed(error) {
         console.error('Voix réaliste en échec (calcul refait, voix inchangée) :', error);
         this._failures = (this._failures ?? 0) + 1;
-        if (this._failures >= 3) {
+        // Une fois qu'une voix réaliste a parlé, on ne change plus jamais de voix en cours de session : un message raté
+        // est perdu (ou sauté), jamais dit par la voix de l'ordinateur
+        if (this._failures >= 3 && !this._worked) {
             this.status = { state: 'error', progress: 0 };
             this._emit();
         }
@@ -318,16 +321,25 @@ class RadioVoices extends EventTarget {
                 token.ids = [];
                 const audios = this._chunks(spoken).map((part) => this._synthesizeRetry(cast, part, token.ids));
                 audios.forEach((a) => a.catch(() => {}));
+                let spokenAny = false;
                 for (const audio of audios) {
-                    const data = await audio;
+                    const data = await audio.catch((error) => {
+                        if (token === this._instructorToken) this._failed(error);
+                        return null;
+                    });
                     if (token !== this._instructorToken) return;
+                    if (!data) continue;   // morceau perdu : sauté, même voix pour la suite
+                    spokenAny = true;
                     await this._play(data, 'instructor', audio === audios[audios.length - 1]);
                     if (token !== this._instructorToken) return;
                 }
-                return;
+                // Rien n'a pu être calculé et la voix réaliste n'a encore jamais marché : voix de l'ordinateur (sinon silence,
+                // le texte reste affiché)
+                if (spokenAny || this._worked || this.status.state !== 'error') return;
             } catch (error) {
                 if (token !== this._instructorToken) return;   // interrompu : pas un échec
                 this._failed(error);
+                if (this._worked) return;
             }
         }
         if (token !== this._instructorToken) return;

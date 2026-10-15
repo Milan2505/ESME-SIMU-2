@@ -175,9 +175,10 @@ class FlightModel extends EventDispatcher {
 		return Math.sqrt( 2 * A.mass * GRAVITY / ( AIR_DENSITY * A.wingArea * this._liftCoefficient( alpha ) ) );
 	}
 
-	// Vrai un peu avant le décrochage (incidence à moins de 3° de la limite), pas au sol
+	// Vrai un peu avant le décrochage (incidence à moins de 4° de la limite : 5 à 7 kt avant, comme l'avertisseur du
+	// vrai C172), pas au sol
 	nearStall() {
-		return ! this.onGround && ! this.crashed && this.alpha > this.stallAlpha() - MathUtils.degToRad( 3 );
+		return ! this.onGround && ! this.crashed && this.alpha > this.stallAlpha() - MathUtils.degToRad( 4 );
 	}
 
 	flapSetting() {

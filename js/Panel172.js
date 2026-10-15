@@ -190,6 +190,27 @@ function aiMountTexture() {
     return texture;
 }
 
+// Place libre devant le tableau jusqu'au pare-brise ou au capot (m), mesurée sur le modèle de l'avion (repère cabine :
+// |x| de 0 à 0,48 par pas de 0,04 ; y de -0,34 à 0 par pas de 0,02 ; depuis z = FACE_Z + 0,03 vers l'avant)
+const HULL_DEPTH = [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.918], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.422], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.909, 0.398], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.951, 0.421, 0.242], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.901, 0.42, 0.353, 0.188], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.996, 0.419, 0.419, 0.419, 0.297, 0.237, 0.176], [0.416, 0.417, 0.417, 0.418, 0.418, 0.418, 0.418, 0.345, 0.285, 0.266, 0.241, 0.217, 0.164], [0.295, 0.295, 0.295, 0.295, 0.295, 0.288, 0.282, 0.275, 0.265, 0.246, 0.225, 0.201, 0.148], [0.275, 0.274, 0.274, 0.274, 0.273, 0.267, 0.261, 0.254, 0.247, 0.229, 0.209, 0.185, 0.134], [0.258, 0.257, 0.256, 0.255, 0.255, 0.249, 0.243, 0.236, 0.23, 0.211, 0.19, 0.167, 0.119], [0.241, 0.24, 0.239, 0.238, 0.237, 0.231, 0.224, 0.217, 0.21, 0.192, 0.171, 0.148, 0.104], [0.221, 0.219, 0.217, 0.216, 0.214, 0.209, 0.202, 0.195, 0.188, 0.171, 0.151, 0.128, 0.085]];
+function hullDepth(x, y) {
+    const fx = Math.min(12, Math.max(0, Math.abs(x) / 0.04)), fy = Math.min(17, Math.max(0, (y + 0.34) / 0.02));
+    const ix = Math.min(11, Math.floor(fx)), iy = Math.min(16, Math.floor(fy)), tx = fx - ix, ty = fy - iy;
+    const row = (j) => HULL_DEPTH[j][ix] * (1 - tx) + HULL_DEPTH[j][ix + 1] * tx;
+    return row(iy) * (1 - ty) + row(iy + 1) * ty;
+}
+// Pièce de la cabine (repère cabine) ramenée derrière la carrosserie : la casquette et le dos du tableau (30 cm de
+// profondeur) traversaient le pare-brise sur les côtés et se voyaient de l'extérieur, posés sur le capot
+function clampToHull(geometry, margin = 0.012) {
+    const position = geometry.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+        const limit = FACE_Z + 0.03 - hullDepth(position.getX(i), position.getY(i)) + margin;
+        if (position.getZ(i) < limit) position.setZ(i, limit);
+    }
+    geometry.computeVertexNormals();
+    return geometry;
+}
+
 function zCylinder(r, length, material, segments = 24) {
     const geometry = new CylinderGeometry(r, r, length, segments);
     geometry.rotateX(Math.PI / 2);
@@ -338,7 +359,7 @@ class Panel172 {
         this.group.add(labels);
         // Dos du tableau (vu de l'extérieur à travers le pare-brise ; fond de la pile radio et des passages)
         const backDepth = 0.17 * S;
-        const back = toCabin(new ExtrudeGeometry(panelOutline(new Shape()), { depth: backDepth, bevelEnabled: false, curveSegments: 24 }), -0.03, backDepth);
+        const back = clampToHull(toCabin(new ExtrudeGeometry(panelOutline(new Shape()), { depth: backDepth, bevelEnabled: false, curveSegments: 24 }), -0.03, backDepth));
         this.group.add(new Mesh(back, this._black));
         // Boîte à gants : caisson et porte (s'ouvre vers le bas)
         const w = m(gb.x1 - gb.x0), h = m(gb.y1 - gb.y0), c = at((gb.x0 + gb.x1) / 2, (gb.y0 + gb.y1) / 2);
@@ -380,9 +401,9 @@ class Panel172 {
         shape.lineTo(395, -545);
         shape.absarc(402.5, -545, 7.5, Math.PI, Math.PI * 2, false);
         const depth = 0.3 * S;
-        const geometry = toCabin(new ExtrudeGeometry(shape, {
+        const geometry = clampToHull(toCabin(new ExtrudeGeometry(shape, {
             depth, bevelEnabled: true, bevelThickness: 6, bevelSize: 5, bevelSegments: 3, curveSegments: 40,
-        }), 0.03 - m(6), depth);
+        }), 0.03 - m(6), depth));
         this.glareshield = new Mesh(geometry, new MeshStandardMaterial({ color: 0x161617, roughness: 0.95 }));
         this.group.add(this.glareshield);
     }

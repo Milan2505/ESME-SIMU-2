@@ -2182,7 +2182,7 @@ renderer.setAnimationLoop((time)=>{
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();
     updateVor( delta );
-    controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps() );
+    controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps(), controls.getTrim() );
     if (gear) {
         const inputs = controls.getInputs();
         gear.update( delta, inputs.yaw + inputs.roll * 0.5, controls.getSpeed(), controls.isOnGround() );   // même braquage que FlightModel

@@ -9,6 +9,8 @@ import {
     MeshStandardMaterial,
     SphereGeometry,
     SpotLight,
+    PointLight,
+    CylinderGeometry,
     Raycaster,
     ShaderMaterial,
     Sprite,
@@ -30,7 +32,7 @@ const LIGHTS = [
     // Feu de queue : au bord de fuite de la gouverne de direction
     { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.85],      sector: [deg(110), deg(250)], size: 0.8, mesh: ['RearNavLight'], rudder: true },
     // Anticollision : au sommet de la dérive (partie fixe, au-dessus de la gouverne)
-    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.69, 3.27],                                      size: 1.6, mesh: ['Beacon'] },
+    { kind: 'beacon',  color: 0xff1a0a, position: [0, 1.69, 3.27],                                      size: 1.6 },
     // Strobes : verre clair à part, en goutte, sur le flanc du saumon juste derrière le feu de navigation (comme sur
     // les Cessna 172) ; luminaire ajouté au modèle (voir strobeFixture)
     { kind: 'strobe',  color: 0xf2f6ff, position: [-5.652, 1.172, -1.94],                               size: 3.2 },
@@ -75,6 +77,36 @@ function strobeFixture(group, position, side) {
     fixture.add(base, lens);
     group.add(fixture);
     return lens.material;
+}
+
+// Feu anticollision (beacon) sur le sommet de la dérive : embase métallique, dôme rouge transparent, ampoule, et
+// réflecteur demi-cylindrique qui tourne dedans (le faisceau balaie l'horizon un tour par seconde). Remplace le petit
+// dôme du modèle. Rend { reflector, glows }
+function beaconFixture(group, position) {
+    const fixture = new Group();
+    fixture.position.set(position[0], 1.668, position[2]);
+    const metal = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.3, metalness: 0.7 });
+    const base = new Mesh(new CylinderGeometry(0.03, 0.036, 0.012, 24), metal);
+    base.position.y = 0.006;
+    const domeMaterial = new MeshStandardMaterial({ color: 0xc81a10, emissive: 0xff1a0a, emissiveIntensity: 0.1, roughness: 0.08,
+        transparent: true, opacity: 0.7, depthWrite: false });
+    const wall = new Mesh(new CylinderGeometry(0.025, 0.027, 0.03, 28, 1, true), domeMaterial);
+    wall.position.y = 0.027;
+    const cap = new Mesh(new SphereGeometry(0.025, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), domeMaterial);
+    cap.position.y = 0.042;
+    wall.renderOrder = cap.renderOrder = 1;
+    const bulbMaterial = new MeshStandardMaterial({ color: 0xffd8c8, emissive: 0xff3a20, emissiveIntensity: 0.1 });
+    const bulb = new Mesh(new SphereGeometry(0.006, 12, 8), bulbMaterial);
+    bulb.position.y = 0.03;
+    // Réflecteur : coque derrière l'ampoule, ouverture vers +z (orientée par update)
+    const reflector = new Group();
+    reflector.position.y = 0.03;
+    const shell = new Mesh(new CylinderGeometry(0.017, 0.017, 0.024, 16, 1, true, Math.PI / 2, Math.PI),
+        new MeshStandardMaterial({ color: 0xe8ecef, roughness: 0.15, metalness: 0.9, side: DoubleSide }));
+    reflector.add(shell);
+    fixture.add(base, reflector, bulb, wall, cap);
+    group.add(fixture);
+    return { reflector, glows: [domeMaterial, bulbMaterial] };
 }
 
 const _eye = new Vector3();
@@ -160,7 +192,12 @@ class AircraftLights {
             // Feux portés par l'aile (bouts d'aile, phare) : recalés sur l'aile de la cabine en vue intérieure
             const wing = Math.abs(def.position[0]) > 2;
             // glows : matériaux des verres (feux du modèle, voir setOccluder ; strobes : leur propre verre)
-            const glows = def.kind === 'strobe' ? [strobeFixture(this.group, def.position, Math.sign(def.position[0]))] : [];
+            let glows = [];
+            if (def.kind === 'strobe') glows = [strobeFixture(this.group, def.position, Math.sign(def.position[0]))];
+            if (def.kind === 'beacon') {
+                this.beaconFixture = beaconFixture(this.group, def.position);
+                glows = this.beaconFixture.glows;
+            }
             return { ...def, wing, base: position.clone(), position, glows, flare, baseColor: flare.material.color.clone(), visibility: 1 };
         });
         // Une lumière par bout d'aile : couleur du feu de navigation, blanche pendant l'éclat du strobe. Les feux sont
@@ -176,6 +213,13 @@ class AircraftLights {
             this.group.add(light, light.target);
             return light;
         });
+        // Anticollision (avion du joueur, la nuit) : éclair rouge sur la dérive, le dessus du fuselage et le sol
+        this.beaconLight = castLight ? new PointLight(0xff2010, 0, 30, 2) : null;
+        if (this.beaconLight) {
+            this.beaconLight.position.set(0, 1.74, 3.27);
+            this.beaconLight.visible = false;
+            this.group.add(this.beaconLight);
+        }
         // Faisceaux : atterrissage (long, étroit, presque à l'horizontale), roulage (court, large, plongeant)
         this.beam = createBeam();
         this.beam.position.set(-2.92, 1.14, -2.4);
@@ -196,6 +240,7 @@ class AircraftLights {
         this.beam.visible = this.taxiBeam.visible = landingLight;
         // De nuit seulement, comme le phare (voir simulator.js) : le jour, elles ne se verraient pas
         for (const light of this.tipLights) light.visible = landingLight;
+        if (this.beaconLight) this.beaconLight.visible = night >= 0.5 && (this.switches?.beacon ?? true);
     }
 
     // Interrupteurs de la cabine : { nav, beacon, strobe, land }
@@ -205,6 +250,7 @@ class AircraftLights {
         this.beam.visible = switches.land && this.night >= 0.5;
         this.taxiBeam.visible = switches.taxi && this.night >= 0.5;
         for (const light of this.tipLights) light.visible = this.night >= 0.5 && (switches.nav || switches.strobe);
+        if (this.beaconLight) this.beaconLight.visible = this.night >= 0.5 && switches.beacon;
     }
 
     // Vue cabine : les feux restent sur l'aile (la même que vue de l'extérieur) ; faisceau un peu plus discret vu
@@ -220,6 +266,10 @@ class AircraftLights {
     // Modèle de l'avion : il cache les feux qui sont derrière lui, et ses feux (verres) s'allument
     setOccluder(model) {
         this.occluder = model;
+        for (const name of ['Beacon']) {
+            const mesh = model.getObjectByName(name);
+            if (mesh) mesh.visible = false;   // remplacé par beaconFixture
+        }
         for (const light of this.lights) {
             if (!light.mesh) continue;
             light.glows = [];
@@ -263,6 +313,12 @@ class AircraftLights {
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
         const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight, taxi: this.landingLight };
         this._followRudder();
+        // Réflecteur du beacon : ouverture tournée vers l'azimut du faisceau (0 = avant, + = droite)
+        if (this.beaconFixture && sw.beacon) this.beaconFixture.reflector.rotation.y = Math.PI - beaconPhase;
+        if (this.beaconLight?.visible) {
+            // Deux éclats par tour vus de partout (le faisceau balaie tout autour) : lumière pulsée
+            this.beaconLight.intensity = 6 * Math.pow(Math.max(0, Math.cos(beaconPhase * 2)), 8);
+        }
         for (const light of this.tipLights) {
             const flash = strobeOn && sw.strobe;
             if (flash) light.color.setRGB(1, 1, 1);

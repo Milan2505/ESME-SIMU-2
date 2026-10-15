@@ -17,8 +17,8 @@ class ControlSurfaces {
         this.deflections = { aileron: 0, elevator: 0, rudder: 0, flaps: 0 }; // -1 -> 1 (volets : 0 -> 1)
     }
 
-    // inputs : commandes du pilote (-1 -> 1, + = cabrer / gauche) ; flaps : 0 -> 1
-    update(delta, inputs, flaps) {
+    // inputs : commandes du pilote (-1 -> 1, + = cabrer / gauche) ; flaps : 0 -> 1 ; trim : tab (degrés, + = à cabrer)
+    update(delta, inputs, flaps, trim = 0) {
         const d = this.deflections;
         const k = 1 - Math.exp(-8 * delta); // les gouvernes suivent le manche avec un peu de retard
         d.aileron += (inputs.roll - d.aileron) * k;
@@ -35,6 +35,8 @@ class ControlSurfaces {
         this._set('rudder', d.rudder * RUDDER_TRAVEL);
         this._set('flapLeft', d.flaps * FLAP_TRAVEL);
         this._set('flapRight', d.flaps * FLAP_TRAVEL);
+        // Compensateur : trim à cabrer -> bord de fuite du tab vers le bas (il pousse la gouverne vers le haut)
+        this._set('trimTab', MathUtils.clamp(trim * 0.8, -15, 25));
     }
 
     _set(name, degrees) {

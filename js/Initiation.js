@@ -242,7 +242,7 @@ class Initiation {
         this._state.spoken = true;
         this._state.spokenAt = this._time;
         step.enter?.(c, this);
-        const targets = typeof step.target === 'function' ? step.target(c) : step.target;
+        const targets = step.parts ? this._remainingParts(step, c) : typeof step.target === 'function' ? step.target(c) : step.target;
         const list = (Array.isArray(targets) ? targets : targets ? [targets] : []);
         this.highlighter.set(list.filter((t) => !t.startsWith('html:') && !t.startsWith('radio:')));
         this._htmlFromStep = list.filter((t) => t.startsWith('html:') || t.startsWith('radio:'));
@@ -255,6 +255,23 @@ class Initiation {
         if (step.radio && this.level === 2) this.openAtc(true);
         this._say(typeof step.say === 'function' ? step.say(c, this) : step.say);
         this._render();
+    }
+
+    // Étape à plusieurs commandes : celles qui restent à manœuvrer, dans l'ordre
+    _remainingParts(step, c) {
+        const left = step.parts.filter(([, done]) => { try { return !done(c); } catch { return true; } }).map(([target]) => target);
+        return left.length ? left : [step.parts[step.parts.length - 1][0]];
+    }
+
+    // La commande suivante devient la cible : elle clignote seule et la caméra s'y tourne
+    _refreshParts(step, c) {
+        const left = this._remainingParts(step, c);
+        if (left[0] === this._state.partTarget) return;
+        this._state.partTarget = left[0];
+        if (!this._state.partsStarted) { this._state.partsStarted = true; return; }   // la première est posée par _enter
+        this.highlighter.set(left.filter((t) => !t.startsWith('html:') && !t.startsWith('radio:')));
+        const where = this.highlighter.targets[0];
+        if (this.cameraGuide && where && step.camera !== 'none') this.focusCabin(where.center, where.radius);
     }
 
     _say(text) {
@@ -339,6 +356,12 @@ class Initiation {
         if (!this._state.spoken) {
             if (safe(() => step.wait(c))) this._enter();
             else return;
+        }
+        if (step.parts) this._refreshParts(step, c);
+        // Action à faire une fois la consigne dite (ATIS : il ne démarre pas pendant que le moniteur parle)
+        if (step.afterSay && !this._state.afterDone && !this._state.speaking) {
+            this._state.afterDone = true;
+            step.afterSay(c, this);
         }
         if (this.level === 1) this._autoRadio(step, c);
         else this._radioHints(step, c);
@@ -579,7 +602,7 @@ function buildSteps(level, lang = 'fr') {
         say: T("Allumez l'avionique : la moitié gauche de l'interrupteur blanc AVIONICS, marquée BUS 1. Elle alimente la radio et le transpondeur.",
             'Switch on the avionics: the left half of the white AVIONICS switch, marked BUS 1. It powers the radio and the transponder.') });
     if (L1) {
-        add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), next: true, camera: 'pilot', enter: (c) => c.atc.playAtis(),
+        add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), next: true, camera: 'pilot', afterSay: (c) => c.atc.playAtis(),
             say: T("Avant d'appeler, on écoute l'ATIS : le bulletin météo enregistré de l'aérodrome. Il donne la piste en service, le vent et le calage altimétrique. Écoutez, puis cliquez sur Continuer.",
                 'Before calling, we listen to the ATIS: the recorded weather broadcast of the airfield. It gives the runway in use, the wind and the altimeter setting. Listen, then click Continue.') });
     } else {
@@ -671,7 +694,7 @@ function buildSteps(level, lang = 'fr') {
             'Check the trim: the small wheel on the pedestal, between the seats. Its pointer must be on the TAKE OFF mark. W and X keys to adjust it, or the mouse wheel on the trim wheel.'),
         why: T("Le trim règle la vitesse que l'avion garde manche lâché. Au repère décollage, il monte tout seul vers la bonne vitesse après l'envol.",
             'The trim sets the speed the aeroplane holds hands-off. On the take-off mark, it climbs at the right speed on its own after lift-off.') });
-    add(P, { title: T('Phare et strobes', 'Landing light and strobes'), target: ['switch:land', 'switch:strobe'], done: (c) => c.sys.switches.land && c.sys.switches.strobe,
+    add(P, { title: T('Phare et strobes', 'Landing light and strobes'), parts: [['switch:land', (c) => c.sys.switches.land], ['switch:strobe', (c) => c.sys.switches.strobe]], done: (c) => c.sys.switches.land && c.sys.switches.strobe,
         say: T("Allumez le phare d'atterrissage, LAND, et les feux à éclats, STROBE : on doit nous voir de loin.", 'Switch on the LAND light and the STROBE lights: we must be seen from far away.') });
     radio(P, { title: T('Prêt au départ', 'Ready for departure'), ids: ['readyHold', 'readyFirst'], until: (c) => ['takeoff', 'lineup'].includes(c.atc.state),
         why: T("Au point d'attente, on appelle la Tour : elle gère la piste et le tour de piste.", 'At the holding point, we call the Tower: it controls the runway and the circuit.'),
@@ -723,7 +746,7 @@ function buildSteps(level, lang = 'fr') {
         done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 && Math.abs(c.s?.agl - 1000) < 250 ? dt : 0)) > 4,
         say: T("Retrimez pour le palier : W ou X jusqu'à ce que l'avion reste à 1000 pieds manche lâché. Le variomètre doit rester sur zéro.",
             'Re-trim for level flight: W or X until the aeroplane stays at 1000 feet hands off. The vertical speed should stay at zero.') });
-    add(P, { title: T('Vérifications avant atterrissage', 'Before landing checks'), target: ['switch:fuelPump', 'mixture'], camera: 'none', auto: 20,
+    add(P, { title: T('Vérifications avant atterrissage', 'Before landing checks'), parts: [['switch:fuelPump', (c) => c.sys.switches.fuelPump], ['mixture', (c) => c.sys.mixture >= 0.95]], camera: 'none', auto: 20,
         done: (c) => c.sys.switches.fuelPump && c.sys.mixture >= 0.95,
         say: T("Vérifications avant l'atterrissage : pompe électrique allumée, mixture plein riche.", 'Before landing checks: fuel pump on, mixture full rich.') });
     add(P, { title: T('Travers du seuil : réduire', 'Abeam the threshold: reduce'), camera: 'none', urgent: true, target: ['throttle', 'flaps:lever'], auto: 20,
@@ -765,7 +788,7 @@ function buildSteps(level, lang = 'fr') {
     radio(P, { title: T('Piste dégagée', 'Runway vacated'), ids: ['vacated'], until: (c) => ['toGround', 'taxiIn'].includes(c.atc.state) || c.atc.freq === 'ground',
         say1: T("J'annonce à la Tour que la piste est dégagée. Elle va nous renvoyer vers le Sol.", "I'm telling the Tower we have vacated the runway. It will send us to Ground."),
         say2: T('Annoncez à la Tour que la piste est dégagée, puis passez sur la fréquence du Sol.', 'Report runway vacated to the Tower, then change to the Ground frequency.') });
-    add(P, { title: T('Volets, phares', 'Flaps and lights'), target: ['flaps:lever', 'switch:land', 'switch:strobe'],
+    add(P, { title: T('Volets, phares', 'Flaps and lights'), parts: [['flaps:lever', (c) => c.flaps === 0], ['switch:land', (c) => !c.sys.switches.land], ['switch:strobe', (c) => !c.sys.switches.strobe]],
         done: (c) => c.flaps === 0 && !c.sys.switches.land && !c.sys.switches.strobe,
         say: T("Rentrez les volets, touche T, et éteignez le phare d'atterrissage et les strobes.", 'Retract the flaps, T key, and switch off the landing light and the strobes.') });
     radio(P, { title: T('Retour au parking', 'Taxi to parking'), ids: ['groundIn'], until: (c) => c.atc.state === 'taxiIn',
@@ -787,9 +810,9 @@ function buildSteps(level, lang = 'fr') {
     radio(P, { title: T('Fin de vol à la radio', 'End of flight call'), ids: ['parked'], until: (c) => !c.atc.contact,
         say1: T("J'annonce au Sol que nous sommes au parking et que nous quittons la fréquence.", "I'm telling Ground we are parked and leaving the frequency."),
         say2: T('Annoncez au Sol que vous êtes au parking et quittez la fréquence.', 'Tell Ground you are parked and leave the frequency.') });
-    add(P, { title: T('Phare et pompe', 'Taxi light and pump'), target: ['switch:taxi', 'switch:fuelPump'], done: (c) => !c.sys.switches.taxi && !c.sys.switches.fuelPump,
+    add(P, { title: T('Phare et pompe', 'Taxi light and pump'), parts: [['switch:taxi', (c) => !c.sys.switches.taxi], ['switch:fuelPump', (c) => !c.sys.switches.fuelPump]], done: (c) => !c.sys.switches.taxi && !c.sys.switches.fuelPump,
         say: T('Éteignez le phare de roulage et la pompe électrique.', 'Switch off the taxi light and the fuel pump.') });
-    add(P, { title: T('Avionique coupée', 'Avionics off'), target: ['switch:avionics', 'switch:avionics2'], done: (c) => !c.sys.switches.avionics && !c.sys.switches.avionics2,
+    add(P, { title: T('Avionique coupée', 'Avionics off'), parts: [['switch:avionics', (c) => !c.sys.switches.avionics], ['switch:avionics2', (c) => !c.sys.switches.avionics2]], done: (c) => !c.sys.switches.avionics && !c.sys.switches.avionics2,
         say: T("Coupez l'avionique, les deux moitiés de l'interrupteur AVIONICS.", 'Switch off the avionics, both halves of the AVIONICS switch.'),
         why: T("On l'éteint avant le moteur : les variations de tension pourraient abîmer la radio.", 'We switch it off before the engine: voltage spikes could damage the radio.') });
     add(P, { title: T('Arrêt du moteur : mixture', 'Engine stop: mixture'), target: 'mixture', done: (c) => !c.sys.running,
@@ -798,7 +821,7 @@ function buildSteps(level, lang = 'fr') {
         why: T("Couper l'essence plutôt que l'allumage vide les cylindres : pas de retour de flamme.", 'Cutting the fuel rather than the ignition empties the cylinders: no backfire.') });
     add(P, { title: T('Magnétos sur OFF', 'Magnetos OFF'), target: 'mags', done: (c) => c.sys.magnetos === 0,
         say: T('Tournez la clé sur OFF : clic à gauche de la clé.', 'Turn the key to OFF: click the left side of the key.') });
-    add(P, { title: T('Master coupé', 'Master off'), target: ['switch:masterBat', 'switch:masterAlt', 'switch:beacon', 'switch:nav'],
+    add(P, { title: T('Master coupé', 'Master off'), parts: [['switch:beacon', (c) => !c.sys.switches.beacon], ['switch:nav', (c) => !c.sys.switches.nav], ['switch:masterAlt', (c) => !c.sys.switches.masterAlt], ['switch:masterBat', (c) => !c.sys.switches.masterBat]],
         done: (c) => !c.sys.switches.masterBat && !c.sys.switches.masterAlt,
         say: T("Éteignez les feux, puis coupez le MASTER, BAT et ALT. L'avion est arrêté.", 'Switch off the lights, then the MASTER, BAT and ALT. The aeroplane is shut down.') });
     add(P, { title: T('Bravo !', 'Well done!'), next: true, camera: 'pilot',

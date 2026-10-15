@@ -168,6 +168,24 @@ function prepare(scene) {
     pivot('flapLeft', ['flaps'], 'x');
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
+    // Compensateur (tab de trim) : sur le bord de fuite de la gouverne de profondeur droite ; il la suit et braque en
+    // plus selon le trim (pivot sur son bord d'attaque, dans le repère de la gouverne)
+    if (pivots.elevator && meshes.elevatortrim) {
+        const tab = meshes.elevatortrim;
+        const p = tab.geometry.attributes.position;
+        let front = Infinity, y = 0, n = 0;
+        for (let i = 0; i < p.count; i++) front = Math.min(front, p.getZ(i));
+        for (let i = 0; i < p.count; i++) if (p.getZ(i) < front + 0.01) { y += p.getY(i); n++; }
+        const hinge = new Vector3(0, y / n, front);
+        tab.geometry.translate(0, -hinge.y, -hinge.z);
+        const group = new Group();
+        group.name = 'trimTab';
+        group.position.copy(hinge);
+        group.userData.axis = new Vector3(1, 0, 0);   // angle positif : bord de fuite vers le bas (trim à cabrer)
+        group.add(tab);
+        pivots.elevator.add(group);
+        pivots.trimTab = group;
+    }
     // Feu de queue : sur le bord de fuite de la gouverne de direction, il la suit (l'anticollision, lui, est sur la
     // partie fixe de la dérive)
     if (pivots.rudder && meshes.RearNavLight) {
@@ -496,6 +514,7 @@ function buildCabin() {
             pedal.add(plate, arm);
             pedal.userData.side = side;
             pedal.userData.z = pedal.position.z;
+            pedal.userData.plate = plate;   // freins sur le haut des palonniers : la plaque bascule vers l'avant
             group.add(pedal);
             pedals.push(pedal);
         }
