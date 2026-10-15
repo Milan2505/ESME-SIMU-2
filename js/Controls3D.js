@@ -130,8 +130,8 @@ class Controls3D {
             const width = px(w) * 0.97, height = px(h) * 0.94;
             const mat = (color, roughness = 0.45) => new MeshStandardMaterial({ color, roughness });
             // Profil (vu de côté) comme le vrai : bloc épais (38 % de sa hauteur) dont la face est en V rentrant, les bouts
-            // haut et bas ressortent vers le pilote, le milieu est enfoncé de 16 % de la hauteur
-            const D = height * 0.38, notch = height * 0.16, h2 = height / 2;
+            // haut et bas ressortent vers le pilote, le milieu est enfoncé de 11 % de la hauteur
+            const D = height * 0.34, notch = height * 0.11, h2 = height / 2;   // creux de ~12° (avant : 16 %, ~18°, trop marqué)
             const profile = new Shape();
             profile.moveTo(0, -h2);
             profile.lineTo(D, -h2);
