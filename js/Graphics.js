@@ -189,6 +189,33 @@ function patchDetailShadow() {
     return true;
 }
 
+// Brume en altitude : l'air se dégage en montant (densité divisée par e tous les FOG_SCALE_HEIGHT m). Le brouillard de la
+// météo (fogNear / fogFar) vaut au niveau du sol ; on le calcule sur la distance « équivalente au sol » : distance x
+// densité moyenne de l'air traversé entre l'œil et le point vu. Au ras du sol, rien ne change ; vu d'avion, le sol
+// n'est plus noyé dans le blanc (avant : 2 km de distance = 2 km de brume, même en regardant vers le bas).
+// Pas dans un nuage ni dans un brouillard épais (fogFar court) : le « jour blanc » reste blanc à toute altitude.
+// Près de la limite de vue de la caméra (3 km), fondu complet : le bord du décor reste caché.
+const FOG_SCALE_HEIGHT = 350;
+const FOG_CLIP = [2300, 2900];
+function patchHeightFog() {
+    if (ShaderChunk.fog_vertex.includes('vFogWorldY')) return;
+    ShaderChunk.fog_pars_vertex = ShaderChunk.fog_pars_vertex.replace('varying float vFogDepth;',
+        `varying float vFogDepth;
+	varying float vFogWorldY;`);
+    // Hauteur du point dans le monde, depuis mvPosition (valable aussi pour les instances et les shaders des nuages)
+    ShaderChunk.fog_vertex = ShaderChunk.fog_vertex.replace('vFogDepth = - mvPosition.z;',
+        `vFogDepth = - mvPosition.z;
+	vFogWorldY = ( transpose( mat3( viewMatrix ) ) * ( mvPosition.xyz - viewMatrix[ 3 ].xyz ) ).y;`);
+    ShaderChunk.fog_pars_fragment = ShaderChunk.fog_pars_fragment.replace('varying float vFogDepth;',
+        `varying float vFogDepth;
+	varying float vFogWorldY;`);
+    ShaderChunk.fog_fragment = ShaderChunk.fog_fragment.replace('float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );', `
+		float fogH0 = max( cameraPosition.y, 0.0 ) / ${FOG_SCALE_HEIGHT}.0, fogH1 = max( vFogWorldY, 0.0 ) / ${FOG_SCALE_HEIGHT}.0;
+		float fogAir = abs( fogH1 - fogH0 ) < 0.01 ? exp( - fogH0 ) : ( exp( - fogH0 ) - exp( - fogH1 ) ) / ( fogH1 - fogH0 );
+		fogAir = mix( 1.0, fogAir, smoothstep( 150.0, 600.0, fogFar ) );
+		float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth * fogAir ), smoothstep( ${FOG_CLIP[0]}.0, ${FOG_CLIP[1]}.0, vFogDepth ) );`);
+}
+
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)
 // Jamais sous un pixel calculé par pixel CSS : en dessous, l'image agrandie paraît pixelisée malgré l'anticrénelage
 // (sur un écran HD, un pixel calculé couvrait plus de 3 pixels physiques à 0,6). Plus bas : réglage manuel 75 % / 50 %.
@@ -214,6 +241,7 @@ class Graphics {
         renderer.shadowMap.type = PCFSoftShadowMap;
 
         // Ombres : les zones couvertes suivent l'avion ; carte fine : lumière sans éclairage, seulement pour son ombre
+        patchHeightFog();
         this.detailLight = patchDetailShadow() ? new DirectionalLight(0xffffff, 0) : null;
         for (const light of [sunLight, this.detailLight]) {
             if (!light) continue;
