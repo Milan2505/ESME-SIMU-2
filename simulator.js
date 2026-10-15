@@ -28,6 +28,7 @@ import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
+import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
@@ -156,6 +157,10 @@ let gloveboxOpen = false;
 // Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
 const decorGroups = [];
 let decorDensity = 1;
+let decorStyle = 'realiste';   // 'classique' (arbres stylisés), 'realiste' (forêts et villages), 'mixte' (les deux)
+const CLASSIC_TREES = new Set(['TREE', 'TREE_F']);
+// Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
+const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => Math.abs(x - 220) < 260 && Math.abs(z) < 3000 });
 let aircraftModel = null;
 let propeller = null;
 let propellerParts = new Set();   // pièces de l'hélice (estompées quand elle tourne vite)
@@ -568,10 +573,18 @@ resize();
 // Construction de la scène à partir du modèle de données (data/)
 // Réglage "Arbres et décor" : n'affiche qu'une partie des exemplaires (ceux de objet.csv d'abord)
 function applyDecorDensity() {
+    const classicShown = decorStyle !== 'realiste';
     for (const group of decorGroups) {
         const count = Math.max(1, Math.round(group.total * decorDensity));
-        for (const mesh of group.meshes) mesh.count = count;
+        group.hidden = CLASSIC_TREES.has(group.codeType) && !classicShown;
+        for (const mesh of group.meshes) {
+            mesh.count = count;
+            mesh.visible = !group.hidden;
+        }
     }
+    scenery.setDensity(decorDensity);
+    scenery.setVisible(decorStyle !== 'classique');
+    if (decorStyle !== 'classique') scenery.build().then(rebuildObstacles);
     rebuildObstacles();
 }
 
@@ -579,9 +592,11 @@ function applyDecorDensity() {
 function rebuildObstacles() {
     controls.obstacles = [...airport.obstacles];
     for (const group of decorGroups) {
+        if (group.hidden) continue;
         const count = group.meshes[0]?.count ?? group.total;
         controls.obstacles.push(...group.obstacles.slice(0, count));
     }
+    if (scenery.group.visible) controls.obstacles.push(...scenery.obstacles);
 }
 
 async function buildWorld() {
@@ -634,7 +649,7 @@ async function buildWorld() {
             // (au lieu d'un appel par objet et par matériau : des centaines d'appels en moins à chaque image)
             obj.updateMatrixWorld(true);
             const instanceMatrix = new THREE.Matrix4();
-            const group = { meshes: [], total: matrices.length, obstacles: [] };
+            const group = { meshes: [], total: matrices.length, obstacles: [], codeType: type.codeType };
             obj.traverse((child) => {
                 if (!child.isMesh) return;
                 const instances = new THREE.InstancedMesh(child.geometry, child.material, matrices.length);
@@ -2026,6 +2041,7 @@ function applySettings(values) {
     cloudLayer.setEnabled(values.cloudLayer);
     terrain.setDetail(values.terrain);
     decorDensity = values.decor;
+    decorStyle = values.decorStyle ?? 'realiste';
     applyDecorDensity();
     perfPanel.hidden = !values.perf;
     remotePlayers.showLabels = values.labels;
@@ -2178,6 +2194,7 @@ renderer.setAnimationLoop((time)=>{
     pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
     airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld );
     airport.updateHangars( delta, aircraft.position );
+    scenery.update( camera.position, clock.elapsedTime );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();

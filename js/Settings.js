@@ -21,6 +21,8 @@ const OPTIONS = {
                   choices: [[128, 'Bas'], [256, 'Moyen'], [384, 'Haut'], [512, 'Très haut']] },
     decor:      { label: 'Arbres et décor', hint: 'Part des arbres, fleurs, rochers affichés',
                   choices: [[0.25, '25 %'], [0.5, '50 %'], [1, '100 %']] },
+    decorStyle: { label: 'Style du décor', hint: "Réaliste : forêts et villages (plus lourd) ; Mixte : avec les arbres stylisés d'origine",
+                  choices: [['classique', 'Classique (stylisé)'], ['realiste', 'Réaliste'], ['mixte', 'Mixte (les deux)']] },
     bloom:      { label: 'Halo lumineux', hint: 'Lueur autour des feux, éclairs, explosion',
                   choices: [[false, 'Désactivé'], [true, 'Activé']] },
     perf:       { label: 'Afficher la fluidité', hint: 'Images par seconde et résolution, en haut à gauche de l\'écran (touche P)',
@@ -41,10 +43,10 @@ const OPTIONS = {
 const FLIGHT_DEFAULTS = { rotationAuto: false, stallProtection: false, smoothLiftoff: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
-    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, decor: 0.25, bloom: false },
-    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, decor: 0.5,  bloom: true },
-    haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, decor: 1,    bloom: true },
-    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   cloudLayer: true,  terrain: 512, decor: 1,    bloom: true },
+    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, decor: 0.25, decorStyle: 'classique', bloom: false },
+    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, decor: 0.5,  decorStyle: 'classique', bloom: true },
+    haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, decor: 1,    decorStyle: 'realiste', bloom: true },
+    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   cloudLayer: true,  terrain: 512, decor: 1,    decorStyle: 'realiste', bloom: true },
 };
 const DEFAULT_PRESET = 'haut';
 const CUSTOM = 'perso';
@@ -117,6 +119,11 @@ class Settings extends EventTarget {
             saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
         } catch { /* stockage indisponible ou illisible */ }
         if (!saved?.values) return;
+        // Réglage absent de la sauvegarde (ajouté depuis) : celui du préréglage enregistré
+        if (PRESETS[saved.preset]) {
+            const { label, ...values } = PRESETS[saved.preset];
+            Object.assign(this.values, values);
+        }
         // Ne reprend que des valeurs encore proposées (le menu peut évoluer)
         for (const [key, option] of Object.entries(OPTIONS)) {
             const value = saved.values[key];
