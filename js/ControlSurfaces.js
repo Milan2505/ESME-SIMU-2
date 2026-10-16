@@ -1,4 +1,5 @@
 import { MathUtils } from 'three';
+import { CESSNA_172 } from './Cessna172.js';
 
 // Gouvernes animées du Cessna (C172Model.js) : ailerons, volets, profondeur et direction sont des pièces mobiles,
 // chacune dans un pivot placé sur sa charnière (userData.axis : axe de rotation ; un angle positif envoie le bord
@@ -9,6 +10,9 @@ const AILERON_TRAVEL = 20;
 const ELEVATOR_TRAVEL = 25;
 const RUDDER_TRAVEL = 25;
 const FLAP_TRAVEL = 30;
+
+const TRIM_RANGE = [CESSNA_172.trimTabMin, CESSNA_172.trimTabMax].map(MathUtils.radToDeg);   // course du trim (degrés)
+const TAB_DOWN = 15, TAB_UP = 25;   // débattement visuel du compensateur en butée (degrés)
 
 class ControlSurfaces {
     // pivots : gouvernes de l'avion (aircraftParts(model).pivots)
@@ -37,9 +41,11 @@ class ControlSurfaces {
         this._set('flapRight', d.flaps * FLAP_TRAVEL);
         // Compensateur : monte avec le trim à cabrer (touche X), descend avec le trim à piquer (touche W), comme la
         // gouverne qu'il soulage (choix de rendu : sur le vrai avion, il braque à l'opposé de la gouverne)
-        // Course du trim très inégale (-4 à piquer, +55 à cabrer) : débattement visuel propre à chaque côté, 15° vers le
-        // bas en butée à piquer, 25° vers le haut en butée à cabrer
-        this._set('trimTab', trim < 0 ? MathUtils.clamp(-trim * 3.75, 0, 15) : MathUtils.clamp(-trim * 0.45, -25, 0));
+        // Toute la course du trim (-4 à piquer -> +55 à cabrer) répartie régulièrement : 15° vers le bas en butée à
+        // piquer, 25° vers le haut en butée à cabrer, à plat vers le repère décollage. Même vitesse de déplacement dans
+        // les deux sens (avant : 8 fois plus rapide sous le neutre, la course y étant très courte)
+        const [min, max] = TRIM_RANGE;
+        this._set('trimTab', TAB_DOWN - (MathUtils.clamp(trim, min, max) - min) / (max - min) * (TAB_DOWN + TAB_UP));
     }
 
     _set(name, degrees) {
