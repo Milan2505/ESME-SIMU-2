@@ -170,7 +170,10 @@ class FlightModel extends EventDispatcher {
 
 	// Incidence que fixe le tab de trim (manche lâché)
 	trimAlpha() {
-		return this.aircraft.trimAlphaZero + this.trim * this.aircraft.trimAlphaPerTab;
+		const A = this.aircraft;
+		// Côté piqué (sous le neutre), effet réduit : le trim soulage l'effort à pousser sans faire plonger l'avion
+		const tab = this.trim < 0 ? this.trim * A.trimNoseDownEffect : this.trim;
+		return A.trimAlphaZero + tab * A.trimAlphaPerTab;
 	}
 
 	// Vitesse (m/s) que l'avion tient manche lâché avec le trim et les volets actuels : la puissance fait monter

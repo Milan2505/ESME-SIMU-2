@@ -65,11 +65,13 @@ const CESSNA_172 = {
 	// minimale ~55 kt) : 20° (décollage) -> ~90 kt en montée (75 kt volets 10°) ; 0° -> ~110 kt, croisière. Vers le
 	// piqué, la vitesse tenue reste à la portée du moteur en palier (avant : 125 kt au neutre, 138 kt en butée, l'avion
 	// ne pouvait les tenir qu'en descendant et plongeait en accélérant dès qu'on passait le neutre)
-	trimTabMin: deg( - 4 ),           // à piquer à fond : ~116 kt
+	trimTabMin: deg( - 4 ),           // à piquer à fond : ~111 kt (voir trimNoseDownEffect)
 	trimTabMax: deg( 55 ),            // à cabrer à fond : ~72 kt volets rentrés, ~64 kt volets 10° (approche manche lâché)
 	takeoffTrim: deg( 20 ),           // repère décollage
 	trimAlphaZero: deg( - 0.76 ),     // incidence tenue tab à 0° : ~110 kt
 	trimAlphaPerTab: 0.105,           // incidence tenue en plus par radian de tab à cabrer : +20° -> ~90 kt
+	trimNoseDownEffect: 0.2,          // sous le neutre, le trim n'agit qu'au cinquième : passé le neutre, l'avion ne
+	                                  // plonge plus en accélérant (au plein effet : 116 kt en butée, hors de portée en palier)
 	liftoffReleaseTime: 6,            // aide "envol en douceur" : le nez se rend en ~6 s après l'envol
 
 	// Au sol
