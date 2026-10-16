@@ -85,6 +85,8 @@ class FlightModel extends EventDispatcher {
 		this._pathRate = 0;
 		this._groundYaw = 0;             // cap au sol (rad, + = vers la gauche)
 		this._groundPitch = 0;           // cabré au sol (rad), 0 = roulette avant posée
+		this.beta = 0;                   // dérapage (rad, + = vent relatif venant de la droite : nez à gauche de la trajectoire)
+		this.sideAcceleration = 0;       // accélération latérale ressentie (m/s², + = vers la droite), voir _updateAir
 	}
 
 	// Pose l'avion sur le sol à sa position actuelle (cap conservé), moteur au ralenti
@@ -247,6 +249,7 @@ class FlightModel extends EventDispatcher {
 		const alpha = Math.atan2( - _air.dot( _planeUp ), _air.dot( _forward ) );
 		const beta = Math.asin( MathUtils.clamp( _air.dot( _right ) / speed, - 1, 1 ) );
 		this.alpha = alpha;
+		this.beta = beta;
 
 		const stallAlpha = this.stallAlpha();
 		if ( ! this.stalled && alpha > stallAlpha ) {
@@ -270,9 +273,12 @@ class FlightModel extends EventDispatcher {
 		const lift = this._liftCoefficient( alpha ) * ( 1 + A.groundEffectLift * this.groundEffect );
 		_liftDirection.crossVectors( _right, _air ).normalize(); // perpendiculaire au vent relatif
 		_force.copy( _liftDirection ).multiplyScalar( lift * pressure )
-			.addScaledVector( _air, - this._dragCoefficient( lift, groundEffect ) * pressure / speed )
+			.addScaledVector( _air, - ( this._dragCoefficient( lift, groundEffect ) + A.sideslipDrag * beta * beta ) * pressure / speed )
 			.addScaledVector( _right, - A.sideForce * beta * pressure )
 			.addScaledVector( _forward, this._thrust( speed ) );
+		// Accélération latérale ressentie (sans la pesanteur, repère avion, + = vers la droite) : bille de l'indicateur
+		// de virage. Centrée en virage coordonné ; en dérapage, la force latérale du fuselage la déporte
+		this.sideAcceleration = _force.dot( _right ) / A.mass;
 		_force.y -= A.mass * GRAVITY;
 		this.velocity.addScaledVector( _force, dt / A.mass );
 		object.position.addScaledVector( this.velocity, dt );
@@ -312,7 +318,8 @@ class FlightModel extends EventDispatcher {
 		if ( Math.abs( input.pitch ) < 0.1 ) alphaTarget -= A.phugoidDamping * this._pathRate;
 		let pitchRate = MathUtils.clamp( A.pitchStability * ( alphaTarget - alpha ) * stability, - A.pitchRateMax, A.pitchRateMax );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
-		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta - A.spiralStability * bank ) * stability + this._gustRoll;
+		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta - A.spiralStability * bank ) * stability + this._gustRoll
+			+ A.yawRoll * this._angularVelocity.y;   // lacet à gauche (+) : roulis à gauche (+)
 		const yawRate = input.yaw * A.yawRate * effect - A.yawStability * beta * stability;
 		if ( this.stalled ) {
 			pitchRate -= A.stallPitchDown;                  // abattée : le nez tombe
@@ -332,6 +339,7 @@ class FlightModel extends EventDispatcher {
 	// Poussée, traînée, roulement et freins (sur la part du poids que portent encore les roues),
 	// roulette de nez orientable ; l'avion décolle quand la portance dépasse le poids
 	_updateGround( dt ) {
+		this.beta = this.sideAcceleration = 0;
 		const A = this.aircraft;
 		const object = this.object;
 		const input = this.controls;

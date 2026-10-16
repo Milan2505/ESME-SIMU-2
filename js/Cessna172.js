@@ -32,11 +32,13 @@ const CESSNA_172 = {
 
 	// Gouvernes et stabilité : rotations (rad/s) à pleine efficacité, l'efficacité croît avec le carré de la vitesse
 	rollRate: 0.7,
-	yawRate: 0.3,
+	yawRate: 0.45,                    // palonnier à fond : ~11° de dérapage en vol (avec yawStability)
 	controlSpeed: 30,                 // vitesse (m/s) où les gouvernes ont leur pleine efficacité
 	pitchStability: 3.5,              // manche lâché : le nez revient à l'incidence du trim
-	yawStability: 3,                  // la dérive aligne le nez sur la trajectoire (virage coordonné)
-	dihedral: 0.8,                    // le dérapage incline l'avion (dièdre des ailes)
+	yawStability: 2.4,                // la dérive aligne le nez sur la trajectoire (virage coordonné)
+	dihedral: 0.6,                    // le dérapage incline l'avion (dièdre des ailes : l'aile au vent se soulève)
+	yawRoll: 0.4,                     // le nez qui tourne incline l'avion du même côté (l'aile extérieure, plus rapide, porte plus)
+	sideslipDrag: 0.6,                // traînée en plus en dérapage (par rad²) : glissade, l'avion ralentit
 	spiralStability: 0.1,             // manche lâché, l'inclinaison se réduit doucement (sinon le virage se resserre)
 	angularResponse: 5,               // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 	stallPitchDown: 0.4,              // abattée au décrochage (rad/s)

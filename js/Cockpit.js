@@ -40,7 +40,7 @@ import { buildCabin, ambient, CABIN_ORIGIN } from './C172Model.js';
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
 const CABIN_LIGHT = new Vector3(0, 0.2, -0.22);   // plafonnier avant (dessous de la console, au milieu ; repère cabine)
 const CABIN_LIGHT_INTENSITY = 0.9;
-const OVERHEAD = { length: 0.26, width: 0.1, depth: 0.018, lampX: 0.07 };   // console de plafond (m) ; lampe côté droit
+const OVERHEAD = { length: 0.26, width: 0.1, depth: 0.018, lampX: 0.07, scale: 0.6 };   // console de plafond (m, avant réduction) ; lampe côté droit
 const PEDAL_BRAKE_TRAVEL = 0.035;   // freins (touche B) : les pédales s'enfoncent de 3,5 cm vers l'avant...
 const PEDAL_BRAKE_TILT = 0.3;       // ... et leur haut bascule de ~17° (rad)
 const EYE = new Vector3(-0.2, 0.03, -0.05); // face à l'horizon artificiel, un peu penché en avant : instruments lisibles, sol visible par-dessus le tableau
@@ -350,7 +350,7 @@ class Cockpit {
         // (une vraie lumière : présente seulement la nuit, chaque lumière alourdit le calcul de tous les matériaux)
         this.group.add(this._buildOverheadConsole());
         this._cabinLight = new SpotLight(0xffe6c4, 0, 3, MathUtils.degToRad(65), 0.7, 2);
-        this._cabinLight.position.copy(CABIN_LIGHT).add(new Vector3(OVERHEAD.lampX, -0.01, 0));
+        this._cabinLight.position.copy(CABIN_LIGHT).add(new Vector3(OVERHEAD.lampX * OVERHEAD.scale, -0.01, 0));
         this._cabinLight.target.position.set(-0.05, -0.4, PANEL_FACE_Z + 0.1);
         this._cabinLight.visible = false;
         this.group.add(this._cabinLight, this._cabinLight.target);
@@ -600,9 +600,10 @@ class Cockpit {
     // Console de plafond (comme celle des Cessna) : platine ovale grise, aérateur orientable à gauche (bague, rotule,
     // buse), lampe à droite (bague crantée, verre), deux petites molettes au milieu. Face vers le bas, sous le toit
     _buildOverheadConsole() {
-        const { length, width, depth, lampX } = OVERHEAD;
+        const { length, width, depth, lampX, scale } = OVERHEAD;
         const group = new Group();
-        group.position.set(0, CABIN_LIGHT.y + depth, CABIN_LIGHT.z);   // dessus de la platine contre le toit
+        group.position.set(0, CABIN_LIGHT.y + depth * scale, CABIN_LIGHT.z);   // dessus de la platine contre le toit
+        group.scale.setScalar(scale);
         // Lumière ambiante de la cabine (comme les garnitures) : gris clair de jour sous le toit, éteinte la nuit
         const plastic = ambient(new MeshStandardMaterial({ color: 0xc3c6c9, roughness: 0.55, emissive: 0x55585b }));
         const dark = new MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.6 });
@@ -700,7 +701,10 @@ class Cockpit {
         s.roll += (state.inputs.roll - s.roll) * k;
         s.yaw += (state.inputs.yaw - s.yaw) * k;
         s.rpm += ((state.crashed ? 0 : sys.rpm) - s.rpm) * (1 - Math.exp(-6 * delta));
-        s.slip += (-s.yaw * 0.6 - s.slip) * (1 - Math.exp(-4 * delta));
+        // Bille : poussée à l'opposé de l'accélération latérale (palonnier à gauche en palier : l'avion est poussé à
+        // gauche, la bille part à droite) ; centrée en virage coordonné. Butée vers 0,3 g
+        const ball = MathUtils.clamp(-(state.sideAcceleration ?? 0) / 9.81 * 3.3, -1, 1);
+        s.slip += (ball - s.slip) * (1 - Math.exp(-4 * delta));
         s.vs += (state.verticalSpeed - s.vs) * (1 - Math.exp(-2 * delta));   // variomètre : un peu de retard
         s.oilTemp += ((sys.running ? 0.62 : 0) - s.oilTemp) * (1 - Math.exp(-delta / 90));
 

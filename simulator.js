@@ -1763,6 +1763,7 @@ function cockpitState() {
         pitchDeg: Math.atan(controls.getPitchRate()) * 180 / Math.PI,
         throttle: controls.getThrottle(),
         inputs: controls.getInputs(),
+        sideAcceleration: controls.model.sideAcceleration,
         flapSetting: controls.getFlapSetting(),
         flaps: controls.getFlaps(),
         trim: controls.getTrim(),
