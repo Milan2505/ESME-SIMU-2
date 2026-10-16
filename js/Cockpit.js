@@ -36,7 +36,7 @@ import { buildCabin, CABIN_ORIGIN } from './C172Model.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
-const EYE = new Vector3(-0.2, 0.06, -0.05); // face à l'horizon artificiel, un peu penché en avant : instruments lisibles, sol visible par-dessus le tableau
+const EYE = new Vector3(-0.2, 0.03, -0.05); // face à l'horizon artificiel, un peu penché en avant : instruments lisibles, sol visible par-dessus le tableau
 // Manches : sortent du tableau par leur passage (course poussé / tiré), le volant tourne
 const YOKE_TRAVEL = 0.1;          // m de chaque côté du neutre
 const YOKE_TURN = Math.PI / 2;    // 90° de chaque côté
