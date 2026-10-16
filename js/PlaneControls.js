@@ -226,13 +226,15 @@ class PlaneControls extends Controls {
 	getThrottle() {
 		return this.model.throttle;
 	}
-	// Commandes du pilote : profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins
+	// Commandes du pilote : profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins (touche B ou frein de
+	// parc) ; toeBrake : pointes des pieds sur les freins (touche B seule, 0 / 1)
 	getInputs() {
 		return {
 			pitch: this._controls.x,
 			roll: this._controls.z,
 			yaw: this._controls.y,
 			brake: Math.max( this._moveState.brake, this.parkingBrake ? 1 : 0 ),
+			toeBrake: this._moveState.brake,
 		};
 	}
 	// Trim : angle du tab (degrés, + = à cabrer), repère de décollage et butées

@@ -616,4 +616,4 @@ function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) 
     return g;
 }
 
-export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE };
+export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE };

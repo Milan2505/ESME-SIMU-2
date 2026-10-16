@@ -27,8 +27,8 @@ const deg = MathUtils.degToRad;
 // Positions : les feux du modèle (C172Model.js, repère avion avant agrandissement). mesh : pièces du modèle qui
 // servent de verre (elles s'allument) ; rudder : feu porté par la gouverne de direction (il la suit quand elle braque)
 const LIGHTS = [
-    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.086], sector: [deg(-110), deg(0)],  size: 1.1, mesh: ['LeftNavLight'] },
-    { kind: 'nav',     color: 0x18ff3c, position: [5.641, 1.169, -2.087], sector: [deg(0), deg(110)],   size: 1.1, mesh: ['RightNavLight'] },
+    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.086], sector: [deg(-110), deg(4)],  size: 1.1, mesh: ['LeftNavLight'] },
+    { kind: 'nav',     color: 0x18ff3c, position: [5.641, 1.169, -2.087], sector: [deg(-4), deg(110)],  size: 1.1, mesh: ['RightNavLight'] },
     // Feu de queue : au bord de fuite de la gouverne de direction
     { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.85],      sector: [deg(110), deg(250)], size: 0.8, mesh: ['RearNavLight'], rudder: true },
     // Anticollision : au sommet de la dérive (partie fixe, au-dessus de la gouverne)
@@ -42,7 +42,7 @@ const LIGHTS = [
     { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.143, -2.28],                                size: 3.5, mesh: ['lightlanding'] },
     { kind: 'taxi',    color: 0xfff4dc, position: [-2.807, 1.14, -2.282],                               size: 2.6, mesh: ['lighttaxi'] },
 ];
-const SECTOR_FADE = deg(6);     // fondu aux limites de secteur
+const SECTOR_FADE = deg(4);     // fondu aux limites de secteur, à l'intérieur : rien au-delà de la limite (110° / 140°)
 
 // Verre des feux du modèle : teinté à la couleur du feu (rouge ou vert profond de jour, éclairci il paraissait
 // saumon), lumineux quand le feu éclaire l'observateur (émissif, capté par le halo)
@@ -121,12 +121,14 @@ const NAV_GLOW = 2.5;          // candelas : lueur rouge / verte sur le bout d'a
 const STROBE_FLASH = 120;      // candelas : éclair du strobe
 const TIP_LIGHT_RANGE = 40;    // portée (m)       // halo avancé vers la caméra : ne traverse pas l'aile ni le fuselage (m)
 
-// Visibilité d'un feu dans un secteur [début, fin] d'azimut (0 = droit devant, + = vers la droite),
-// avec un fondu aux limites
+// (secteurs rouge et vert prolongés de 4° au-delà de l'axe : droit devant, les deux sont pleinement visibles)
+// Visibilité d'un feu dans un secteur [début, fin] d'azimut (0 = droit devant, + = vers la droite), avec un fondu
+// juste avant les limites (OACI : rouge à gauche et vert à droite de 0 à 110°, blanc de queue sur les 140° restants ;
+// aucun ne déborde dans le secteur voisin)
 function sectorVisibility(azimuth, [start, end]) {
     const center = (start + end) / 2, half = (end - start) / 2;
     const offset = Math.abs(MathUtils.euclideanModulo(azimuth - center + Math.PI, Math.PI * 2) - Math.PI);
-    return 1 - MathUtils.smoothstep(offset, half - SECTOR_FADE, half + SECTOR_FADE);
+    return 1 - MathUtils.smoothstep(offset, half - SECTOR_FADE, half);
 }
 
 // Faisceau du phare d'atterrissage : cône de lumière additive qui s'estompe avec la distance,
@@ -334,7 +336,9 @@ class AircraftLights {
             if (!enabled) {
                 intensity = 0;
             } else if (light.kind === 'nav') {
-                intensity = sectorVisibility(Math.atan2(toEye.x, -toEye.z), light.sector);
+                // Angle vu depuis le centre de l'avion, comme sur le schéma des secteurs : de près, depuis le bout d'aile, un
+                // observateur droit devant serait de l'autre côté de l'axe et ne verrait ni le rouge ni le vert
+                intensity = sectorVisibility(Math.atan2(_eye.x, -_eye.z), light.sector);
             } else if (light.kind === 'landing' || light.kind === 'taxi') {
                 // Faisceau vers l'avant : éblouit quand on est dans l'axe, invisible de côté et de l'arrière (roulage :
                 // faisceau large, visible sur un angle plus grand)
@@ -366,9 +370,9 @@ class AircraftLights {
             // rouge saturé très lumineux vire à l'orange au rendu ; le halo suffit à les voir) ; strobe : éclair blanc
             const peak = light.kind === 'strobe' || light.kind === 'landing' || light.kind === 'taxi' ? 3 : 0.8 + 2.2 * this.night;
             let glow = 0.1 + peak * Math.min(1, intensity * 1.5);
-            // Feu de navigation vu hors de son secteur (de l'arrière, règle OACI : pas de halo) : le verre reste
-            // allumé, plus faiblement, la nuit
-            if (light.kind === 'nav' && sw.nav) glow = Math.max(glow, 0.1 + 0.9 * this.night);
+            // Feu de navigation vu hors de son secteur (règle OACI : invisible) : le verre garde à peine une lueur la
+            // nuit, sous le seuil du halo (avant : presque pleine luminosité, le feu semblait visible de partout)
+            if (light.kind === 'nav' && sw.nav) glow = Math.max(glow, 0.1 + 0.2 * this.night);
             for (const material of light.glows) material.emissiveIntensity = glow;
             light.flare.visible = intensity > 0.02;
             if (!light.flare.visible) continue;

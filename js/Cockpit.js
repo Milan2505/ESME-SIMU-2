@@ -20,6 +20,8 @@ import {
     Quaternion,
     RepeatWrapping,
     ShaderMaterial,
+    SphereGeometry,
+    SpotLight,
     SRGBColorSpace,
     TorusGeometry,
     Vector3
@@ -32,10 +34,15 @@ import { Controls3D } from './Controls3D.js';
 import { Panel172, PANEL_LAYOUT, panelPoint, panelLength, PANEL_FACE_Z } from './Panel172.js';
 import { PEDESTAL_LAYOUT, Hotspots, drawPedestal, drawFuelSelector } from './PanelControls.js';
 import { TANK_CAPACITY } from './Systems.js';
-import { buildCabin, CABIN_ORIGIN } from './C172Model.js';
+import { buildCabin, ambient, CABIN_ORIGIN } from './C172Model.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
+const CABIN_LIGHT = new Vector3(0, 0.2, -0.22);   // plafonnier avant (dessous de la console, au milieu ; repère cabine)
+const CABIN_LIGHT_INTENSITY = 0.9;
+const OVERHEAD = { length: 0.26, width: 0.1, depth: 0.018, lampX: 0.07 };   // console de plafond (m) ; lampe côté droit
+const PEDAL_BRAKE_TRAVEL = 0.035;   // freins (touche B) : les pédales s'enfoncent de 3,5 cm vers l'avant...
+const PEDAL_BRAKE_TILT = 0.3;       // ... et leur haut bascule de ~17° (rad)
 const EYE = new Vector3(-0.2, 0.03, -0.05); // face à l'horizon artificiel, un peu penché en avant : instruments lisibles, sol visible par-dessus le tableau
 // Manches : sortent du tableau par leur passage (course poussé / tiré), le volant tourne
 const YOKE_TRAVEL = 0.1;          // m de chaque côté du neutre
@@ -338,6 +345,16 @@ class Cockpit {
         this._interior.position.copy(CABIN_ORIGIN).negate();
         this.group.add(this._interior);
 
+        // Éclairage de cabine (plafonnier avant) : console au toit, juste derrière le haut du pare-brise, avec un spot
+        // tourné vers le tableau, les manches et les sièges avant. Allumé la nuit quand le circuit électrique est alimenté
+        // (une vraie lumière : présente seulement la nuit, chaque lumière alourdit le calcul de tous les matériaux)
+        this.group.add(this._buildOverheadConsole());
+        this._cabinLight = new SpotLight(0xffe6c4, 0, 3, MathUtils.degToRad(65), 0.7, 2);
+        this._cabinLight.position.copy(CABIN_LIGHT).add(new Vector3(OVERHEAD.lampX, -0.01, 0));
+        this._cabinLight.target.position.set(-0.05, -0.4, PANEL_FACE_Z + 0.1);
+        this._cabinLight.visible = false;
+        this.group.add(this._cabinLight, this._cabinLight.target);
+
         // Manches : la colonne coulisse dans son passage du tableau (poussé / tiré), le volant tourne
         const yokeShape = yokeGeometry();
         const logo = new MeshStandardMaterial({ map: yokeLogo(), roughness: 0.5 });
@@ -580,6 +597,53 @@ class Cockpit {
         if (!exterior) this._windshield.visible = this.windshieldMaterial.uniforms.uIntensity.value > 0;
     }
 
+    // Console de plafond (comme celle des Cessna) : platine ovale grise, aérateur orientable à gauche (bague, rotule,
+    // buse), lampe à droite (bague crantée, verre), deux petites molettes au milieu. Face vers le bas, sous le toit
+    _buildOverheadConsole() {
+        const { length, width, depth, lampX } = OVERHEAD;
+        const group = new Group();
+        group.position.set(0, CABIN_LIGHT.y + depth, CABIN_LIGHT.z);   // dessus de la platine contre le toit
+        // Lumière ambiante de la cabine (comme les garnitures) : gris clair de jour sous le toit, éteinte la nuit
+        const plastic = ambient(new MeshStandardMaterial({ color: 0xc3c6c9, roughness: 0.55, emissive: 0x55585b }));
+        const dark = new MeshStandardMaterial({ color: 0x2b2c2e, roughness: 0.6 });
+        const add = (geometry, material, x, y, z) => {
+            const mesh = new Mesh(geometry, material);
+            mesh.position.set(x, y, z);
+            group.add(mesh);
+            return mesh;
+        };
+        // Platine : rectangle à bouts en demi-cercle, bords arrondis, épaisseur vers le bas
+        const r = width / 2, half = length / 2 - r;
+        const outline = new Shape();
+        outline.absarc(half, 0, r, -Math.PI / 2, Math.PI / 2, false);
+        outline.absarc(-half, 0, r, Math.PI / 2, Math.PI * 1.5, false);
+        const plate = new ExtrudeGeometry(outline, { depth: depth - 0.004, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 3, curveSegments: 24 });
+        plate.rotateX(Math.PI / 2);   // contour dans le plan horizontal, épaisseur vers le bas
+        add(plate, plastic, 0, 0, 0);
+        const bottom = -depth - 0.002;   // face visible (dessous)
+        // Lampe : bague crantée, verre en retrait
+        add(new CylinderGeometry(0.034, 0.034, 0.012, 32), plastic, lampX, bottom - 0.006, 0);
+        for (let k = 0; k < 30; k++) {
+            const a = (k / 30) * Math.PI * 2;
+            add(new BoxGeometry(0.004, 0.012, 0.004), plastic, lampX + Math.cos(a) * 0.035, bottom - 0.006, Math.sin(a) * 0.035);
+        }
+        this._cabinLens = new MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.25, emissive: 0xffe6c4, emissiveIntensity: 0 });
+        add(new CylinderGeometry(0.025, 0.025, 0.004, 28), this._cabinLens, lampX, bottom - 0.011, 0);
+        // Aérateur : bague, rotule, buse sombre un peu inclinée vers le pilote
+        add(new CylinderGeometry(0.033, 0.033, 0.008, 28), plastic, -lampX, bottom - 0.004, 0);
+        add(new SphereGeometry(0.025, 24, 16), plastic, -lampX, bottom - 0.004, 0);
+        const nozzle = add(new CylinderGeometry(0.012, 0.013, 0.024, 20), dark, -lampX, bottom - 0.026, 0.003);
+        nozzle.rotation.x = 0.25;
+        add(new CylinderGeometry(0.008, 0.008, 0.002, 16), new MeshStandardMaterial({ color: 0x0c0c0d, roughness: 0.9 }), -lampX, bottom - 0.039, 0.006);
+        // Molettes : une carrée, une crantée, enfoncées dans leur logement
+        for (const [z, sides] of [[-0.02, 4], [0.02, 10]]) {
+            add(new CylinderGeometry(0.009, 0.009, 0.004, 16), dark, 0, bottom - 0.001, z);
+            const knob = add(new CylinderGeometry(0.0065, 0.0065, 0.008, sides), plastic, 0, bottom - 0.005, z);
+            knob.rotation.y = Math.PI / sides;
+        }
+        return group;
+    }
+
     // night : 0 = jour, 0,5 = tempête, 1 = nuit
     setNight(night) {
         this._night = night;
@@ -640,12 +704,13 @@ class Cockpit {
         s.vs += (state.verticalSpeed - s.vs) * (1 - Math.exp(-2 * delta));   // variomètre : un peu de retard
         s.oilTemp += ((sys.running ? 0.62 : 0) - s.oilTemp) * (1 - Math.exp(-delta / 90));
 
-        // Palonniers : avancent / reculent avec la direction ; freins (touche B, pas le frein de parc) : le haut des quatre
-        // pédales bascule vers l'avant, enfoncé par la pointe des pieds
-        s.brake = (s.brake ?? 0) + ((state.parkingBrake ? 0 : state.inputs.brake) - (s.brake ?? 0)) * (1 - Math.exp(-12 * delta));
+        // Palonniers : avancent / reculent avec la direction. Freins (touche B seule : le frein de parc, lui, se serre
+        // à la poignée du tableau et ne bouge pas les pédales) : les quatre pédales, ensemble, s'enfoncent vers l'avant et
+        // leur haut bascule, poussé par la pointe des pieds
+        s.brake = (s.brake ?? 0) + ((state.inputs.toeBrake ?? 0) - (s.brake ?? 0)) * (1 - Math.exp(-12 * delta));
         for (const pedal of this._interior.userData.pedals) {
-            pedal.position.z = pedal.userData.z + pedal.userData.side * s.yaw * 0.05;
-            pedal.userData.plate.rotation.x = -0.9 - 0.4 * s.brake;
+            pedal.position.z = pedal.userData.z + pedal.userData.side * s.yaw * 0.05 - PEDAL_BRAKE_TRAVEL * s.brake;
+            pedal.userData.plate.rotation.x = -0.9 - PEDAL_BRAKE_TILT * s.brake;
         }
         for (const yoke of this._yokes) {
             yoke.column.position.z = yoke.z + s.pitch * YOKE_TRAVEL;   // tiré vers le pilote pour cabrer
@@ -661,6 +726,12 @@ class Cockpit {
         const emissive = WHITE.clone().lerp(PANEL_NIGHT_LIGHT, Math.min(1, this._night * 2));
         this.panel.setLighting(emissive, intensity, this._night);
         for (const material of this._sideMaterials) material.emissiveIntensity = intensity;
+        // Plafonnier avant : la nuit, circuit alimenté
+        const cabinLit = this._night > 0.3 && sys.busPowered;
+        this._cabinLight.visible = cabinLit;
+        this._cabinLight.intensity = cabinLit ? CABIN_LIGHT_INTENSITY * this._night : 0;
+        // Verre : allumé, ou translucide de jour (éclairé par la cabine), sombre la nuit lampe éteinte
+        this._cabinLens.emissiveIntensity = cabinLit ? 1.5 : this._night < 0.3 ? 0.4 : 0;
 
         const u = this.windshieldMaterial.uniforms;
         u.uTime.value = this._time;

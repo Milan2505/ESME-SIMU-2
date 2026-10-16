@@ -1069,11 +1069,24 @@ function applySpawnState() {
         controls.throttle = 0;
         controls.parkingBrake = systems.brake = true;
     } else {
+        // Sur la piste, prêt au décollage : pompe électrique, phare d'atterrissage et de roulage, strobes, anticollision
+        // et feux de navigation allumés (volets : voir runwayFlaps)
         controls.parkingBrake = systems.brake = false;
-        systems.switches.land = (weather?.night ?? 0) >= 0.5;
+        Object.assign(systems.switches, { fuelPump: true, land: true, taxi: true, strobe: true, beacon: true, nav: true });
     }
     applyLights();
 }
+
+// Départ de piste : volets au 1er cran (10°), déjà sortis. Après chaque remise au point de départ (choix du départ,
+// touche R, après un crash) : la remise à zéro du modèle rentre les volets
+const RUNWAY_FLAP_LEVEL = 1;
+function runwayFlaps() {
+    if (currentSpawn.cold || !controls.model.onGround) return;
+    const model = controls.model, levels = model.aircraft.flapLevels;
+    controls.setFlapLevel(RUNWAY_FLAP_LEVEL);
+    model.flaps = levels[RUNWAY_FLAP_LEVEL] / levels[levels.length - 1];
+}
+controls.addEventListener('reset', runwayFlaps);
 
 function spawnAt(spawn) {
     currentSpawn = spawn;
