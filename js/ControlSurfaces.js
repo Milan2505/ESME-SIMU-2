@@ -35,8 +35,9 @@ class ControlSurfaces {
         this._set('rudder', d.rudder * RUDDER_TRAVEL);
         this._set('flapLeft', d.flaps * FLAP_TRAVEL);
         this._set('flapRight', d.flaps * FLAP_TRAVEL);
-        // Compensateur : trim à cabrer -> bord de fuite du tab vers le bas (il pousse la gouverne vers le haut)
-        this._set('trimTab', MathUtils.clamp(trim * 0.8, -15, 25));
+        // Compensateur : monte avec le trim à cabrer (touche X), descend avec le trim à piquer (touche W), comme la
+        // gouverne qu'il soulage (choix de rendu : sur le vrai avion, il braque à l'opposé de la gouverne)
+        this._set('trimTab', MathUtils.clamp(-trim * 0.55, -25, 15));
     }
 
     _set(name, degrees) {

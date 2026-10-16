@@ -64,7 +64,8 @@ const CESSNA_172 = {
 	// que fixe le tab, donc à une vitesse. Réglé pour rester au-dessus du second régime (vitesse de puissance
 	// minimale ~55 kt) : 20° (décollage) -> ~90 kt en montée (75 kt volets 10°) ; 0° -> ~125 kt, croisière
 	trimTabMin: deg( - 4 ),           // à piquer à fond : ~135 kt
-	trimTabMax: deg( 28 ),            // à cabrer à fond : ~80 kt (volets rentrés)
+	trimTabMax: deg( 45 ),            // à cabrer à fond : ~71 kt volets rentrés, ~63 kt volets 10°, ~57 kt volets 20° (approche
+	                                  // manche lâché ; avant, 28° : ~82 kt, il fallait garder le manche tiré en approche)
 	takeoffTrim: deg( 20 ),           // repère décollage
 	trimAlphaZero: deg( - 1.7 ),      // incidence tenue tab à 0° : ~125 kt
 	trimAlphaPerTab: 0.152,           // incidence tenue en plus par degré de tab à cabrer : +20° -> ~90 kt
