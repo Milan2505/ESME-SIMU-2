@@ -193,7 +193,8 @@ function patchDetailShadow() {
 // météo (fogNear / fogFar) vaut au niveau du sol ; on le calcule sur la distance « équivalente au sol » : distance x
 // densité moyenne de l'air traversé entre l'œil et le point vu. Au ras du sol, rien ne change ; vu d'avion, le sol
 // n'est plus noyé dans le blanc (avant : 2 km de distance = 2 km de brume, même en regardant vers le bas).
-// Pas dans un nuage ni dans un brouillard épais (fogFar court) : le « jour blanc » reste blanc à toute altitude.
+// Seulement par temps clair (fogFar long) : dans un nuage, par brouillard ou en tempête, le brouillard reste entier à
+// toute altitude (sinon, en altitude, l'intérieur d'un nuage paraissait presque dégagé).
 // Près de la limite de vue de la caméra (3 km), fondu complet : le bord du décor reste caché.
 const FOG_SCALE_HEIGHT = 350;
 const FOG_CLIP = [2300, 2900];
@@ -212,7 +213,7 @@ function patchHeightFog() {
     ShaderChunk.fog_fragment = ShaderChunk.fog_fragment.replace('float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );', `
 		float fogH0 = max( cameraPosition.y, 0.0 ) / ${FOG_SCALE_HEIGHT}.0, fogH1 = max( vFogWorldY, 0.0 ) / ${FOG_SCALE_HEIGHT}.0;
 		float fogAir = abs( fogH1 - fogH0 ) < 0.01 ? exp( - fogH0 ) : ( exp( - fogH0 ) - exp( - fogH1 ) ) / ( fogH1 - fogH0 );
-		fogAir = mix( 1.0, fogAir, smoothstep( 150.0, 600.0, fogFar ) );
+		fogAir = mix( 1.0, fogAir, smoothstep( 400.0, 900.0, fogFar ) );
 		float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth * fogAir ), smoothstep( ${FOG_CLIP[0]}.0, ${FOG_CLIP[1]}.0, vFogDepth ) );`);
 }
 

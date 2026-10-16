@@ -885,19 +885,20 @@ const flashColor = new THREE.Color(0xc8d0ff);
 const shadowCenter = new THREE.Vector3();
 const pilotEyeWorld = new THREE.Vector3();
 
+const ABOVE_CLOUDS_BLEND = 25;   // m au-dessus du sommet de la couche : ciel bleu, plein soleil, air calme
 const ABOVE_CLOUDS_SKY = new THREE.Color(0x6f9fd2), ABOVE_CLOUDS_FOG = new THREE.Color(0xc4d4e3);
 const ABOVE_CLOUDS_SUN = 2.0, ABOVE_CLOUDS_HEMI = 1.2;   // plein jour au-dessus de la nappe, même par temps d'orage
 const _sunColor = new THREE.Color(), _white = new THREE.Color(COLOR_LIGHT);
 
 function updateFog() {
-    // Turbulence : au-dessus de la couche nuageuse (tempête, ciel couvert), l'air est calme ; fondu sur les 70 m qui
+    // Turbulence : au-dessus de la couche nuageuse (tempête, ciel couvert), l'air est calme ; fondu sur les 25 m qui
     // suivent le sommet de la couche (même réglé sans nappe affichée : les nuages restent là pour la physique)
     const aboveLayer = weather.overcast
-        ? THREE.MathUtils.smoothstep(aircraft.position.y, weather.overcast.top + 20, weather.overcast.top + 90) : 0;
+        ? THREE.MathUtils.smoothstep(aircraft.position.y, weather.overcast.top, weather.overcast.top + ABOVE_CLOUDS_BLEND) : 0;
     controls.turbulence = weather.turbulence * (1 - aboveLayer);
     const density = Math.max(clouds.densityAt(camera.position), cloudLayer.densityAt(camera.position));
-    // Au-dessus de la couche nuageuse : ciel bleu, vue dégagée et plein soleil (sur 60 m après le sommet de la couche)
-    const above = cloudLayer.mesh.visible ? THREE.MathUtils.smoothstep(camera.position.y, weather.overcast.top + 20, weather.overcast.top + 90) : 0;
+    // Au-dessus de la couche nuageuse : ciel bleu, vue dégagée et plein soleil, dès la sortie du sommet de la couche
+    const above = cloudLayer.mesh.visible ? THREE.MathUtils.smoothstep(camera.position.y, weather.overcast.top, weather.overcast.top + ABOVE_CLOUDS_BLEND) : 0;
     // Éclairs : sous les nuages, tout le ciel s'éclaire ; au-dessus, seule la nappe s'illumine par l'intérieur
     const flash = storm.flash * (1 - above);
     cloudLayer.setFlash(storm.flash, storm.strikeAt.x, storm.strikeAt.z);

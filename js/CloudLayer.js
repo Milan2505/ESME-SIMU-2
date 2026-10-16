@@ -102,6 +102,12 @@ const vertexShader = /* glsl */`
         vec2 t = position.xz / ${SIZE / 2}.0;
         vec2 warped = sign(t) * (0.25 * abs(t) + 0.75 * t * t) * ${SIZE / 2}.0;
         vec4 world = modelMatrix * vec4(warped.x, 0.0, warped.y, 1.0);
+        // Sommet calé sur une grille fixe au sol (pas : puissance de 2 au moins égale à la maille locale) : quand le
+        // maillage suit la caméra, ses sommets retombent sur les mêmes points du relief. Sinon le relief et ses ombres
+        // glissaient sur la nappe à chaque déplacement
+        float span = max(abs(t.x), abs(t.y));
+        float cell = exp2(ceil(log2((0.25 + 1.5 * span) * ${(SIZE / SEGMENTS).toFixed(2)})));
+        world.xz = floor(world.xz / cell + 0.5) * cell;
         vec2 p = world.xz + uDrift;
         float c, b;
         world.y = surface(p, c, b);
@@ -286,11 +292,11 @@ class CloudLayer {
         const b = fbm(px / 400, pz / 400, 3, 2.07, 5.3, 11.7) * 0.6
             + fbm(px / 120 + 7.7, pz / 120 + 7.7, 3, 2.07, 5.3, 11.7) * 0.4;
         const c = smoothstep(1 - coverage - 0.06, 1 - coverage + 0.16, fbm(px / scale, pz / scale) + (b - 0.5) * 0.2);
-        // Entre les deux surfaces (mêmes formules que le shader), fondu sur 15 m
+        // Entre les deux surfaces (mêmes formules que le shader) : le brouillard s'épaissit sur 50 m en y entrant
         const middle = base + thick * 0.45;
         const upper = middle + (top + (b - 0.5) * thick * 2.4 - middle) * c;
         const lower = middle + (base - (b - 0.35) * thick * 0.5 - middle) * c;
-        return c * smoothstep(-5, 10, Math.min(position.y - lower, upper - position.y));
+        return c * smoothstep(-10, 40, Math.min(position.y - lower, upper - position.y));
     }
 
     // Altitude du dessus de la nappe (moyenne), pour savoir si la caméra est au-dessus
