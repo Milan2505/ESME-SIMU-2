@@ -32,6 +32,8 @@ const _liftDirection = new Vector3();
 const _force = new Vector3();
 const _basis = new Matrix4();
 
+const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
+
 class FlightModel extends EventDispatcher {
 
 	constructor( object, aircraft = CESSNA_172 ) {
@@ -80,6 +82,7 @@ class FlightModel extends EventDispatcher {
 		this._gustTimer = 0;
 		this._liftoffAlpha = 0;          // incidence à l'envol...
 		this._liftoffBlend = 0;          // ... dont l'avion se détache progressivement (1 -> 0) pour rejoindre celle du trim
+		this._weathervaneBlend = 0;      // après l'envol (1 -> 0) : la dérive reprend peu à peu son effet (voir _updateAir)
 		this._wingDrop = 0;              // aile qui tombe au décrochage (-1 gauche, 1 droite)
 		this._pathAngle = null;          // pente de la trajectoire (rad) et sa vitesse de variation (rad/s), lissée
 		this._pathRate = 0;
@@ -118,6 +121,7 @@ class FlightModel extends EventDispatcher {
 		this.alpha = 0;
 		this.trim = this.aircraft.takeoffTrim;
 		this._liftoffBlend = 0;
+		this._weathervaneBlend = 0;
 		this.crashed = false;
 		this.flapLevel = 0;
 		this.flaps = 0;
@@ -318,9 +322,13 @@ class FlightModel extends EventDispatcher {
 		if ( Math.abs( input.pitch ) < 0.1 ) alphaTarget -= A.phugoidDamping * this._pathRate;
 		let pitchRate = MathUtils.clamp( A.pitchStability * ( alphaTarget - alpha ) * stability, - A.pitchRateMax, A.pitchRateMax );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
-		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta - A.spiralStability * bank ) * stability + this._gustRoll
+		// Envol avec du vent de travers : au sol, les roues tenaient l'axe de piste ; en l'air, la dérive aligne le nez
+		// sur le vent relatif. Effet amené en ~3 s (avant : le nez pivotait d'un coup à la rotation, un dérapage brusque)
+		this._weathervaneBlend = Math.max( 0, this._weathervaneBlend - dt / WEATHERVANE_BLEND_TIME );
+		const vane = 1 - MathUtils.smoothstep( this._weathervaneBlend, 0, 1 );
+		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta * vane - A.spiralStability * bank ) * stability + this._gustRoll
 			+ A.yawRoll * this._angularVelocity.y;   // lacet à gauche (+) : roulis à gauche (+)
-		const yawRate = input.yaw * A.yawRate * effect - A.yawStability * beta * stability;
+		const yawRate = input.yaw * A.yawRate * effect - A.yawStability * beta * stability * vane;
 		if ( this.stalled ) {
 			pitchRate -= A.stallPitchDown;                  // abattée : le nez tombe
 			rollRate += this._wingDrop * A.stallWingDrop;   // une aile tombe
@@ -392,6 +400,7 @@ class FlightModel extends EventDispatcher {
 			this.alpha = this._groundPitch;
 			this._liftoffAlpha = this._groundPitch;
 			this._liftoffBlend = this.assists.smoothLiftoff ? 1 : 0;
+			this._weathervaneBlend = 1;
 			this._angularVelocity.set( 0, 0, 0 );
 		this._pathAngle = null;
 			this.dispatchEvent( { type: 'liftoff' } );

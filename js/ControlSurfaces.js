@@ -37,9 +37,9 @@ class ControlSurfaces {
         this._set('flapRight', d.flaps * FLAP_TRAVEL);
         // Compensateur : monte avec le trim à cabrer (touche X), descend avec le trim à piquer (touche W), comme la
         // gouverne qu'il soulage (choix de rendu : sur le vrai avion, il braque à l'opposé de la gouverne)
-        // Course du trim très inégale (-4 à piquer, +45 à cabrer) : débattement visuel propre à chaque côté, 15° vers le
+        // Course du trim très inégale (-4 à piquer, +55 à cabrer) : débattement visuel propre à chaque côté, 15° vers le
         // bas en butée à piquer, 25° vers le haut en butée à cabrer
-        this._set('trimTab', trim < 0 ? MathUtils.clamp(-trim * 3.75, 0, 15) : MathUtils.clamp(-trim * 0.55, -25, 0));
+        this._set('trimTab', trim < 0 ? MathUtils.clamp(-trim * 3.75, 0, 15) : MathUtils.clamp(-trim * 0.45, -25, 0));
     }
 
     _set(name, degrees) {

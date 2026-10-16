@@ -62,13 +62,14 @@ const CESSNA_172 = {
 
 	// Trim : tab de la gouverne de profondeur, en degrés (+ = à cabrer). Manche lâché, l'avion revient à l'incidence
 	// que fixe le tab, donc à une vitesse. Réglé pour rester au-dessus du second régime (vitesse de puissance
-	// minimale ~55 kt) : 20° (décollage) -> ~90 kt en montée (75 kt volets 10°) ; 0° -> ~125 kt, croisière
-	trimTabMin: deg( - 4 ),           // à piquer à fond : ~135 kt
-	trimTabMax: deg( 45 ),            // à cabrer à fond : ~71 kt volets rentrés, ~63 kt volets 10°, ~57 kt volets 20° (approche
-	                                  // manche lâché ; avant, 28° : ~82 kt, il fallait garder le manche tiré en approche)
+	// minimale ~55 kt) : 20° (décollage) -> ~90 kt en montée (75 kt volets 10°) ; 0° -> ~110 kt, croisière. Vers le
+	// piqué, la vitesse tenue reste à la portée du moteur en palier (avant : 125 kt au neutre, 138 kt en butée, l'avion
+	// ne pouvait les tenir qu'en descendant et plongeait en accélérant dès qu'on passait le neutre)
+	trimTabMin: deg( - 4 ),           // à piquer à fond : ~116 kt
+	trimTabMax: deg( 55 ),            // à cabrer à fond : ~72 kt volets rentrés, ~64 kt volets 10° (approche manche lâché)
 	takeoffTrim: deg( 20 ),           // repère décollage
-	trimAlphaZero: deg( - 1.7 ),      // incidence tenue tab à 0° : ~125 kt
-	trimAlphaPerTab: 0.152,           // incidence tenue en plus par degré de tab à cabrer : +20° -> ~90 kt
+	trimAlphaZero: deg( - 0.76 ),     // incidence tenue tab à 0° : ~110 kt
+	trimAlphaPerTab: 0.105,           // incidence tenue en plus par radian de tab à cabrer : +20° -> ~90 kt
 	liftoffReleaseTime: 6,            // aide "envol en douceur" : le nez se rend en ~6 s après l'envol
 
 	// Au sol

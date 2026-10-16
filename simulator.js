@@ -242,6 +242,7 @@ loadAircraft().then(({ model, template, parts }) => {
     setupPropellerBlur(propeller);
     airframe.add(model);
     cockpit.addCabinShell(buildCabinShell(model));   // garnitures intérieures : l'envers de la carrosserie
+    cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
     setRegistration(model, atc.registration);
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);

@@ -550,6 +550,46 @@ class Cockpit {
         this.group.add(shell);
     }
 
+    // Film d'eau et gouttes posés sur la vraie vitre du pare-brise (pièce « glas » du modèle, la partie devant le pilote ;
+    // le reste est la lunette arrière). Avant : un rectangle plat placé à l'estime, qui ne suivait pas le pare-brise
+    setWindshieldGlass(model) {
+        const glass = model.getObjectByName('glas');
+        if (!glass?.isMesh) return;
+        model.updateMatrixWorld(true);
+        const toCabin = model.matrixWorld.clone().invert().multiply(glass.matrixWorld);
+        const source = glass.geometry.index ? glass.geometry.toNonIndexed() : glass.geometry;
+        const p = source.attributes.position;
+        // Œil du pilote (repère avion) : chaque sommet est avancé de 6 mm vers lui (gouttes devant le verre, sans scintiller)
+        const eye = this.eye.clone().sub(this._interior.position);
+        const positions = [];
+        const a = new Vector3(), b = new Vector3(), c = new Vector3();
+        for (let i = 0; i < p.count; i += 3) {
+            a.fromBufferAttribute(p, i).applyMatrix4(toCabin);
+            b.fromBufferAttribute(p, i + 1).applyMatrix4(toCabin);
+            c.fromBufferAttribute(p, i + 2).applyMatrix4(toCabin);
+            if ((a.z + b.z + c.z) / 3 > eye.z) continue;   // derrière le pilote : lunette arrière
+            for (const v of [a, b, c]) {
+                const toEye = eye.clone().sub(v).normalize().multiplyScalar(0.006);
+                positions.push(v.x + toEye.x, v.y + toEye.y, v.z + toEye.z);
+            }
+        }
+        if (!positions.length) return;
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+        geometry.computeBoundingBox();
+        // Coordonnées de texture des gouttes : largeur et hauteur du pare-brise (0 -> 1), comme sur l'ancien rectangle
+        const { min, max } = geometry.boundingBox;
+        const uv = [];
+        for (let i = 0; i < positions.length; i += 3) {
+            uv.push((positions[i] - min.x) / (max.x - min.x), (positions[i + 1] - min.y) / (max.y - min.y));
+        }
+        geometry.setAttribute('uv', new Float32BufferAttribute(uv, 2));
+        this._windshield.geometry.dispose();
+        this._windshield.geometry = geometry;
+        this._windshield.position.copy(this._interior.position);
+        this._windshield.rotation.set(0, 0, 0);
+    }
+
     // Volants modélisés (FlightGear) à la place des volants dessinés : même axe, même bout de colonne
     async _loadYokes() {
         const gltf = await new GLTFLoader().loadAsync(YOKE_URL);
