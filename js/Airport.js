@@ -532,17 +532,22 @@ class Airport {
             shader.uniforms.uMastGlow = this._mastGlow;
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', `#include <common>
-                    varying float vMastY;`)
+                    varying float vMastY;
+                    varying float vMastUp;`)
                 .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-                    vMastY = ( modelMatrix * vec4( transformed, 1.0 ) ).y;`);
+                    vMastY = ( modelMatrix * vec4( transformed, 1.0 ) ).y;
+                    vMastUp = normalize( ( modelMatrix * vec4( objectNormal, 0.0 ) ).xyz ).y;`);
             shader.fragmentShader = shader.fragmentShader
                 .replace('#include <common>', `#include <common>
                     uniform float uMastGlow;
-                    varying float vMastY;`)
+                    varying float vMastY;
+                    varying float vMastUp;`)
                 .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-                    float mastLight = smoothstep( ${(MAST_HEIGHT - 6).toFixed(1)}, ${(MAST_HEIGHT - 0.3).toFixed(1)}, vMastY );
+                    // Projecteurs tournés vers le sol : faces du dessous et flancs seulement, rien sur le dessus des bras
+                    float mastFacing = smoothstep( 0.4, -0.5, vMastUp );
+                    float mastLight = smoothstep( ${(MAST_HEIGHT - 3.5).toFixed(1)}, ${(MAST_HEIGHT - 0.3).toFixed(1)}, vMastY );
                     // Pied : reflet de la flaque de lumière au sol
-                    mastLight = mastLight * mastLight + 0.3 * smoothstep( 2.5, 0.0, vMastY );
+                    mastLight = mastLight * mastLight * mastFacing + 0.25 * smoothstep( 2.5, 0.0, vMastY );
                     totalEmissiveRadiance += uMastGlow * vec3( 1.0, 0.85, 0.63 ) * diffuseColor.rgb * mastLight;`);
         };
         const housing = new MeshStandardMaterial({ color: 0x55595d, metalness: 0.2, roughness: 0.55 });
@@ -648,7 +653,7 @@ class Airport {
             this._floodlightMaterial.color.set(0xffd9a0).multiplyScalar(1 + 2 * night);
             this._poolMaterial.visible = night > 0.2;
             this._poolMaterial.opacity = 0.4 * night;
-            this._mastGlow.value = night > 0.2 ? 0.9 * night : 0;
+            this._mastGlow.value = night > 0.2 ? 0.3 * night : 0;   // reflet discret : au-delà, l'acier clair sature en blanc
         }
     }
 
