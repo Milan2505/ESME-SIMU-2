@@ -72,6 +72,7 @@ class Systems extends EventTarget {
         this.fuelShutoff = false;       // robinet coupé (tiré)
         this.mixture = 1;               // 1 = plein riche, 0 = étouffoir
         this.panelLights = 0.8;         // rhéostat d'éclairage des instruments (0 -> 1)
+        this.domeLight = 0.7;           // plafonnier de cabine (0 = éteint -> 1), réglé à la lampe
         this.fuel = [20, 20];           // gallons gauche / droite
         this.battery = 1;
         this.running = true;
@@ -91,6 +92,7 @@ class Systems extends EventTarget {
         this.magnetos = 0;
         this.mixture = 0;
         this.panelLights = 0;
+        this.domeLight = 0;
         this.running = false;
         this.rpm = 0;
         this._crank = 0;
@@ -121,6 +123,11 @@ class Systems extends EventTarget {
 
     setMixture(value) {
         this.mixture = Math.max(0, Math.min(1, value));
+        this._changed();
+    }
+
+    setDomeLight(value) {
+        this.domeLight = Math.max(0, Math.min(1, value));
         this._changed();
     }
 
@@ -193,6 +200,10 @@ class Systems extends EventTarget {
     }
 
     // Éclairage des instruments (0 -> 1) : rhéostat, alimentation, disjoncteur
+    get domeLighting() {
+        return this.busPowered ? this.domeLight : 0;
+    }
+
     get panelLighting() {
         return this.busPowered && this.breakers.instLts ? this.panelLights : 0;
     }

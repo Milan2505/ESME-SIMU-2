@@ -39,7 +39,7 @@ import { buildCabin, ambient, CABIN_ORIGIN } from './C172Model.js';
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
 const CABIN_LIGHT = new Vector3(0, 0.2, -0.15);   // plafonnier avant (dessous de la console, au milieu ; repère cabine)
-const CABIN_LIGHT_INTENSITY = 0.9;
+const CABIN_LIGHT_INTENSITY = 3.5;   // plafonnier réglé à fond
 const OVERHEAD = { length: 0.26, width: 0.1, depth: 0.018, lampX: 0.07, scale: 0.45 };   // console de plafond (m, avant réduction) ; lampe côté droit
 const PEDAL_BRAKE_TRAVEL = 0.035;   // freins (touche B) : les pédales s'enfoncent de 3,5 cm vers l'avant...
 const PEDAL_BRAKE_TILT = 0.3;       // ... et leur haut bascule de ~17° (rad)
@@ -349,7 +349,7 @@ class Cockpit {
         // tourné vers le tableau, les manches et les sièges avant. Allumé la nuit quand le circuit électrique est alimenté
         // (une vraie lumière : présente seulement la nuit, chaque lumière alourdit le calcul de tous les matériaux)
         this.group.add(this._buildOverheadConsole());
-        this._cabinLight = new SpotLight(0xffe6c4, 0, 3, MathUtils.degToRad(65), 0.7, 2);
+        this._cabinLight = new SpotLight(0xffe6c4, 0, 3, MathUtils.degToRad(75), 0.7, 2);
         this._cabinLight.position.copy(CABIN_LIGHT).add(new Vector3(OVERHEAD.lampX * OVERHEAD.scale, -0.01, 0));
         this._cabinLight.target.position.set(-0.05, -0.4, PANEL_FACE_Z + 0.1);
         this._cabinLight.visible = false;
@@ -533,7 +533,7 @@ class Cockpit {
         // Pièces fixes fusionnées par matériau (même image, bien moins d'appels de dessin) ; restent à part ce qui
         // bouge ou se clique : manches, gaz, mixture, frein, commandes 3D, instruments, pare-brise, surfaces cliquables
         const dynamic = new Set([this._throttle, this._mixture, this._brakeLever, this._windshield, ...this._interior.userData.pedals,
-            ...this._yokes.map((yoke) => yoke.column), ...(this._controls3D._roots ?? []), ...this.panel.dynamic, ...this.clickables]);
+            ...this._yokes.map((yoke) => yoke.column), ...(this._controls3D._roots ?? []), ...this.panel.dynamic, ...this.clickables, this._domeBezel]);
         // Instruments : aiguilles, roses et maquettes bougent ; leurs boîtiers (enfants fixes) restent groupés
         const moving = new Set([...this.clickables, ...this._yokeClickables]);
         mergeStatic(this.group, (node) => dynamic.has(node) || moving.has(node) || node.renderOrder > 0 || this._isInstrument(node));
@@ -622,14 +622,28 @@ class Cockpit {
         plate.rotateX(Math.PI / 2);   // contour dans le plan horizontal, épaisseur vers le bas
         add(plate, plastic, 0, 0, 0);
         const bottom = -depth - 0.002;   // face visible (dessous)
-        // Lampe : bague crantée, verre en retrait
-        add(new CylinderGeometry(0.034, 0.034, 0.012, 32), plastic, lampX, bottom - 0.006, 0);
+        // Lampe : bague crantée (on la tourne pour régler le plafonnier : commande cliquable), verre en retrait
+        const lamp = new Group();
+        lamp.position.set(lampX, bottom, 0);
+        lamp.userData.control = 'domeLight';
+        group.add(lamp);
+        const bezel = new Group();
+        lamp.add(bezel);
+        const part = (parent, geometry, material, x, y, z) => {
+            const mesh = new Mesh(geometry, material);
+            mesh.position.set(x, y, z);
+            parent.add(mesh);
+            this.clickables.push(mesh);
+            return mesh;
+        };
+        part(bezel, new CylinderGeometry(0.034, 0.034, 0.012, 32), plastic, 0, -0.006, 0);
         for (let k = 0; k < 30; k++) {
             const a = (k / 30) * Math.PI * 2;
-            add(new BoxGeometry(0.004, 0.012, 0.004), plastic, lampX + Math.cos(a) * 0.035, bottom - 0.006, Math.sin(a) * 0.035);
+            part(bezel, new BoxGeometry(0.004, 0.012, 0.004), plastic, Math.cos(a) * 0.035, -0.006, Math.sin(a) * 0.035);
         }
+        this._domeBezel = bezel;
         this._cabinLens = new MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.25, emissive: 0xffe6c4, emissiveIntensity: 0 });
-        add(new CylinderGeometry(0.025, 0.025, 0.004, 28), this._cabinLens, lampX, bottom - 0.011, 0);
+        part(lamp, new CylinderGeometry(0.025, 0.025, 0.004, 28), this._cabinLens, 0, -0.011, 0);
         // Aérateur : bague, rotule, buse sombre un peu inclinée vers le pilote
         add(new CylinderGeometry(0.033, 0.033, 0.008, 28), plastic, -lampX, bottom - 0.004, 0);
         add(new SphereGeometry(0.025, 24, 16), plastic, -lampX, bottom - 0.004, 0);
@@ -730,12 +744,15 @@ class Cockpit {
         const emissive = WHITE.clone().lerp(PANEL_NIGHT_LIGHT, Math.min(1, this._night * 2));
         this.panel.setLighting(emissive, intensity, this._night);
         for (const material of this._sideMaterials) material.emissiveIntensity = intensity;
-        // Plafonnier avant : la nuit, circuit alimenté
-        const cabinLit = this._night > 0.3 && sys.busPowered;
+        // Plafonnier avant : réglé à la lampe (bague tournée avec le réglage), circuit alimenté. La lumière elle-même
+        // n'existe que quand il fait sombre (de jour, elle n'éclairerait rien de visible et coûterait à chaque image)
+        const dome = sys.domeLighting ?? 0;
+        const cabinLit = dome > 0 && this._night > 0.3;
         this._cabinLight.visible = cabinLit;
-        this._cabinLight.intensity = cabinLit ? CABIN_LIGHT_INTENSITY * this._night : 0;
-        // Verre : allumé, ou translucide de jour (éclairé par la cabine), sombre la nuit lampe éteinte
-        this._cabinLens.emissiveIntensity = cabinLit ? 1.5 : this._night < 0.3 ? 0.4 : 0;
+        this._cabinLight.intensity = cabinLit ? CABIN_LIGHT_INTENSITY * dome : 0;
+        this._domeBezel.rotation.y += (-(sys.domeLight ?? 0) * Math.PI * 1.5 - this._domeBezel.rotation.y) * k;
+        // Verre : allumé (selon le réglage), ou translucide de jour (éclairé par la cabine), sombre la nuit lampe éteinte
+        this._cabinLens.emissiveIntensity = dome > 0 ? 0.6 + 1.4 * dome : this._night < 0.3 ? 0.4 : 0;
 
         const u = this.windshieldMaterial.uniforms;
         u.uTime.value = this._time;

@@ -1966,6 +1966,8 @@ function useControl(control, step, wheel = false, fine = false) {
         if (wheel) return false;
         systems.toggle(id.split(':')[1]);
     } else if (id === 'panelLights') systems.setPanelLights(systems.panelLights + step * 0.1);
+    // Plafonnier : clic d'un côté ou de l'autre de la lampe, par quart ; molette : par dixième
+    else if (id === 'domeLight') systems.setDomeLight(systems.domeLight + step * (wheel || fine ? 0.1 : 0.25));
     else if (id.startsWith('flaps:')) {
         // Molette ou levier 3D (moitié haute : rentrer, basse : sortir) : un cran ; échelle : cran cliqué
         if (wheel || id === 'flaps:lever') controls.setFlapLevel(THREE.MathUtils.clamp(controls.getFlapLevel() + (wheel ? -step : step), 0, 3));
