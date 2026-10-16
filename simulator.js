@@ -46,7 +46,7 @@ const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (m
 // Avion : Cessna 172P du projet FlightGear (C172Model.js, asset/c172p.glb)
 const WHEEL_HEIGHT = -GROUND_Y;                             // origine de l'avion au-dessus du sol, roues posées
 const COCKPIT_POSITION = CABIN_ORIGIN.clone().multiplyScalar(AIRCRAFT_SCALE); // cabine (hauteur des yeux) dans le repère avion
-const COCKPIT_TILT = THREE.MathUtils.degToRad(-13);         // regard baissé : horizon au tiers haut de l'écran, tableau en bas
+const COCKPIT_TILT = THREE.MathUtils.degToRad(-9);          // regard un peu baissé : horizon bien dégagé au-dessus du capot, tableau en bas
 const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
 const CHASE_PITCH = Math.atan2(3.5, 15);                    // … et hauteur (angle au-dessus de l'avion)
 const CHASE_TARGET = new THREE.Vector3(0, 1.5, -8);         // point visé, devant l'avion
