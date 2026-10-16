@@ -286,7 +286,13 @@ function updatePropeller(delta) {
     propeller.rotation.z += spin * delta;
     const blur = THREE.MathUtils.clamp((spin - 8) / 20, 0, 1);   // au ralenti (~800 tr/min), déjà un disque flou
     propellerDisc.material.opacity = 0.15 * blur; // à peine visible, comme une vraie hélice lancée
-    for (const part of propellerParts) if (part !== propellerDisc) part.material.opacity = 1 - 0.8 * blur;
+    for (const part of propellerParts) {
+        if (part === propellerDisc) continue;
+        part.material.opacity = 1 - 0.8 * blur;
+        // Pales en rotation : pas d'ombre (d'une image à l'autre, leur ombre sautait sur le capot, le pare-brise et le
+        // tableau). Le cône, rond, garde la sienne
+        if (part.name !== 'Spinner') part.castShadow = blur < 0.05;
+    }
 }
 
 // Vue cabine / vue extérieure (bouton ou touche V)
