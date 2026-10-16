@@ -67,12 +67,12 @@ const LIGHT_HEIGHT = 0.36;   // hauteur du verre des feux de bord (feux surélev
 const HANGARS = [{ x: 395, z: 15, name: 'ESME AÉRO-CLUB' }, { x: 395, z: 62, name: 'HANGAR 2' }]
     .map((h) => ({ ...h, minX: h.x - 15, maxX: h.x + 15, minZ: h.z - 14, maxZ: h.z + 14 }));
 // Mâts d'éclairage du parking : en bordure est, derrière la queue des avions garés, entre le parking et les bâtiments.
-// Mât conique en acier galvanisé sur socle béton, traverse en tête portant 4 projecteurs tournés vers le parking (ouest).
+// Mât conique en acier galvanisé sur socle béton ; en tête, 4 bras en croix avec un projecteur au bout, tourné vers le sol.
 // Le 3e est aligné sur les autres, mais face à l'espace entre les deux hangars (devant le premier, il gênait l'accès aux portes)
 const FLOODLIGHTS = { points: [[APRON.maxX - 2, -90], [APRON.maxX - 2, -30], [APRON.maxX - 2, 38.5], [APRON.maxX - 2, 90]] };
 const MAST_HEIGHT = 15;
-const FLOODLIGHT_SPACING = [-0.96, -0.32, 0.32, 0.96];   // projecteurs le long de la traverse (m, axe nord-sud)
-const FLOODLIGHT_TILT = MathUtils.degToRad(35);          // verre incliné vers le sol du parking
+const FLOODLIGHT_ARM = 1.2;                              // longueur des bras (m)
+const FLOODLIGHT_TILT = MathUtils.degToRad(70);          // verre : 70° sous l'horizontale, un peu vers l'extérieur
 const WIND_DIRECTION = 0; // le vent vient du nord (la manche à air pointe vers le sud)
 // Point d'attente de la bretelle A, avant la piste (OACI : marque de type A, panneaux obligatoires)
 const HOLDING_X = RUNWAY.x + 45;
@@ -524,6 +524,27 @@ class Airport {
     addFloodlights() {
         // Peu métalliques : sans reflet d'environnement dans la scène, un vrai métal paraît noir
         const steel = new MeshStandardMaterial({ color: 0xb9bec2, metalness: 0.25, roughness: 0.5 });
+        // La nuit, les projecteurs éclairent leur propre mât : lumière chaude sur la tête (moyeu, bras, étriers) et le haut
+        // du mât, qui s'estompe en descendant, et un peu le pied, éclairé par le sol (simulée selon la hauteur : pas de
+        // vraie lumière, trop coûteuse)
+        this._mastGlow = { value: 0 };
+        steel.onBeforeCompile = (shader) => {
+            shader.uniforms.uMastGlow = this._mastGlow;
+            shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', `#include <common>
+                    varying float vMastY;`)
+                .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+                    vMastY = ( modelMatrix * vec4( transformed, 1.0 ) ).y;`);
+            shader.fragmentShader = shader.fragmentShader
+                .replace('#include <common>', `#include <common>
+                    uniform float uMastGlow;
+                    varying float vMastY;`)
+                .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+                    float mastLight = smoothstep( ${(MAST_HEIGHT - 6).toFixed(1)}, ${(MAST_HEIGHT - 0.3).toFixed(1)}, vMastY );
+                    // Pied : reflet de la flaque de lumière au sol
+                    mastLight = mastLight * mastLight + 0.3 * smoothstep( 2.5, 0.0, vMastY );
+                    totalEmissiveRadiance += uMastGlow * vec3( 1.0, 0.85, 0.63 ) * diffuseColor.rgb * mastLight;`);
+        };
         const housing = new MeshStandardMaterial({ color: 0x55595d, metalness: 0.2, roughness: 0.55 });
         const concrete = new MeshStandardMaterial({ color: 0x9a978f, roughness: 0.95 });
         const glass = new MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.2, emissive: 0xfff1d6, emissiveIntensity: 0 });
@@ -547,15 +568,18 @@ class Airport {
             add(new CylinderGeometry(0.32, 0.32, 0.04, 12), steel, 0, 0.47, 0);
             add(new CylinderGeometry(0.09, 0.19, H - 0.5, 12), steel, 0, 0.5 + (H - 0.5) / 2, 0);
             add(new BoxGeometry(0.02, 0.4, 0.14), steel, -0.18, 1.2, 0).rotation.z = -0.02;
-            // Tête : chapeau, potence vers le parking, traverse nord-sud
+            // Tête : chapeau, moyeu, 4 bras en croix
             add(new CylinderGeometry(0.12, 0.1, 0.12, 12), steel, 0, H + 0.06, 0);
-            add(new BoxGeometry(0.5, 0.08, 0.08), steel, -0.25, H - 0.15, 0);
-            add(new BoxGeometry(0.08, 0.08, 2.5), steel, -0.5, H - 0.15, 0);
-            for (const dz of FLOODLIGHT_SPACING) {
-                // Projecteur : boîtier plat sur étrier, verre tourné vers l'ouest et incliné vers le sol
+            add(new CylinderGeometry(0.14, 0.14, 0.16, 12), steel, 0, H - 0.12, 0);
+            for (let k = 0; k < 4; k++) {
+                const a = k * Math.PI / 2, dx = Math.cos(a), dz = Math.sin(a);
+                const arm = add(new BoxGeometry(FLOODLIGHT_ARM, 0.07, 0.07), steel, dx * FLOODLIGHT_ARM / 2, H - 0.12, dz * FLOODLIGHT_ARM / 2);
+                arm.rotation.y = -a;
+                // Projecteur : boîtier plat sur étrier, au bout du bras ; verre (côté -x du boîtier) tourné vers le sol
                 const lamp = new Group();
-                lamp.position.set(-0.62, H - 0.3, dz);
-                lamp.rotation.z = -FLOODLIGHT_TILT;
+                lamp.position.set(dx * (FLOODLIGHT_ARM + 0.05), H - 0.32, dz * (FLOODLIGHT_ARM + 0.05));
+                lamp.rotation.order = 'YZX';   // inclinaison (z) puis orientation vers l'extérieur (y)
+                lamp.rotation.set(0, Math.atan2(dz, -dx), FLOODLIGHT_TILT);
                 const body = new Mesh(new BoxGeometry(0.16, 0.42, 0.52), housing);
                 const fins = new Mesh(new BoxGeometry(0.05, 0.36, 0.46), housing);
                 fins.position.x = 0.1;
@@ -568,10 +592,10 @@ class Airport {
                     lamp.add(yoke);
                 }
                 mast.add(lamp);
-                // Halo au centre du verre (repère monde)
+                // Halo juste sous le verre (repère monde)
                 lamp.updateMatrix();
-                const center = new Vector3(-0.09, 0, 0).applyMatrix4(lamp.matrix);
-                lamps.push(fx + center.x - 0.06, center.y, z + center.z);
+                const center = new Vector3(-0.15, 0, 0).applyMatrix4(lamp.matrix);
+                lamps.push(fx + center.x, center.y, z + center.z);
             }
             masts.add(mast);
             // Obstacle : le mât seul (la tête est trop haut pour un avion qui roule)
@@ -603,9 +627,9 @@ class Airport {
             map: pool, transparent: true, depthWrite: false, blending: AdditiveBlending,
             polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
         });
-        // Devant le mât, côté parking (les projecteurs sont tournés vers l'ouest)
+        // Centrée sous le mât (les 4 projecteurs éclairent tout autour)
         for (const [fx, z] of FLOODLIGHTS.points) {
-            this._flat(new PlaneGeometry(40, 40), this._poolMaterial, fx - 14, 0.04, z);
+            this._flat(new PlaneGeometry(38, 38), this._poolMaterial, fx, 0.04, z);
         }
         this.setNight(this._night);
     }
@@ -624,6 +648,7 @@ class Airport {
             this._floodlightMaterial.color.set(0xffd9a0).multiplyScalar(1 + 2 * night);
             this._poolMaterial.visible = night > 0.2;
             this._poolMaterial.opacity = 0.4 * night;
+            this._mastGlow.value = night > 0.2 ? 0.9 * night : 0;
         }
     }
 
