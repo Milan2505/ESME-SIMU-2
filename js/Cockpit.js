@@ -38,9 +38,9 @@ import { buildCabin, ambient, CABIN_ORIGIN } from './C172Model.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
-const CABIN_LIGHT = new Vector3(0, 0.2, -0.22);   // plafonnier avant (dessous de la console, au milieu ; repère cabine)
+const CABIN_LIGHT = new Vector3(0, 0.2, -0.15);   // plafonnier avant (dessous de la console, au milieu ; repère cabine)
 const CABIN_LIGHT_INTENSITY = 0.9;
-const OVERHEAD = { length: 0.26, width: 0.1, depth: 0.018, lampX: 0.07, scale: 0.6 };   // console de plafond (m, avant réduction) ; lampe côté droit
+const OVERHEAD = { length: 0.26, width: 0.1, depth: 0.018, lampX: 0.07, scale: 0.45 };   // console de plafond (m, avant réduction) ; lampe côté droit
 const PEDAL_BRAKE_TRAVEL = 0.035;   // freins (touche B) : les pédales s'enfoncent de 3,5 cm vers l'avant...
 const PEDAL_BRAKE_TILT = 0.3;       // ... et leur haut bascule de ~17° (rad)
 const EYE = new Vector3(-0.2, 0.03, -0.05); // face à l'horizon artificiel, un peu penché en avant : instruments lisibles, sol visible par-dessus le tableau
