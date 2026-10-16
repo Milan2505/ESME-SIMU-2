@@ -73,6 +73,7 @@ const FLOODLIGHTS = { points: [[APRON.maxX - 2, -90], [APRON.maxX - 2, -30], [AP
 const MAST_HEIGHT = 15;
 const FLOODLIGHT_ARM = 1.2;                              // longueur des bras (m)
 const FLOODLIGHT_TILT = MathUtils.degToRad(70);          // verre : 70° sous l'horizontale, un peu vers l'extérieur
+const _flareToEye = new Vector3();
 const WIND_DIRECTION = 0; // le vent vient du nord (la manche à air pointe vers le sud)
 // Point d'attente de la bretelle A, avant la piste (OACI : marque de type A, panneaux obligatoires)
 const HOLDING_X = RUNWAY.x + 45;
@@ -552,10 +553,23 @@ class Airport {
         };
         const housing = new MeshStandardMaterial({ color: 0x55595d, metalness: 0.2, roughness: 0.55 });
         const concrete = new MeshStandardMaterial({ color: 0x9a978f, roughness: 0.95 });
-        const glass = new MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.2, emissive: 0xfff1d6, emissiveIntensity: 0 });
-        this._glowingMaterials.push(glass);
+        // Verre : l'ampoule et son réflecteur vus à travers (noyau éclatant, réflecteur plus doux autour). La nuit, au-delà
+        // de 1 : halo du bloom, comme les feux de piste et de l'avion
+        const bulb = canvasTexture(64, 64, (ctx, w, h) => {
+            ctx.fillStyle = '#6e6658';
+            ctx.fillRect(0, 0, w, h);
+            const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.55);
+            g.addColorStop(0, '#ffffff');
+            g.addColorStop(0.18, '#fff6e4');
+            g.addColorStop(0.45, '#c9b38c');
+            g.addColorStop(1, '#6e6658');
+            ctx.fillStyle = g;
+            ctx.fillRect(2, 2, w - 4, h - 4);
+        });
+        const glass = new MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.2, emissive: 0xfff1d6, emissiveMap: bulb, emissiveIntensity: 0 });
+        this._floodlightGlass = glass;
         const H = MAST_HEIGHT;
-        const lamps = [];
+        this._floodlights = [];   // { position, normal } de chaque verre (repère monde) : éclat vu de face
         const masts = new Group();
         this.group.add(masts);
         for (const [fx, z] of FLOODLIGHTS.points) {
@@ -597,25 +611,23 @@ class Airport {
                     lamp.add(yoke);
                 }
                 mast.add(lamp);
-                // Halo juste sous le verre (repère monde)
+                // Éclat de l'ampoule : au centre du verre, visible quand on regarde le verre de face
                 lamp.updateMatrix();
-                const center = new Vector3(-0.15, 0, 0).applyMatrix4(lamp.matrix);
-                lamps.push(fx + center.x, center.y, z + center.z);
+                const position = new Vector3(-0.1, 0, 0).applyMatrix4(lamp.matrix).add(mast.position);
+                const normal = new Vector3(-1, 0, 0).applyQuaternion(lamp.quaternion);
+                const flare = new Sprite(new SpriteMaterial({
+                    map: flareTexture(), color: 0xffe2b8, blending: AdditiveBlending, transparent: true, depthWrite: false,
+                }));
+                flare.visible = false;
+                this.group.add(flare);
+                this._floodlights.push({ position, normal, flare });
             }
             masts.add(mast);
             // Obstacle : le mât seul (la tête est trop haut pour un avion qui roule)
             this.obstacles.push(new Box3(new Vector3(fx - 0.5, 0, z - 0.5), new Vector3(fx + 0.5, H, z + 0.5)));
         }
 
-        const geometry = new BufferGeometry();
-        geometry.setAttribute('position', new Float32BufferAttribute(lamps, 3));
-        this._floodlightMaterial = new PointsMaterial({
-            size: 3, map: flareTexture(), color: 0xffd9a0, transparent: true,
-            depthWrite: false, blending: AdditiveBlending,
-        });
         mergeStatic(masts);
-        this._floodlightHalos = new Points(geometry, this._floodlightMaterial);
-        this.group.add(this._floodlightHalos);
 
         // Flaque de lumière : disque dégradé posé sur le béton, un par mât
         const pool = canvasTexture(128, 128, (ctx, w, h) => {
@@ -647,13 +659,30 @@ class Airport {
         for (const material of this._glowingMaterials) material.emissiveIntensity = 0.05 + 1.6 * night;
         // Verres des feux de bord : colorés le jour, lumineux la nuit (au-delà de 1 : halo du bloom)
         if (this._lensMaterial) this._lensMaterial.color.setScalar(0.75 + 2.5 * night);
-        if (this._floodlightMaterial) {
+        if (this._floodlightGlass) {
             // Allumés seulement quand il fait sombre (nuit, et un peu par temps d'orage)
-            this._floodlightHalos.visible = night > 0.2;
-            this._floodlightMaterial.color.set(0xffd9a0).multiplyScalar(1 + 2 * night);
+            this._floodlightGlass.emissiveIntensity = night > 0.2 ? 0.3 + 3 * night : 0.05;
             this._poolMaterial.visible = night > 0.2;
             this._poolMaterial.opacity = 0.4 * night;
             this._mastGlow.value = night > 0.2 ? 0.3 * night : 0;   // reflet discret : au-delà, l'acier clair sature en blanc
+        }
+    }
+
+    // Éclat des projecteurs du parking (comme les phares de l'avion) : seulement quand on regarde le verre de face. Ils
+    // visent le sol : vus d'en dessous, ils éblouissent ; de côté, un éclat faible ; de dessus ou de dos, rien
+    _updateFloodlights(camera) {
+        if (!this._floodlights) return;
+        const on = this._night > 0.2;
+        for (const light of this._floodlights) {
+            const toEye = _flareToEye.copy(camera.position).sub(light.position);
+            const distance = toEye.length();
+            toEye.divideScalar(Math.max(distance, 0.01));
+            const intensity = on ? Math.pow(Math.max(0, light.normal.dot(toEye)), 3) : 0;
+            light.flare.visible = intensity > 0.02;
+            if (!light.flare.visible) continue;
+            light.flare.position.copy(light.position).addScaledVector(toEye, 0.3);   // devant le verre (pas caché par lui)
+            light.flare.material.color.set(0xffe2b8).multiplyScalar((1.2 + 2.3 * this._night) * intensity);
+            light.flare.scale.setScalar(2.4 * (1 + distance * 0.012) * (0.6 + 0.4 * intensity));
         }
     }
 
@@ -666,6 +695,7 @@ class Airport {
             this._sockPivot.rotation.y += diff * Math.min(1, delta * 1.5);
         }
         this._updatePapi(camera, pilotEye);
+        this._updateFloodlights(camera);
         this._time += delta;
         const t = this._time;
         // Manche à air : se gonfle avec le vent, flotte en rafales
