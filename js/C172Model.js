@@ -145,7 +145,10 @@ function prepare(scene) {
         let a, axis;
         if (fixedAxis) {
             const middle = (lo + hi) / 2, half = (hi - lo) / 2;
-            a = frontmost((p) => Math.abs(p[span] - middle) < 0.15 * half);
+            a = frontmost((p) => Math.abs(p[span] - middle) < 0.15 * half).clone();
+            // Charnière à mi-épaisseur du bord d'attaque (le bord arrondi, voir roundJunction, tourne sur lui-même)
+            const edge = points.filter((p) => Math.abs(p[span] - a[span]) < 0.05 && p.z < a.z + 0.05).map((p) => p.y);
+            a.y = (Math.min(...edge) + Math.max(...edge)) / 2;
             axis = fixedAxis.clone();
         } else {
             const end = 0.1 * (hi - lo);
@@ -174,7 +177,11 @@ function prepare(scene) {
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
     const fin = meshes.vstab001 ?? meshes['vstab.001'];   // (GLTFLoader retire les points des noms)
-    if (pivots.rudder && fin) roundJunction(meshes.rudder_1, pivots.rudder.position, fin);
+    if (pivots.rudder && fin) roundJunction(fin, [{ mesh: meshes.rudder_1, offset: pivots.rudder.position }], 'x');
+    if (pivots.elevator && meshes.hstab) {
+        const offset = pivots.elevator.position;
+        roundJunction(meshes.hstab, ['elevatorleft', 'elevatorright'].filter((n) => meshes[n]).map((n) => ({ mesh: meshes[n], offset })), 'y');
+    }
     // Compensateur (tab de trim) : dans la découpe du bord de fuite de la gouverne de profondeur droite ; il la suit et
     // braque en plus selon le trim. Charnière le long de son bord d'attaque, qui est en biais (plus en arrière côté
     // fuselage) : un axe transversal le faisait sortir de sa découpe dès qu'il braquait
@@ -216,85 +223,117 @@ function prepare(scene) {
     return root;
 }
 
-// Jonction dérive / gouverne de direction : dans le modèle, les chants des deux pièces (bord d'attaque de la gouverne,
-// bord de fuite de la dérive, découpe de la corne d'équilibrage) sont des faces plates grises, bien visibles dès que la
-// gouverne braque. Chaque chant reçoit un demi-cylindre bombé vers l'autre pièce (caché dedans au neutre), peint comme
-// la peau voisine. offset : position du pivot de la gouverne (ses sommets sont relatifs à la charnière)
-function roundJunction(rudder, offset, fin) {
+// Jonctions entre une partie fixe et sa gouverne (dérive / direction, plan fixe / profondeur) : dans le modèle, les
+// chants des pièces (bord d'attaque de la gouverne, bord de fuite du plan fixe, découpes des cornes d'équilibrage) sont
+// des faces plates grises, à angles vifs, bien visibles dès que la gouverne braque. Chaque chant est creusé en arrondi
+// dans sa pièce : ses deux arêtes reculent vers l'intérieur (avec la peau qui y arrive) et un demi-cercle les relie,
+// son sommet à la place de l'ancienne face. thickness : axe de l'épaisseur ('x' pour la dérive, 'y' pour le plan
+// horizontal). moving : [{ mesh, offset }] (offset : position du pivot, les sommets d'une gouverne sont relatifs à
+// sa charnière)
+function roundJunction(fixed, moving, thickness) {
     const points = (mesh, shift) => {
         const p = mesh.geometry.attributes.position, list = [];
         for (let i = 0; i < p.count; i++) list.push(new Vector3(p.getX(i), p.getY(i), p.getZ(i)).add(shift));
         return list;
     };
-    const rudderPoints = points(rudder, offset), finPoints = points(fin, new Vector3());
-    roundEdges(rudder, (p) => finPoints.some((q) => q.distanceToSquared(p) < 2.25e-4), offset);
-    roundEdges(fin, (p) => rudderPoints.some((q) => q.distanceToSquared(p) < 2.25e-4), new Vector3());
+    const near = (list) => (p) => list.some((q) => q.distanceToSquared(p) < 2.25e-4);
+    const fixedPoints = points(fixed, new Vector3());
+    const movingPoints = moving.flatMap(({ mesh, offset }) => points(mesh, offset));
+    for (const { mesh, offset } of moving) roundEdges(mesh, near(fixedPoints), offset, thickness);
+    roundEdges(fixed, near(movingPoints), new Vector3(), thickness);
 }
 
 const EDGE_STEPS = 8;
-const EDGE_BULGE = 0.8;     // profondeur du bombé / demi-épaisseur
+const EDGE_DEPTH = 0.9;     // recul des arêtes / demi-épaisseur
 
-// Chants (faces dont la normale est presque dans le plan de symétrie, qui traversent l'épaisseur) dont tous les sommets
-// vérifient near : chacun reçoit un demi-cylindre elliptique bombé vers l'extérieur
-function roundEdges(mesh, near, shift) {
+// Chants (faces qui traversent l'épaisseur : normale presque perpendiculaire à l'axe thickness) dont tous les sommets
+// vérifient near. Chaque triangle de chant est redécoupé en bandes parallèles aux arêtes et courbé : t, position dans
+// l'épaisseur (0 : arête basse, 1 : arête haute) ; recul nul au milieu (t = 0,5), complet aux arêtes, en demi-cercle.
+// Les arêtes reculent d'autant, et avec elles les sommets de peau qui y arrivent (même position)
+function roundEdges(mesh, near, shift, thickness) {
     const old = mesh.geometry, position = old.attributes.position, normal = old.attributes.normal, uv = old.attributes.uv;
     if (old.index || !normal || !uv || Object.keys(old.attributes).length !== 3) return;
-    const key = (i) => `${Math.round(position.getY(i) * 1000)} ${Math.round(position.getZ(i) * 1000)}`;
-    const p = new Vector3(), q = new Vector3(), r = new Vector3(), n = new Vector3();
-    const segments = new Map();
+    const axisIndex = ['x', 'y', 'z'].indexOf(thickness);
+    const key = (v) => `${Math.round(v.x * 1e4)} ${Math.round(v.y * 1e4)} ${Math.round(v.z * 1e4)}`;
+    const vertex = (i) => new Vector3().fromBufferAttribute(position, i);
+    // Triangles de chant : sommets classés bas / haut dans l'épaisseur, direction vers l'extérieur
+    const edges = [], removed = new Set();
+    const recess = new Map();   // clé d'un sommet d'arête -> { dir, half }
     for (let t = 0; t < position.count; t += 3) {
-        p.fromBufferAttribute(position, t); q.fromBufferAttribute(position, t + 1); r.fromBufferAttribute(position, t + 2);
-        const face = q.clone().sub(p).cross(r.clone().sub(p)).normalize();
-        if (Math.abs(face.x) > 0.3) continue;
-        if (![p, q, r].every((v) => near(v.clone().add(shift)))) continue;
-        const keys = [...new Set([t, t + 1, t + 2].map(key))];
-        if (keys.length !== 2) continue;
-        keys.sort();
-        const id = keys.join('|');
-        const s = segments.get(id) ?? { ends: keys.map(() => ({ y: 0, z: 0, half: 0 })), normal: new Vector3() };
-        for (let i = t; i < t + 3; i++) {
-            const end = s.ends[keys.indexOf(key(i))];
-            end.y = position.getY(i); end.z = position.getZ(i);
-            end.half = Math.max(end.half, Math.abs(position.getX(i)));
-            s.normal.add(n.fromBufferAttribute(normal, i));
-        }
-        segments.set(id, s);
-    }
-    if (!segments.size) return;
-    // Peinture : celle du sommet de peau (face latérale) le plus proche
-    const skin = [];
-    for (let i = 0; i < position.count; i++) if (Math.abs(normal.getX(i)) > 0.7) skin.push(i);
-    const out = { position: [...position.array], normal: [...normal.array], uv: [...uv.array] };
-    for (const { ends, normal: dir } of segments.values()) {
-        dir.x = 0;
-        if (dir.lengthSq() < 1e-8 || ends.some((e) => e.half < 0.003)) continue;
+        const vertices = [vertex(t), vertex(t + 1), vertex(t + 2)];
+        const face = vertices[1].clone().sub(vertices[0]).cross(vertices[2].clone().sub(vertices[0])).normalize();
+        if (Math.abs(face.getComponent(axisIndex)) > 0.3) continue;
+        if (!vertices.every((v) => near(v.clone().add(shift)))) continue;
+        const sorted = vertices.map((p, j) => ({ p, j, c: p.getComponent(axisIndex) })).sort((a, b) => a.c - b.c);
+        const extent = sorted[2].c - sorted[0].c;
+        if (extent < 0.006) continue;
+        // Sommet seul d'un côté (apex) et paire de l'autre
+        const apexHigh = sorted[1].c - sorted[0].c < sorted[2].c - sorted[1].c;
+        const apex = apexHigh ? sorted[2] : sorted[0], pair = apexHigh ? [sorted[0], sorted[1]] : [sorted[1], sorted[2]];
+        const dir = new Vector3();
+        for (let i = t; i < t + 3; i++) dir.add(new Vector3().fromBufferAttribute(normal, i));
+        dir.setComponent(axisIndex, 0);
+        if (dir.lengthSq() < 1e-8) continue;
         dir.normalize();
-        const middle = new Vector3(0, (ends[0].y + ends[1].y) / 2, (ends[0].z + ends[1].z) / 2);
+        edges.push({ t, apex, pair, apexHigh, dir });
+        removed.add(t);
+        for (const { p } of sorted) {
+            const k = key(p), entry = recess.get(k) ?? { dir: new Vector3(), half: 0 };
+            entry.dir.add(dir);
+            entry.half = Math.max(entry.half, extent / 2);
+            recess.set(k, entry);
+        }
+    }
+    if (!edges.length) return;
+    for (const entry of recess.values()) entry.offset = entry.dir.normalize().multiplyScalar(-entry.half * EDGE_DEPTH);
+    const offsetOf = (p) => recess.get(key(p))?.offset ?? new Vector3();
+    const out = { position: [], normal: [], uv: [] };
+    // Faces gardées ; les sommets de peau sur une arête creusée reculent avec elle
+    for (let t = 0; t < position.count; t += 3) {
+        if (removed.has(t)) continue;
+        for (let i = t; i < t + 3; i++) {
+            const p = vertex(i).add(offsetOf(vertex(i)));
+            out.position.push(p.x, p.y, p.z);
+            out.normal.push(normal.getX(i), normal.getY(i), normal.getZ(i));
+            out.uv.push(uv.getX(i), uv.getY(i));
+        }
+    }
+    // Peinture des chants : celle du sommet de peau le plus proche
+    const skin = [];
+    for (let i = 0; i < position.count; i++) if (Math.abs(normal.getComponent(i, axisIndex)) > 0.7) skin.push(i);
+    const axisVector = new Vector3().setComponent(axisIndex, 1);
+    for (const { apex, pair, apexHigh, dir } of edges) {
+        const middle = apex.p.clone().add(pair[0].p).add(pair[1].p).divideScalar(3);
         let nearest = skin[0], best = Infinity;
         for (const i of skin) {
-            const d = p.fromBufferAttribute(position, i).distanceToSquared(middle);
+            const d = vertex(i).distanceToSquared(middle);
             if (d < best) { best = d; nearest = i; }
         }
-        const u = uv.getX(nearest), v = uv.getY(nearest);
-        const ring = ends.map((e) => Array.from({ length: EDGE_STEPS + 1 }, (_, k) => {
-            const phi = Math.PI * k / EDGE_STEPS, c = Math.cos(phi), s = Math.sin(phi);
-            return {
-                p: new Vector3(e.half * c, e.y, e.z).addScaledVector(dir, e.half * EDGE_BULGE * s),
-                n: new Vector3(c, 0, 0).addScaledVector(dir, s / EDGE_BULGE).normalize(),
-            };
-        }));
+        const u = nearest === undefined ? 0 : uv.getX(nearest), v = nearest === undefined ? 0 : uv.getY(nearest);
+        // Point à la fraction s du côté paire[j] -> apex : position plate, recul interpolé, courbure selon t
+        const at = (j, s) => {
+            const from = pair[j].p, flat = from.clone().lerp(apex.p, s);
+            const offset = offsetOf(from).clone().lerp(offsetOf(apex.p), s);
+            const t = apexHigh ? s : 1 - s;
+            const bend = 1 - Math.sin(Math.PI * t);
+            const n = axisVector.clone().multiplyScalar(-Math.cos(Math.PI * t))
+                .addScaledVector(dir, Math.sin(Math.PI * t) / EDGE_DEPTH).normalize();
+            return { p: flat.addScaledVector(offset, bend), n };
+        };
         const push = (a, b, c) => {
             // Ordre des sommets : face avant vers l'extérieur
-            const facing = b.p.clone().sub(a.p).cross(c.p.clone().sub(a.p)).dot(a.n.clone().add(b.n).add(c.n)) < 0;
-            for (const vertex of facing ? [a, c, b] : [a, b, c]) {
-                out.position.push(vertex.p.x, vertex.p.y, vertex.p.z);
-                out.normal.push(vertex.n.x, vertex.n.y, vertex.n.z);
+            const flip = b.p.clone().sub(a.p).cross(c.p.clone().sub(a.p)).dot(a.n.clone().add(b.n).add(c.n)) < 0;
+            for (const vtx of flip ? [a, c, b] : [a, b, c]) {
+                out.position.push(vtx.p.x, vtx.p.y, vtx.p.z);
+                out.normal.push(vtx.n.x, vtx.n.y, vtx.n.z);
                 out.uv.push(u, v);
             }
         };
-        for (let k = 0; k < EDGE_STEPS; k++) {
-            push(ring[0][k], ring[1][k], ring[0][k + 1]);
-            push(ring[0][k + 1], ring[1][k], ring[1][k + 1]);
+        for (let step = 0; step < EDGE_STEPS; step++) {
+            const s0 = step / EDGE_STEPS, s1 = (step + 1) / EDGE_STEPS;
+            const a0 = at(0, s0), b0 = at(1, s0), a1 = at(0, s1), b1 = at(1, s1);
+            push(a0, b0, a1);
+            if (step < EDGE_STEPS - 1) push(a1, b0, b1);   // dernière bande : un seul triangle (pointe sur l'apex)
         }
     }
     const geometry = new BufferGeometry();
