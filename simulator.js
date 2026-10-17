@@ -1401,6 +1401,20 @@ document.getElementById('menu-principal-bouton').addEventListener('click', (even
     openMainMenu();
     event.currentTarget.blur();
 });
+// Barre de menus (Échap) : « Quitter la partie » arrête le vol (et quitte la partie multijoueur en cours), puis
+// revient au menu principal
+document.getElementById('quitter-partie').addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    const question = multiplayer.code
+        ? `Quitter la partie ${multiplayer.code} et revenir au menu principal ?`
+        : 'Quitter le vol et revenir au menu principal ?';
+    if (!confirm(question)) return;
+    if (multiplayer.code) {
+        multiplayer.leave();
+        updateModes();
+    }
+    openMainMenu();
+});
 openMainMenu();
 multiplayer.addEventListener('players', () => {
     const names = multiplayer.code ? [`${multiplayer.name} (vous)`, ...[...multiplayer.players.values()].map((p) => p.name)] : [];
