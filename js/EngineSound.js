@@ -103,6 +103,9 @@ class RemoteEngine {
     }
 }
 
+const CABIN_CUTOFF = 700;      // Hz : passe-bas en cabine
+const OUTSIDE_CUTOFF = 20000;
+
 class EngineSound {
     constructor({ volume = 1.4 } = {}) {
         this.volume = volume;
@@ -123,8 +126,10 @@ class EngineSound {
         // puis un limiteur évite la saturation à plein gaz et au démarrage
         const body = new BiquadFilterNode(this._audio, { type: 'peaking', frequency: 350, Q: 0.8, gain: 7 });
         const presence = new BiquadFilterNode(this._audio, { type: 'highshelf', frequency: 1200, gain: 5 });
+        // En cabine : passe-bas qui étouffe le moteur (aigus coupés par la carlingue, voir setCabin)
+        this._muffle = new BiquadFilterNode(this._audio, { type: 'lowpass', frequency: this._cabin ? CABIN_CUTOFF : OUTSIDE_CUTOFF, Q: 0.5 });
         const limiter = new DynamicsCompressorNode(this._audio, { threshold: -10, knee: 6, ratio: 12, attack: 0.003, release: 0.15 });
-        this._master.connect(body).connect(presence).connect(limiter).connect(this._audio.destination);
+        this._master.connect(this._muffle).connect(body).connect(presence).connect(limiter).connect(this._audio.destination);
 
         const urls = [...LAYERS.map(({ name, url }) => [name, url]), ...Object.entries(ONE_SHOTS)];
         const entries = await Promise.all(urls.map(async ([name, url]) => [name, await loadBuffer(this._audio, url)]));
@@ -139,6 +144,13 @@ class EngineSound {
         crank.loop = true;
         crank.connect(this._crank);
         crank.start();
+    }
+
+    // Caméra en cabine (moteur étouffé) ou à l'extérieur ; transition douce
+    setCabin(inside) {
+        if (inside === this._cabin) return;
+        this._cabin = inside;
+        if (this._muffle) this._muffle.frequency.setTargetAtTime(inside ? CABIN_CUTOFF : OUTSIDE_CUTOFF, this._audio.currentTime, 0.1);
     }
 
     // Moteur d'un autre joueur (null tant que le son n'est pas débloqué par une action du joueur)

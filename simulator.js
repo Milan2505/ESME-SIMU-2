@@ -20,7 +20,7 @@ import { Systems } from './js/Systems.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces, Gear } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
-import { AircraftLights } from './js/AircraftLights.js';
+import { AircraftLights, beaconOn } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
@@ -229,8 +229,8 @@ function applyLights() {
 }
 systems.addEventListener('change', applyLights);
 // Démarrage raté : message à l'écran (raison et marche à suivre)
-systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.7));
-systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.7); });
+systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.45));
+systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
 systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
 
 // Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs
@@ -1072,7 +1072,7 @@ function spawnUnderPointer(event) {
 }
 
 // Régime du gyroscope de l'indicateur de virage (0 -> 1) et état de la pompe, pour les bruits (voir updateSounds)
-let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false, lastBeaconFlash = 0;
+let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false, beaconWasOn = false;
 let spawnFade = 0;   // montée du son du moteur après un départ (0 -> 1)
 
 // État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
@@ -2074,12 +2074,11 @@ function updateSounds() {
     const day = 1 - (weather?.night ?? 0);
     sounds.setLoop('birds', ambience * day * (1 - rain) * (chaseView ? 0.1 : 0.02));
     sounds.setLoop('breeze', ambience * (0.4 + 0.6 * (weather?.wind ?? 0.3)) * (chaseView ? 0.15 : 0.03));
-    // Feu anticollision : petit tic sourd à chaque éclat (deux par seconde, en phase avec AircraftLights), très discret
-    const beaconFlash = Math.floor(clock.elapsedTime * 2);
-    if (beaconFlash !== lastBeaconFlash && systems.lights.beacon && !choosingSpawn) {
-        sounds.click(chaseView ? 0.1 : 0.3, 1300 + Math.random() * 200);
-    }
-    lastBeaconFlash = beaconFlash;
+    // Feu anticollision : petit tic à chaque allumage (double éclat, en phase avec AircraftLights), rien à l'extinction.
+    // Entendu de l'extérieur seulement
+    const beaconLit = systems.lights.beacon && !choosingSpawn && beaconOn(clock.elapsedTime);
+    if (beaconLit && !beaconWasOn && chaseView) sounds.click(0.1, 1300 + Math.random() * 200);
+    beaconWasOn = beaconLit;
 }
 
 const aircraftVelocity = new THREE.Vector3();
@@ -2239,7 +2238,9 @@ renderer.setAnimationLoop((time)=>{
     // Au départ (choix du spawn, touche R), le moteur qui tourne déjà monte en ~1 s au lieu d'arriver d'un coup :
     // ses graves, relevés, faisaient un "boum" comme un coup de tonnerre
     spawnFade = choosingSpawn ? 0 : Math.min(1, spawnFade + delta / 1.2);
-    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * spawnFade * spawnFade;
+    // En cabine : plus faible et étouffé (passe-bas)
+    engineSound.setCabin(!chaseView);
+    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
     engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
     if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
