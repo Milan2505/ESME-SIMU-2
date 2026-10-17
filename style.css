@@ -2633,3 +2633,187 @@ body:has(#simulator.jeu) {
 #simulator.jeu.barre > #masse-bouton:hover {
   background: #C3E6F5;
 }
+
+/* Masse et centrage : « Afficher plus » (bilan carburant, performances) */
+#masse-dialog .mc-plus-bouton {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 9px;
+  letter-spacing: 2px;
+  color: #8fd3ff;
+  background: rgba(143, 211, 255, 0.06);
+  border: 1px dashed rgba(143, 211, 255, 0.4);
+}
+.mc-plus {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  margin-top: 16px;
+}
+.mc-plus[hidden] {
+  display: none;
+}
+.mc-bloc {
+  min-width: 0;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+.mc-reglages {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin-bottom: 10px;
+}
+.mc-reglages label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8a9db0;
+}
+.mc-reglages span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb2c4;
+}
+.mc-reglages input,
+.mc-reglages select,
+.mc-duree input {
+  box-sizing: border-box;
+  padding: 4px 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+.mc-reglages input {
+  width: 76px;
+  text-align: right;
+}
+.mc-reglages select {
+  flex: 1;
+  font-family: inherit;
+}
+.mc-durees {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0;
+}
+.mc-duree {
+  display: grid;
+  grid-template-columns: 1fr 52px auto 52px auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #9fb2c4;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mc-duree span {
+  font-size: 14px;
+  color: #e8eef4;
+}
+.mc-duree span small {
+  display: block;
+  font-size: 11px;
+  color: #8a9db0;
+}
+.mc-duree input {
+  width: 100%;
+  text-align: right;
+}
+.mc-tableau {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.mc-tableau th {
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: normal;
+  letter-spacing: 1px;
+  text-align: left;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.3);
+}
+.mc-tableau td {
+  padding: 5px 8px;
+  color: #dfe7ef;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mc-tableau td:not(:first-child),
+.mc-tableau th:not(:first-child) {
+  text-align: right;
+  font-family: DejaVu Sans Mono, monospace;
+  white-space: nowrap;
+}
+.mc-tableau td small {
+  display: block;
+  font-size: 11px;
+  color: #8a9db0;
+}
+.mc-tableau .mc-total td {
+  font-weight: bold;
+  color: #fff;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.mc-tableau .mc-ok td {
+  font-weight: bold;
+  color: #b9f5c9;
+  background: rgba(58, 208, 106, 0.1);
+}
+.mc-tableau .mc-ko td {
+  font-weight: bold;
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.15);
+}
+.mc-perf td {
+  font-size: 15px;
+  font-weight: bold;
+}
+.mc-perf td.erreur {
+  color: #ff8a80;
+}
+#mc-piste {
+  margin: 0 0 8px;
+  padding: 9px 12px;
+  text-indent: 0;
+  text-align: left;
+  font-size: 13px;
+  font-weight: bold;
+  color: #b9f5c9;
+  background: rgba(58, 208, 106, 0.1);
+  border-left: 3px solid #3ad06a;
+}
+#mc-piste.erreur {
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.12);
+  border-left-color: #e06666;
+}
+.mc-note {
+  margin: 6px 0 0;
+  text-indent: 0;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8a9db0;
+}
+@media (max-width: 960px) {
+  .mc-plus {
+    grid-template-columns: 1fr;
+  }
+}

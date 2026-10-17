@@ -25,10 +25,84 @@ const LIMITS = {
 // Domaine de centrage (centrage en m, masse en kg)
 const NORMAL = [[35 * IN, 1500 * LB], [35 * IN, 1950 * LB], [41 * IN, 2550 * LB], [47.3 * IN, 2550 * LB], [47.3 * IN, 1500 * LB]];
 const UTILITY = [[35 * IN, 1500 * LB], [35 * IN, 1950 * LB], [37.5 * IN, 2200 * LB], [40.5 * IN, 2200 * LB], [40.5 * IN, 1500 * LB]];
-const BURN = 32;                // L/h en croisière (≈ 8,5 gal/h)
-const FUEL_MIN = 0.12;          // fraction gardée en réserve pour le point « atterrissage » (45 min)
+const FT = 0.3048;
+
+// Bilan carburant (« Afficher plus ») : durées en minutes, consommations en L/h. Réserve finale VFR : 30 min de jour,
+// 45 min de nuit (NCO.OP.125) ; réserve de route en % du délestage ; supplément au choix du commandant de bord
+const DEFAULT_PLAN = {
+    taxi: 10, trip: 60, procedures: 10, alternate: 0, finalReserve: 30, extra: 0, contingency: 10,
+    burn: 32, taxiBurn: 12, tas: 110,
+};
+// Performances : terrain (altitude ft, QNH hPa, température °C), vent (kt, + = de face), surface, pente (%, + = montante
+// au décollage), coefficient de sécurité, longueur de piste disponible (m ; piste de l'aérodrome ESME : 700 m)
+const DEFAULT_PERF = { elevation: 0, qnh: 1013, temperature: 15, wind: 0, surface: 'dur', slope: 0, margin: 1.15, runway: 700 };
+const SURFACES = {
+    dur:    { label: 'Dur (sec)', takeoff: 1, landing: 1 },
+    herbe:  { label: 'Herbe sèche', takeoff: 1.15, landing: 1.45 },        // manuel : +15 % / +45 % du roulement
+    mouille: { label: 'Herbe mouillée (estim.)', takeoff: 1.3, landing: 1.6 },
+};
+
+// Manuel du 172S, décollage court (volets 10°), niveau de la mer, 20 °C : [masse lb, roulement ft, passage 50 ft ft]
+const TAKEOFF = [[2200, 725, 1305], [2400, 860, 1540], [2550, 980, 1745]];
+const LANDING = [2550, 585, 1335];   // atterrissage court (volets 30°), même référence
 
 const DEFAULT_LOAD = { pilot: 80, copilot: 0, rear: 0, baggage: 10, fuelLeft: 76, fuelRight: 76, sync: true };
+
+// Bilan carburant : litres de chaque poste, total nécessaire, carburant restant à l'atterrissage et rayon d'action
+function fuelPlan(load) {
+    const p = load.plan, perH = p.burn / 60;
+    const items = [
+        ['Roulage (départ et arrivée)', p.taxi * p.taxiBurn / 60, p.taxi],
+        ['Délestage (étape)', p.trip * perH, p.trip],
+        ['Procédures départ / arrivée', p.procedures * perH, p.procedures],
+        [`Réserve de route (${p.contingency} % du délestage)`, p.trip * perH * p.contingency / 100, p.trip * p.contingency / 100],
+        ['Dégagement', p.alternate * perH, p.alternate],
+        ['Réserve finale', p.finalReserve * perH, p.finalReserve],
+        ['Supplément commandant de bord', p.extra * perH, p.extra],
+    ];
+    const required = items.reduce((sum, [, litres]) => sum + litres, 0);
+    const onboard = load.fuelLeft + load.fuelRight;
+    // À l'atterrissage : départ et étape consommés (roulage d'arrivée : moitié du roulage restant)
+    const atLanding = Math.max(0, onboard - p.taxi * p.taxiBurn / 120 - (p.trip + p.procedures) * perH);
+    // Rayon d'action (air calme) : carburant hors roulage, procédures et réserves, réserve de route comprise
+    const cruise = Math.max(0, onboard - p.taxi * p.taxiBurn / 60 - (p.procedures + p.finalReserve + p.extra) * perH);
+    const cruiseHours = cruise / (p.burn * (1 + p.contingency / 100));
+    const endurance = Math.max(0, onboard - p.taxi * p.taxiBurn / 60) / p.burn;
+    return { items, required, onboard, spare: onboard - required, atLanding, cruiseHours, range: cruiseHours * p.tas, endurance };
+}
+
+// Distances (m) de décollage et d'atterrissage à une masse (kg), corrigées du terrain, du vent, de la surface, de la
+// pente et du coefficient de sécurité. Altitude : ~+9 % par 1 000 ft d'altitude-pression ; température : ~+0,75 % par
+// °C au-dessus de 20 °C (pente des tableaux du manuel) ; vent : -10 % par 9 kt de face, +10 % par 2 kt arrière
+function performance(perf, takeoffKg, landingKg) {
+    const pressureAlt = perf.elevation + (1013 - perf.qnh) * 27;
+    const terrain = 1.09 ** (pressureAlt / 1000) * Math.max(0.7, 1 + 0.0075 * (perf.temperature - 20));
+    const wind = perf.wind >= 0 ? Math.max(0.5, 1 - 0.1 * perf.wind / 9) : 1 + 0.1 * -perf.wind / 2;
+    const surface = SURFACES[perf.surface] ?? SURFACES.dur;
+    const slope = 1 + 0.1 * perf.slope;   // ±10 % par % de pente (montante au décollage)
+    const lb = takeoffKg / LB;
+    // Décollage : interpolation entre les masses du tableau ; en dessous, roulement en (masse)²
+    let roll, obstacle;
+    if (lb <= TAKEOFF[0][0]) {
+        const k = (lb / TAKEOFF[0][0]) ** 2;
+        [roll, obstacle] = [TAKEOFF[0][1] * k, TAKEOFF[0][2] * k];
+    } else {
+        const i = lb >= TAKEOFF[1][0] ? 1 : 0;
+        const [w0, r0, o0] = TAKEOFF[i], [w1, r1, o1] = TAKEOFF[i + 1];
+        const t = (lb - w0) / (w1 - w0);
+        [roll, obstacle] = [r0 + (r1 - r0) * t, o0 + (o1 - o0) * t];
+    }
+    // Surface et pente ne jouent que sur le roulement ; la partie en l'air (jusqu'à 15 m) suit terrain et vent
+    const groundRoll = roll * terrain * wind * surface.takeoff * slope;
+    const airborne = (obstacle - roll) * terrain * wind;
+    const takeoff = { roll: groundRoll * FT * perf.margin, obstacle: (groundRoll + airborne) * FT * perf.margin };
+    // Atterrissage : proportionnel à la masse (le manuel ne donne que la masse maximale)
+    const k = (landingKg / LB) / LANDING[0];
+    const landRoll = LANDING[1] * k * terrain * wind * surface.landing / slope;
+    const flare = (LANDING[2] - LANDING[1]) * k * terrain * wind;
+    const landing = { roll: landRoll * FT * perf.margin, obstacle: (landRoll + flare) * FT * perf.margin };
+    return { takeoff, landing, pressureAlt };
+}
 const STORAGE_KEY = 'masse-centrage';
 
 function inside(polygon, x, y) {
@@ -53,7 +127,9 @@ function compute(load, fuelFactor = 1) {
 }
 
 function check(load) {
-    const takeoff = compute(load), landing = compute(load, FUEL_MIN);
+    // Point « atterrissage » : carburant restant après le roulage, l'étape et les procédures (bilan carburant)
+    const plan = fuelPlan(load), onboard = load.fuelLeft + load.fuelRight;
+    const takeoff = compute(load), landing = compute(load, onboard > 0 ? plan.atLanding / onboard : 0);
     const problems = [];
     if (takeoff.mass > LIMITS.maxTakeoff + 0.05) problems.push(`Masse maximale dépassée de ${Math.round(takeoff.mass - LIMITS.maxTakeoff)} kg`);
     if (load.baggage > LIMITS.maxBaggage + 0.05) problems.push(`Bagages : ${Math.round(LIMITS.maxBaggage)} kg au plus`);
@@ -73,7 +149,43 @@ class WeightBalance {
         this.onApply = onApply;
         this.load = { ...DEFAULT_LOAD };
         try { Object.assign(this.load, JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? {}); } catch { /* stockage indisponible */ }
+        this.load.plan = { ...DEFAULT_PLAN, ...this.load.plan };
+        this.load.perf = { ...DEFAULT_PERF, ...this.load.perf };
         this._clamp();
+        // « Afficher plus » : bilan carburant et performances
+        this.more = dialog.querySelector('.mc-plus');
+        const moreButton = dialog.querySelector('#mc-plus-bouton');
+        moreButton.addEventListener('click', () => {
+            this.more.hidden = !this.more.hidden;
+            moreButton.textContent = this.more.hidden ? 'Afficher plus ▾' : 'Afficher moins ▴';
+            this._render();
+        });
+        // Durées : heures et minutes (data-duree = poste du bilan, en minutes)
+        for (const box of dialog.querySelectorAll('[data-duree]')) {
+            const key = box.dataset.duree, [hours, minutes] = box.querySelectorAll('input');
+            const set = () => {
+                this.load.plan[key] = Math.max(0, (Number(hours.value) || 0) * 60 + (Number(minutes.value) || 0));
+                this._render(`plan-${key}`);
+            };
+            hours.addEventListener('input', set);
+            minutes.addEventListener('input', set);
+            minutes.addEventListener('change', () => this._render());
+        }
+        // Autres réglages : data-plan (consommations, vitesse, %) et data-perf (terrain, vent, piste…)
+        for (const input of dialog.querySelectorAll('[data-plan], [data-perf]')) {
+            const group = input.dataset.plan ? 'plan' : 'perf', key = input.dataset.plan ?? input.dataset.perf;
+            const read = () => {
+                const value = input.tagName === 'SELECT' && key === 'surface' ? input.value : Number(input.value);
+                if (typeof value === 'number' && !Number.isFinite(value)) return;
+                this.load[group][key] = value;
+                this._clamp();
+                this._render(`${group}-${key}`);
+            };
+            input.addEventListener(input.tagName === 'SELECT' ? 'change' : 'input', read);
+            input.addEventListener('change', () => this._render());   // champ quitté : valeur ramenée dans ses bornes
+        }
+        dialog.querySelector('#mc-reserve-nuit').addEventListener('click', () => { this.load.plan.finalReserve = 45; this._render(); });
+        dialog.querySelector('#mc-reserve-jour').addEventListener('click', () => { this.load.plan.finalReserve = 30; this._render(); });
         this.canvas = dialog.querySelector('canvas');
         this.inputs = {};
         for (const key of ['pilot', 'copilot', 'rear', 'baggage', 'fuelLeft', 'fuelRight']) {
@@ -94,7 +206,7 @@ class WeightBalance {
         dialog.querySelector('#mc-plein').addEventListener('click', () => this._fuel(LIMITS.tankLitres));
         dialog.querySelector('#mc-moitie').addEventListener('click', () => this._fuel(LIMITS.tankLitres / 2));
         dialog.querySelector('#mc-defaut').addEventListener('click', () => {
-            this.load = { ...DEFAULT_LOAD };
+            this.load = { ...DEFAULT_LOAD, plan: { ...DEFAULT_PLAN }, perf: { ...DEFAULT_PERF } };
             this._render();
         });
         dialog.querySelector('#mc-fermer').addEventListener('click', () => dialog.close());
@@ -132,6 +244,20 @@ class WeightBalance {
         l.fuelLeft = clamp(l.fuelLeft, LIMITS.tankLitres);
         l.fuelRight = clamp(l.fuelRight, LIMITS.tankLitres);
         l.sync = l.sync !== false;
+        const p = l.plan, f = l.perf;
+        for (const key of ['taxi', 'trip', 'procedures', 'alternate', 'finalReserve', 'extra']) p[key] = clamp(p[key], 24 * 60);
+        p.contingency = clamp(p.contingency, 50);
+        p.burn = Math.max(10, clamp(p.burn, 80));
+        p.taxiBurn = clamp(p.taxiBurn, 40);
+        p.tas = Math.max(50, clamp(p.tas, 160));
+        f.elevation = Math.min(12000, Math.max(-1000, Number(f.elevation) || 0));
+        f.qnh = Math.min(1060, Math.max(940, Number(f.qnh) || 1013));
+        f.temperature = Math.min(50, Math.max(-40, Number(f.temperature) || 0));
+        f.wind = Math.min(40, Math.max(-15, Number(f.wind) || 0));
+        f.slope = Math.min(5, Math.max(-5, Number(f.slope) || 0));
+        f.margin = [1, 1.15, 1.25, 1.43].includes(Number(f.margin)) ? Number(f.margin) : 1.15;
+        f.runway = Math.max(100, Math.min(5000, Number(f.runway) || 700));
+        if (!SURFACES[f.surface]) f.surface = 'dur';
     }
 
     // Valeur à appliquer : chargement, masse et centrage au décollage
@@ -161,15 +287,81 @@ class WeightBalance {
         set('#mc-marge', `${Math.round(LIMITS.maxTakeoff - r.takeoff.mass)} kg`);
         set('#mc-centrage', `${r.takeoff.cg.toFixed(3)} m`);
         set('#mc-carburant', `${Math.round(fuel)} L · ${(fuel / GALLON).toFixed(1)} gal`);
-        const hours = Math.max(0, fuel / BURN - 0.75);
-        set('#mc-autonomie', `${Math.floor(hours)} h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')} (réserve 45 min déduite)`);
+        const hours = Math.max(0, fuel / l.plan.burn - l.plan.finalReserve / 60);
+        set('#mc-autonomie', `${Math.floor(hours)} h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')} (réserve finale de ${l.plan.finalReserve} min déduite)`);
+        set('#mc-conso', `Autonomie (${l.plan.burn} L/h)`);
         const status = this.dialog.querySelector('#mc-statut');
         status.classList.toggle('erreur', r.problems.length > 0);
         status.textContent = r.problems.length
             ? r.problems.join(' · ')
             : `Dans les limites (catégorie ${r.utility ? 'utilitaire et normale' : 'normale'})`;
         this.dialog.querySelector('#mc-marge').classList.toggle('erreur', r.takeoff.mass > LIMITS.maxTakeoff);
+        this._renderMore(editing, r);
         this._chart();
+    }
+
+    // « Afficher plus » : bilan carburant (postes en h / min et litres) et performances (distances, rayon d'action)
+    _renderMore(editing, r) {
+        if (this.more.hidden) return;
+        const l = this.load, d = this.dialog;
+        const hm = (minutes) => `${Math.floor(minutes / 60)} h ${String(Math.round(minutes % 60)).padStart(2, '0')}`;
+        for (const box of d.querySelectorAll('[data-duree]')) {
+            const key = box.dataset.duree, [hours, minutes] = box.querySelectorAll('input');
+            if (editing === `plan-${key}` && box.contains(document.activeElement)) continue;
+            hours.value = Math.floor(l.plan[key] / 60);
+            minutes.value = Math.round(l.plan[key] % 60);
+        }
+        for (const input of d.querySelectorAll('[data-plan], [data-perf]')) {
+            const group = input.dataset.plan ? 'plan' : 'perf', key = input.dataset.plan ?? input.dataset.perf;
+            if (editing === `${group}-${key}` && document.activeElement === input) continue;
+            input.value = String(l[group][key]);
+        }
+        // Bilan carburant
+        const plan = fuelPlan(l);
+        const table = d.querySelector('#mc-bilan');
+        table.replaceChildren(...plan.items.map(([label, litres, minutes]) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td></td><td>${hm(minutes)}</td><td>${litres.toFixed(1)} L</td>`;
+            row.firstChild.textContent = label;
+            return row;
+        }));
+        const total = (label, minutes, litres, cls = '') => {
+            const row = document.createElement('tr');
+            row.className = cls;
+            row.innerHTML = `<td></td><td>${minutes}</td><td>${litres}</td>`;
+            row.firstChild.textContent = label;
+            table.append(row);
+        };
+        total('Carburant nécessaire', hm(plan.required / l.plan.burn * 60), `${plan.required.toFixed(1)} L`, 'mc-total');
+        total('Carburant à bord', hm(plan.onboard / l.plan.burn * 60), `${plan.onboard.toFixed(1)} L`, 'mc-total');
+        const ok = plan.spare >= 0;
+        total(ok ? 'Excédent' : 'MANQUE', hm(Math.abs(plan.spare) / l.plan.burn * 60), `${plan.spare >= 0 ? '+' : '−'}${Math.abs(plan.spare).toFixed(1)} L`,
+            ok ? 'mc-ok' : 'mc-ko');
+        d.querySelector('#mc-reserve-valeur').textContent = hm(l.plan.finalReserve);
+        // Rayon d'action, autonomie
+        const set = (id, text, bad = null) => {
+            const el = d.querySelector(id);
+            el.textContent = text;
+            if (bad !== null) el.classList.toggle('erreur', bad);
+        };
+        set('#mc-autonomie-totale', hm(plan.endurance * 60));
+        set('#mc-distance', `${Math.round(plan.range)} NM · ${Math.round(plan.range * 1.852)} km`);
+        set('#mc-rayon', `${Math.round(plan.range / 2)} NM · ${Math.round(plan.range * 1.852 / 2)} km`);
+        set('#mc-etape', `${Math.round(l.plan.trip / 60 * l.plan.tas)} NM à ${l.plan.tas} kt`);
+        // Distances de décollage et d'atterrissage (masses du bilan), comparées à la piste
+        const perf = performance(l.perf, r.takeoff.mass, r.landing.mass);
+        const m = (v) => `${Math.round(v)} m`;
+        set('#mc-deco-roul', m(perf.takeoff.roll), perf.takeoff.roll > l.perf.runway);
+        set('#mc-deco-15', m(perf.takeoff.obstacle), perf.takeoff.obstacle > l.perf.runway);
+        set('#mc-atte-roul', m(perf.landing.roll), perf.landing.roll > l.perf.runway);
+        set('#mc-atte-15', m(perf.landing.obstacle), perf.landing.obstacle > l.perf.runway);
+        set('#mc-masses', `décollage ${Math.round(r.takeoff.mass)} kg · atterrissage ${Math.round(r.landing.mass)} kg · altitude-pression ${Math.round(perf.pressureAlt)} ft`);
+        const fits = Math.max(perf.takeoff.obstacle, perf.landing.obstacle) <= l.perf.runway;
+        const verdict = d.querySelector('#mc-piste');
+        verdict.classList.toggle('erreur', !fits);
+        verdict.textContent = fits
+            ? `Piste de ${l.perf.runway} m suffisante (coefficient ${l.perf.margin.toFixed(2)} compris)`
+            : `Piste de ${l.perf.runway} m trop courte pour passer ou franchir 15 m (coefficient ${l.perf.margin.toFixed(2)})`;
     }
 
     // Graphique : masse (kg) en fonction du centrage (m), domaines normal et utilitaire, points décollage / atterrissage

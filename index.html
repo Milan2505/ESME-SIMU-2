@@ -404,7 +404,7 @@
 					<div><dt>Marge (MTOW 1157 kg)</dt><dd id="mc-marge"></dd></div>
 					<div><dt>Centrage</dt><dd id="mc-centrage"></dd></div>
 					<div><dt>Carburant</dt><dd id="mc-carburant"></dd></div>
-					<div class="mc-large"><dt>Autonomie (32 L/h)</dt><dd id="mc-autonomie"></dd></div>
+					<div class="mc-large"><dt id="mc-conso">Autonomie</dt><dd id="mc-autonomie"></dd></div>
 				</dl>
 				<p id="mc-statut"></p>
 			</div>
@@ -413,6 +413,65 @@
 				<canvas></canvas>
 				<p class="mc-legende"><span class="mc-pt-deco"></span> Décollage <span class="mc-pt-atte"></span> Atterrissage (réserve) · trait plein : normale · pointillés : utilitaire</p>
 			</div>
+		</div>
+		<button id="mc-plus-bouton" type="button" class="mc-plus-bouton">Afficher plus ▾</button>
+		<div class="mc-plus" hidden>
+			<section class="mc-bloc">
+				<h4>Bilan carburant</h4>
+				<div class="mc-reglages">
+					<label>Consommation croisière <span><input type="number" data-plan="burn" min="10" max="80" step="1"> L/h</span></label>
+					<label>Consommation au roulage <span><input type="number" data-plan="taxiBurn" min="0" max="40" step="1"> L/h</span></label>
+					<label>Vitesse de croisière (TAS) <span><input type="number" data-plan="tas" min="50" max="160" step="1"> kt</span></label>
+					<label>Réserve de route <span><input type="number" data-plan="contingency" min="0" max="50" step="1"> % du délestage</span></label>
+				</div>
+				<div class="mc-durees">
+					<div class="mc-duree" data-duree="taxi"><span>Roulage <small>départ + arrivée</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="trip"><span>Délestage <small>temps de l'étape</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="procedures"><span>Procédures <small>départ, intégration, attente</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="alternate"><span>Dégagement <small>vers l'aérodrome de secours</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="finalReserve"><span>Réserve finale <small>VFR jour 30 min · nuit 45 min</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="extra"><span>Supplément pilote <small>marge personnelle du CDB</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+				</div>
+				<div class="mc-carbu">
+					<span class="mc-sync">Réserve finale : <strong id="mc-reserve-valeur"></strong></span>
+					<button id="mc-reserve-jour" type="button">VFR jour</button>
+					<button id="mc-reserve-nuit" type="button">VFR nuit</button>
+				</div>
+				<table class="mc-tableau">
+					<thead><tr><th>Poste</th><th>Durée</th><th>Carburant</th></tr></thead>
+					<tbody id="mc-bilan"></tbody>
+				</table>
+				<dl class="mc-resume">
+					<div><dt>Autonomie totale</dt><dd id="mc-autonomie-totale"></dd></div>
+					<div><dt>Étape prévue</dt><dd id="mc-etape"></dd></div>
+					<div><dt>Distance franchissable</dt><dd id="mc-distance"></dd></div>
+					<div><dt>Rayon d'action (aller-retour)</dt><dd id="mc-rayon"></dd></div>
+				</dl>
+				<p class="mc-note">Distances en air calme, réserves finale et de route déduites. Règles NCO.OP.125 : vérifiez toujours avec le manuel d'exploitation de votre aéroclub.</p>
+			</section>
+			<section class="mc-bloc">
+				<h4>Performances décollage et atterrissage</h4>
+				<div class="mc-reglages">
+					<label>Altitude du terrain <span><input type="number" data-perf="elevation" min="-1000" max="12000" step="50"> ft</span></label>
+					<label>QNH <span><input type="number" data-perf="qnh" min="940" max="1060" step="1"> hPa</span></label>
+					<label>Température <span><input type="number" data-perf="temperature" min="-40" max="50" step="1"> °C</span></label>
+					<label>Vent (+ de face, − arrière) <span><input type="number" data-perf="wind" min="-15" max="40" step="1"> kt</span></label>
+					<label>Surface de la piste <span><select data-perf="surface"><option value="dur">Dur (sec)</option><option value="herbe">Herbe sèche</option><option value="mouille">Herbe mouillée (estim.)</option></select></span></label>
+					<label>Pente (+ montante au décollage) <span><input type="number" data-perf="slope" min="-5" max="5" step="0.5"> %</span></label>
+					<label>Coefficient de sécurité <span><select data-perf="margin"><option value="1">1,00 (manuel)</option><option value="1.15">1,15</option><option value="1.25">1,25</option><option value="1.43">1,43</option></select></span></label>
+					<label>Piste disponible <span><input type="number" data-perf="runway" min="100" max="5000" step="10"> m</span></label>
+				</div>
+				<table class="mc-tableau mc-perf">
+					<thead><tr><th></th><th>Roulement</th><th>Passage / depuis 15 m</th></tr></thead>
+					<tbody>
+						<tr><td>Décollage <small>volets 10°</small></td><td id="mc-deco-roul"></td><td id="mc-deco-15"></td></tr>
+						<tr><td>Atterrissage <small>volets 30°</small></td><td id="mc-atte-roul"></td><td id="mc-atte-15"></td></tr>
+					</tbody>
+				</table>
+				<p id="mc-piste"></p>
+				<p class="mc-note" id="mc-masses"></p>
+				<p class="mc-note">Manuel du Cessna 172S (technique piste courte) ; corrections : altitude-pression, température, vent (−10 % par 9 kt de face, +10 % par 2 kt arrière), herbe (+15 % du roulement au décollage, +45 % à l'atterrissage), pente (±10 % par %).</p>
+			</section>
 		</div>
 		<div class="mc-boutons">
 			<button id="mc-defaut" type="button">Chargement par défaut</button>
