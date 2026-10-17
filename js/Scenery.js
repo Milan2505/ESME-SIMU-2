@@ -1,8 +1,11 @@
 import {
     Box3,
+    BoxGeometry,
     BufferAttribute,
     BufferGeometry,
     Color,
+    ConeGeometry,
+    CylinderGeometry,
     DoubleSide,
     DirectionalLight,
     Group,
@@ -59,6 +62,55 @@ const FAR = 2600;                // m : au-delà, plus rien (le brouillard les c
 const RELAYOUT = 35;             // m de déplacement de la caméra avant de refaire la répartition
 const IMPOSTOR_SIZE = 256;
 const UP = new Vector3(0, 1, 0);
+// Palette Kenney (Textures/colormap.png) : 16 colonnes x 4 rangées de cases [colonne, rangée], rangée 0 en haut.
+// Les toits d'origine (bleus, roses, violets) sont repeints en tuiles et en ardoise, tirés selon leur poids
+const ROOFS = [
+    { cell: [10, 2], weight: 0.3 },    // tuile brun-rouge
+    { cell: [4, 3], weight: 0.25 },    // tuile terre cuite
+    { cell: [5, 3], weight: 0.15 },    // tuile terre cuite foncée
+    { cell: [11, 2], weight: 0.1 },    // tuile vieillie
+    { cell: [8, 3], weight: 0.12 },    // ardoise
+    { cell: [2, 2], weight: 0.08 },    // ardoise foncée
+];
+const WALL_CELL = [14, 2];           // crépi crème (église)
+const SLATE_CELL = [8, 3];
+
+function paletteCell(uv, i) {
+    return Math.min(15, Math.floor(uv.getX(i) * 16)) + 16 * Math.min(3, Math.floor(uv.getY(i) * 4));
+}
+
+// Cases de la palette qui servent de toit dans un modèle : surtout peintes sur des faces en pente
+function roofCells(geometry) {
+    const pos = geometry.attributes.position, normal = geometry.attributes.normal, uv = geometry.attributes.uv;
+    const index = geometry.index, count = index ? index.count : pos.count;
+    const sloped = new Map(), total = new Map();
+    const a = new Vector3(), b = new Vector3(), c = new Vector3();
+    for (let t = 0; t < count; t += 3) {
+        const [i, j, k] = index ? [index.getX(t), index.getX(t + 1), index.getX(t + 2)] : [t, t + 1, t + 2];
+        a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, j); c.fromBufferAttribute(pos, k);
+        const area = b.sub(a).cross(c.sub(a)).length() / 2;
+        const cell = paletteCell(uv, i);
+        total.set(cell, (total.get(cell) ?? 0) + area);
+        const ny = normal.getY(i);
+        if (ny > 0.25 && ny < 0.97) sloped.set(cell, (sloped.get(cell) ?? 0) + area);
+    }
+    return new Set([...sloped].filter(([cell, area]) => area > 0.35 * total.get(cell)).map(([cell]) => cell));
+}
+
+// Repeint les cases de toit vers une autre case (même position dans la case : le dégradé est conservé)
+function repaint(uv, cells, [col, row]) {
+    for (let i = 0; i < uv.count; i++) {
+        const cell = paletteCell(uv, i);
+        if (!cells.has(cell)) continue;
+        uv.setXY(i, uv.getX(i) + (col - cell % 16) / 16, uv.getY(i) + (row - Math.floor(cell / 16)) / 4);
+    }
+}
+
+function pickRoof(rnd) {
+    let r = rnd() * ROOFS.reduce((sum, roof) => sum + roof.weight, 0);
+    for (const roof of ROOFS) if ((r -= roof.weight) <= 0) return roof.cell;
+    return ROOFS[0].cell;
+}
 
 // Matériau des maillages qui ne servent qu'à projeter une ombre : rien à l'écran (sommets envoyés hors du champ, aucun
 // pixel calculé) ; la passe d'ombre utilise leur customDepthMaterial
@@ -336,6 +388,11 @@ class Scenery {
     _buildHouses(villages, models, rnd) {
         if (!models.length) return;
         const boxes = models.map((model) => { model.updateMatrixWorld(true); return new Box3().setFromObject(model); });
+        const roofs = models.map((model) => {
+            const cells = new Set();
+            model.traverse((child) => { if (child.isMesh) for (const cell of roofCells(child.geometry)) cells.add(cell); });
+            return cells;
+        });
         let material = null;
         for (const v of villages) {
             // Un seul maillage par village (toutes les maisons partagent la même texture) : 5 appels de dessin en tout,
@@ -346,19 +403,21 @@ class Scenery {
             const cos = Math.cos(angle), sin = Math.sin(angle);
             for (let i = -6; i <= 6; i++) {
                 for (let j = -6; j <= 6; j++) {
-                    const u = i * STREET[0] + (rnd() - 0.5) * 4, w = j * STREET[1];
-                    // Plus clairsemé vers le bord du village
+                    // Alignement imparfait : maisons plus ou moins en retrait de la rue
+                    const u = i * STREET[0] + (rnd() - 0.5) * 6, w = j * STREET[1] + (rnd() - 0.5) * 5;
+                    // Place de l'église au centre ; plus clairsemé vers le bord du village
                     const edge = Math.hypot(u, w) / v.radius;
-                    if (edge > 1 || rnd() < 0.15 + 0.45 * edge * edge) continue;
+                    if (edge > 1 || Math.hypot(u, w) < 34 || rnd() < 0.15 + 0.45 * edge * edge) continue;
                     const x = v.x + u * cos - w * sin, z = v.z + u * sin + w * cos;
                     if (this.airport.contains(x, z, 60) || this.corridor(x, z) || !this._grass(x, z, HOUSE_SLOPE)) continue;
                     const facing = angle + (j % 2 ? 0 : Math.PI) + (rnd() - 0.5) * 0.08;
-                    const k = Math.floor(rnd() * models.length), box = boxes[k];
-                    // Posée au plus bas des quatre coins (pas de maison qui flotte sur une pente)
-                    const r = (box.max.x - box.min.x) * HOUSE_SCALE / 2;
+                    const k = Math.floor(rnd() * models.length), box = boxes[k], roof = pickRoof(rnd);
+                    // Tailles un peu variées ; posée au plus bas des quatre coins (pas de maison qui flotte sur une pente)
+                    const scale = HOUSE_SCALE * (0.88 + rnd() * 0.24);
+                    const r = (box.max.x - box.min.x) * scale / 2;
                     const y = Math.min(...[[r, r], [-r, r], [r, -r], [-r, -r], [0, 0]].map(([dx, dz]) => this.terrain.heightAt(x + dx, z + dz)));
                     const m = new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromAxisAngle(UP, facing),
-                        new Vector3(HOUSE_SCALE, HOUSE_SCALE, HOUSE_SCALE));
+                        new Vector3(scale, scale, scale));
                     models[k].traverse((child) => {
                         if (!child.isMesh) return;
                         // Éclairage Lambert : les maisons Kenney n'ont qu'une texture de couleurs, le PBR n'apporte rien
@@ -366,12 +425,14 @@ class Scenery {
                         const g = new BufferGeometry();
                         for (const name of ['position', 'normal', 'uv']) g.setAttribute(name, floats(child.geometry.attributes[name]));
                         if (child.geometry.index) g.setIndex(child.geometry.index);
+                        repaint(g.attributes.uv, roofs[k], roof);
                         parts.push(g.applyMatrix4(new Matrix4().multiplyMatrices(m, child.matrixWorld)));
                     });
                     this.obstacles.push(box.clone().applyMatrix4(m));
                 }
             }
             if (!parts.length) continue;
+            this._church(v, angle, parts);
             const mesh = new Mesh(mergeGeometries(parts), material);
             mesh.receiveShadow = true;
             mesh.geometry.computeBoundingSphere();
@@ -379,6 +440,31 @@ class Scenery {
             this.villages.push(mesh);
         }
         this._houseObstacles = this.obstacles.slice();
+    }
+
+    // Église au centre du village : nef crépie, toit de tuiles à deux pans, clocher carré et flèche d'ardoise.
+    // Formes simples peintes avec la palette des maisons (même matériau, même maillage que le village)
+    _church(v, angle, parts) {
+        const ground = Math.min(...[[0, 0], [15, 15], [-15, 15], [15, -15], [-15, -15]]
+            .map(([dx, dz]) => this.terrain.heightAt(v.x + dx, v.z + dz)));
+        const place = new Matrix4().compose(new Vector3(v.x, ground, v.z), new Quaternion().setFromAxisAngle(UP, angle),
+            new Vector3(1, 1, 1));
+        const box = new Box3();
+        const add = (geometry, [col, row]) => {
+            const uv = geometry.attributes.uv;
+            for (let i = 0; i < uv.count; i++) uv.setXY(i, (col + 0.5) / 16, (row + 0.3) / 4);
+            geometry.applyMatrix4(place);
+            geometry.computeBoundingBox();
+            box.union(geometry.boundingBox);
+            parts.push(geometry);
+        };
+        // Nef (12 x 26 m, murs de 10 m) et son toit : prisme à section triangulaire, axe le long de la nef
+        add(new BoxGeometry(12, 10, 26).translate(0, 5, -4), WALL_CELL);
+        add(new CylinderGeometry(7.6, 7.6, 27.5, 3).rotateX(-Math.PI / 2).scale(1, 0.7, 1).translate(0, 12.7, -4), ROOFS[0].cell);
+        // Clocher devant la nef, flèche pyramidale
+        add(new BoxGeometry(7, 24, 7).translate(0, 12, 11), WALL_CELL);
+        add(new ConeGeometry(5.2, 13, 4).rotateY(Math.PI / 4).translate(0, 30.5, 11), SLATE_CELL);
+        this.obstacles.push(box);
     }
 
     // --- Réglages et image ------------------------------------------------------------------------------------
