@@ -16,7 +16,7 @@ import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
 import { VOR } from './js/VOR.js';
-import { Systems } from './js/Systems.js';
+import { Systems, TANK_CAPACITY } from './js/Systems.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces, Gear } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
@@ -28,6 +28,7 @@ import { ATC } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
+import { FlightHud } from './js/FlightHud.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
@@ -2040,6 +2041,31 @@ if (invitation) {
 }
 updateOnlineList();
 
+// Informations de vol en vue extérieure (vitesse, moteur, carburant, incidence, volets, trim, altitude, vario, cap),
+// comme dans les simulateurs grand public ; cachées en cabine, au menu, au choix du départ et après un crash
+const flightHud = new FlightHud(document.getElementById('hud'));
+function updateHud(delta) {
+    const visible = chaseView && !choosingSpawn && !controls.isCrashed() && settings.values.hud !== false;
+    const levels = controls.model.aircraft.flapLevels, flapMax = levels[levels.length - 1];
+    const [trimMin, trimMax] = controls.getTrimLimits();
+    flightHud.update(delta, visible, visible ? {
+        speed: controls.getIndicatedSpeed(),
+        tas: controls.getSpeed(),
+        altitude: controls.getAltitude() - WHEEL_HEIGHT,
+        verticalSpeed: controls.getVerticalSpeed(),
+        heading: controls.getHeading(),
+        rpm: systems.rpm,
+        fuel: (systems.fuel[0] + systems.fuel[1]) / (2 * TANK_CAPACITY),
+        alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
+        stallAlpha: THREE.MathUtils.radToDeg(controls.model.stallAlpha()),
+        flaps: controls.getFlaps() * flapMax,
+        flapTarget: controls.getFlapSetting(),
+        flapMax,
+        trim: controls.getTrim(), trimMin, trimMax, takeoffTrim: controls.getTakeoffTrim(),
+        baro: avionics.baro,
+    } : null);
+}
+
 // Instruments de la cabine : valeurs lues sur les commandes
 function cockpitState() {
     return {
@@ -2508,6 +2534,7 @@ renderer.setAnimationLoop((time)=>{
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
     engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
+    updateHud(delta);
     if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
     camera.updateMatrixWorld();
     engineSound.setListener( camera );

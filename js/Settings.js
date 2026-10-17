@@ -34,13 +34,15 @@ const OPTIONS = {
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
     smoothLiftoff:   { group: 'Pilotage', label: 'Envol en douceur', hint: 'Après l\'envol, manche relâché, le nez se rend progressivement',
                        choices: [[false, 'Désactivé'], [true, 'Activé']] },
+    hud:             { group: 'Pilotage', label: 'Infos de vol (vue extérieure)', hint: 'Vitesse, moteur, carburant, volets, trim, altitude, vario et cap sur l\'écran',
+                       choices: [[true, 'Affichées'], [false, 'Masquées']] },
     // Multijoueur
     labels:          { group: 'Multijoueur', label: 'Étiquettes des joueurs', hint: 'Pseudo, distance et altitude au-dessus des autres avions',
                        choices: [[true, 'Affichées'], [false, 'Masquées']] },
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { rotationAuto: false, stallProtection: false, smoothLiftoff: false, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, decor: 0.25, decorStyle: 'classique', bloom: false },
