@@ -19,8 +19,10 @@ import {
 // Entre les deux surfaces, on est dans le nuage ("jour blanc", voir densityAt).
 
 const SIZE = 6000;          // côté du maillage (m) : jusqu'à la limite de la vue (caméra : 3000 m)
-const SEGMENTS = 160;       // mailles resserrées près de la caméra (~9 m) et larges au loin (~65 m), voir le vertex shader
-const SNAP = 10;            // pas de déplacement du maillage avec la caméra (m)
+const SEGMENTS = 200;       // mailles régulières de 30 m (relief : bosses de 120 m et plus)
+const SNAP = SIZE / SEGMENTS;   // le maillage suit la caméra d'une maille entière : ses sommets retombent sur les mêmes
+                                // points du relief, qui ne glisse pas (avec des mailles inégales, il glissait : taches
+                                // sombres qui bougeaient sur la nappe)
 const OCTAVES = 5;
 
 const noiseGLSL = /* glsl */`
@@ -98,16 +100,7 @@ const vertexShader = /* glsl */`
     }
 
     void main() {
-        // Mailles resserrées au centre (près de la caméra), élargies au bord : x -> 0,25 x + 0,75 x²
-        vec2 t = position.xz / ${SIZE / 2}.0;
-        vec2 warped = sign(t) * (0.25 * abs(t) + 0.75 * t * t) * ${SIZE / 2}.0;
-        vec4 world = modelMatrix * vec4(warped.x, 0.0, warped.y, 1.0);
-        // Sommet calé sur une grille fixe au sol (pas : puissance de 2 au moins égale à la maille locale) : quand le
-        // maillage suit la caméra, ses sommets retombent sur les mêmes points du relief. Sinon le relief et ses ombres
-        // glissaient sur la nappe à chaque déplacement
-        float span = max(abs(t.x), abs(t.y));
-        float cell = exp2(ceil(log2((0.25 + 1.5 * span) * ${(SIZE / SEGMENTS).toFixed(2)})));
-        world.xz = floor(world.xz / cell + 0.5) * cell;
+        vec4 world = modelMatrix * vec4(position.x, 0.0, position.z, 1.0);
         vec2 p = world.xz + uDrift;
         float c, b;
         world.y = surface(p, c, b);
@@ -282,21 +275,39 @@ class CloudLayer {
         }
     }
 
-    // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur), pour le "jour blanc"
-    densityAt(position) {
-        if (!this.mesh.visible) return 0;
+    // Dessous et dessus de la nappe à la verticale de (x, z), mêmes formules que le shader ; c : présence (0 = trouée)
+    surfacesAt(x, z) {
+        if (!this.config) return null;
         const { base, top, coverage, scale = 900 } = this.config;
         const thick = top - base;
-        if (position.y < base - thick * 0.6 || position.y > top + thick * 0.9) return 0;
-        const px = position.x + this._drift.x, pz = position.z + this._drift.y;
+        const px = x + this._drift.x, pz = z + this._drift.y;
         const b = fbm(px / 400, pz / 400, 3, 2.07, 5.3, 11.7) * 0.6
             + fbm(px / 120 + 7.7, pz / 120 + 7.7, 3, 2.07, 5.3, 11.7) * 0.4;
         const c = smoothstep(1 - coverage - 0.06, 1 - coverage + 0.16, fbm(px / scale, pz / scale) + (b - 0.5) * 0.2);
-        // Entre les deux surfaces (mêmes formules que le shader) : le brouillard s'épaissit sur 50 m en y entrant
         const middle = base + thick * 0.45;
-        const upper = middle + (top + (b - 0.5) * thick * 2.4 - middle) * c;
-        const lower = middle + (base - (b - 0.35) * thick * 0.5 - middle) * c;
-        return c * smoothstep(-10, 40, Math.min(position.y - lower, upper - position.y));
+        return {
+            c,
+            upper: middle + (top + (b - 0.5) * thick * 2.4 - middle) * c,
+            lower: middle + (base - (b - 0.35) * thick * 0.5 - middle) * c,
+        };
+    }
+
+    // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur) : brouillard dans le nuage, qui s'épaissit sur
+    // ~25 m en y entrant (entre les deux surfaces : on est dans le nuage partout où on le voit de dehors)
+    densityAt(position) {
+        if (!this.mesh.visible) return 0;
+        const s = this.surfacesAt(position.x, position.z);
+        if (s.c < 0.02) return 0;
+        return smoothstep(-5, 20, Math.min(position.y - s.lower, s.upper - position.y));
+    }
+
+    // Hauteur au-dessus du dessus réel de la nappe à la verticale (m ; négatif : dans ou sous le nuage). Même sans
+    // nappe affichée (réglage graphique) : ciel, lumière et turbulence en dépendent. null : pas de couche
+    heightAboveTop(position) {
+        const s = this.surfacesAt(position.x, position.z);
+        if (!s) return null;
+        // Dans une trouée (pas de nuage au-dessus), on est « au-dessus » dès le sommet moyen
+        return position.y - (s.c < 0.02 ? this.config.top : s.upper);
     }
 
     // Altitude du dessus de la nappe (moyenne), pour savoir si la caméra est au-dessus
@@ -308,8 +319,7 @@ class CloudLayer {
     update(delta, camera, wind) {
         if (!this.mesh.visible) return;
         this._drift.y -= wind * 6 * delta;
-        // Le maillage suit la caméra (par pas de 10 m : près de la caméra, ses sommets retombent sur les mêmes points
-        // du monde ; au loin, les mailles sont larges mais le relief aussi, il ne bouge pas visiblement)
+        // Le maillage suit la caméra d'une maille entière (voir SNAP)
         this.mesh.position.x = Math.round(camera.position.x / SNAP) * SNAP;
         this.mesh.position.z = Math.round(camera.position.z / SNAP) * SNAP;
         for (const plane of [this.bottom, this.top]) plane.material.uniforms.uDrift.value.copy(this._drift);
