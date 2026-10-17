@@ -86,6 +86,66 @@ class SoundEffects {
         source.start();
     }
 
+    // Sifflement des gyroscopes électriques (indicateur de virage) : synthétisé. Sous tension, la toupie monte en
+    // régime en quelques secondes (le son monte dans l'aigu) ; coupée, elle ralentit lentement en roue libre
+    setGyro(powered, volume = 0.05) {
+        if (!this._audio) return;
+        const audio = this._audio;
+        if (!this._gyro) {
+            const output = audio.createGain();
+            output.gain.value = 0;
+            output.connect(this._master);
+            // Sifflement : fondamentale + harmonique, battement léger entre deux toupies
+            const whine = audio.createOscillator(), whine2 = audio.createOscillator(), harmonic = audio.createOscillator();
+            whine.type = whine2.type = 'sine';
+            harmonic.type = 'triangle';
+            whine2.detune.value = 9;
+            harmonic.detune.value = 1200;
+            const harmonicGain = audio.createGain();
+            harmonicGain.gain.value = 0.25;
+            const speed = audio.createConstantSource();   // régime de la toupie, en Hz du sifflement
+            speed.offset.value = 0;
+            speed.connect(whine.frequency);
+            speed.connect(whine2.frequency);
+            speed.connect(harmonic.frequency);
+            whine.frequency.value = whine2.frequency.value = harmonic.frequency.value = 0;
+            whine.connect(output);
+            whine2.connect(output);
+            harmonic.connect(harmonicGain).connect(output);
+            // Souffle des roulements
+            if (!this._noiseBuffer) {
+                const length = Math.round(audio.sampleRate * 0.4);
+                this._noiseBuffer = audio.createBuffer(1, length, audio.sampleRate);
+                const data = this._noiseBuffer.getChannelData(0);
+                for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+            }
+            const noise = audio.createBufferSource();
+            noise.buffer = this._noiseBuffer;
+            noise.loop = true;
+            const filter = audio.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 3500;
+            filter.Q.value = 1.5;
+            const noiseGain = audio.createGain();
+            noiseGain.gain.value = 0.15;
+            noise.connect(filter).connect(noiseGain).connect(output);
+            for (const node of [whine, whine2, harmonic, speed, noise]) node.start();
+            this._gyro = { output, speed, powered: false };
+        }
+        const gyro = this._gyro;
+        const target = powered ? volume : 0;
+        if (powered === gyro.powered && target === gyro.volume) return;
+        const now = audio.currentTime;
+        // Montée en régime ~3 s, ralentissement en roue libre ~15 s
+        const tau = powered ? 1.2 : 6;
+        gyro.speed.offset.cancelScheduledValues(now);
+        gyro.speed.offset.setTargetAtTime(powered ? 520 : 0, now, tau);
+        gyro.output.gain.cancelScheduledValues(now);
+        gyro.output.gain.setTargetAtTime(target, now, powered ? 0.8 : tau * 0.7);
+        gyro.powered = powered;
+        gyro.volume = target;
+    }
+
     // "Pschht" de radio : ouverture / fermeture du squelch (tour de contrôle)
     squelch(volume = 0.25, duration = 0.12) {
         if (!this._audio) return;

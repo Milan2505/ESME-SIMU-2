@@ -2039,6 +2039,8 @@ function updateSounds() {
     sounds.setLoop('flapMotor', moving ? (chaseView ? 0.4 : 1.1) : 0, 1);
     // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
     sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.008 : 0.045) : 0, 1.7);
+    // Gyroscope électrique de l'indicateur de virage : sifflement dès que la batterie l'alimente
+    sounds.setGyro(systems.turnCoordinatorPowered && !choosingSpawn, chaseView ? 0.004 : 0.03);
 }
 
 const aircraftVelocity = new THREE.Vector3();
