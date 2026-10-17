@@ -13,7 +13,7 @@ body.manuel {
 }
 
 /* Bandeau du site : barre fine et sombre, collée en haut */
-body.manuel nav {
+body.manuel > nav {
   position: sticky;
   top: 0;
   z-index: 10;
