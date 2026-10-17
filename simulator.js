@@ -855,7 +855,10 @@ let crashTimer = 0;
 
 controls.addEventListener('touchdown', ({ impact }) => {
     shake = Math.max(shake, Math.min(0.5, impact * 0.08));
-    if (controls.getSpeed() > 8) sounds.play('screech', { volume: THREE.MathUtils.clamp(impact / 3, 0.25, 1) });
+    // Bref "couic" des roues qui se mettent à tourner : extrait court du son de dérapage (7 s en boucle à l'origine),
+    // plus long et plus fort si le toucher est dur
+    const hard = THREE.MathUtils.clamp(impact / 3, 0, 1);
+    if (controls.getSpeed() > 8) sounds.play('screech', { volume: 0.25 + 0.75 * hard, offset: 0.3, duration: 0.25 + 0.35 * hard });
 });
 let crashCount = 0;   // envoyé aux autres joueurs : chaque nouveau crash fait exploser notre avion chez eux
 controls.addEventListener('crash', ({ reason }) => {
@@ -1069,7 +1072,7 @@ function spawnUnderPointer(event) {
 }
 
 // Régime du gyroscope de l'indicateur de virage (0 -> 1) et état de la pompe, pour les bruits (voir updateSounds)
-let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false;
+let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false, lastBeaconFlash = 0;
 
 // État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
 function applySpawnState() {
@@ -2059,6 +2062,12 @@ function updateSounds() {
         : Math.max(0, gyroSpin - dt / 20);
     const gyroLevel = choosingSpawn ? 0 : gyroSpin * (chaseView ? 0.02 : 0.13);
     sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
+    // Feu anticollision : petit tic sourd à chaque éclat (deux par seconde, en phase avec AircraftLights), très discret
+    const beaconFlash = Math.floor(clock.elapsedTime * 2);
+    if (beaconFlash !== lastBeaconFlash && systems.lights.beacon && !choosingSpawn) {
+        sounds.click(chaseView ? 0.02 : 0.05, 1300 + Math.random() * 200);
+    }
+    lastBeaconFlash = beaconFlash;
 }
 
 const aircraftVelocity = new THREE.Vector3();

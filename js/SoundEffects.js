@@ -68,7 +68,8 @@ class SoundEffects {
     }
 
     // Clic d'un interrupteur ou d'un bouton de la cabine (bruit court et sec, synthétisé)
-    click(volume = 0.5) {
+    // frequency : hauteur du clic (plus bas = plus sourd)
+    click(volume = 0.5, frequency = 2400 + Math.random() * 600) {
         if (!this._audio) return;
         const audio = this._audio;
         if (!this._clickBuffer) {
@@ -82,7 +83,7 @@ class SoundEffects {
         const gain = audio.createGain();
         source.buffer = this._clickBuffer;
         filter.type = 'bandpass';
-        filter.frequency.value = 2400 + Math.random() * 600;
+        filter.frequency.value = frequency;
         gain.gain.value = volume;
         source.connect(filter).connect(gain).connect(this._master);
         source.start();
@@ -113,15 +114,24 @@ class SoundEffects {
     }
 
     // Son ponctuel, éventuellement retardé (tonnerre : le son arrive après l'éclair)
-    play(name, { volume = 1, delay = 0, rate = 1 } = {}) {
+    // offset / duration (s) : n'en jouer qu'un extrait, attaque brève et fondu de sortie
+    play(name, { volume = 1, delay = 0, rate = 1, offset = 0, duration = null } = {}) {
         if (!this._buffers) return;
         const source = this._audio.createBufferSource();
         const gain = this._audio.createGain();
         source.buffer = this._buffers[name];
         source.playbackRate.value = rate;
-        gain.gain.value = volume;
         source.connect(gain).connect(this._master);
-        source.start(this._audio.currentTime + delay);
+        const start = this._audio.currentTime + delay;
+        if (duration === null) {
+            gain.gain.value = volume;
+            source.start(start, offset);
+            return;
+        }
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(volume, start + 0.02);
+        gain.gain.setTargetAtTime(0, start + duration * 0.4, duration * 0.25);
+        source.start(start, offset, duration * 1.6 * rate);
     }
 }
 
