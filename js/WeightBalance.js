@@ -34,8 +34,8 @@ const DEFAULT_PLAN = {
     burn: 32, taxiBurn: 12, tas: 110,
 };
 // Performances : terrain (altitude ft, QNH hPa, température °C), vent (kt, + = de face), surface, pente (%, + = montante
-// au décollage), coefficient de sécurité, longueur de piste disponible (m ; piste de l'aérodrome ESME : 700 m)
-const DEFAULT_PERF = { elevation: 0, qnh: 1013, temperature: 15, wind: 0, surface: 'dur', slope: 0, margin: 1.15, runway: 700 };
+// au décollage), coefficient de sécurité, longueur de piste disponible (m ; par défaut celle de l'aérodrome ESME, voir constructor)
+const DEFAULT_PERF = { elevation: 0, qnh: 1013, temperature: 15, wind: 0, surface: 'dur', slope: 0, margin: 1.15, runway: 1000 };
 const SURFACES = {
     dur:    { label: 'Dur (sec)', takeoff: 1, landing: 1 },
     herbe:  { label: 'Herbe sèche', takeoff: 1.15, landing: 1.45 },        // manuel : +15 % / +45 % du roulement
@@ -144,13 +144,17 @@ function check(load) {
 
 class WeightBalance {
     // dialog : la fenêtre ; onApply(load, result) : appelé à la fermeture
-    constructor(dialog, onApply) {
+    // runwayLength : longueur de la piste de l'aérodrome (m), valeur par défaut de « Piste disponible »
+    constructor(dialog, onApply, { runwayLength = DEFAULT_PERF.runway } = {}) {
+        this.runwayLength = runwayLength;
         this.dialog = dialog;
         this.onApply = onApply;
         this.load = { ...DEFAULT_LOAD };
         try { Object.assign(this.load, JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? {}); } catch { /* stockage indisponible */ }
         this.load.plan = { ...DEFAULT_PLAN, ...this.load.plan };
-        this.load.perf = { ...DEFAULT_PERF, ...this.load.perf };
+        this.load.perf = { ...DEFAULT_PERF, runway: runwayLength, ...this.load.perf };
+        // Ancienne valeur par défaut (piste de 700 m, avant son allongement) : remplacée par la piste actuelle
+        if (this.load.perf.runway === 700) this.load.perf.runway = runwayLength;
         this._clamp();
         // « Afficher plus » : bilan carburant et performances
         this.more = dialog.querySelector('.mc-plus');
@@ -184,6 +188,7 @@ class WeightBalance {
             input.addEventListener(input.tagName === 'SELECT' ? 'change' : 'input', read);
             input.addEventListener('change', () => this._render());   // champ quitté : valeur ramenée dans ses bornes
         }
+        dialog.querySelector('#mc-piste-esme').addEventListener('click', () => { this.load.perf.runway = this.runwayLength; this._render(); });
         dialog.querySelector('#mc-reserve-nuit').addEventListener('click', () => { this.load.plan.finalReserve = 45; this._render(); });
         // « Carburant à bord = carburant nécessaire » : les réservoirs suivent le bilan (curseurs de carburant bloqués)
         this.autoFuelBox = dialog.querySelector('#mc-auto-carbu');
@@ -212,7 +217,7 @@ class WeightBalance {
         dialog.querySelector('#mc-plein').addEventListener('click', () => this._fuel(LIMITS.tankLitres));
         dialog.querySelector('#mc-moitie').addEventListener('click', () => this._fuel(LIMITS.tankLitres / 2));
         dialog.querySelector('#mc-defaut').addEventListener('click', () => {
-            this.load = { ...DEFAULT_LOAD, plan: { ...DEFAULT_PLAN }, perf: { ...DEFAULT_PERF } };
+            this.load = { ...DEFAULT_LOAD, plan: { ...DEFAULT_PLAN }, perf: { ...DEFAULT_PERF, runway: this.runwayLength } };
             this._render();
         });
         dialog.querySelector('#mc-fermer').addEventListener('click', () => dialog.close());
@@ -262,7 +267,7 @@ class WeightBalance {
         f.wind = Math.min(40, Math.max(-15, Number(f.wind) || 0));
         f.slope = Math.min(5, Math.max(-5, Number(f.slope) || 0));
         f.margin = [1, 1.15, 1.25, 1.43].includes(Number(f.margin)) ? Number(f.margin) : 1.15;
-        f.runway = Math.max(100, Math.min(5000, Number(f.runway) || 700));
+        f.runway = Math.max(100, Math.min(5000, Number(f.runway) || this.runwayLength));
         if (!SURFACES[f.surface]) f.surface = 'dur';
     }
 

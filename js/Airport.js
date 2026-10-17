@@ -36,10 +36,10 @@ import { mergeStatic } from './MergeStatic.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
 // Tout est modélisé ici (pas de modèle externe) ; le relief est aplani autour (voir reliefFactor).
-const RUNWAY = { x: 220, z: 0, length: 700, width: 30 };
+const RUNWAY = { x: 220, z: 0, length: 1000, width: 30 };   // (avant : 700 m)
 const TAXIWAY = { minX: 235, maxX: 300, minZ: -8, maxZ: 8 };
 const APRON = { minX: 300, maxX: 365, minZ: -95, maxZ: 95 };
-const FLAT_ZONE = { minX: 180, maxX: 440, minZ: -390, maxZ: 390, blend: 160 };
+const FLAT_ZONE = { minX: 180, maxX: 440, minZ: -540, maxZ: 540, blend: 160 };   // piste et ses abords (bouts à ±500 m)
 // Enrobé entre le parking et les portes des hangars (hangars à x 380-410, z 1-29 et 48-76)
 const HANGAR_APRON = { minX: 365, maxX: 381, minZ: -2, maxZ: 79 };
 // Raquettes de retournement (casquettes) aux deux bouts de piste, côté est : élargissement de 17 m sur 60 m,
@@ -135,7 +135,7 @@ function speckle(ctx, width, height, base, amount, count) {
 
 // Marquages OACI (piste de 30 m) : seuil "piano" de 8 bandes centrées, numéros 36 / 18,
 // plots de point d'aiming, axe discontinu, bandes de bord. Distances en mètres depuis chaque extrémité.
-const THRESHOLD_OFFSET = 6;      // début des bandes de seuil
+const THRESHOLD_OFFSET = 2;      // début des bandes de seuil (peigne), juste après le seuil et ses feux (avant : 6 m)
 const AIMING_POINT = 240;        // point visé à l'atterrissage (PAPI et pente ILS calés dessus) : 3° -> seuil passé à ~41 ft (150 m : 26 ft, trop bas)
 
 function runwayTexture(maxAnisotropy) {
@@ -1003,7 +1003,7 @@ class Airport {
     // Panneaux du point d'attente, de chaque côté de la bretelle, tournés vers les avions qui viennent du parking :
     // obligatoire (rouge) "36 - 18" (convention OACI : le numéro de gauche est le seuil situé à gauche ; en roulant
     // vers la piste, cap à l'ouest, le seuil 36 est à gauche, au sud), position "A" (noir), information
-    // "TORA 700 m" (longueur de piste utilisable au décollage, jaune). Éclairés la nuit
+    // "TORA 1000 m" (longueur de piste utilisable au décollage, jaune). Éclairés la nuit
     _buildSigns() {
         const red = { text: '36 - 18', bg: '#c8102e', fg: '#ffffff', width: 1.9 };
         const location = { text: 'A', bg: '#111111', fg: YELLOW, width: 0.8, border: true };
@@ -1076,8 +1076,8 @@ class Airport {
             if (!onPavement(RUNWAY.x + side, RUNWAY.z + z)) add(RUNWAY.x + side, RUNWAY.z + z, white);
         }
         for (let x = -RUNWAY.width / 2; x <= RUNWAY.width / 2; x += 3) {
-            add(RUNWAY.x + x, RUNWAY.z + half + 2, green);
-            add(RUNWAY.x + x, RUNWAY.z - half - 2, red);
+            add(RUNWAY.x + x, RUNWAY.z + half + 0.5, green);   // au ras du bout de piste, juste avant le peigne
+            add(RUNWAY.x + x, RUNWAY.z - half - 0.5, red);
         }
         // Taxiway : feux bleus (plus bas)
         for (let x = TAXIWAY.minX + 5; x <= TAXIWAY.maxX; x += 10) {

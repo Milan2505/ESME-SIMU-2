@@ -2078,7 +2078,7 @@ updateOnlineList();
 // choisi remplit les réservoirs (et sert à chaque remise au départ) ; masse et centrage suivent ensuite le carburant
 // restant, à chaque image : l'avion s'allège et son centrage avance en vol
 const CG_REFERENCE = 1.0;   // m : centrage pour lequel le modèle de vol est réglé (cgOffset = 0)
-const weightBalance = new WeightBalance(document.getElementById('masse-dialog'), (load) => applyLoad(load));
+const weightBalance = new WeightBalance(document.getElementById('masse-dialog'), (load) => applyLoad(load), { runwayLength: airport.runwayLength });
 let currentLoad = { ...weightBalance.load };
 function applyLoad(load) {
     currentLoad = { ...load };
