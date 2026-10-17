@@ -8,8 +8,10 @@ import {
     FrontSide,
     Group,
     Mesh,
+    MeshDepthMaterial,
     MeshStandardMaterial,
     PlaneGeometry,
+    RGBADepthPacking,
     RepeatWrapping,
     Shape,
     ShapeGeometry,
@@ -417,6 +419,38 @@ function closeWingRoot(meshes, scene) {
     }
 }
 
+// Ombre des fenêtres : la lumière qui entre par une fenêtre latérale frappe la paroi d'en face (porte, plancher), et
+// l'ombre de l'avion restait pleine. Pour l'ombre seulement, les parois de la cabine laissent passer le soleil là où
+// son rayon vient d'une fenêtre du côté éclairé : on voit au sol les taches claires des vitres. Fenêtres latérales
+// (repère du modèle, à x = ±CABIN_SIDE) : [y bas, y haut, z avant, z arrière]
+const CABIN_SIDE = 0.52;
+const SIDE_WINDOWS = [[-0.10, 0.31, 0.0, 0.82], [-0.12, 0.17, 0.9, 1.62]];
+const WINDOW_WALLS = ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior'];
+// sunDirection : Vector3 vers le soleil (monde), lu à chaque image
+function setWindowShadows(model, sunDirection) {
+    const windows = SIDE_WINDOWS.map(([y0, y1, z0, z1]) => `(h.x > ${y0.toFixed(3)} && h.x < ${y1.toFixed(3)} && h.y > ${z0.toFixed(3)} && h.y < ${z1.toFixed(3)})`).join(' || ');
+    const material = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
+    material.onBeforeCompile = (shader) => {
+        shader.uniforms.sunDirection = { value: sunDirection };
+        shader.vertexShader = 'uniform vec3 sunDirection;\nvarying vec3 vLocal;\nvarying vec3 vSun;\n' + shader.vertexShader
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = transformed;\nvSun = normalize(inverse(mat3(modelMatrix)) * sunDirection);');
+        shader.fragmentShader = 'varying vec3 vLocal;\nvarying vec3 vSun;\n' + shader.fragmentShader
+            .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+            // Rayon vers le soleil depuis ce point : traverse-t-il une fenêtre du côté éclairé ?
+            if (abs(vSun.x) > 0.05) {
+                float side = sign(vSun.x);
+                if (vLocal.x * side < ${(CABIN_SIDE - 0.1).toFixed(3)}) {
+                    float t = (side * ${CABIN_SIDE.toFixed(3)} - vLocal.x) / vSun.x;
+                    vec2 h = vLocal.yz + vSun.yz * t;
+                    if (t > 0.0 && (${windows})) discard;
+                }
+            }`);
+    };
+    model.traverse((child) => {
+        if (child.isMesh && WINDOW_WALLS.includes(child.name)) child.customDepthMaterial = material;
+    });
+}
+
 // Train d'atterrissage animé (repère du modèle ; la géométrie des pièces est dans ce repère, comme pour les gouvernes) :
 // - roulette de nez orientable : jambe, axe, carénage et roue tournent autour de l'axe de la jambe (inclinée vers l'avant)
 // - roues qui roulent : roulette (dans la partie orientable) et roues principales, chacune autour de son axe (x)
@@ -761,4 +795,4 @@ function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) 
     return g;
 }
 
-export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE };
+export { loadAircraft, aircraftParts, setWindowShadows, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE };

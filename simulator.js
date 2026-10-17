@@ -30,7 +30,7 @@ import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
-import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
+import { loadAircraft, setWindowShadows, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -241,11 +241,13 @@ loadAircraft().then(({ model, template, parts }) => {
     gear = parts.gear ? new Gear(parts.gear, AIRCRAFT_SCALE) : null;
     setupPropellerBlur(propeller);
     airframe.add(model);
+    cockpit.fitInsideHull(model);                    // rien de la cabine ne traverse les flancs
     cockpit.addCabinShell(buildCabinShell(model));   // garnitures intérieures : l'envers de la carrosserie
     cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
     setRegistration(model, atc.registration);
     paintAircraft(model, multiplayer.livery);
     aircraftLights.setOccluder(model);
+    setWindowShadows(model, graphics.sunDirection);   // taches claires des fenêtres dans l'ombre
     aircraftLights.setRudder(parts.pivots.rudder);
     remotePlayers.setTemplate(template);
     airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
