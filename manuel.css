@@ -1,0 +1,269 @@
+/* Manuel : mise en page au thème du menu principal (bleu nuit), sans toucher au texte de manuel.html.
+   Chargé après style.css : remplace ses règles générales (titres, paragraphes, tableau, bandeau) pour cette page */
+
+body.manuel {
+  margin: 0;
+  font-family: Noto Sans, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #dfe7ef;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(29, 111, 184, 0.35), transparent 60%),
+    linear-gradient(180deg, #0a1626 0%, #0d1d31 60%, #0a1626 100%) fixed;
+}
+
+/* Bandeau du site : barre fine et sombre, collée en haut */
+body.manuel nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 64px;
+}
+body.manuel .footer-content {
+  position: static;
+  border-radius: 0;
+  background: rgba(8, 18, 32, 0.92);
+  border-bottom: 1px solid rgba(143, 211, 255, 0.25);
+  backdrop-filter: blur(6px);
+}
+body.manuel .footer-content ul {
+  grid-template-columns: auto 1fr auto auto;
+  gap: 32px;
+  grid-auto-rows: 64px;
+  height: 64px;
+  padding: 0 32px;
+}
+body.manuel .footer-content li {
+  place-items: center start;
+}
+body.manuel .footer-content img {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+body.manuel .footer-content h3 {
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 16px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+body.manuel .footer-content li a {
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+body.manuel .footer-content li a:hover {
+  color: #fff;
+  text-decoration: none;
+  transform: none;
+}
+
+/* Sommaire à gauche (construit par manuel.js), texte à droite */
+body.manuel main {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 860px);
+  justify-content: center;
+  gap: 48px;
+  padding: 40px 32px 80px;
+}
+.manuel-sommaire {
+  position: sticky;
+  top: 96px;
+  align-self: start;
+  max-height: calc(100vh - 130px);
+  overflow: auto;
+  padding: 16px 0;
+  border-left: 1px solid rgba(143, 211, 255, 0.2);
+}
+.manuel-sommaire strong {
+  display: block;
+  margin: 0 0 10px 18px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+.manuel-sommaire a {
+  display: block;
+  margin-left: -1px;
+  padding: 5px 18px;
+  font-size: 13px;
+  color: #9fb2c4;
+  border-left: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.manuel-sommaire a:hover,
+.manuel-sommaire a.actif {
+  color: #fff;
+  border-left-color: #8fd3ff;
+}
+
+body.manuel section {
+  padding: 0;
+}
+body.manuel footer {
+  height: auto;
+  margin: 0 0 36px;
+  padding: 0;
+  text-align: left;
+  background: none;
+}
+body.manuel h1 {
+  margin: 0;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: bold;
+  letter-spacing: 2px;
+  line-height: 1.15;
+  color: #fff;
+}
+body.manuel h1::after {
+  content: "";
+  display: block;
+  width: 72px;
+  height: 4px;
+  margin-top: 18px;
+  background: #8fd3ff;
+  border-radius: 2px;
+}
+/* Titres de partie : le soulignement en ligne du texte d'origine est remplacé par un filet */
+body.manuel main span[style*="underline"] {
+  display: block;
+  text-decoration: none !important;
+}
+body.manuel h2 {
+  margin: 56px 0 18px;
+  padding-bottom: 10px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.3);
+  scroll-margin-top: 90px;
+}
+body.manuel h3 {
+  margin: 30px 0 10px;
+  font-family: Noto Sans, sans-serif;
+  font-size: 18px;
+  font-weight: bold;
+  color: #fff;
+}
+body.manuel h4 {
+  margin: 24px 0 8px;
+  font-family: Noto Sans, sans-serif;
+  font-size: 15px;
+  color: #cfe9ff;
+}
+body.manuel p {
+  margin: 0 0 14px;
+  text-indent: 0;
+  text-align: left;
+  color: #dfe7ef;
+}
+body.manuel b,
+body.manuel strong {
+  color: #fff;
+}
+body.manuel em,
+body.manuel a {
+  color: #8fd3ff;
+}
+body.manuel li {
+  margin: 6px 0;
+  color: #dfe7ef;
+}
+body.manuel ul {
+  padding-left: 22px;
+}
+body.manuel ul li::marker {
+  color: #8fd3ff;
+}
+body.manuel hr {
+  height: 1px;
+  margin: 48px 0 0;
+  border: none;
+  background: rgba(143, 211, 255, 0.2);
+}
+
+/* Tableau des commandes : touche en pastille, description à côté */
+body.manuel table {
+  width: 100% !important;
+  margin: 10px 0 24px;
+  border: 1px solid rgba(143, 211, 255, 0.2);
+  border-collapse: collapse;
+  border-radius: 6px;
+  overflow: hidden;
+  letter-spacing: 0;
+  font-size: 14px;
+  background: rgba(8, 18, 32, 0.5);
+}
+body.manuel table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
+}
+body.manuel table tr:hover {
+  background: rgba(143, 211, 255, 0.08);
+}
+body.manuel table th {
+  padding: 9px 14px;
+  font-weight: normal;
+  text-align: left;
+  vertical-align: top;
+  color: #dfe7ef;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+body.manuel table th:first-child {
+  width: 28%;
+  white-space: nowrap;
+  font-family: DejaVu Sans Mono, monospace;
+  font-weight: bold;
+  color: #8fd3ff;
+}
+
+/* Crédits : carte en bas */
+body.manuel .footer-crédits {
+  width: auto;
+  margin-top: 64px;
+  padding: 18px 22px;
+  background: rgba(8, 18, 32, 0.7);
+  border: 1px solid rgba(143, 211, 255, 0.2);
+  border-radius: 6px;
+}
+body.manuel .footer-crédits h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+body.manuel .footer-crédits h4 {
+  margin: 0;
+  text-align: left;
+  color: #fff;
+}
+
+/* Petits écrans : sommaire masqué, une colonne */
+@media (max-width: 900px) {
+  body.manuel main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 24px 16px 60px;
+  }
+  .manuel-sommaire {
+    display: none;
+  }
+  body.manuel .footer-content ul {
+    gap: 16px;
+    padding: 0 16px;
+  }
+  body.manuel .footer-content li:nth-child(2) {
+    display: none;
+  }
+  body.manuel table th:first-child {
+    white-space: normal;
+  }
+}

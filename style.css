@@ -1876,3 +1876,112 @@ body:has(#simulator.jeu) {
 #astuce-echap.cache {
   opacity: 0;
 }
+
+/* Fenêtre Paramètres : grande, deux colonnes, au thème du menu principal (bleu nuit) */
+#reglages-dialog {
+  box-sizing: border-box;
+  width: min(980px, 94vw);
+  min-width: 0;
+  max-width: none;
+  max-height: 88vh;
+  padding: 26px 32px 20px;
+  overflow: auto;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#reglages-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#reglages-dialog h3 {
+  margin: 0 0 6px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 24px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#reglages-dialog .reglages-intro {
+  margin: 0 0 18px;
+  font-size: 13px;
+  text-align: left;
+  color: #9fb2c4;
+}
+#reglages-liste {
+  columns: 2 380px;
+  column-gap: 36px;
+}
+#reglages-dialog .reglage {
+  break-inside: avoid;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+}
+#reglages-dialog .reglage:hover {
+  background: rgba(143, 211, 255, 0.06);
+}
+#reglages-dialog .reglage-principal {
+  column-span: all;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  font-size: 16px;
+  background: linear-gradient(90deg, rgba(29, 111, 184, 0.45), rgba(29, 111, 184, 0.1));
+  border: 1px solid rgba(61, 143, 214, 0.6);
+  border-radius: 4px;
+}
+#reglages-dialog .reglages-groupe {
+  break-after: avoid;
+  margin: 18px 0 4px;
+  padding-bottom: 6px;
+  font-family: Noto Sans, sans-serif;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.4);
+}
+#reglages-dialog .reglage-nom small {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #8a9db0;
+}
+#reglages-dialog .reglage select {
+  min-width: 130px;
+  padding: 5px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+}
+#reglages-dialog .reglage select:hover,
+#reglages-dialog .reglage select:focus {
+  border-color: #8fd3ff;
+  outline: none;
+}
+#reglages-dialog .multi-ligne {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+#reglages-dialog button {
+  padding: 8px 26px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border: 1px solid #3d8fd6;
+  border-radius: 4px;
+}
+#reglages-dialog button:hover {
+  color: #fff;
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+}
