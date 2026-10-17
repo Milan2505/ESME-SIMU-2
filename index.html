@@ -134,6 +134,7 @@
 				<button id="volets" title="Sortir un cran de volets (touches G / T)">Volets : 0°</button>
 				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
 				<button id="depart" title="Choisir un autre point de départ">Changer de départ</button>
+				<button id="menu-principal-bouton" title="Revenir au menu principal">Menu principal</button>
 				<button id="plein-ecran" title="Plein écran (touche F)">Plein écran</button>
 				<button id="qualite" title="Qualité graphique et aides au pilotage">Paramètres</button>
 			</div>
@@ -228,6 +229,34 @@
 		<span>Fermez les autres onglets 3D ou lourds, puis rechargez la page.</span>
 		<button id="contexte-perdu-recharger">Recharger</button>
 	</div>
+	<!-- Menu principal (au lancement, et menu Commandes) : mode de jeu, météo, réglages ; l'aérodrome en direct derrière -->
+	<div id="menu-principal" hidden>
+		<div class="mp-gauche">
+			<img class="mp-logo" src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="ESME">
+			<h1 class="mp-titre">ESME <span>flight simulator</span></h1>
+			<p class="mp-sous-titre">Cessna 172 · Aérodrome ESME</p>
+			<nav class="mp-boutons">
+				<button id="mp-vol-libre" class="mp-bouton mp-principal"><strong>Vol libre</strong><small>Seul, choisissez votre avion et votre départ</small></button>
+				<button id="mp-multi" class="mp-bouton"><strong>Multijoueur</strong><small id="mp-multi-detail">Partie privée entre amis</small></button>
+				<button id="mp-initiation" class="mp-bouton"><strong>Initiation</strong><small>Apprendre à piloter avec un moniteur</small></button>
+				<button id="mp-parametres" class="mp-bouton"><strong>Paramètres</strong><small>Graphismes et aides au pilotage</small></button>
+				<a class="mp-bouton" href="manuel.html"><strong>Manuel</strong><small>Commandes et procédures</small></a>
+			</nav>
+		</div>
+		<div class="mp-droite">
+			<section class="mp-carte">
+				<h2>Météo</h2>
+				<div id="mp-meteo" class="mp-choix"></div>
+			</section>
+			<section class="mp-carte">
+				<h2>Pilote</h2>
+				<p class="mp-info">Livrée et immatriculation : au hangar, avant le départ.</p>
+				<p class="mp-info">Clavier AZERTY · Z/S profondeur · Q/D ailerons · Espace/Ctrl gaz · V vue</p>
+			</section>
+		</div>
+		<p class="mp-pied">Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
+	</div>
+
 	<!-- Hangar (au lancement, avant le choix du départ) : l'avion présenté au hangar, sa livrée et son immatriculation -->
 	<div id="hangar-panneau" hidden>
 		<h3>Votre avion</h3>
@@ -236,6 +265,7 @@
 		<label class="profil-livree">Immatriculation <input id="hangar-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
 		<p class="depart-aide">4 à 8 lettres ou chiffres, tiret possible (F-GABC, N172SP). Peinte sur l'avion ; les contrôleurs l'utilisent pour vous appeler.</p>
 		<button id="hangar-partir">Choisir le départ →</button>
+		<button id="hangar-menu" class="mp-retour">← Menu principal</button>
 	</div>
 
 	<!-- Choix du point de départ (au lancement, et menu Commandes) -->

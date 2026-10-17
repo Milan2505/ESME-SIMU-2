@@ -310,7 +310,7 @@ function updateView() {
 }
 
 function toggleView() {
-    if (inHangar) return;   // au hangar : toujours en vue extérieure
+    if (inHangar || inMenu) return;   // au hangar et au menu : toujours en vue extérieure
     chaseView = !chaseView;
     updateView();
     updateCamera(0, true);
@@ -508,6 +508,8 @@ const crashCamera = { position: new THREE.Vector3(), target: new THREE.Vector3()
 let choosingSpawn = false;
 // Au lancement, avant le choix du départ : l'avion présenté au hangar (voir openHangar)
 let inHangar = false;
+// Menu principal affiché (voir openMainMenu)
+let inMenu = false;
 
 function updateCamera(delta, snap = false) {
     if (inHangar) {
@@ -523,7 +525,19 @@ function updateCamera(delta, snap = false) {
         }
         return;
     }
-    if (choosingSpawn) {
+    if (inMenu) {
+        // Menu principal : survol lent autour de l'aérodrome (un tour en ~4 min)
+        const a = clock.elapsedTime * 0.026;
+        camera.position.set(215 + Math.cos(a) * 520, 140, 20 + Math.sin(a) * 520);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(260, 10, 20);
+        if (camera.fov !== CAM_FOV) {
+            camera.fov = CAM_FOV;
+            camera.updateProjectionMatrix();
+        }
+        return;
+    }
+    if (choosingSpawn && !inHangar) {
         // Vue en temps réel au-dessus de l'aérodrome (nord en haut), légèrement inclinée
         camera.position.set(200, 430, 520);
         camera.up.set(0, 0, -1);
@@ -729,7 +743,9 @@ function setWeather(name) {
     landingLight.intensity = LANDING_LIGHT;
     taxiLight.intensity = TAXI_LIGHT;
 
-    for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
+    for (const button of [...meteoButtons.children, ...(document.getElementById('mp-meteo')?.children ?? [])]) {
+        button.classList.toggle('actif', button.dataset.meteo === name);
+    }
     document.getElementById('météo-actuelle').textContent = w.label;
     // Quantité de nuages réglable seulement en météo Jour
     cloudCover.hidden = name !== 'jour';
@@ -1240,7 +1256,63 @@ document.getElementById('hangar-partir').addEventListener('click', () => {
     leaveHangar();
     openSpawnDialog();
 });
-openHangar();
+
+// Menu principal : au lancement (et depuis le menu Commandes), par-dessus la page ; derrière, l'aérodrome en direct,
+// survolé lentement. Vol libre et Multijoueur mènent au hangar, puis au choix du départ ; Initiation part directement
+const mainMenu = document.getElementById('menu-principal');
+function openMainMenu() {
+    if (initiation?.active) initiation.stop();
+    inHangar = false;
+    hangarPanel.hidden = true;
+    spawnDialog.hidden = true;
+    spawnMarkers.visible = false;
+    choosingSpawn = inMenu = true;
+    aircraft.visible = false;
+    mainMenu.hidden = false;
+    document.getElementById('mp-multi-detail').textContent = multiplayer.code
+        ? `Partie ${multiplayer.code} en cours` : 'Partie privée entre amis';
+    document.getElementById('mp-vol-libre').focus();
+}
+function closeMainMenu() {
+    if (!inMenu) return;
+    inMenu = false;
+    mainMenu.hidden = true;
+}
+document.getElementById('mp-vol-libre').addEventListener('click', () => {
+    if (multiplayer.code) {
+        if (!confirm(`Quitter la partie ${multiplayer.code} et voler en solo ?`)) return;
+        multiplayer.leave();
+        updateModes();
+    }
+    closeMainMenu();
+    openHangar();
+});
+document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
+// Partie créée ou rejointe depuis le menu : fenêtre fermée -> au hangar
+multiDialog.addEventListener('close', () => {
+    if (!inMenu || !multiplayer.code) return;
+    closeMainMenu();
+    openHangar();
+});
+document.getElementById('mp-initiation').addEventListener('click', () => openInitiation());
+document.getElementById('mp-parametres').addEventListener('click', () => openSettings());
+const menuWeather = document.getElementById('mp-meteo');
+for (const [name, w] of Object.entries(WEATHERS)) {
+    const button = document.createElement('button');
+    button.textContent = w.label;
+    button.dataset.meteo = name;
+    button.classList.toggle('actif', w === weather);
+    button.addEventListener('click', () => setWeather(name));
+    menuWeather.appendChild(button);
+}
+document.getElementById('hangar-menu').addEventListener('click', openMainMenu);
+document.getElementById('menu-principal-bouton').addEventListener('click', (event) => {
+    closeMenus();
+    if (!confirm('Revenir au menu principal ? Le vol en cours sera interrompu.')) return;
+    openMainMenu();
+    event.currentTarget.blur();
+});
+openMainMenu();
 multiplayer.addEventListener('players', () => {
     const names = multiplayer.code ? [`${multiplayer.name} (vous)`, ...[...multiplayer.players.values()].map((p) => p.name)] : [];
     multiJoueurs.replaceChildren(...names.map((name) => {
@@ -1802,6 +1874,8 @@ var initiation = new Initiation({
     startCold: () => {
         multiplayer.leave();
         const spawn = airport.spawns.find((sp) => sp.id === 'stand4') ?? airport.spawns.find((sp) => sp.cold);
+        closeMainMenu();
+        leaveHangar();
         if (choosingSpawn) closeSpawnDialog();
         spawnAt(spawn);
         setCabinViewPreset(1);
