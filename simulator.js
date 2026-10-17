@@ -2064,13 +2064,15 @@ function updateSounds() {
         : Math.max(0, gyroSpin - dt / 20);
     const gyroLevel = choosingSpawn ? 0 : gyroSpin * (chaseView ? 0.02 : 0.13);
     sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
-    // Ambiance extérieure : léger souffle d'air et oiseaux, près du sol seulement (s'efface en ~150 m de montée),
-    // très étouffée en cabine. Pas d'oiseaux la nuit ni sous la pluie ; le souffle suit le vent de la météo
-    const height = camera.position.y - terrain.heightAt(camera.position.x, camera.position.z);
-    const nearGround = THREE.MathUtils.clamp(1 - height / 150, 0, 1) * (choosingSpawn ? 0.5 : 1);
+    // Ambiance extérieure : léger souffle d'air et oiseaux, avion au sol seulement, très étouffée en cabine. Couverte
+    // par le moteur : presque plus rien dès le ralenti (~800 tr/min). Pas d'oiseaux la nuit ni sous la pluie ; le
+    // souffle suit le vent de la météo
+    const onGround = controls.isOnGround() && !controls.isCrashed() && !choosingSpawn;
+    const engineMask = THREE.MathUtils.clamp(1 - systems.rpm / 700, 0.06, 1);
+    const ambience = onGround ? engineMask : 0;
     const day = 1 - (weather?.night ?? 0);
-    sounds.setLoop('birds', nearGround * day * (1 - rain) * (chaseView ? 0.2 : 0.04));
-    sounds.setLoop('breeze', nearGround * (0.4 + 0.6 * (weather?.wind ?? 0.3)) * (chaseView ? 0.15 : 0.03));
+    sounds.setLoop('birds', ambience * day * (1 - rain) * (chaseView ? 0.2 : 0.04));
+    sounds.setLoop('breeze', ambience * (0.4 + 0.6 * (weather?.wind ?? 0.3)) * (chaseView ? 0.15 : 0.03));
     // Feu anticollision : petit tic sourd à chaque éclat (deux par seconde, en phase avec AircraftLights), très discret
     const beaconFlash = Math.floor(clock.elapsedTime * 2);
     if (beaconFlash !== lastBeaconFlash && systems.lights.beacon && !choosingSpawn) {
