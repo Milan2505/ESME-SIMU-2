@@ -2817,3 +2817,23 @@ body:has(#simulator.jeu) {
     grid-template-columns: 1fr;
   }
 }
+
+/* Masse et centrage : carburant qui suit le bilan (curseurs bloqués) */
+.mc-auto {
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #e8eef4;
+  background: rgba(143, 211, 255, 0.07);
+  border: 1px solid rgba(143, 211, 255, 0.25);
+  border-radius: 4px;
+}
+.mc-auto small {
+  font-size: 11px;
+  color: #8a9db0;
+}
+#masse-dialog input:disabled,
+#masse-dialog button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

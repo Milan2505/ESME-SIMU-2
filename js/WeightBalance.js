@@ -185,6 +185,12 @@ class WeightBalance {
             input.addEventListener('change', () => this._render());   // champ quitté : valeur ramenée dans ses bornes
         }
         dialog.querySelector('#mc-reserve-nuit').addEventListener('click', () => { this.load.plan.finalReserve = 45; this._render(); });
+        // « Carburant à bord = carburant nécessaire » : les réservoirs suivent le bilan (curseurs de carburant bloqués)
+        this.autoFuelBox = dialog.querySelector('#mc-auto-carbu');
+        this.autoFuelBox.addEventListener('change', () => {
+            this.load.fuelFromPlan = this.autoFuelBox.checked;
+            this._render();
+        });
         dialog.querySelector('#mc-reserve-jour').addEventListener('click', () => { this.load.plan.finalReserve = 30; this._render(); });
         this.canvas = dialog.querySelector('canvas');
         this.inputs = {};
@@ -272,6 +278,16 @@ class WeightBalance {
 
     _render(editing = null) {
         const l = this.load;
+        // Carburant suivant le bilan : nécessaire réparti sur les deux ailes (au demi-litre supérieur, plein au plus)
+        if (l.fuelFromPlan) {
+            const half = Math.min(LIMITS.tankLitres, Math.ceil(fuelPlan(l).required) / 2);
+            l.fuelLeft = l.fuelRight = half;
+        }
+        this.autoFuelBox.checked = Boolean(l.fuelFromPlan);
+        for (const key of ['fuelLeft', 'fuelRight']) {
+            this.inputs[key].range.disabled = this.inputs[key].number.disabled = Boolean(l.fuelFromPlan);
+        }
+        for (const button of [this.syncBox, ...this.dialog.querySelectorAll('#mc-moitie, #mc-plein')]) button.disabled = Boolean(l.fuelFromPlan);
         for (const [key, { range, number }] of Object.entries(this.inputs)) {
             range.value = l[key];
             if (key !== editing || document.activeElement !== number) number.value = Math.round(l[key]);
