@@ -2235,3 +2235,29 @@ body:has(#simulator.jeu) {
 #multi-dialog .multi-ligne[hidden] {
   display: none;
 }
+
+/* Choix du départ : vues préréglées de l'aérodrome */
+.depart-vues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+.depart-vues button {
+  flex: 1 1 45%;
+  padding: 5px 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 11px;
+  cursor: pointer;
+  color: #114E69;
+  background: #e6f4fb;
+  border: 2px solid #114E69;
+  border-radius: 5px;
+}
+.depart-vues button:hover {
+  background: #C3E6F5;
+}
+.depart-vues button.actif {
+  color: #fff;
+  background: #114E69;
+}

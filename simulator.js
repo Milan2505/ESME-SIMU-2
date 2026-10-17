@@ -452,6 +452,20 @@ view.addEventListener('pointermove', (event) => {
     drag = { x: event.clientX, y: event.clientY };
     dragDistance += Math.abs(dx) + Math.abs(dy);
     if (dx || dy) headTarget = null;   // la souris reprend la main sur une vue préréglée
+    if (choosingSpawn && !inHangar && !inMenu) {
+        const goal = spawnCam.goal;
+        if (event.buttons & 2) {
+            // Bouton droit : déplace le point visé, dans le plan du sol (vitesse selon la distance)
+            const s = goal.distance * 0.0016, cos = Math.cos(goal.yaw), sin = Math.sin(goal.yaw);
+            goal.target.x -= (dx * cos + dy * sin) * s;
+            goal.target.z -= (-dx * sin + dy * cos) * s;
+        } else {
+            goal.yaw -= dx * 0.005;
+            goal.pitch = THREE.MathUtils.clamp(goal.pitch + dy * 0.004, 0.12, 1.5);
+        }
+        markSpawnView(null);
+        return;
+    }
     if (chaseView) {
         orbit.yaw -= dx * ORBIT_SPEED;
         orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + dy * ORBIT_SPEED, -0.35, 1.45);
@@ -473,6 +487,11 @@ view.addEventListener('wheel', (event) => {
         if (useControl(control, control.id === 'trimWheel' ? -up : up, true, event.shiftKey)) return;
     }
     const zoom = Math.sign(event.deltaY) * 0.1;
+    if (choosingSpawn && !inHangar && !inMenu) {
+        spawnCam.goal.distance = THREE.MathUtils.clamp(spawnCam.goal.distance * (1 + zoom * 1.5), 40, 1100);
+        markSpawnView(null);
+        return;
+    }
     if (chaseView) {
         orbit.distance = THREE.MathUtils.clamp(orbit.distance * (1 + zoom), 7, 90);
     } else {
@@ -511,6 +530,25 @@ let choosingSpawn = false;
 let inHangar = false;
 // Menu principal affiché (voir openMainMenu)
 let inMenu = false;
+// Caméra du choix du départ : point visé, cap (0 : caméra au sud, regard vers le nord), hauteur angulaire, distance.
+// goal : vers où elle glisse (vues préréglées, souris)
+const SPAWN_VIEWS = {
+    ensemble: { label: 'Vue d\'ensemble', target: [250, 0, 20], yaw: 0.35, pitch: 1.05, distance: 720 },
+    rwy36:    { label: 'Piste 36 (sud)', target: [220, 0, 300], yaw: 0.5, pitch: 0.42, distance: 170 },
+    rwy18:    { label: 'Piste 18 (nord)', target: [220, 0, -300], yaw: Math.PI - 0.5, pitch: 0.42, distance: 170 },
+    parking:  { label: 'Parking et hangars', target: [360, 0, 35], yaw: -Math.PI / 2 - 0.4, pitch: 0.55, distance: 190 },
+};
+const spawnViewState = (view) => ({ target: new THREE.Vector3(...view.target), yaw: view.yaw, pitch: view.pitch, distance: view.distance });
+const spawnCam = { ...spawnViewState(SPAWN_VIEWS.ensemble), goal: spawnViewState(SPAWN_VIEWS.ensemble) };
+// Vue préréglée choisie (null : caméra déplacée à la souris) ; snap : sans glissement
+function setSpawnView(name, snap = false) {
+    spawnCam.goal = spawnViewState(SPAWN_VIEWS[name]);
+    if (snap) Object.assign(spawnCam, spawnViewState(SPAWN_VIEWS[name]));
+    markSpawnView(name);
+}
+function markSpawnView(name) {
+    for (const button of document.querySelectorAll('#depart-vues button')) button.classList.toggle('actif', button.dataset.vue === name);
+}
 
 function updateCamera(delta, snap = false) {
     if (inHangar) {
@@ -539,10 +577,17 @@ function updateCamera(delta, snap = false) {
         return;
     }
     if (choosingSpawn && !inHangar) {
-        // Vue en temps réel au-dessus de l'aérodrome (nord en haut), légèrement inclinée
-        camera.position.set(200, 430, 520);
-        camera.up.set(0, 0, -1);
-        camera.lookAt(215, 0, 20);
+        // Choix du départ : caméra libre autour d'un point de l'aérodrome (vues préréglées, souris), glisse vers sa cible
+        const k = snap ? 1 : 1 - Math.exp(-4 * delta);
+        const c = spawnCam, goal = spawnCam.goal;
+        c.target.lerp(goal.target, k);
+        c.yaw += (goal.yaw - c.yaw) * k;
+        c.pitch += (goal.pitch - c.pitch) * k;
+        c.distance += (goal.distance - c.distance) * k;
+        camera.position.set(Math.sin(c.yaw) * Math.cos(c.pitch), Math.sin(c.pitch), Math.cos(c.yaw) * Math.cos(c.pitch))
+            .multiplyScalar(c.distance).add(c.target);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(c.target);
         if (camera.fov !== CAM_FOV) {
             camera.fov = CAM_FOV;
             camera.updateProjectionMatrix();
@@ -1178,6 +1223,16 @@ function openSpawnDialog() {
     choosingSpawn = true;
     aircraft.visible = false;
     spawnMarkers.visible = true;
+    setSpawnView('ensemble', true);
+}
+// Boutons des vues préréglées (au-dessus de la liste des départs) ; survoler un départ de la liste n'y bouge pas
+const spawnViewButtons = document.getElementById('depart-vues');
+for (const [name, v] of Object.entries(SPAWN_VIEWS)) {
+    const button = document.createElement('button');
+    button.textContent = v.label;
+    button.dataset.vue = name;
+    button.addEventListener('click', () => { setSpawnView(name); button.blur(); });
+    spawnViewButtons.append(button);
 }
 
 function closeSpawnDialog() {
@@ -1226,6 +1281,7 @@ view.addEventListener('pointermove', (event) => {
     view.style.cursor = spawnHover ? 'pointer' : '';
 });
 view.addEventListener('click', (event) => {
+    if (dragDistance > 6) return;   // fin d'un glisser de la caméra, pas un clic
     const spawn = spawnUnderPointer(event);
     if (spawn) chooseSpawn(spawn);
 });
