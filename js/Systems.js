@@ -73,7 +73,7 @@ class Systems extends EventTarget {
         this.mixture = 1;               // 1 = plein riche, 0 = étouffoir
         this.panelLights = 0.8;         // rhéostat d'éclairage des instruments (0 -> 1)
         this.domeLight = 0.7;           // plafonnier de cabine (0 = éteint -> 1), réglé à la lampe
-        this.fuel = [20, 20];           // gallons gauche / droite
+        this.fuel = [...(this.fuelLoad ?? [20, 20])];   // gallons gauche / droite (chargement : voir Masse et centrage)
         this.battery = 1;
         this.running = true;
         this.rpm = 800;

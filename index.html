@@ -79,6 +79,7 @@
 	<link rel="modulepreload" href="js/Initiation.js">
 	<link rel="modulepreload" href="js/Scenery.js">
 	<link rel="modulepreload" href="js/FlightHud.js">
+	<link rel="modulepreload" href="js/WeightBalance.js">
 </head>
 	
 <body>
@@ -246,6 +247,7 @@
 				<button id="mp-vol-libre" class="mp-bouton mp-principal"><strong>Vol libre</strong><small>Seul, choisissez votre avion et votre départ</small></button>
 				<button id="mp-multi" class="mp-bouton"><strong>Multijoueur</strong><small id="mp-multi-detail">Partie privée entre amis</small></button>
 				<button id="mp-initiation" class="mp-bouton"><strong>Initiation</strong><small>Apprendre à piloter avec un moniteur</small></button>
+				<button id="mp-masse" class="mp-bouton"><strong>Masse et centrage</strong><small>Pilote, passagers, bagages et carburant</small></button>
 				<button id="mp-parametres" class="mp-bouton"><strong>Paramètres</strong><small>Graphismes et aides au pilotage</small></button>
 				<a class="mp-bouton" href="manuel.html"><strong>Manuel</strong><small>Commandes et procédures</small></a>
 			</nav>
@@ -376,6 +378,46 @@
 	</div>
 		
 	</main>
+
+	<!-- Masse et centrage (menu principal) : chargement de l'avion, appliqué à la fermeture (WeightBalance.js) -->
+	<dialog id="masse-dialog">
+		<h3>Masse et centrage</h3>
+		<p class="mc-intro">Cessna 172S · valeurs du manuel de vol. Le graphique se met à jour en direct ; le chargement est appliqué à l'avion à la fermeture de la fenêtre.</p>
+		<div class="mc-corps">
+			<div class="mc-charges">
+				<h4>Occupants et bagages</h4>
+				<label class="mc-ligne"><span>Pilote</span><input type="range" data-charge="pilot" min="40" max="140" step="1"><input type="number" data-charge-valeur="pilot" min="40" max="140"><em>kg</em></label>
+				<label class="mc-ligne"><span>Passager avant</span><input type="range" data-charge="copilot" min="0" max="140" step="1"><input type="number" data-charge-valeur="copilot" min="0" max="140"><em>kg</em></label>
+				<label class="mc-ligne"><span>Passagers arrière</span><input type="range" data-charge="rear" min="0" max="250" step="1"><input type="number" data-charge-valeur="rear" min="0" max="250"><em>kg</em></label>
+				<label class="mc-ligne"><span>Bagages <small>(54 kg max)</small></span><input type="range" data-charge="baggage" min="0" max="54" step="1"><input type="number" data-charge-valeur="baggage" min="0" max="54"><em>kg</em></label>
+				<h4>Carburant <small>(100 L utilisables par aile)</small></h4>
+				<label class="mc-ligne"><span>Aile gauche <small id="mc-gal-gauche"></small></span><input type="range" data-charge="fuelLeft" min="0" max="100.3" step="0.5"><input type="number" data-charge-valeur="fuelLeft" min="0" max="100.3" step="0.5"><em>L</em></label>
+				<label class="mc-ligne"><span>Aile droite <small id="mc-gal-droite"></small></span><input type="range" data-charge="fuelRight" min="0" max="100.3" step="0.5"><input type="number" data-charge-valeur="fuelRight" min="0" max="100.3" step="0.5"><em>L</em></label>
+				<div class="mc-carbu">
+					<label class="mc-sync"><input type="checkbox" id="mc-sync"> Synchroniser les deux ailes</label>
+					<button id="mc-moitie" type="button">Moitié</button>
+					<button id="mc-plein" type="button">Pleins</button>
+				</div>
+				<dl class="mc-resume">
+					<div><dt>Masse au décollage</dt><dd id="mc-masse"></dd></div>
+					<div><dt>Marge (MTOW 1157 kg)</dt><dd id="mc-marge"></dd></div>
+					<div><dt>Centrage</dt><dd id="mc-centrage"></dd></div>
+					<div><dt>Carburant</dt><dd id="mc-carburant"></dd></div>
+					<div class="mc-large"><dt>Autonomie (32 L/h)</dt><dd id="mc-autonomie"></dd></div>
+				</dl>
+				<p id="mc-statut"></p>
+			</div>
+			<div class="mc-graphique">
+				<h4>Domaine de centrage</h4>
+				<canvas></canvas>
+				<p class="mc-legende"><span class="mc-pt-deco"></span> Décollage <span class="mc-pt-atte"></span> Atterrissage (réserve) · trait plein : normale · pointillés : utilitaire</p>
+			</div>
+		</div>
+		<div class="mc-boutons">
+			<button id="mc-defaut" type="button">Chargement par défaut</button>
+			<button id="mc-fermer" type="button" class="mc-valider">Appliquer et fermer</button>
+		</div>
+	</dialog>
 
 	<dialog id="reglages-dialog">
 		<h3>Paramètres</h3>

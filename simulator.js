@@ -29,6 +29,7 @@ import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
 import { FlightHud } from './js/FlightHud.js';
+import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
@@ -2057,6 +2058,27 @@ if (invitation) {
 }
 updateOnlineList();
 
+// Masse et centrage (menu principal) : à la fermeture de la fenêtre, le chargement est appliqué à l'avion. Le carburant
+// choisi remplit les réservoirs (et sert à chaque remise au départ) ; masse et centrage suivent ensuite le carburant
+// restant, à chaque image : l'avion s'allège et son centrage avance en vol
+const CG_REFERENCE = 1.0;   // m : centrage pour lequel le modèle de vol est réglé (cgOffset = 0)
+const weightBalance = new WeightBalance(document.getElementById('masse-dialog'), (load) => applyLoad(load));
+let currentLoad = { ...weightBalance.load };
+function applyLoad(load) {
+    currentLoad = { ...load };
+    systems.fuelLoad = [load.fuelLeft / WB_GALLON, load.fuelRight / WB_GALLON];
+    systems.fuel = [...systems.fuelLoad];
+    systems.dispatchEvent(new Event('change'));
+    updateLoad();
+}
+function updateLoad() {
+    const loaded = computeLoad({ ...currentLoad, fuelLeft: systems.fuel[0] * WB_GALLON, fuelRight: systems.fuel[1] * WB_GALLON });
+    controls.model.aircraft.mass = loaded.mass;
+    controls.model.cgOffset = loaded.cg - CG_REFERENCE;
+}
+applyLoad(weightBalance.load);
+document.getElementById('mp-masse').addEventListener('click', () => weightBalance.open());
+
 // Informations de vol en vue extérieure (vitesse, moteur, carburant, incidence, volets, trim, altitude, vario, cap),
 // comme dans les simulateurs grand public ; cachées en cabine, au menu, au choix du départ et après un crash
 const flightHud = new FlightHud(document.getElementById('hud'));
@@ -2551,6 +2573,7 @@ renderer.setAnimationLoop((time)=>{
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
     engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
+    updateLoad();
     updateHud(delta);
     if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
     camera.updateMatrixWorld();

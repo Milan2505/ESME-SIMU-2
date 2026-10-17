@@ -16,6 +16,9 @@ import { CESSNA_172 } from './Cessna172.js';
 const GRAVITY = 9.81;
 const AIR_DENSITY = 1.225;         // kg/m³
 const STEP = 1 / 120;              // pas de calcul (s) : plusieurs pas par image si besoin
+// Centrage (voir cgOffset) : incidence en plus tenue par le trim, et stabilité en moins, par mètre de recul
+const CG_TRIM_ALPHA = MathUtils.degToRad( 12 );   // ~1,2° pour 10 cm
+const CG_STABILITY = 2.5;                        // -25 % de stabilité pour 10 cm
 
 const _up = new Vector3( 0, 1, 0 );
 const _front = new Vector3( 0, 0, - 1 );
@@ -62,6 +65,10 @@ class FlightModel extends EventDispatcher {
 		this.flapsPowered = true;        // moteur électrique des volets alimenté
 		this.trim = aircraft.takeoffTrim; // tab de profondeur (rad, + = à cabrer)
 		this.flapLevel = 0;              // cran demandé (indice dans aircraft.flapLevels)
+		// Centrage : écart (m) au centrage de référence (+ = en arrière), voir Masse et centrage. Centrage arrière : nez
+		// plus léger (le trim tient une incidence plus forte, l'avion vole plus lentement manche lâché) et moins stable ;
+		// avant : nez lourd, plus stable, il faut tirer davantage
+		this.cgOffset = 0;
 
 		// État
 		this.velocity = new Vector3();   // vitesse (repère monde, m/s)
@@ -173,7 +180,7 @@ class FlightModel extends EventDispatcher {
 		const A = this.aircraft;
 		// Côté piqué (sous le neutre), effet réduit : le trim soulage l'effort à pousser sans faire plonger l'avion
 		const tab = this.trim < 0 ? this.trim * A.trimNoseDownEffect : this.trim;
-		return A.trimAlphaZero + tab * A.trimAlphaPerTab;
+		return A.trimAlphaZero + tab * A.trimAlphaPerTab + this.cgOffset * CG_TRIM_ALPHA;
 	}
 
 	// Vitesse (m/s) que l'avion tient manche lâché avec le trim et les volets actuels : la puissance fait monter
@@ -323,7 +330,8 @@ class FlightModel extends EventDispatcher {
 		}
 		this._pathAngle = pathAngle;
 		if ( Math.abs( input.pitch ) < 0.1 ) alphaTarget -= A.phugoidDamping * this._pathRate;
-		let pitchRate = MathUtils.clamp( A.pitchStability * ( alphaTarget - alpha ) * stability, - A.pitchRateMax, A.pitchRateMax );
+		const cgStability = MathUtils.clamp( 1 - this.cgOffset * CG_STABILITY, 0.5, 1.5 );
+		let pitchRate = MathUtils.clamp( A.pitchStability * cgStability * ( alphaTarget - alpha ) * stability, - A.pitchRateMax, A.pitchRateMax );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		// Envol avec du vent de travers : au sol, les roues tenaient l'axe de piste ; en l'air, la dérive aligne le nez
 		// sur le vent relatif. Effet amené en ~3 s (avant : le nez pivotait d'un coup à la rotation, un dérapage brusque)
