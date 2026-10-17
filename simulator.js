@@ -2054,15 +2054,16 @@ function updateSounds() {
     fuelPumpOn = pumpOn;
     sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.04 : 0.25) : 0, 1);
     // Gyroscope électrique de l'indicateur de virage (gyro.wav du c172p) : sous tension, la toupie monte en régime
-    // en ~3 s ; coupée, elle ralentit en roue libre (~20 s). Volume et hauteur du son suivent le régime
+    // en ~3 s ; coupée, elle ralentit en roue libre (~45 s). Hauteur du son = régime ; volume en racine du régime
+    // pour que le sifflement reste audible pendant toute la décélération
     const now = performance.now();
     const dt = Math.min(0.1, (now - lastGyroTime) / 1000);
     lastGyroTime = now;
     if (choosingSpawn) gyroSpin = 0;
     else gyroSpin = systems.turnCoordinatorPowered
         ? Math.min(1, gyroSpin + dt / 3)
-        : Math.max(0, gyroSpin - dt / 20);
-    const gyroLevel = choosingSpawn ? 0 : gyroSpin * (chaseView ? 0.02 : 0.13);
+        : Math.max(0, gyroSpin - dt / 45);
+    const gyroLevel = choosingSpawn ? 0 : Math.sqrt(gyroSpin) * (chaseView ? 0.02 : 0.13);
     sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
     // Ambiance extérieure : léger souffle d'air et oiseaux, avion au sol seulement, très étouffée en cabine. Couverte
     // par le moteur : presque plus rien dès le ralenti (~800 tr/min). Pas d'oiseaux la nuit ni sous la pluie ; le
