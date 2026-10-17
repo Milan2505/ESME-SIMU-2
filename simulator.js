@@ -2092,6 +2092,12 @@ function updateLoad() {
 }
 applyLoad(weightBalance.load);
 document.getElementById('mp-masse').addEventListener('click', () => weightBalance.open());
+// Aussi dans la barre de menus (Échap), pendant le vol
+document.getElementById('masse-bouton').addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    closeMenus();
+    weightBalance.open();
+});
 
 // Informations de vol en vue extérieure (vitesse, moteur, carburant, incidence, volets, trim, altitude, vario, cap),
 // comme dans les simulateurs grand public ; cachées en cabine, au menu, au choix du départ et après un crash
