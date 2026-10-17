@@ -749,9 +749,9 @@ img{margin: 0px;
   }
 
   /* Plein écran : l'écran de vol occupe tout l'écran, sous une barre avec les menus Commandes et Météo */
-  #simulator:fullscreen {
+  #simulator:is(:fullscreen, .jeu) {
     display: grid;
-    grid-template-columns: auto auto auto auto 1fr auto;
+    grid-template-columns: auto auto auto auto 1fr auto auto auto;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
     padding: 0;
@@ -759,77 +759,96 @@ img{margin: 0px;
     box-sizing: border-box;
     background: white;
   }
-  #simulator:fullscreen > #titre,
-  #simulator:fullscreen > #profil,
-  #simulator:fullscreen > #paramètre,
-  #simulator:fullscreen > #initiation,
-  #simulator:fullscreen > #solo,
-  #simulator:fullscreen > #multi {
+  #simulator:is(:fullscreen, .jeu) > #titre,
+  #simulator:is(:fullscreen, .jeu) > #initiation,
+  #simulator:is(:fullscreen, .jeu) > #solo,
+  #simulator:is(:fullscreen, .jeu) > #multi {
     display: none;
   }
-  #simulator:fullscreen > #commandes,
-  #simulator:fullscreen > #météo,
-  #simulator:fullscreen > #carte-case,
-  #simulator:fullscreen > #atc-case,
-  #simulator:fullscreen > #online {
+  #simulator:is(:fullscreen, .jeu) > #commandes,
+  #simulator:is(:fullscreen, .jeu) > #météo,
+  #simulator:is(:fullscreen, .jeu) > #carte-case,
+  #simulator:is(:fullscreen, .jeu) > #atc-case,
+  #simulator:is(:fullscreen, .jeu) > #profil,
+  #simulator:is(:fullscreen, .jeu) > #paramètre,
+  #simulator:is(:fullscreen, .jeu) > #online {
     grid-row: 1;
     border: none;
     border-bottom: 2px solid black;
   }
-  #simulator:fullscreen > #carte-case {
+  #simulator:is(:fullscreen, .jeu) > #carte-case {
     grid-column: 3;
     border-right: 2px solid black;
   }
   /* "En ligne" à droite de la barre */
-  #simulator:fullscreen > #atc-case {
+  #simulator:is(:fullscreen, .jeu) > #atc-case {
     grid-column: 4;
     border-right: 2px solid black;
   }
-  #simulator:fullscreen > #online {
+  #simulator:is(:fullscreen, .jeu) > #online {
     grid-column: 6;
     border-left: 2px solid black;
   }
-  #simulator:fullscreen #online .menu-contenu {
+  #simulator:is(:fullscreen, .jeu) > #profil {
+    grid-column: 7;
+    border-left: 2px solid black;
+  }
+  #simulator:is(:fullscreen, .jeu) > #paramètre {
+    grid-column: 8;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    border-left: 2px solid black;
+    cursor: pointer;
+  }
+  #simulator:is(:fullscreen, .jeu) > #paramètre h4 {
+    margin: 0;
+  }
+  #simulator:is(:fullscreen, .jeu) #profil .menu-contenu {
+    left: auto;
     right: 0;
   }
-  #simulator:fullscreen > #commandes {
+  #simulator:is(:fullscreen, .jeu) #online .menu-contenu {
+    right: 0;
+  }
+  #simulator:is(:fullscreen, .jeu) > #commandes {
     grid-column: 1;
     border-right: 2px solid black;
   }
-  #simulator:fullscreen > #météo {
+  #simulator:is(:fullscreen, .jeu) > #météo {
     grid-column: 2;
     border-right: 2px solid black;
   }
-  #simulator:fullscreen .menu-titre {
+  #simulator:is(:fullscreen, .jeu) .menu-titre {
     padding: 8px 18px;
   }
-  #simulator:fullscreen #météo .menu-contenu {
+  #simulator:is(:fullscreen, .jeu) #météo .menu-contenu {
     left: -2px;
     right: auto;
   }
   /* Écran de vol et éléments superposés : toute la largeur, sous la barre */
-  #simulator:fullscreen > #ecran,
-  #simulator:fullscreen > #alarme,
-  #simulator:fullscreen > #nom-vue,
-  #simulator:fullscreen > #crash,
-  #simulator:fullscreen > #perf,
-  #simulator:fullscreen > #ils-bouton,
-  #simulator:fullscreen > #ils-panneau,
-  #simulator:fullscreen > #carte,
-  #simulator:fullscreen > #radio-indicateur,
-  #simulator:fullscreen > #atc,
-  #simulator:fullscreen > #atc-sous-titre {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #ecran,
+  #simulator:is(:fullscreen, .jeu) > #alarme,
+  #simulator:is(:fullscreen, .jeu) > #nom-vue,
+  #simulator:is(:fullscreen, .jeu) > #crash,
+  #simulator:is(:fullscreen, .jeu) > #perf,
+  #simulator:is(:fullscreen, .jeu) > #ils-bouton,
+  #simulator:is(:fullscreen, .jeu) > #ils-panneau,
+  #simulator:is(:fullscreen, .jeu) > #carte,
+  #simulator:is(:fullscreen, .jeu) > #radio-indicateur,
+  #simulator:is(:fullscreen, .jeu) > #atc,
+  #simulator:is(:fullscreen, .jeu) > #atc-sous-titre {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
   /* Barre du haut en plein écran : fond blanc derrière toute la largeur */
-  #simulator:fullscreen::before {
+  #simulator:is(:fullscreen, .jeu)::before {
     content: "";
-    grid-column: 1 / 7;
+    grid-column: 1 / -1;
     grid-row: 1;
     border-bottom: 2px solid black;
   }
-  #simulator:fullscreen > #ecran {
+  #simulator:is(:fullscreen, .jeu) > #ecran {
     border-radius: 0;
   }
 
@@ -966,8 +985,8 @@ img{margin: 0px;
     width: 180px;
     height: 177px;
   }
-  #simulator:fullscreen > #vor-panneau {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #vor-panneau {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
 
@@ -994,8 +1013,8 @@ img{margin: 0px;
   #depart-dialog[hidden], #hangar-panneau[hidden] {
     display: none;
   }
-  #simulator:fullscreen > #depart-dialog, #simulator:fullscreen > #hangar-panneau {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
   #depart-dialog h3, #hangar-panneau h3 {
@@ -1379,8 +1398,8 @@ img{margin: 0px;
     font-weight: bold;
     cursor: pointer;
   }
-  #simulator:fullscreen > #contexte-perdu {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #contexte-perdu {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
 
@@ -1474,9 +1493,9 @@ img{margin: 0px;
 #moniteur[hidden] {
   display: none;
 }
-#simulator:fullscreen > #moniteur,
-#simulator:fullscreen > #initiation-dialog {
-  grid-column: 1 / 7;
+#simulator:is(:fullscreen, .jeu) > #moniteur,
+#simulator:is(:fullscreen, .jeu) > #initiation-dialog {
+  grid-column: 1 / -1;
   grid-row: 2;
 }
 #moniteur header {
@@ -1640,7 +1659,6 @@ img{margin: 0px;
   background:
     linear-gradient(90deg, rgba(8, 18, 32, 0.94) 0%, rgba(8, 18, 32, 0.78) 38%, rgba(8, 18, 32, 0.25) 100%),
     linear-gradient(0deg, rgba(8, 18, 32, 0.6) 0%, rgba(8, 18, 32, 0) 40%);
-  backdrop-filter: blur(3px);
   animation: mp-entree 0.5s ease-out;
 }
 #menu-principal[hidden] {
@@ -1814,4 +1832,47 @@ img{margin: 0px;
   background: transparent;
   border: 1px solid #555;
   border-radius: 6px;
+}
+
+/* Mode jeu : l'écran de vol occupe toute la fenêtre (la page du site reste dessous, cachée). La barre de menus
+   (Commandes, Météo, Carte, Tour, En ligne, Profil, Paramètres) n'apparaît qu'avec Échap (classe barre) */
+#simulator.jeu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  width: 100vw;
+  height: 100vh;
+}
+#simulator.jeu:not(.barre) > #commandes,
+#simulator.jeu:not(.barre) > #météo,
+#simulator.jeu:not(.barre) > #carte-case,
+#simulator.jeu:not(.barre) > #atc-case,
+#simulator.jeu:not(.barre) > #online,
+#simulator.jeu:not(.barre) > #profil,
+#simulator.jeu:not(.barre) > #paramètre,
+#simulator.jeu:not(.barre)::before {
+  display: none;
+}
+body:has(#simulator.jeu) {
+  overflow: hidden;
+}
+/* Rappel « Échap : menus » en bas de l'écran, quelques secondes au début du vol */
+#astuce-echap {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  align-self: end;
+  justify-self: center;
+  z-index: 5;
+  margin-bottom: 18px;
+  padding: 6px 14px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(8, 18, 32, 0.75);
+  border-radius: 4px;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+#astuce-echap.cache {
+  opacity: 0;
 }

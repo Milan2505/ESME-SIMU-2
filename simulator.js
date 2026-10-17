@@ -1195,7 +1195,31 @@ function chooseSpawn(spawn) {
     closeSpawnDialog();
     spawnAt(spawn);
     view.focus();
+    showEscapeHint();
 }
+
+// Barre de menus (Commandes, Météo, Carte, Tour, En ligne, Profil, Paramètres) : cachée pendant le vol, Échap l'affiche
+// ou la cache. Pas pendant le menu principal, au hangar, au choix du départ, ni quand une fenêtre est ouverte (Échap
+// la ferme) ; un menu déroulé est d'abord refermé (voir closeMenus)
+const escapeHint = document.getElementById('astuce-echap');
+let escapeHintTimer = 0;
+function showEscapeHint() {
+    if (simulatorElement.classList.contains('barre')) return;
+    escapeHint.classList.remove('cache');
+    clearTimeout(escapeHintTimer);
+    escapeHintTimer = setTimeout(() => escapeHint.classList.add('cache'), 5000);
+}
+function setMenuBar(visible) {
+    simulatorElement.classList.toggle('barre', visible);
+    if (!visible) closeMenus();
+    else escapeHint.classList.add('cache');
+}
+window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || event.repeat) return;
+    if (inMenu || inHangar || !spawnDialog.hidden || document.querySelector('dialog[open]')) return;
+    if (menus.some((menu) => !menu.querySelector('.menu-contenu').hidden)) return;   // Échap referme d'abord le menu
+    setMenuBar(!simulatorElement.classList.contains('barre'));
+}, true);
 
 view.addEventListener('pointermove', (event) => {
     if (!choosingSpawn) return;
@@ -1271,6 +1295,7 @@ function openMainMenu() {
     choosingSpawn = inMenu = true;
     aircraft.visible = false;
     mainMenu.hidden = false;
+    setMenuBar(false);
     document.getElementById('mp-multi-detail').textContent = multiplayer.code
         ? `Partie ${multiplayer.code} en cours` : 'Partie privée entre amis';
     document.getElementById('mp-vol-libre').focus();
@@ -1308,6 +1333,13 @@ for (const [name, w] of Object.entries(WEATHERS)) {
     menuWeather.appendChild(button);
 }
 document.getElementById('hangar-menu').addEventListener('click', openMainMenu);
+// Petit clic au survol d'une case du menu (et des boutons de météo) ; muet tant que le navigateur n'a pas autorisé
+// le son (premier clic ou première touche)
+for (const button of mainMenu.querySelectorAll('.mp-bouton, .mp-choix button')) {
+    button.addEventListener('pointerenter', () => sounds.click(0.12, 2600));
+    button.addEventListener('focus', () => { if (button.matches(':focus-visible')) sounds.click(0.12, 2600); });
+    button.addEventListener('click', () => sounds.click(0.25, 1800));
+}
 document.getElementById('menu-principal-bouton').addEventListener('click', (event) => {
     closeMenus();
     if (!confirm('Revenir au menu principal ? Le vol en cours sera interrompu.')) return;
