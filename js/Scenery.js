@@ -319,7 +319,12 @@ class Scenery {
         // Ombres de tous les arbres proches (feuillage compris) : deux panneaux croisés avec l'image de l'imposteur,
         // invisibles à l'écran. Bien moins cher que les milliers de feuilles, et les imposteurs n'ont plus à s'en charger
         const crossed = mergeGeometries([0, Math.PI / 2].map((angle) => impostor.geometry.clone().rotateY(angle)));
-        const shadow = new InstancedMesh(crossed, SHADOW_ONLY, Math.min(SHADOW_MAX, trees.length) || 1);
+        // La passe d'ombre recopie map et alphaTest du matériau du maillage dans son customDepthMaterial : le matériau
+        // invisible les porte aussi (sans eux, chaque arbre projetait l'ombre pleine de ses panneaux, des rectangles)
+        const shadowMaterial = SHADOW_ONLY.clone();
+        shadowMaterial.map = impostor.material.map;
+        shadowMaterial.alphaTest = 0.45;
+        const shadow = new InstancedMesh(crossed, shadowMaterial, Math.min(SHADOW_MAX, trees.length) || 1);
         shadow.customDepthMaterial = new MeshDepthMaterial({ depthPacking: RGBADepthPacking, map: impostor.material.map, alphaTest: 0.45 });
         shadow.castShadow = true;
         shadow.frustumCulled = false;
