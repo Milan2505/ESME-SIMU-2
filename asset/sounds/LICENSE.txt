@@ -31,3 +31,8 @@ Boucles extraites (mono, raccord en fondu) de l'enregistrement « Small plane (C
 par JLWSound, dans la cabine d'un Cessna 172E (Vancouver, 2015)
 https://freesound.org/people/JLWSound/sounds/322321/
 Licence : Creative Commons 0 (domaine public) https://creativecommons.org/publicdomain/zero/1.0/
+
+gyro.wav (sifflement du gyroscope de l'indicateur de virage)
+Source : projet FlightGear c172p (Cessna 172P)
+https://github.com/c172p-team/c172p (Sounds/)
+Licence : GNU General Public License v2.0 (GPL-2.0)
