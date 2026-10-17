@@ -1068,9 +1068,14 @@ function spawnUnderPointer(event) {
     return best;
 }
 
+// Régime du gyroscope de l'indicateur de virage (0 -> 1) et état de la pompe, pour les bruits (voir updateSounds)
+let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false;
+
 // État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
 function applySpawnState() {
     systems.reset();
+    // Toupie déjà lancée sur la piste, arrêtée au parking (pas de ralentissement entendu au départ)
+    gyroSpin = currentSpawn.cold ? 0 : 1;
     atc.reset(currentSpawn);
     avionics.reset(Boolean(currentSpawn.cold));
     gloveboxOpen = false;
@@ -2048,13 +2053,13 @@ function updateSounds() {
     const now = performance.now();
     const dt = Math.min(0.1, (now - lastGyroTime) / 1000);
     lastGyroTime = now;
-    gyroSpin = systems.turnCoordinatorPowered
+    if (choosingSpawn) gyroSpin = 0;
+    else gyroSpin = systems.turnCoordinatorPowered
         ? Math.min(1, gyroSpin + dt / 3)
         : Math.max(0, gyroSpin - dt / 20);
     const gyroLevel = choosingSpawn ? 0 : gyroSpin * (chaseView ? 0.02 : 0.13);
     sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
 }
-let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false;
 
 const aircraftVelocity = new THREE.Vector3();
 const lastAircraftPosition = aircraft.position.clone();
