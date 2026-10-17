@@ -1985,3 +1985,253 @@ body:has(#simulator.jeu) {
   color: #fff;
   background: linear-gradient(90deg, #2580d1, #1d5c9c);
 }
+
+/* Fenêtres Multijoueur et Initiation : même thème que le menu principal et les Paramètres (bleu nuit) */
+#multi-dialog,
+#initiation-dialog {
+  box-sizing: border-box;
+  padding: 26px 30px 22px;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  font-size: 14px;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#multi-dialog { width: min(480px, 94vw); }
+#initiation-dialog { width: min(620px, 94vw); max-width: none; }
+#multi-dialog::backdrop,
+#initiation-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#multi-dialog h3,
+#initiation-dialog h3 {
+  margin: 0 0 16px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#multi-dialog h3::after,
+#initiation-dialog h3::after {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 3px;
+  margin-top: 10px;
+  background: #8fd3ff;
+  border-radius: 2px;
+}
+#initiation-dialog .reglages-intro,
+#multi-dialog p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: left;
+  text-indent: 0;
+  color: #9fb2c4;
+}
+/* Champs : libellé au-dessus, champ sombre sur toute la largeur */
+#multi-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+#multi-dialog input,
+#multi-dialog select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+#multi-dialog input::placeholder {
+  color: #6f86a0;
+}
+#multi-dialog input:focus,
+#multi-dialog select:focus {
+  border-color: #8fd3ff;
+  outline: none;
+}
+#multi-dialog #multi-code {
+  width: auto;
+  flex: 1;
+  font-family: DejaVu Sans Mono, monospace;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+#multi-dialog .multi-ligne {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+#multi-dialog .multi-ligne > input {
+  flex: 1;
+  width: auto;
+}
+/* Boutons : secondaires sombres, action principale en bleu */
+#multi-dialog button,
+#initiation-dialog #initiation-annuler {
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s;
+}
+#multi-dialog button:hover,
+#initiation-dialog #initiation-annuler:hover {
+  color: #fff;
+  background: rgba(143, 211, 255, 0.18);
+  border-color: #8fd3ff;
+}
+#multi-dialog #multi-creer {
+  width: 100%;
+  padding: 11px;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border-color: #3d8fd6;
+}
+#multi-dialog #multi-creer:hover {
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+}
+#multi-dialog #multi-quitter:hover {
+  background: rgba(220, 70, 70, 0.25);
+  border-color: #e06666;
+}
+#multi-dialog .multi-ligne:last-child {
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#multi-dialog #multi-statut {
+  margin: 14px 0 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #cfe9ff;
+  background: rgba(143, 211, 255, 0.08);
+  border-left: 3px solid #8fd3ff;
+  border-radius: 2px;
+}
+#multi-dialog #multi-statut.erreur {
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.12);
+  border-left-color: #e06666;
+}
+#multi-dialog #multi-joueurs {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: #dfe7ef;
+}
+#multi-dialog #multi-joueurs li {
+  color: #dfe7ef;
+}
+/* Initiation : niveaux en grandes cases, comme le menu principal */
+#initiation-dialog .initiation-niveaux {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+#initiation-dialog .initiation-niveaux button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 14px 18px;
+  font-family: inherit;
+  text-align: left;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 4px solid transparent;
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+#initiation-dialog .initiation-niveaux button strong {
+  font-size: 16px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+#initiation-dialog .initiation-niveaux button span {
+  font-size: 12px;
+  color: #b8c6d4;
+}
+#initiation-dialog .initiation-niveaux button:hover {
+  background: rgba(143, 211, 255, 0.18);
+  border-left-color: #8fd3ff;
+  transform: translateX(4px);
+}
+#initiation-dialog .initiation-langues {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+#initiation-dialog .initiation-langues button {
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+#initiation-dialog .initiation-langues button.actif {
+  color: #08121f;
+  background: #8fd3ff;
+  border-color: #8fd3ff;
+}
+#initiation-dialog .initiation-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 14px;
+  color: #dfe7ef;
+  cursor: pointer;
+}
+#initiation-dialog .initiation-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: #3d8fd6;
+}
+#initiation-dialog .multi-ligne {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+/* Ligne du lien d'invitation : cachée hors partie (display: flex ne doit pas l'emporter sur hidden) */
+#multi-dialog .multi-ligne[hidden] {
+  display: none;
+}
