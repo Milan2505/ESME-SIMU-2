@@ -16,9 +16,9 @@ flaps-motor.wav, flaps-click.wav
 Source : projet FlightGear c172p (Cessna 172P)
 https://github.com/c172p-team/c172p (Sounds/)
 
-fuel-pump.wav (yellowHydPump.wav à l'origine, joué accéléré)
-Source : projet FlightGear A320-family
-https://github.com/legoboyvdlp/A320-family (Sounds/Hydraulic/)
+fuel-pump.wav, fuel-pump-end.wav (pump-loop.wav et pump-end.wav à l'origine : pompe à carburant auxiliaire)
+Source : projet FlightGear c182s (Cessna 182S)
+https://github.com/HHS81/c182s (Sounds/)
 
 Licence de ces fichiers : GNU General Public License v2.0 (GPL-2.0)
 https://www.gnu.org/licenses/old-licenses/gpl-2.0.html

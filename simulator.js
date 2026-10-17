@@ -2037,8 +2037,12 @@ function updateSounds() {
     lastFlaps = flaps;
     // (fichier enregistré bas, -25 dBFS : gain > 1 pour passer au-dessus du moteur)
     sounds.setLoop('flapMotor', moving ? (chaseView ? 0.4 : 1.1) : 0, 1);
-    // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
-    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.008 : 0.045) : 0, 1.7);
+    // Pompe à carburant électrique (pompe auxiliaire du c182s) : bourdonnement tant qu'elle tourne, bruit de
+    // ralentissement à l'arrêt (sous le plancher, à peine audible dehors ; fichiers enregistrés bas, -34 dBFS)
+    const pumpOn = systems.fuelPumpRunning && !choosingSpawn;
+    if (fuelPumpOn && !pumpOn && !choosingSpawn) sounds.play('fuelPumpStop', { volume: chaseView ? 0.1 : 0.6 });
+    fuelPumpOn = pumpOn;
+    sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.1 : 0.6) : 0, 1);
     // Gyroscope électrique de l'indicateur de virage (gyro.wav du c172p) : sous tension, la toupie monte en régime
     // en ~3 s ; coupée, elle ralentit en roue libre (~20 s). Volume et hauteur du son suivent le régime
     const now = performance.now();
@@ -2050,7 +2054,7 @@ function updateSounds() {
     const gyroLevel = choosingSpawn ? 0 : gyroSpin * (chaseView ? 0.02 : 0.13);
     sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
 }
-let gyroSpin = 0, lastGyroTime = performance.now();
+let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false;
 
 const aircraftVelocity = new THREE.Vector3();
 const lastAircraftPosition = aircraft.position.clone();
