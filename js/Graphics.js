@@ -450,11 +450,14 @@ class Graphics {
 
     // shadowCenter : point autour duquel calculer les ombres (l'avion : les zones s'étendent dans l'axe du soleil, son
     // ombre au sol y reste même en vol) ; cockpit : vue cabine (carte fine resserrée sur l'habitacle)
-    update(shadowCenter, cockpit = false) {
+    // decorCenter : centre de la carte large (décor : arbres, maisons) ; par défaut shadowCenter. Avion haut en vol : au sol,
+    // sous lui (sinon la zone, centrée sur l'avion, tombait au sol loin de la vue : forêts sans ombres). L'ombre de
+    // l'avion reste dans la carte fine, centrée sur lui
+    update(shadowCenter, cockpit = false, decorCenter = shadowCenter) {
         this.skyDome.position.copy(this.camera.position);
         _shadowRight.crossVectors(_worldUp, this.sunDirection).normalize(); // mêmes axes que la caméra d'ombre (lookAt)
         _shadowUp.crossVectors(this.sunDirection, _shadowRight);
-        this._placeShadow(this.sunLight, shadowCenter);
+        this._placeShadow(this.sunLight, this.detailLight ? decorCenter : shadowCenter);
         if (this.detailLight) {
             const size = cockpit ? COCKPIT_DETAIL_SIZE : DETAIL_SIZE;
             if (size !== this.detailLight.userData.shadowSize) this._setShadowSize(this.detailLight, size);

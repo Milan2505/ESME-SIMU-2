@@ -491,19 +491,22 @@ class Scenery {
         if (visible) this.build();
     }
 
-    // camera : position (monde) ; time : s (vent dans les feuillages)
-    update(cameraPosition, time) {
+    // camera : position (monde) ; time : s (vent dans les feuillages) ; shadowCenter : centre de la zone d'ombres du
+    // décor (au sol, sous l'avion : voir Graphics.update), la caméra si absent
+    update(cameraPosition, time, shadowCenter = cameraPosition) {
         if (!this.ready || !this.group.visible) return;
         for (const sp of this.species) sp.source.update(time);
-        // Ombres des maisons seulement près de la caméra (ailleurs, hors de la zone d'ombres : passe d'ombre inutile)
+        // Ombres des maisons seulement dans la zone d'ombres (ailleurs : passe d'ombre inutile)
         for (const village of this.villages) {
             const sphere = village.geometry.boundingSphere;
-            village.castShadow = sphere.center.distanceTo(cameraPosition) < sphere.radius + SHADOW_RANGE;
+            village.castShadow = sphere.center.distanceTo(shadowCenter) < sphere.radius + SHADOW_RANGE;
         }
         // Rien au-delà de la fin du brouillard (par paliers de 200 m : à refaire quand la météo ou un nuage le change)
         const farthest = Math.min(FAR, Math.ceil((this.scene.fog?.far ?? FAR) / 200) * 200);
-        if (this._lastLayout && this._lastLayout.distanceTo(cameraPosition) < RELAYOUT && farthest === this._layoutFar) return;
+        if (this._lastLayout && this._lastLayout.distanceTo(cameraPosition) < RELAYOUT && this._lastShadow.distanceTo(shadowCenter) < RELAYOUT
+            && farthest === this._layoutFar) return;
         this._lastLayout = cameraPosition.clone();
+        this._lastShadow = shadowCenter.clone();
         this._layoutFar = farthest;
         const near = this.near ?? NEAR, near2 = near * near, far2 = farthest * farthest, shadow2 = SHADOW_RANGE * SHADOW_RANGE;
         const p = new Vector3(), scale = new Vector3(), yaw = new Quaternion(), tilt = new Quaternion(), billboard = new Matrix4();
@@ -518,7 +521,9 @@ class Scenery {
                 p.setFromMatrixPosition(m);
                 const d2 = p.distanceToSquared(cameraPosition);
                 if (d2 > far2) continue;
-                if (d2 < shadow2 && shadowCount < shadow.instanceMatrix.count) shadow.setMatrixAt(shadowCount++, m);
+                // Ombre portée : arbres proches du centre de la zone d'ombres (distance au sol)
+                const s2 = (p.x - shadowCenter.x) ** 2 + (p.z - shadowCenter.z) ** 2;
+                if (s2 < shadow2 && shadowCount < shadow.instanceMatrix.count) shadow.setMatrixAt(shadowCount++, m);
                 (d2 < near2 ? close : far).push({ i, d2 });
             }
             // Arbres complets : les plus proches ; le surplus passe en imposteurs

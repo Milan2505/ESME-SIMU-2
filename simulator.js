@@ -966,6 +966,8 @@ controls.addEventListener('crash', ({ reason }) => {
 const cloudFogColor = new THREE.Color();
 const flashColor = new THREE.Color(0xc8d0ff);
 const shadowCenter = new THREE.Vector3();
+// Centre des ombres du décor (arbres, maisons) : au sol, sous l'avion (voir Graphics.update)
+const decorShadowCenter = new THREE.Vector3();
 const pilotEyeWorld = new THREE.Vector3();
 
 const ABOVE_CLOUDS_BLEND = 25;   // m au-dessus du sommet de la couche : ciel bleu, plein soleil, air calme
@@ -2618,7 +2620,8 @@ renderer.setAnimationLoop((time)=>{
     pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
     airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld );
     airport.updateHangars( delta, aircraft.position );
-    scenery.update( camera.position, clock.elapsedTime );
+    decorShadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
+    scenery.update( camera.position, clock.elapsedTime, decorShadowCenter );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();
@@ -2636,7 +2639,7 @@ renderer.setAnimationLoop((time)=>{
     // Ombres : zone centrée sur l'avion (elle s'étend dans l'axe du soleil : l'ombre de l'avion au sol y reste, même en
     // vol) ; en cabine, zone resserrée (ombres fines dans l'habitacle)
     shadowCenter.copy(aircraft.position);
-    graphics.update( shadowCenter, !chaseView );
+    graphics.update( shadowCenter, !chaseView, decorShadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     graphics.render();
     updatePerf(performance.now() - frameStart);
