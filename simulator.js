@@ -1073,12 +1073,14 @@ function spawnUnderPointer(event) {
 
 // Régime du gyroscope de l'indicateur de virage (0 -> 1) et état de la pompe, pour les bruits (voir updateSounds)
 let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false, lastBeaconFlash = 0;
+let spawnFade = 0;   // montée du son du moteur après un départ (0 -> 1)
 
 // État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
 function applySpawnState() {
     systems.reset();
     // Toupie déjà lancée sur la piste, arrêtée au parking (pas de ralentissement entendu au départ)
     gyroSpin = currentSpawn.cold ? 0 : 1;
+    spawnFade = 0;
     atc.reset(currentSpawn);
     avionics.reset(Boolean(currentSpawn.cold));
     gloveboxOpen = false;
@@ -2062,6 +2064,13 @@ function updateSounds() {
         : Math.max(0, gyroSpin - dt / 20);
     const gyroLevel = choosingSpawn ? 0 : gyroSpin * (chaseView ? 0.02 : 0.13);
     sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
+    // Ambiance extérieure : léger souffle d'air et oiseaux, près du sol seulement (s'efface en ~150 m de montée),
+    // très étouffée en cabine. Pas d'oiseaux la nuit ni sous la pluie ; le souffle suit le vent de la météo
+    const height = camera.position.y - terrain.heightAt(camera.position.x, camera.position.z);
+    const nearGround = THREE.MathUtils.clamp(1 - height / 150, 0, 1) * (choosingSpawn ? 0.5 : 1);
+    const day = 1 - (weather?.night ?? 0);
+    sounds.setLoop('birds', nearGround * day * (1 - rain) * (chaseView ? 0.2 : 0.04));
+    sounds.setLoop('breeze', nearGround * (0.4 + 0.6 * (weather?.wind ?? 0.3)) * (chaseView ? 0.15 : 0.03));
     // Feu anticollision : petit tic sourd à chaque éclat (deux par seconde, en phase avec AircraftLights), très discret
     const beaconFlash = Math.floor(clock.elapsedTime * 2);
     if (beaconFlash !== lastBeaconFlash && systems.lights.beacon && !choosingSpawn) {
@@ -2224,7 +2233,10 @@ renderer.setAnimationLoop((time)=>{
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
-    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7);
+    // Au départ (choix du spawn, touche R), le moteur qui tourne déjà monte en ~1 s au lieu d'arriver d'un coup :
+    // ses graves, relevés, faisaient un "boum" comme un coup de tonnerre
+    spawnFade = choosingSpawn ? 0 : Math.min(1, spawnFade + delta / 1.2);
+    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * spawnFade * spawnFade;
     engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
     if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );

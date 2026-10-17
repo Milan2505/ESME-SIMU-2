@@ -1,5 +1,5 @@
-// Bruitages : pluie, tonnerre, crash, pneus. Sons des projets FlightGear A320-family, c172p et c182s
-// (GPL-2.0), voir asset/sounds/
+// Bruitages : pluie, tonnerre, crash, pneus, ambiance extérieure. Sons des projets FlightGear A320-family, c172p et
+// c182s (GPL-2.0) et ambiances de parc de Thimras (CC0), voir asset/sounds/
 
 const LOOPS = {
     rain:          'asset/sounds/rain.wav',
@@ -9,6 +9,8 @@ const LOOPS = {
     flapMotor:     'asset/sounds/flaps-motor.wav',
     fuelPump:      'asset/sounds/fuel-pump.wav',
     gyro:          'asset/sounds/gyro.wav',
+    birds:         'asset/sounds/ambience-birds.wav',
+    breeze:        'asset/sounds/ambience-wind.wav',
 };
 const SHOTS = {
     thunder1: 'asset/sounds/thunder1.wav',
