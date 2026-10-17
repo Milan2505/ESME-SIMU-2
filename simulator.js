@@ -2045,9 +2045,9 @@ function updateSounds() {
     // Pompe à carburant électrique (pompe auxiliaire du c182s) : bourdonnement tant qu'elle tourne, bruit de
     // ralentissement à l'arrêt (sous le plancher, à peine audible dehors ; fichiers enregistrés bas, -34 dBFS)
     const pumpOn = systems.fuelPumpRunning && !choosingSpawn;
-    if (fuelPumpOn && !pumpOn && !choosingSpawn) sounds.play('fuelPumpStop', { volume: chaseView ? 0.1 : 0.6 });
+    if (fuelPumpOn && !pumpOn && !choosingSpawn) sounds.play('fuelPumpStop', { volume: chaseView ? 0.05 : 0.35 });
     fuelPumpOn = pumpOn;
-    sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.1 : 0.6) : 0, 1);
+    sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.05 : 0.35) : 0, 1);
     // Gyroscope électrique de l'indicateur de virage (gyro.wav du c172p) : sous tension, la toupie monte en régime
     // en ~3 s ; coupée, elle ralentit en roue libre (~20 s). Volume et hauteur du son suivent le régime
     const now = performance.now();

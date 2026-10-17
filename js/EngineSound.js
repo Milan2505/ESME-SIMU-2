@@ -190,9 +190,14 @@ class EngineSound {
     update(rpm, volume = 1, { running = true, cranking = false } = {}) {
         if (!this._loops) return;
         const now = this._audio.currentTime;
-        // Moteur arrêté : les boucles s'éteignent avec le régime (hélice qui ralentit), pas de son de combustion
-        const combustion = running ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 500)) * 0.35;
-        mixLayers(this._loops, rpm, volume * combustion, now);
+        // Moteur arrêté : les boucles s'éteignent avec le régime (hélice qui ralentit), pas de son de combustion.
+        // Le niveau y glisse en douceur (~2 s à l'arrêt, plus vite à la mise en route) plutôt que de chuter d'un coup
+        const target = running ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 500)) * 0.35;
+        const delta = this._lastUpdate === undefined ? 0 : Math.min(0.1, now - this._lastUpdate);
+        this._lastUpdate = now;
+        const current = this._combustion ?? target;
+        this._combustion = current + (target - current) * (1 - Math.exp(-delta / (target < current ? 0.7 : 0.15)));
+        mixLayers(this._loops, rpm, volume * this._combustion, now);
         this._crank.gain.setTargetAtTime(cranking && !running ? 0.9 * Math.min(1, volume * 1.4) : 0, now, 0.03);
     }
 }
