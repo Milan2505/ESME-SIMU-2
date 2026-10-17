@@ -103,7 +103,7 @@ class RemoteEngine {
     }
 }
 
-const CABIN_CUTOFF = 700;      // Hz : passe-bas en cabine
+const CABIN_CUTOFF = 1800;     // Hz : passe-bas en cabine
 const OUTSIDE_CUTOFF = 20000;
 
 class EngineSound {
