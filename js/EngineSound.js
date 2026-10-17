@@ -195,7 +195,8 @@ class EngineSound {
         const target = running ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 500)) * 0.35;
         const delta = this._lastUpdate === undefined ? 0 : Math.min(0.1, now - this._lastUpdate);
         this._lastUpdate = now;
-        const current = this._combustion ?? target;
+        // Son coupé (choix du départ, crash) : pas de fondu, sinon un départ moteur éteint ferait entendre la fin de l'ancien
+        const current = volume <= 0 ? target : this._combustion ?? target;
         this._combustion = current + (target - current) * (1 - Math.exp(-delta / (target < current ? 0.7 : 0.15)));
         mixLayers(this._loops, rpm, volume * this._combustion, now);
         this._crank.gain.setTargetAtTime(cranking && !running ? 0.9 * Math.min(1, volume * 1.4) : 0, now, 0.03);

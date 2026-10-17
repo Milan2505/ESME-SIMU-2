@@ -877,9 +877,11 @@ function drawLabels(layout) {
         const [x, y] = polar(L.mags.x, L.mags.y, MAG_LABEL_RADIUS, deg(a));
         t(str, x, y, 6);
     });
-    t('MASTER', L.master.x, 876, 7);
+    // Comme sur le vrai tableau : MASTER, puis ALT et BAT au-dessus de chaque moitié du rocker (cadre : y 886 -> 970)
+    t('MASTER', L.master.x, 867, 7);
+    t('ALT', L.master.x - 12.5, 879, 6.5);
+    t('BAT', L.master.x + 12.5, 879, 6.5);
     t('ON', L.master.x - 34, 900, 6);
-    t('ALT BAT', L.master.x, 976, 6.5);
     L.breakers.forEach((b) => t(b.label, b.x, 866, 6.2));
     t('LAND\nLT', L.breakers[1].x, 906, 5.2);
     L.toggles.forEach((s) => {

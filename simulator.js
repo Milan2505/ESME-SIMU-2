@@ -2040,17 +2040,17 @@ function updateSounds() {
     // (il est dans l'aile, au-dessus)
     const flaps = controls.getFlaps();
     const moving = Math.abs(flaps - lastFlaps) > 1e-5 && !choosingSpawn;
-    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.15 : 0.4 });
+    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.06 : 0.15 });
     flapsMoving = moving;
     lastFlaps = flaps;
-    // (fichier enregistré bas, -25 dBFS : gain > 1 pour passer au-dessus du moteur)
-    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.2 : 0.6) : 0, 1);
+    // (fichier enregistré bas, -25 dBFS ; volontairement discret)
+    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.08 : 0.2) : 0, 1);
     // Pompe à carburant électrique (pompe auxiliaire du c182s) : bourdonnement tant qu'elle tourne, bruit de
     // ralentissement à l'arrêt (sous le plancher, à peine audible dehors ; fichiers enregistrés bas, -34 dBFS)
     const pumpOn = systems.fuelPumpRunning && !choosingSpawn;
-    if (fuelPumpOn && !pumpOn && !choosingSpawn) sounds.play('fuelPumpStop', { volume: chaseView ? 0.05 : 0.35 });
+    if (fuelPumpOn && !pumpOn && !choosingSpawn) sounds.play('fuelPumpStop', { volume: chaseView ? 0.04 : 0.25 });
     fuelPumpOn = pumpOn;
-    sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.05 : 0.35) : 0, 1);
+    sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.04 : 0.25) : 0, 1);
     // Gyroscope électrique de l'indicateur de virage (gyro.wav du c172p) : sous tension, la toupie monte en régime
     // en ~3 s ; coupée, elle ralentit en roue libre (~20 s). Volume et hauteur du son suivent le régime
     const now = performance.now();
