@@ -1043,6 +1043,20 @@ multiplayer.addEventListener('status', ({ detail }) => {
     updateMultiResume();
     multiPartage.hidden = !multiplayer.code;
     multiLien.value = multiplayer.link;
+    closeGameButton.hidden = !(multiplayer.code && multiplayer.isHost);
+});
+// Créateur de la partie : « Fermer la partie » la termine pour tous (les autres joueurs repassent en solo)
+const closeGameButton = document.getElementById('multi-fermer-partie');
+closeGameButton.addEventListener('click', () => {
+    const others = multiplayer.players.size;
+    if (others && !confirm(`Fermer la partie ${multiplayer.code} ? ${others} autre${others > 1 ? 's' : ''} joueur${others > 1 ? 's' : ''} ${others > 1 ? 'seront renvoyés' : 'sera renvoyé'} en solo.`)) return;
+    multiplayer.close();
+    updateModes();
+});
+// Partie fermée par son créateur : on continue en solo, avec un message à l'écran
+multiplayer.addEventListener('closed', ({ detail }) => {
+    updateModes();
+    showRadioMessage(`La partie ${detail.code} a été fermée par son créateur : vous volez maintenant en solo`);
 });
 
 document.getElementById('multi-copier').addEventListener('click', async (event) => {

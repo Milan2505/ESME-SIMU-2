@@ -2594,3 +2594,19 @@ body:has(#simulator.jeu) {
     grid-template-columns: 1fr;
   }
 }
+
+/* Multijoueur : « Fermer la partie » (créateur), en rouge : termine la partie pour tous */
+#multi-dialog #multi-fermer-partie {
+  margin-right: auto;
+  color: #ffd6d6;
+  background: rgba(176, 48, 48, 0.35);
+  border-color: #c04848;
+}
+#multi-dialog #multi-fermer-partie:hover {
+  color: #fff;
+  background: #b03030;
+  border-color: #e06666;
+}
+#multi-dialog #multi-fermer-partie[hidden] {
+  display: none;
+}

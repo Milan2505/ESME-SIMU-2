@@ -67,6 +67,7 @@ function cleanState(state) {
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
         away: state.h === 1,                                       // page du simulateur cachée (hors ligne)
+        owner: state.o === 1,                                      // créateur de la partie (lui seul peut la fermer)
         // Feux allumés (bits : 1 phare, 2 navigation, 4 anticollision, 8 strobes) ; absent : tous sauf le phare
         lights: lightsFromBits(Number.isInteger(state.l) ? state.l : 14),
     };
@@ -80,6 +81,7 @@ class Multiplayer extends EventTarget {
         this.livery = DEFAULT_LIVERY;
         this.registration = '';       // immatriculation choisie ('' : celle tirée de l'identifiant)
         this.code = null;
+        this.isHost = false;            // créateur de la partie en cours
         this.players = new Map();     // id -> { name, p, q, v, t, livery, crashes, crashed, receivedAt } (sans le joueur local)
         this.latency = 0.1;           // délai d'un message (s), ajouté à la prédiction des mouvements
         this._clients = [];           // connexions aux relais (connectées ou en cours de reconnexion)
@@ -116,6 +118,7 @@ class Multiplayer extends EventTarget {
 
     join(code, name, create = false) {
         this.leave();
+        this.isHost = create;   // créateur : lui seul peut fermer la partie pour tous (voir close)
         code = String(code).trim().toUpperCase();
         if (!CODE_PATTERN.test(code)) return this._status('Code invalide (6 caractères)', true);
 
@@ -141,6 +144,13 @@ class Multiplayer extends EventTarget {
         }).catch(() => {
             if (this.code === code) this._fail('Serveur multijoueur injoignable (vérifiez la connexion internet)');
         });
+    }
+
+    // Ferme la partie pour tous les joueurs (créateur seulement), puis la quitte
+    close() {
+        if (!this.code || !this.isHost) return;
+        if (this._joined) this._publish({ close: true });
+        this.leave();
     }
 
     leave() {
@@ -186,6 +196,7 @@ class Multiplayer extends EventTarget {
             x: crashes,
             k: crashed ? 1 : 0,
             l: lights ? (lights.land || lights.taxi ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
+            o: this.isHost ? 1 : undefined,
         };
         if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
     }
@@ -289,6 +300,15 @@ class Multiplayer extends EventTarget {
         // Notre propre message, renvoyé par le relais : mesure du délai
         if (id === this.id) {
             if (Number.isFinite(data.sent)) this.latency += ((now - data.sent) / 2000 - this.latency) * 0.2;
+            return;
+        }
+        // Le créateur ferme la partie : tout le monde la quitte
+        if (data.close) {
+            if (!this.players.get(id)?.owner) return;
+            const closed = this.code;
+            this.leave();
+            this._status(`La partie ${closed} a été fermée par son créateur`, true);
+            this.dispatchEvent(new CustomEvent('closed', { detail: { code: closed } }));
             return;
         }
         if (data.leave) {
