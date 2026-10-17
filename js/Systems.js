@@ -330,7 +330,13 @@ class Systems extends EventTarget {
         // Régime : moteur (gaz, mixture) ou hélice entraînée par le vent relatif / le démarreur
         const target = this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
             : starting && this.switches.masterBat && this.battery > 0.05 ? 280 : airspeed * 18;
-        this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
+        if (!this.running && !starting && this.rpm > target) {
+            // Moteur coupé : l'hélice ralentit sur sa lancée (frottements, compressions) et s'arrête en ~3,3 s depuis le
+            // ralenti, en même temps que le son d'arrêt (engine-cut.wav) ; en vol, elle reste entraînée par le vent
+            this.rpm = Math.max(target, this.rpm - (90 + 0.5 * this.rpm) * delta);
+        } else {
+            this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
+        }
     }
 
     // Pourquoi le moteur n'a pas démarré (message pour le pilote)
