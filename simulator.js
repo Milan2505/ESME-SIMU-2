@@ -9,7 +9,7 @@ import { StallWarning } from './js/StallWarning.js';
 import { EngineSound } from './js/EngineSound.js';
 import { SoundEffects } from './js/SoundEffects.js';
 import { Graphics } from './js/Graphics.js';
-import { Multiplayer } from './js/Multiplayer.js';
+import { Multiplayer, cleanRegistration } from './js/Multiplayer.js';
 import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
 import { Airport } from './js/Airport.js';
 import { NightSky } from './js/NightSky.js';
@@ -310,6 +310,7 @@ function updateView() {
 }
 
 function toggleView() {
+    if (inHangar) return;   // au hangar : toujours en vue extérieure
     chaseView = !chaseView;
     updateView();
     updateCamera(0, true);
@@ -505,8 +506,23 @@ const crashCamera = { position: new THREE.Vector3(), target: new THREE.Vector3()
 
 // Choix du départ en cours : pas encore d'avion dans le monde ; la caméra survole lentement l'aérodrome
 let choosingSpawn = false;
+// Au lancement, avant le choix du départ : l'avion présenté au hangar (voir openHangar)
+let inHangar = false;
 
 function updateCamera(delta, snap = false) {
+    if (inHangar) {
+        // Hangar : la caméra tourne lentement autour de l'avion, à hauteur d'homme (cercle de 11 m, dans les murs)
+        const angle = 2.2 + clock.elapsedTime * 0.06;
+        const p = aircraft.position;
+        camera.position.set(p.x + Math.cos(angle) * 11, p.y + 3, p.z + Math.sin(angle) * 11);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(p.x, p.y + 1, p.z);
+        if (camera.fov !== CAM_FOV) {
+            camera.fov = CAM_FOV;
+            camera.updateProjectionMatrix();
+        }
+        return;
+    }
     if (choosingSpawn) {
         // Vue en temps réel au-dessus de l'aérodrome (nord en haut), légèrement inclinée
         camera.position.set(200, 430, 520);
@@ -1054,7 +1070,7 @@ function updateSpawnMarkers() {
 // Case jaune sous le pointeur, dans la vue 3D
 const spawnRaycaster = new THREE.Raycaster();
 function spawnUnderPointer(event) {
-    if (!choosingSpawn) return null;
+    if (!choosingSpawn || inHangar) return null;
     const rect = view.getBoundingClientRect();
     const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     spawnRaycaster.setFromCamera(ndc, camera);
@@ -1148,6 +1164,7 @@ function openSpawnDialog() {
 }
 
 function closeSpawnDialog() {
+    leaveHangar();
     spawnDialog.hidden = true;
     choosingSpawn = false;
     spawnHover = null;
@@ -1184,7 +1201,46 @@ document.getElementById('depart').addEventListener('click', (event) => {
     openSpawnDialog();
     event.currentTarget.blur();
 });
-openSpawnDialog();
+// Hangar : au lancement, l'avion est présenté dans le hangar de l'aéro-club, éteint, portes ouvertes et plafonniers
+// allumés (l'avion est tout près des portes, voir Airport.updateHangars). À côté : livrée et immatriculation ; le
+// bouton passe au choix du départ. Comme pendant le choix du départ, rien ne bouge (ni physique, ni son, ni réseau)
+const hangarPanel = document.getElementById('hangar-panneau');
+let viewBeforeHangar = null;
+function openHangar() {
+    const hangar = airport.hangars[0];
+    inHangar = choosingSpawn = true;
+    hangarPanel.hidden = false;
+    systems.reset();
+    systems.coldAndDark();
+    controls.throttle = 0;
+    applyLights();
+    // Au milieu du hangar, nez vers les portes (ouest)
+    aircraft.position.set(hangar.x + 2, 0, hangar.z);
+    aircraft.rotation.set(0, Math.PI / 2, 0);
+    controls.placeOnGround();
+    aircraft.position.y += 0.05;   // sol du hangar, un peu au-dessus du terrain
+    aircraft.visible = true;
+    // Vue extérieure (en vue cabine, la carrosserie est masquée)
+    viewBeforeHangar = chaseView;
+    if (!chaseView) {
+        chaseView = true;
+        updateView();
+    }
+}
+function leaveHangar() {
+    if (!inHangar) return;
+    inHangar = false;
+    hangarPanel.hidden = true;
+    if (viewBeforeHangar === false) {
+        chaseView = false;
+        updateView();
+    }
+}
+document.getElementById('hangar-partir').addEventListener('click', () => {
+    leaveHangar();
+    openSpawnDialog();
+});
+openHangar();
 multiplayer.addEventListener('players', () => {
     const names = multiplayer.code ? [`${multiplayer.name} (vous)`, ...[...multiplayer.players.values()].map((p) => p.name)] : [];
     multiJoueurs.replaceChildren(...names.map((name) => {
@@ -1233,7 +1289,7 @@ updateModes();
 
 // Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs. Choisie dans le menu Profil
 // (solo et multijoueur) ou dans le panneau Multijoueur : les deux listes restent d'accord
-const liverySelects = ['profil-livree', 'multi-livree'].map((id) => document.getElementById(id)).filter(Boolean);
+const liverySelects = ['profil-livree', 'multi-livree', 'hangar-livree'].map((id) => document.getElementById(id)).filter(Boolean);
 for (const select of liverySelects) {
     for (const [id, livery] of Object.entries(LIVERIES)) select.add(new Option(livery.label, id));
 }
@@ -1634,7 +1690,11 @@ atc.addEventListener('broadcast', ({ message }) => multiplayer.sendAtc(message))
 multiplayer.addEventListener('atc', ({ detail }) => {
     atc.receiveRemote({ ...detail, name: multiplayer.players.get(detail.id)?.name ?? 'Pilote' });
 });
+const registrationInputs = ['hangar-immat', 'profil-immat'].map((id) => document.getElementById(id)).filter(Boolean);
+// Immatriculation choisie par le joueur (hangar, menu Profil), sinon celle tirée de son identifiant
 function registrationFor(id) {
+    const chosen = multiplayer.players.get(id)?.registration;
+    if (chosen) return chosen;
     let h = 7;
     for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -1643,12 +1703,40 @@ function registrationFor(id) {
 function updateRegistration() {
     // Voix de pilote attitrée : celle que les autres joueurs entendent (calculée d'après l'identifiant), la même toute la partie
     radioVoices.setPlayerId(multiplayer.code ? multiplayer.id : '');
-    atc.setRegistration(multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM');
+    const fallback = multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM';
+    atc.setRegistration(multiplayer.registration || fallback);
+    for (const input of registrationInputs) input.placeholder = fallback;
     if (aircraftModel) setRegistration(aircraftModel, atc.registration);   // peinte sur le fuselage
     document.getElementById('atc-indicatif').textContent = atc.registration;
 }
 multiplayer.addEventListener('status', updateRegistration);
-updateRegistration();
+// Champs d'immatriculation (hangar, menu Profil) : gardés d'accord, enregistrée dans le navigateur. Vide : celle par
+// défaut (F-HESM en solo, tirée de l'identifiant en multijoueur) ; invalide : refusée (champ en rouge)
+function setCustomRegistration(text, save = true) {
+    multiplayer.registration = cleanRegistration(text);
+    for (const input of registrationInputs) {
+        input.value = multiplayer.registration;
+        input.classList.remove('invalide');
+    }
+    updateRegistration();
+    if (save) try { localStorage.setItem('immatriculation', multiplayer.registration); } catch { /* stockage indisponible */ }
+}
+for (const input of registrationInputs) {
+    input.addEventListener('input', () => {
+        const text = input.value.toUpperCase();
+        if (input.value !== text) input.value = text;
+        input.classList.toggle('invalide', text !== '' && !cleanRegistration(text));
+    });
+    input.addEventListener('change', () => {
+        if (input.value.trim() === '' || cleanRegistration(input.value)) setCustomRegistration(input.value);
+    });
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') input.blur();
+    });
+}
+let savedRegistration = '';
+try { savedRegistration = localStorage.getItem('immatriculation') ?? ''; } catch { /* stockage indisponible */ }
+setCustomRegistration(savedRegistration, false);
 
 // Sous-titre de l'émission en cours ; la fenêtre s'ouvre d'elle-même quand un contrôleur attend un collationnement
 let atcSubtitleTimer = 0;

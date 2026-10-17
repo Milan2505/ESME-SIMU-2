@@ -973,7 +973,7 @@ img{margin: 0px;
 
   /* Choix du point de départ */
   /* Colonne intégrée à l'écran de vol, à gauche : la vue 3D de l'aérodrome reste visible */
-  #depart-dialog {
+  #depart-dialog, #hangar-panneau {
     grid-column: 4/15;
     grid-row: 10/17;
     align-self: start;
@@ -991,14 +991,14 @@ img{margin: 0px;
     border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   }
-  #depart-dialog[hidden] {
+  #depart-dialog[hidden], #hangar-panneau[hidden] {
     display: none;
   }
-  #simulator:fullscreen > #depart-dialog {
+  #simulator:fullscreen > #depart-dialog, #simulator:fullscreen > #hangar-panneau {
     grid-column: 1 / 7;
     grid-row: 2;
   }
-  #depart-dialog h3 {
+  #depart-dialog h3, #hangar-panneau h3 {
     margin-top: 0;
     color: black;
   }
@@ -1064,7 +1064,7 @@ img{margin: 0px;
     font-size: 11px;
     text-align: left;
   }
-  #depart-dialog h3 {
+  #depart-dialog h3, #hangar-panneau h3 {
     margin: 0 0 4px;
     font-size: 15px;
   }
@@ -1589,4 +1589,37 @@ img{margin: 0px;
 @keyframes tuto-clignote {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 210, 60, 0.9); }
   50% { box-shadow: 0 0 14px 4px rgba(255, 210, 60, 0.9); }
+}
+
+/* Hangar : réglages de l'avion avant le choix du départ */
+#hangar-panneau .profil-livree {
+  margin: 8px 0 4px;
+}
+.immat {
+  font: inherit;
+  font-weight: normal;
+  padding: 3px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+#hangar-partir {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  color: #fff;
+  background: #1c2c3c;
+  border: 2px solid black;
+  border-radius: 6px;
+}
+#hangar-partir:hover {
+  background: #2d4a66;
+}
+
+.immat.invalide {
+  color: #b00020;
+  outline: 2px solid #b00020;
 }

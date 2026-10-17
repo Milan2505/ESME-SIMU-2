@@ -102,7 +102,8 @@
 		<button class="menu-titre" aria-expanded="false">Profil <span class="menu-fleche">▾</span></button>
 		<div class="menu-contenu" hidden>
 			<label class="profil-livree">Livrée de l'avion <select id="profil-livree"></select></label>
-			<p class="menu-note">En multijoueur, les autres joueurs voient votre avion à ces couleurs.</p>
+			<label class="profil-livree">Immatriculation <input id="profil-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
+			<p class="menu-note">En multijoueur, les autres joueurs voient votre avion à ces couleurs. Les contrôleurs vous appellent par votre immatriculation.</p>
 		</div>
 	</div>
 	
@@ -227,6 +228,16 @@
 		<span>Fermez les autres onglets 3D ou lourds, puis rechargez la page.</span>
 		<button id="contexte-perdu-recharger">Recharger</button>
 	</div>
+	<!-- Hangar (au lancement, avant le choix du départ) : l'avion présenté au hangar, sa livrée et son immatriculation -->
+	<div id="hangar-panneau" hidden>
+		<h3>Votre avion</h3>
+		<p class="depart-aide">Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.</p>
+		<label class="profil-livree">Livrée <select id="hangar-livree"></select></label>
+		<label class="profil-livree">Immatriculation <input id="hangar-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
+		<p class="depart-aide">4 à 8 lettres ou chiffres, tiret possible (F-GABC, N172SP). Peinte sur l'avion ; les contrôleurs l'utilisent pour vous appeler.</p>
+		<button id="hangar-partir">Choisir le départ →</button>
+	</div>
+
 	<!-- Choix du point de départ (au lancement, et menu Commandes) -->
 	<div id="depart-dialog" hidden>
 		<h3>Où voulez-vous commencer ?</h3>

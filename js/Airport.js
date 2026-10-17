@@ -429,6 +429,7 @@ class Airport {
         this.vor = { ...VOR_STATION, y: 6.5 };
         // Contours pour la carte (MapView.js)
         this._hangars = [];          // portes animées et éclairage intérieur, voir updateHangars
+        this.hangars = HANGARS;      // { x, z, name } : centre de chaque hangar (portes côté ouest)
         this.mapShapes = [{ ...TAXIWAY, kind: 'asphalt' }, { ...APRON, kind: 'asphalt' }, { ...HANGAR_APRON, kind: 'asphalt' },
             ...TURN_PADS.map((pad) => ({ ...pad, kind: 'asphalt' })), { ...RUNWAY_RECT, kind: 'runway' }];
         this._papi = [];

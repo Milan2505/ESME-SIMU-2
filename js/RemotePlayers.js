@@ -205,6 +205,8 @@ class RemotePlayers extends EventTarget {
                 plane.livery = state.livery;
                 paintAircraft(plane.model, state.livery);
             }
+            // Immatriculation choisie ou changée en cours de partie
+            if (this.registrationFor) setRegistration(plane.model, this.registrationFor(id));
 
             // Crash : explosion à l'endroit de l'impact, l'avion disparaît jusqu'à ce que le joueur reparte
             if (state.crashes > plane.crashes) this.dispatchEvent(new CustomEvent('crash', {

@@ -49,6 +49,12 @@ function lightsFromBits(bits) {
     return { land: (bits & 1) !== 0, nav: (bits & 2) !== 0, beacon: (bits & 4) !== 0, strobe: (bits & 8) !== 0 };
 }
 
+// Immatriculation choisie par un joueur : lettres, chiffres et tirets, 4 à 8 caractères (F-GABC, N172SP…) ; '' si invalide
+function cleanRegistration(text) {
+    const r = String(text ?? '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 8);
+    return /^[A-Z0-9][A-Z0-9-]{2,6}[A-Z0-9]$/.test(r) ? r : '';
+}
+
 function cleanState(state) {
     const p = numbers(state?.p, 3), q = numbers(state?.q, 4), v = numbers(state?.v, 3);
     if (!p || !q || !v) return null;
@@ -57,6 +63,7 @@ function cleanState(state) {
         p, q, v,
         t: Math.min(1, Math.max(0, Number(state.t) || 0)),
         livery: isLivery(state.c) ? state.c : DEFAULT_LIVERY,
+        registration: cleanRegistration(state.g),                  // '' : celle tirée de son identifiant
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
         away: state.h === 1,                                       // page du simulateur cachée (hors ligne)
@@ -71,6 +78,7 @@ class Multiplayer extends EventTarget {
         this.id = randomString('abcdefghijklmnopqrstuvwxyz0123456789', 16);
         this.name = 'Pilote';
         this.livery = DEFAULT_LIVERY;
+        this.registration = '';       // immatriculation choisie ('' : celle tirée de l'identifiant)
         this.code = null;
         this.players = new Map();     // id -> { name, p, q, v, t, livery, crashes, crashed, receivedAt } (sans le joueur local)
         this.latency = 0.1;           // délai d'un message (s), ajouté à la prédiction des mouvements
@@ -174,6 +182,7 @@ class Multiplayer extends EventTarget {
             v: this._velocity.map(round),
             t: round(throttle),
             c: this.livery,
+            g: this.registration || undefined,
             x: crashes,
             k: crashed ? 1 : 0,
             l: lights ? (lights.land || lights.taxi ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
@@ -356,4 +365,4 @@ class Multiplayer extends EventTarget {
     }
 }
 
-export { Multiplayer };
+export { Multiplayer, cleanRegistration };
