@@ -1352,6 +1352,7 @@ function openMainMenu() {
     aircraft.visible = false;
     mainMenu.hidden = false;
     setMenuBar(false);
+    setPhotoMode(false);
     document.getElementById('mp-multi-detail').textContent = multiplayer.code
         ? `Partie ${multiplayer.code} en cours` : 'Partie privée entre amis';
     document.getElementById('mp-vol-libre').focus();
@@ -1402,6 +1403,21 @@ document.getElementById('menu-principal-bouton').addEventListener('click', (even
     openMainMenu();
     event.currentTarget.blur();
 });
+// Barre de menus (Échap) : « Mode photo » masque les infos de vol et les panneaux superposés ; le même bouton les
+// remet. La barre se referme pour dégager la vue (Échap la rouvre pour sortir du mode photo)
+const photoButton = document.getElementById('mode-photo');
+function setPhotoMode(on) {
+    simulatorElement.classList.toggle('photo', on);
+    photoButton.classList.toggle('actif', on);
+    photoButton.textContent = on ? 'Quitter le mode photo' : 'Mode photo';
+}
+photoButton.addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    const on = !simulatorElement.classList.contains('photo');
+    setPhotoMode(on);
+    if (on) setMenuBar(false);
+});
+
 // Barre de menus (Échap) : « Quitter la partie » arrête le vol (et quitte la partie multijoueur en cours), puis
 // revient au menu principal
 document.getElementById('quitter-partie').addEventListener('click', (event) => {
