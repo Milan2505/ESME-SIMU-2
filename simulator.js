@@ -2062,6 +2062,7 @@ updateOnlineList();
 const flightHud = new FlightHud(document.getElementById('hud'));
 function updateHud(delta) {
     const visible = chaseView && !choosingSpawn && !controls.isCrashed() && settings.values.hud !== false;
+    simulatorElement.classList.toggle('sans-hud', !visible);   // panneaux ILS : remis en bas sans les infos de vol
     const levels = controls.model.aircraft.flapLevels, flapMax = levels[levels.length - 1];
     const [trimMin, trimMax] = controls.getTrimLimits();
     flightHud.update(delta, visible, visible ? {

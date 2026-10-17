@@ -2336,3 +2336,30 @@ body:has(#simulator.jeu) {
 #simulator.photo > #atc-sous-titre {
   display: none !important;
 }
+
+/* Mode jeu : panneaux superposés placés hors des infos de vol (FlightHud.js : rose des caps en haut à gauche, groupes
+   de jauges en bas à gauche et en bas à droite, ~250 px de haut à l'échelle de l'écran 1280 × 720) */
+#simulator.jeu {
+  --hud-u: min(100vw / 1280, 100vh / 720);   /* longueur : 1 px de l'écran 1280 × 720 */
+}
+/* Fluidité (touche P) : en haut à droite */
+#simulator.jeu > #perf {
+  justify-self: end;
+}
+/* Indicateur VOR (touche O) : en bas, au centre, entre les deux groupes de jauges */
+#simulator.jeu > #vor-panneau {
+  justify-self: center;
+  margin: 12px;
+}
+/* ILS : bouton au-dessus des jauges de gauche, panneau au-dessus de celles de droite */
+#simulator.jeu > #ils-bouton {
+  margin-bottom: calc(var(--hud-u) * 250);
+}
+#simulator.jeu > #ils-panneau {
+  margin-bottom: calc(var(--hud-u) * 250);
+}
+/* Infos de vol masquées (réglage, vue cabine) : panneaux à leur place habituelle */
+#simulator.jeu.sans-hud > #ils-bouton,
+#simulator.jeu.sans-hud > #ils-panneau {
+  margin-bottom: 12px;
+}
