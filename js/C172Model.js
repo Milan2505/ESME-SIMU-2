@@ -13,8 +13,6 @@ import {
     RepeatWrapping,
     Shape,
     ShapeGeometry,
-    BufferGeometry,
-    Float32BufferAttribute,
     SRGBColorSpace,
     Vector3
 } from 'three';
@@ -146,7 +144,7 @@ function prepare(scene) {
         if (fixedAxis) {
             const middle = (lo + hi) / 2, half = (hi - lo) / 2;
             a = frontmost((p) => Math.abs(p[span] - middle) < 0.15 * half).clone();
-            // Charnière à mi-épaisseur du bord d'attaque (le bord arrondi, voir roundJunction, tourne sur lui-même)
+            // Charnière à mi-épaisseur du bord d'attaque (la gouverne braque autour de son milieu, sans déborder d'un côté)
             const edge = points.filter((p) => Math.abs(p[span] - a[span]) < 0.05 && p.z < a.z + 0.05).map((p) => p.y);
             a.y = (Math.min(...edge) + Math.max(...edge)) / 2;
             axis = fixedAxis.clone();
@@ -154,8 +152,8 @@ function prepare(scene) {
             const end = 0.1 * (hi - lo);
             a = frontmost((p) => p[span] < lo + end);
             const b = frontmost((p) => p[span] > hi - end);
-            // Gouverne de direction (symétrique) : charnière dans le plan de symétrie, pour que son nez arrondi (voir
-            // roundJunction) tourne sur lui-même
+            // Gouverne de direction (symétrique) : charnière dans le plan de symétrie, pour qu'elle braque autant des deux côtés
+            // sans sortir de la dérive
             if (span === 'y') a.x = b.x = 0;
             axis = b.clone().sub(a).normalize();
         }
@@ -177,13 +175,12 @@ function prepare(scene) {
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
     const fin = meshes.vstab001 ?? meshes['vstab.001'];   // (GLTFLoader retire les points des noms)
-    if (pivots.rudder && fin) roundJunction(fin, [{ mesh: meshes.rudder_1, offset: pivots.rudder.position }], 'x');
-    // Bas de la gouverne de direction, sous la dérive (derrière le cône de queue, sans pièce voisine) : bord d'attaque
-    // arrondi aussi
-    if (pivots.rudder) roundEdges(meshes.rudder_1, (p) => p.y < -0.385 && p.z < 5, pivots.rudder.position, 'x');
+    if (pivots.rudder && fin) paintJunction(fin, [{ mesh: meshes.rudder_1, offset: pivots.rudder.position }], 'x');
+    // Bas de la gouverne de direction, sous la dérive (derrière le cône de queue, sans pièce voisine) : chant repeint aussi
+    if (pivots.rudder) paintEdges(meshes.rudder_1, (p) => p.y < -0.385 && p.z < 5, pivots.rudder.position, 'x');
     if (pivots.elevator && meshes.hstab) {
         const offset = pivots.elevator.position;
-        roundJunction(meshes.hstab, ['elevatorleft', 'elevatorright'].filter((n) => meshes[n]).map((n) => ({ mesh: meshes[n], offset })), 'y');
+        paintJunction(meshes.hstab, ['elevatorleft', 'elevatorright'].filter((n) => meshes[n]).map((n) => ({ mesh: meshes[n], offset })), 'y');
     }
     // Compensateur (tab de trim) : dans la découpe du bord de fuite de la gouverne de profondeur droite ; il la suit et
     // braque en plus selon le trim. Charnière le long de son bord d'attaque, qui est en biais (plus en arrière côté
@@ -211,11 +208,11 @@ function prepare(scene) {
         group.add(tab);
         pivots.elevator.add(group);
         pivots.trimTab = group;
-        // Jonction compensateur / gouverne de profondeur droite arrondie comme les autres (sommets du compensateur
+        // Jonction compensateur / gouverne de profondeur droite repeinte comme les autres (sommets du compensateur
         // relatifs à sa charnière, elle-même dans le repère de la gouverne)
         if (meshes.elevatorright) {
             const elevator = pivots.elevator.position;
-            roundJunction(meshes.elevatorright, [{ mesh: tab, offset: elevator.clone().add(hinge) }], 'y', elevator);
+            paintJunction(meshes.elevatorright, [{ mesh: tab, offset: elevator.clone().add(hinge) }], 'y', elevator);
         }
     }
     // Feu de queue : sur le bord de fuite de la gouverne de direction, il la suit (l'anticollision, lui, est sur la
@@ -232,14 +229,14 @@ function prepare(scene) {
     return root;
 }
 
-// Jonctions entre une partie fixe et sa gouverne (dérive / direction, plan fixe / profondeur) : dans le modèle, les
-// chants des pièces (bord d'attaque de la gouverne, bord de fuite du plan fixe, découpes des cornes d'équilibrage) sont
-// des faces plates grises, à angles vifs, bien visibles dès que la gouverne braque. Chaque chant est creusé en arrondi
-// dans sa pièce : ses deux arêtes reculent vers l'intérieur (avec la peau qui y arrive) et un demi-cercle les relie,
-// son sommet à la place de l'ancienne face. thickness : axe de l'épaisseur ('x' pour la dérive, 'y' pour le plan
-// horizontal). moving : [{ mesh, offset }] (offset : position du pivot, les sommets d'une gouverne sont relatifs à
-// sa charnière)
-function roundJunction(fixed, moving, thickness, fixedOffset = new Vector3()) {
+// Jonctions entre une partie fixe et sa gouverne (dérive / direction, plan fixe / profondeur, compensateur) : dans le
+// modèle, les chants des pièces (bord d'attaque de la gouverne, bord de fuite du plan fixe, découpes des cornes
+// d'équilibrage) sont peints en gris foncé, bien visibles dès que la gouverne braque. Ils sont repeints comme la peau
+// voisine (même blanc, mêmes bandes), sans toucher à la forme. (Un arrondi calculé, essayé avant, déformait les pièces :
+// le modèle n'a pas assez de sommets pour être courbé proprement.) thickness : axe de l'épaisseur ('x' pour la dérive,
+// 'y' pour le plan horizontal). moving : [{ mesh, offset }] (offset : position du pivot, les sommets d'une gouverne
+// sont relatifs à sa charnière) ; fixedOffset : idem pour la partie fixe
+function paintJunction(fixed, moving, thickness, fixedOffset = new Vector3()) {
     const points = (mesh, shift) => {
         const p = mesh.geometry.attributes.position, list = [];
         for (let i = 0; i < p.count; i++) list.push(new Vector3(p.getX(i), p.getY(i), p.getZ(i)).add(shift));
@@ -248,110 +245,35 @@ function roundJunction(fixed, moving, thickness, fixedOffset = new Vector3()) {
     const near = (list) => (p) => list.some((q) => q.distanceToSquared(p) < 2.25e-4);
     const fixedPoints = points(fixed, fixedOffset);
     const movingPoints = moving.flatMap(({ mesh, offset }) => points(mesh, offset));
-    for (const { mesh, offset } of moving) roundEdges(mesh, near(fixedPoints), offset, thickness);
-    roundEdges(fixed, near(movingPoints), fixedOffset, thickness);
+    for (const { mesh, offset } of moving) paintEdges(mesh, near(fixedPoints), offset, thickness);
+    paintEdges(fixed, near(movingPoints), fixedOffset, thickness);
 }
 
-const EDGE_STEPS = 8;
-const EDGE_DEPTH = 0.9;     // recul des arêtes / demi-épaisseur
-
 // Chants (faces qui traversent l'épaisseur : normale presque perpendiculaire à l'axe thickness) dont tous les sommets
-// vérifient near. Chaque triangle de chant est redécoupé en bandes parallèles aux arêtes et courbé : t, position dans
-// l'épaisseur (0 : arête basse, 1 : arête haute) ; recul nul au milieu (t = 0,5), complet aux arêtes, en demi-cercle.
-// Les arêtes reculent d'autant, et avec elles les sommets de peau qui y arrivent (même position)
-function roundEdges(mesh, near, shift, thickness) {
-    const old = mesh.geometry, position = old.attributes.position, normal = old.attributes.normal, uv = old.attributes.uv;
-    if (old.index || !normal || !uv || Object.keys(old.attributes).length !== 3) return;
-    const axisIndex = ['x', 'y', 'z'].indexOf(thickness);
-    const key = (v) => `${Math.round(v.x * 1e4)} ${Math.round(v.y * 1e4)} ${Math.round(v.z * 1e4)}`;
-    const vertex = (i) => new Vector3().fromBufferAttribute(position, i);
-    // Triangles de chant : sommets classés bas / haut dans l'épaisseur, direction vers l'extérieur
-    const edges = [], removed = new Set();
-    const recess = new Map();   // clé d'un sommet d'arête -> { dir, half }
-    for (let t = 0; t < position.count; t += 3) {
-        const vertices = [vertex(t), vertex(t + 1), vertex(t + 2)];
-        const face = vertices[1].clone().sub(vertices[0]).cross(vertices[2].clone().sub(vertices[0])).normalize();
-        if (Math.abs(face.getComponent(axisIndex)) > 0.3) continue;
-        if (!vertices.every((v) => near(v.clone().add(shift)))) continue;
-        const sorted = vertices.map((p, j) => ({ p, j, c: p.getComponent(axisIndex) })).sort((a, b) => a.c - b.c);
-        const extent = sorted[2].c - sorted[0].c;
-        if (extent < 0.006) continue;
-        // Sommet seul d'un côté (apex) et paire de l'autre
-        const apexHigh = sorted[1].c - sorted[0].c < sorted[2].c - sorted[1].c;
-        const apex = apexHigh ? sorted[2] : sorted[0], pair = apexHigh ? [sorted[0], sorted[1]] : [sorted[1], sorted[2]];
-        const dir = new Vector3();
-        for (let i = t; i < t + 3; i++) dir.add(new Vector3().fromBufferAttribute(normal, i));
-        dir.setComponent(axisIndex, 0);
-        if (dir.lengthSq() < 1e-8) continue;
-        dir.normalize();
-        edges.push({ t, apex, pair, apexHigh, dir });
-        removed.add(t);
-        for (const { p } of sorted) {
-            const k = key(p), entry = recess.get(k) ?? { dir: new Vector3(), half: 0 };
-            entry.dir.add(dir);
-            entry.half = Math.max(entry.half, extent / 2);
-            recess.set(k, entry);
-        }
-    }
-    if (!edges.length) return;
-    for (const entry of recess.values()) entry.offset = entry.dir.normalize().multiplyScalar(-entry.half * EDGE_DEPTH);
-    const offsetOf = (p) => recess.get(key(p))?.offset ?? new Vector3();
-    const out = { position: [], normal: [], uv: [] };
-    // Faces gardées ; les sommets de peau sur une arête creusée reculent avec elle
-    for (let t = 0; t < position.count; t += 3) {
-        if (removed.has(t)) continue;
-        for (let i = t; i < t + 3; i++) {
-            const p = vertex(i).add(offsetOf(vertex(i)));
-            out.position.push(p.x, p.y, p.z);
-            out.normal.push(normal.getX(i), normal.getY(i), normal.getZ(i));
-            out.uv.push(uv.getX(i), uv.getY(i));
-        }
-    }
-    // Peinture des chants : celle du sommet de peau le plus proche
+// vérifient near : chaque triangle prend la peinture (coordonnées de texture) du sommet de peau le plus proche
+function paintEdges(mesh, near, shift, thickness) {
+    const geometry = mesh.geometry, position = geometry.attributes.position, normal = geometry.attributes.normal;
+    const uv = geometry.attributes.uv;
+    if (geometry.index || !normal || !uv) return;
+    const axis = ['x', 'y', 'z'].indexOf(thickness);
     const skin = [];
-    for (let i = 0; i < position.count; i++) if (Math.abs(normal.getComponent(i, axisIndex)) > 0.7) skin.push(i);
-    const axisVector = new Vector3().setComponent(axisIndex, 1);
-    for (const { apex, pair, apexHigh, dir } of edges) {
-        const middle = apex.p.clone().add(pair[0].p).add(pair[1].p).divideScalar(3);
+    for (let i = 0; i < position.count; i++) if (Math.abs(normal.getComponent(i, axis)) > 0.7) skin.push(i);
+    if (!skin.length) return;
+    const p = new Vector3(), q = new Vector3(), r = new Vector3(), v = new Vector3();
+    for (let t = 0; t < position.count; t += 3) {
+        p.fromBufferAttribute(position, t); q.fromBufferAttribute(position, t + 1); r.fromBufferAttribute(position, t + 2);
+        const face = q.clone().sub(p).cross(r.clone().sub(p)).normalize();
+        if (Math.abs(face.getComponent(axis)) > 0.3) continue;
+        if (![p, q, r].every((point) => near(point.clone().add(shift)))) continue;
+        const middle = p.clone().add(q).add(r).divideScalar(3);
         let nearest = skin[0], best = Infinity;
         for (const i of skin) {
-            const d = vertex(i).distanceToSquared(middle);
+            const d = v.fromBufferAttribute(position, i).distanceToSquared(middle);
             if (d < best) { best = d; nearest = i; }
         }
-        const u = nearest === undefined ? 0 : uv.getX(nearest), v = nearest === undefined ? 0 : uv.getY(nearest);
-        // Point à la fraction s du côté paire[j] -> apex : position plate, recul interpolé, courbure selon t
-        const at = (j, s) => {
-            const from = pair[j].p, flat = from.clone().lerp(apex.p, s);
-            const offset = offsetOf(from).clone().lerp(offsetOf(apex.p), s);
-            const t = apexHigh ? s : 1 - s;
-            const bend = 1 - Math.sin(Math.PI * t);
-            const n = axisVector.clone().multiplyScalar(-Math.cos(Math.PI * t))
-                .addScaledVector(dir, Math.sin(Math.PI * t) / EDGE_DEPTH).normalize();
-            return { p: flat.addScaledVector(offset, bend), n };
-        };
-        const push = (a, b, c) => {
-            // Ordre des sommets : face avant vers l'extérieur
-            const flip = b.p.clone().sub(a.p).cross(c.p.clone().sub(a.p)).dot(a.n.clone().add(b.n).add(c.n)) < 0;
-            for (const vtx of flip ? [a, c, b] : [a, b, c]) {
-                out.position.push(vtx.p.x, vtx.p.y, vtx.p.z);
-                out.normal.push(vtx.n.x, vtx.n.y, vtx.n.z);
-                out.uv.push(u, v);
-            }
-        };
-        for (let step = 0; step < EDGE_STEPS; step++) {
-            const s0 = step / EDGE_STEPS, s1 = (step + 1) / EDGE_STEPS;
-            const a0 = at(0, s0), b0 = at(1, s0), a1 = at(0, s1), b1 = at(1, s1);
-            push(a0, b0, a1);
-            if (step < EDGE_STEPS - 1) push(a1, b0, b1);   // dernière bande : un seul triangle (pointe sur l'apex)
-        }
+        for (let i = t; i < t + 3; i++) uv.setXY(i, uv.getX(nearest), uv.getY(nearest));
     }
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute(out.position, 3));
-    geometry.setAttribute('normal', new Float32BufferAttribute(out.normal, 3));
-    geometry.setAttribute('uv', new Float32BufferAttribute(out.uv, 2));
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-    mesh.geometry = geometry;
+    uv.needsUpdate = true;
 }
 
 // Nervures d'emplanture : coupe de l'aile (partie centrale et bord d'attaque) au ras du fuselage, de chaque côté,
