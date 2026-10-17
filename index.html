@@ -358,7 +358,11 @@
 			<button id="multi-fermer">Fermer</button>
 		</div>
 	</dialog>
-	
+
+	<script>
+		// Désactive le menu contextuel du navigateur (clic droit) partout dans le simulateur
+		document.addEventListener('contextmenu', (e) => e.preventDefault());
+	</script>
 	<script type="module" src="simulator.js"></script>
 </body>
 </html>
