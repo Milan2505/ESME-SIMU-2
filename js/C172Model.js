@@ -178,6 +178,9 @@ function prepare(scene) {
     pivot('rudder', ['rudder_1'], 'y');
     const fin = meshes.vstab001 ?? meshes['vstab.001'];   // (GLTFLoader retire les points des noms)
     if (pivots.rudder && fin) roundJunction(fin, [{ mesh: meshes.rudder_1, offset: pivots.rudder.position }], 'x');
+    // Bas de la gouverne de direction, sous la dérive (derrière le cône de queue, sans pièce voisine) : bord d'attaque
+    // arrondi aussi
+    if (pivots.rudder) roundEdges(meshes.rudder_1, (p) => p.y < -0.385 && p.z < 5, pivots.rudder.position, 'x');
     if (pivots.elevator && meshes.hstab) {
         const offset = pivots.elevator.position;
         roundJunction(meshes.hstab, ['elevatorleft', 'elevatorright'].filter((n) => meshes[n]).map((n) => ({ mesh: meshes[n], offset })), 'y');
@@ -208,6 +211,12 @@ function prepare(scene) {
         group.add(tab);
         pivots.elevator.add(group);
         pivots.trimTab = group;
+        // Jonction compensateur / gouverne de profondeur droite arrondie comme les autres (sommets du compensateur
+        // relatifs à sa charnière, elle-même dans le repère de la gouverne)
+        if (meshes.elevatorright) {
+            const elevator = pivots.elevator.position;
+            roundJunction(meshes.elevatorright, [{ mesh: tab, offset: elevator.clone().add(hinge) }], 'y', elevator);
+        }
     }
     // Feu de queue : sur le bord de fuite de la gouverne de direction, il la suit (l'anticollision, lui, est sur la
     // partie fixe de la dérive)
@@ -230,17 +239,17 @@ function prepare(scene) {
 // son sommet à la place de l'ancienne face. thickness : axe de l'épaisseur ('x' pour la dérive, 'y' pour le plan
 // horizontal). moving : [{ mesh, offset }] (offset : position du pivot, les sommets d'une gouverne sont relatifs à
 // sa charnière)
-function roundJunction(fixed, moving, thickness) {
+function roundJunction(fixed, moving, thickness, fixedOffset = new Vector3()) {
     const points = (mesh, shift) => {
         const p = mesh.geometry.attributes.position, list = [];
         for (let i = 0; i < p.count; i++) list.push(new Vector3(p.getX(i), p.getY(i), p.getZ(i)).add(shift));
         return list;
     };
     const near = (list) => (p) => list.some((q) => q.distanceToSquared(p) < 2.25e-4);
-    const fixedPoints = points(fixed, new Vector3());
+    const fixedPoints = points(fixed, fixedOffset);
     const movingPoints = moving.flatMap(({ mesh, offset }) => points(mesh, offset));
     for (const { mesh, offset } of moving) roundEdges(mesh, near(fixedPoints), offset, thickness);
-    roundEdges(fixed, near(movingPoints), new Vector3(), thickness);
+    roundEdges(fixed, near(movingPoints), fixedOffset, thickness);
 }
 
 const EDGE_STEPS = 8;

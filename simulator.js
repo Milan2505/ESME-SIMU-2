@@ -2160,7 +2160,7 @@ function updateSounds() {
     const engineMask = THREE.MathUtils.clamp(1 - systems.rpm / 700, 0.06, 1);
     const ambience = onGround ? engineMask : 0;
     const day = 1 - (weather?.night ?? 0);
-    sounds.setLoop('birds', ambience * day * (1 - rain) * (chaseView ? 0.1 : 0.02));
+    sounds.setLoop('birds', ambience * day * (1 - rain) * (chaseView ? 0.05 : 0.01));
     sounds.setLoop('breeze', ambience * (0.4 + 0.6 * (weather?.wind ?? 0.3)) * (chaseView ? 0.15 : 0.03));
     // Feu anticollision : petit tic à chaque allumage (double éclat, en phase avec AircraftLights), rien à l'extinction.
     // Entendu de l'extérieur seulement
