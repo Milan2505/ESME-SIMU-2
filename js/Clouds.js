@@ -26,6 +26,7 @@ const vertexShader = /* glsl */`
     attribute float aLod;
     uniform float uCoverage;
     uniform float uDetail;
+    uniform float uWrap;
     varying vec2 vUv;
     varying float vShade;
     varying float vAlpha;
@@ -54,6 +55,8 @@ const vertexShader = /* glsl */`
         // Les bouffées s'effacent quand on passe au travers, et selon la couverture nuageuse
         float dist = -mvPosition.z;
         vAlpha = smoothstep(size * 0.15, size * 0.8, dist);
+        // Nuages qui suivent la caméra (voir _sort) : effacés vers le bord de leur zone, avant d'y être replacés
+        vAlpha *= 1.0 - smoothstep(uWrap * 0.85, uWrap, distance(aOffset.xz, cameraPosition.xz));
 
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -91,12 +94,15 @@ class Clouds {
     constructor({
         count = 70,           // nombre de nuages pour une couverture de 1
         maxCoverage = 4,      // couverture maximale (météo Jour à 100 % : 4 fois plus de nuages)
-        radius = 2800,        // zone couverte autour du centre
+        radius = 2800,        // demi-côté de la zone de nuages, centrée sur la caméra (au-delà du brouillard)
         minBase = 180,        // altitude de la base des nuages
         maxBase = 360,
         minWidth = 120,
         maxWidth = 320,
     } = {}) {
+        // Les nuages couvrent toute la carte sans être plus nombreux : un carré de 2 × radius, répété comme un pavage ;
+        // chaque nuage est dessiné dans la copie la plus proche de la caméra
+        this.radius = radius;
         this.clouds = [];
         const puffs = [];
 
@@ -131,6 +137,7 @@ class Clouds {
                     rotation: Math.random() * Math.PI * 2,
                     rank: cloud.rank,
                     lod: Math.random(),   // gardée si lod < détail (réglage de qualité)
+                    cloud,
                 });
             }
         }
@@ -158,6 +165,7 @@ class Clouds {
                 uBrightness: { value: 1 },   // > 1 avec le tone mapping (rendu HDR)
                 uCoverage: { value: 0.5 },
                 uDetail: { value: 1 },       // part des bouffées dessinées (réglage de qualité)
+                uWrap: { value: radius },
             }]),
             vertexShader,
             fragmentShader,
@@ -210,11 +218,12 @@ class Clouds {
         if (!this.mesh.visible) return 0; // nuages désactivés : pas de "jour blanc"
         const coverage = this.material.uniforms.uCoverage.value;
         let density = 0;
+        const span = 2 * this.radius;
         for (const c of this.clouds) {
             if (c.rank > coverage) continue;
-            const dx = (position.x - c.x) / c.rx;
+            const dx = (position.x - c.x - Math.round((position.x - c.x) / span) * span) / c.rx;
             const dy = (position.y - c.y - c.ry * 0.4) / (c.ry * 0.7);
-            const dz = (position.z - c.z) / c.rz;
+            const dz = (position.z - c.z - Math.round((position.z - c.z) / span) * span) / c.rz;
             density = Math.max(density, Math.min(1, (1 - (dx * dx + dy * dy + dz * dz)) * 2));
         }
         return density;
@@ -236,12 +245,18 @@ class Clouds {
     _sort(cx, cy, cz) {
         const { puffs, _order: order, _distances: distances } = this;
         this._camera = { x: cx, y: cy, z: cz };
+        // Copie de chaque nuage la plus proche de la caméra (décalage d'un nombre entier de côtés du pavage)
+        const span = 2 * this.radius;
+        for (const c of this.clouds) {
+            c.sx = Math.round((cx - c.x) / span) * span;
+            c.sz = Math.round((cz - c.z) / span) * span;
+        }
         // Seules les bouffées visibles (couverture, qualité) sont triées et dessinées
         order.length = 0;
         for (let i = 0; i < puffs.length; i++) {
             const p = puffs[i];
             if (p.rank > this._coverage || p.lod > this._detail) continue;
-            distances[i] = (p.x - cx) ** 2 + (p.y - cy) ** 2 + (p.z - cz) ** 2;
+            distances[i] = (p.x + p.cloud.sx - cx) ** 2 + (p.y - cy) ** 2 + (p.z + p.cloud.sz - cz) ** 2;
             order.push(i);
         }
         this.mesh.geometry.instanceCount = order.length;
@@ -250,7 +265,7 @@ class Clouds {
         const attr = this.mesh.geometry.attributes;
         for (let i = 0; i < order.length; i++) {
             const p = puffs[order[i]];
-            attr.aOffset.array.set([p.x, p.y, p.z], i * 3);
+            attr.aOffset.array.set([p.x + p.cloud.sx, p.y, p.z + p.cloud.sz], i * 3);
             attr.aSize.array[i] = p.size;
             attr.aShade.array[i] = p.shade;
             attr.aTile.array[i] = p.tile;
