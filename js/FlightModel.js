@@ -371,6 +371,10 @@ class FlightModel extends EventDispatcher {
 		let pathPitchRate = 0;
 		if ( this._prevAir ) pathPitchRate = MathUtils.clamp( _pathAxis.crossVectors( this._prevAir, _air ).dot( _right ) / ( speed * speed ) / dt, - 1, 1 );
 		( this._prevAir ??= new Vector3() ).copy( _air );
+		// Aile décrochée : le nez ne suit plus qu'à moitié la trajectoire qui plonge (l'avion s'enfonce plus vite que le
+		// nez ne tombe), l'incidence reste forte : manche tenu en arrière, l'avion reste décroché (il s'enfonce, le nez
+		// oscille) jusqu'à ce que le pilote rende la main
+		if ( this.stalled ) pathPitchRate *= 0.5;
 		let pitchRate = MathUtils.clamp( ( pathPitchRate + A.pitchStability * cgStability * ( alphaTarget - alpha ) ) * stability, - A.pitchRateMax, A.pitchRateMax );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		// Envol avec du vent de travers : au sol, les roues tenaient l'axe de piste ; en l'air, la dérive aligne le nez
@@ -399,10 +403,11 @@ class FlightModel extends EventDispatcher {
 			// d'abord en cabré (l'aile décroche nez haut), puis le nez passe sous l'horizon
 			this._stallBreak -= dt;
 			const k = Math.min( 1, this._stallBreak / ( A.stallBreakTime * 0.4 ) );   // s'atténue à la fin
-			pitchRate = Math.min( pitchRate, 0 ) - A.stallPitchDown * k;
+			// (manche tenu en arrière : la profondeur freine l'abattée, le nez tombe moins et l'aile reste décrochée)
+			pitchRate = Math.min( pitchRate, 0 ) - A.stallPitchDown * k * ( 1 - 0.6 * Math.max( 0, input.pitch ) );
 		}
-		// Une aile tombe : à peine moteur réduit (le 172 est docile), nettement plein gaz
-		if ( this.stalled ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
+		// Une aile tombe, pendant l'abattée : à peine moteur réduit (le 172 est docile), nettement plein gaz
+		if ( this.stalled && this._stallBreak > 0 ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
 		const response = Math.min( 1, A.angularResponse * dt );
 		const w = this._angularVelocity;
 		w.x += ( pitchRate - w.x ) * response;

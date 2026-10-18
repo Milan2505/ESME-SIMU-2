@@ -52,8 +52,8 @@ const CESSNA_172 = {
 	angularResponse: 5,               // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 	stallPitchDown: 0.32,             // abattée (rad/s) : le nez, lourd (moteur à l'avant), tombe de ~20° au décrochage
 	stallBreakTime: 1.4,              // durée de l'abattée (s) : la profondeur ne retient pas le nez pendant ce temps
-	stallWingDrop: 0.45,              // une aile tombe au décrochage (rad/s au plus, plein gaz ; moteur réduit, bien moins)
-	stallLift: 0.72,                  // aile décrochée : portance ramenée à 72 % du maximum d'un coup (le « décrochage »)
+	stallWingDrop: 0.35,              // une aile tombe au décrochage (rad/s au plus, plein gaz ; moteur réduit, bien moins)
+	stallLift: 0.8,                   // aile décrochée : portance ramenée à 80 % du maximum d'un coup (le « décrochage » : l'avion s'enfonce)
 	stallRecovery: deg( 3 ),          // l'aile ne porte de nouveau qu'à 3° sous l'incidence de décrochage
 	lowSpeedStability: 0.12,          // stabilité qui reste à très basse vitesse (part de la pleine stabilité)
 	// Profondeur : la position du manche fixe l'incidence visée, par rapport à celle du trim
