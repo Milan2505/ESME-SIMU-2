@@ -74,7 +74,7 @@ class Terrain {
                 const angle = a / 48 * Math.PI * 2, rim = LAKE_RIM * lake.radius * this._lakeWobble(lake, angle);
                 low = Math.min(low, this._baseHeight(lake.x + Math.cos(angle) * rim, lake.z + Math.sin(angle) * rim));
             }
-            lake.level = low - 0.6;
+            lake.level = low - 1.6;   // (berge à 1,5 m au-dessus de l'eau au plus, sous le sol de la rive)
         }
 
         this.size = size;
@@ -256,13 +256,15 @@ class Terrain {
     groundAt(x, z, lake = this.lakeAt(x, z)) {
         const base = this._baseHeight(x, z);
         if (!lake) return base;
-        // Cuvette : fond sous l'eau jusqu'à la rive (d = 1), berge jusqu'à 1,25, puis sol relevé au-dessus de l'eau
+        // Cuvette. s : distance à la rive (m, positive dehors). Pente douce de part et d'autre de la ligne d'eau (8 à 10 %) :
+        // le maillage (une maille de ~16 m) la suit sans marches ; fond plat à LAKE_DEPTH, berge rejoignant le relief
         const dx = x - lake.x, dz = z - lake.z;
-        const d = Math.hypot(dx, dz) / (lake.radius * this._lakeWobble(lake, Math.atan2(dz, dx)));
-        const shore = lake.level - 0.5;
-        if (d < 1) return shore - LAKE_DEPTH * (1 - d * d);
-        const dry = Math.max(base, lake.level + 0.5);
-        return d < 1.25 ? shore + (dry - shore) * smoothstep(1, 1.25, d) : dry;
+        const radius = lake.radius * this._lakeWobble(lake, Math.atan2(dz, dx));
+        const s = Math.hypot(dx, dz) - radius;
+        if (s < 0) return lake.level - Math.min(LAKE_DEPTH, -s * 0.08);
+        const bank = lake.level + Math.min(s * 0.1, 1.5);
+        const dry = Math.max(base, lake.level + 1.5);
+        return bank + (dry - bank) * smoothstep(0, 0.35 * radius, s);
     }
 
     // Plans d'eau de tous les lacs (un seul maillage) : bord sous la berge relevée (1,3 × le rayon)
@@ -283,12 +285,61 @@ class Terrain {
         geometry.setAttribute('normal', new BufferAttribute(new Float32Array(positions.length).map((v, i) => (i % 3 === 1 ? 1 : 0)), 3));
         geometry.setIndex(indices);
         geometry.computeBoundingSphere();
-        // Eau calme : sombre, très lisse (reflet du soleil), ombres reçues
-        const mesh = new Mesh(geometry, new MeshStandardMaterial({ color: 0x2c5a68, roughness: 0.12, metalness: 0.25 }));
+        const mesh = new Mesh(geometry, this._waterMaterial());
         mesh.name = 'lacs';
         mesh.receiveShadow = true;
         mesh.matrixAutoUpdate = false;
         return mesh;
+    }
+
+    // Eau : bleu profond vue de haut, reflet du ciel à l'horizon (Fresnel, couleur du brouillard = horizon), petites
+    // vagues qui animent le reflet du soleil (voir animate)
+    _waterMaterial() {
+        // (repoussée un peu en profondeur : près de la rive, le sol passe devant sans scintiller)
+        const material = new MeshStandardMaterial({ color: 0x173f4d, roughness: 0.06, metalness: 0,
+            polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
+        const time = { value: 0 };
+        this._waterTime = time;
+        material.onBeforeCompile = (shader) => {
+            shader.uniforms.uWaterTime = time;
+            shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', `#include <common>
+                    varying vec3 vWaterPos;`)
+                .replace('#include <begin_vertex>', `#include <begin_vertex>
+                    vWaterPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
+            shader.fragmentShader = shader.fragmentShader
+                .replace('#include <common>', `#include <common>
+                    uniform float uWaterTime;
+                    varying vec3 vWaterPos;
+                    // Pente d'une vague : direction, longueur d'onde (m), vitesse, amplitude de pente
+                    vec2 wave(vec2 p, vec2 dir, float length, float speed, float slope) {
+                        float k = 6.2832 / length;
+                        return dir * slope * cos(dot(dir, p) * k + uWaterTime * speed);
+                    }`)
+                .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+                    vec2 waterSlope = wave(vWaterPos.xz, vec2(0.8, 0.6), 9.0, 1.7, 0.035)
+                        + wave(vWaterPos.xz, vec2(-0.5, 0.87), 5.3, 2.3, 0.03)
+                        + wave(vWaterPos.xz, vec2(0.17, -0.98), 3.1, 3.1, 0.022)
+                        + wave(vWaterPos.xz, vec2(-0.94, -0.34), 17.0, 1.1, 0.03);
+                    vec3 waterNormal = normalize(vec3(-waterSlope.x, 1.0, -waterSlope.y));
+                    normal = normalize((viewMatrix * vec4(waterNormal, 0.0)).xyz);`)
+                .replace('#include <opaque_fragment>', `
+                    vec3 waterView = normalize(cameraPosition - vWaterPos);
+                    float fresnel = 0.03 + 0.97 * pow(1.0 - clamp(dot(waterNormal, waterView), 0.0, 1.0), 5.0);
+                    #ifdef USE_FOG
+                        vec3 waterSky = fogColor;
+                    #else
+                        vec3 waterSky = vec3(0.62, 0.72, 0.8);
+                    #endif
+                    outgoingLight = mix(outgoingLight, waterSky * 0.9, clamp(fresnel, 0.0, 0.9));
+                    #include <opaque_fragment>`);
+        };
+        return material;
+    }
+
+    // Vagues des lacs (time : s)
+    animate(time) {
+        if (this._waterTime) this._waterTime.value = time;
     }
 
     // Bord irrégulier d'un lac : rayon relatif selon la direction (ne dépend que de l'angle)

@@ -2766,6 +2766,7 @@ renderer.setAnimationLoop((time)=>{
     airport.updateHangars( delta, aircraft.position );
     decorShadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
     scenery.update( camera.position, clock.elapsedTime, decorShadowCenter );
+    terrain.animate( clock.elapsedTime );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();
