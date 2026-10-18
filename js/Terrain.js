@@ -29,7 +29,7 @@ const SKIRT = 25;
 const BUILD_PER_FRAME = 3;   // dalles (re)construites au plus par image : pas d'à-coup en vol
 // Lacs : rive à 1,4 × le rayon au plus (sol relevé au-dessus de l'eau entre 1,25 et 1,4) ; profondeur au centre (m)
 const LAKE_RIM = 1.4;
-const LAKE_DEPTH = 4;
+const LAKE_DEPTH = 8;   // (assez creux : vu de loin, la précision de profondeur ne confond pas le fond et l'eau)
 
 function smoothstep(edge0, edge1, x) {
     const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -261,7 +261,7 @@ class Terrain {
         const dx = x - lake.x, dz = z - lake.z;
         const radius = lake.radius * this._lakeWobble(lake, Math.atan2(dz, dx));
         const s = Math.hypot(dx, dz) - radius;
-        if (s < 0) return lake.level - Math.min(LAKE_DEPTH, -s * 0.08);
+        if (s < 0) return lake.level - Math.min(LAKE_DEPTH, 0.3 + -s * 0.2);
         const bank = lake.level + Math.min(s * 0.1, 1.5);
         const dry = Math.max(base, lake.level + 1.5);
         return bank + (dry - bank) * smoothstep(0, 0.35 * radius, s);
@@ -270,18 +270,22 @@ class Terrain {
     // Plans d'eau de tous les lacs (un seul maillage) : bord sous la berge relevée (1,3 × le rayon)
     _createWater() {
         if (!this.lakes.length) return null;
-        const SIDES = 64, positions = [], indices = [];
+        // aShore : 0 au centre, 1 au bord du disque (la rive est à 1 / 1,3 : voir _waterMaterial, fondu avant la rive)
+        const SIDES = 64, positions = [], shore = [], indices = [];
         for (const lake of this.lakes) {
             const center = positions.length / 3;
             positions.push(lake.x, lake.level, lake.z);
+            shore.push(0);
             for (let a = 0; a < SIDES; a++) {
                 const angle = a / SIDES * Math.PI * 2, rim = 1.3 * lake.radius * this._lakeWobble(lake, angle);
                 positions.push(lake.x + Math.cos(angle) * rim, lake.level, lake.z + Math.sin(angle) * rim);
+                shore.push(1);
                 indices.push(center, center + 1 + (a + 1) % SIDES, center + 1 + a);
             }
         }
         const geometry = new BufferGeometry();
         geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+        geometry.setAttribute('aShore', new BufferAttribute(new Float32Array(shore), 1));
         geometry.setAttribute('normal', new BufferAttribute(new Float32Array(positions.length).map((v, i) => (i % 3 === 1 ? 1 : 0)), 3));
         geometry.setIndex(indices);
         geometry.computeBoundingSphere();
@@ -295,21 +299,28 @@ class Terrain {
     // Eau : bleu profond vue de haut, reflet du ciel à l'horizon (Fresnel, couleur du brouillard = horizon), petites
     // vagues qui animent le reflet du soleil (voir animate)
     _waterMaterial() {
-        // (repoussée un peu en profondeur : près de la rive, le sol passe devant sans scintiller)
-        const material = new MeshStandardMaterial({ color: 0x173f4d, roughness: 0.06, metalness: 0,
-            polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
+        // Rive : l'eau s'efface en transparence juste avant (fond peu profond visible). Sans ce fondu, vu de loin, l'eau et
+        // le sol presque au même niveau se disputaient l'écran (bord qui tremble) et le bord net crénelait. Repoussée un
+        // peu en profondeur : près de la rive, le sol passe devant
+        const material = new MeshStandardMaterial({ color: 0x173f4d, roughness: 0.06, metalness: 0, transparent: true,
+            polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 4 });
+        // (pas de « factor » : il grandit avec l'angle de vue ; de loin, l'eau passait derrière le fond du lac et disparaissait)
         const time = { value: 0 };
         this._waterTime = time;
         material.onBeforeCompile = (shader) => {
             shader.uniforms.uWaterTime = time;
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', `#include <common>
+                    attribute float aShore;
+                    varying float vShore;
                     varying vec3 vWaterPos;`)
                 .replace('#include <begin_vertex>', `#include <begin_vertex>
+                    vShore = aShore;
                     vWaterPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
             shader.fragmentShader = shader.fragmentShader
                 .replace('#include <common>', `#include <common>
                     uniform float uWaterTime;
+                    varying float vShore;
                     varying vec3 vWaterPos;
                     // Pente d'une vague : direction, longueur d'onde (m), vitesse, amplitude de pente
                     // Taille d'un pixel sur l'eau (m) : une vague plus courte que ~3 pixels est effacée (sinon, de loin, elle
@@ -317,13 +328,13 @@ class Terrain {
                     float waterFoot;
                     vec2 wave(vec2 p, vec2 dir, float length, float speed, float slope) {
                         float k = 6.2832 / length;
-                        float fade = 1.0 - smoothstep(length * 0.08, length * 0.3, waterFoot);
+                        float fade = 1.0 - smoothstep(length * 0.04, length * 0.18, waterFoot);
                         return dir * slope * fade * cos(dot(dir, p) * k + uWaterTime * speed);
                     }`)
                 // De loin, l'eau devient moins lisse : le reflet du soleil s'étale au lieu de scintiller
                 .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
                     waterFoot = max(length(dFdx(vWaterPos.xz)), length(dFdy(vWaterPos.xz)));
-                    roughnessFactor = mix(roughnessFactor, 0.4, smoothstep(0.15, 2.0, waterFoot));`)
+                    roughnessFactor = mix(roughnessFactor, 0.5, smoothstep(0.08, 1.2, waterFoot));`)
                 .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
                     vec2 waterSlope = wave(vWaterPos.xz, vec2(0.8, 0.6), 9.0, 1.7, 0.035)
                         + wave(vWaterPos.xz, vec2(-0.5, 0.87), 5.3, 2.3, 0.03)
@@ -340,6 +351,7 @@ class Terrain {
                         vec3 waterSky = vec3(0.62, 0.72, 0.8);
                     #endif
                     outgoingLight = mix(outgoingLight, waterSky * 0.9, clamp(fresnel, 0.0, 0.9));
+                    diffuseColor.a *= 1.0 - smoothstep(0.7, 0.765, vShore);
                     #include <opaque_fragment>`);
         };
         return material;
