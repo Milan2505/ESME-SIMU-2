@@ -62,6 +62,8 @@ function cleanState(state) {
         name: String(state.name ?? 'Pilote').slice(0, 20),
         p, q, v,
         t: Math.min(1, Math.max(0, Number(state.t) || 0)),
+        // Régime du moteur (tr/min) ; absent (ancienne version du jeu) : null, déduit des gaz
+        rpm: Number.isFinite(state.r) ? Math.min(3000, Math.max(0, state.r)) : null,
         livery: isLivery(state.c) ? state.c : DEFAULT_LIVERY,
         registration: cleanRegistration(state.g),                  // '' : celle tirée de son identifiant
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
@@ -169,7 +171,7 @@ class Multiplayer extends EventTarget {
     }
 
     // À appeler à chaque image avec l'objet piloté, la position des gaz et l'état de crash
-    update(object, throttle, { crashed = false, crashes = 0, lights = null } = {}) {
+    update(object, throttle, { crashed = false, crashes = 0, lights = null, rpm = null } = {}) {
         if (!this.code) return;
         const now = performance.now();
 
@@ -191,6 +193,7 @@ class Multiplayer extends EventTarget {
             q: object.quaternion.toArray().map(round),
             v: this._velocity.map(round),
             t: round(throttle),
+            r: rpm === null ? undefined : Math.round(rpm / 10) * 10,
             c: this.livery,
             g: this.registration || undefined,
             x: crashes,

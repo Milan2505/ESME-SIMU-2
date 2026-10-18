@@ -79,7 +79,8 @@ class RemoteEngine {
     }
 
     // position : Vector3 (monde) ; volume : 0 -> 1 ; delta : temps depuis la dernière image (s)
-    update(position, throttle, volume, delta) {
+    // rpm : régime réel (tr/min) s'il est connu (sinon déduit des gaz) ; moteur arrêté ou presque : silence
+    update(position, throttle, volume, delta, rpm = null) {
         const now = this._audio.currentTime;
         const listener = this._listener;
         this._panner.positionX.setTargetAtTime(position.x, now, 0.05);
@@ -94,7 +95,8 @@ class RemoteEngine {
             doppler = Math.min(1.3, Math.max(0.75, SOUND_SPEED / (SOUND_SPEED - Math.max(-150, Math.min(150, closing)))));
         }
         this._distance = distance;
-        mixLayers(this._loops, rpmFromThrottle(throttle), volume, now, doppler);
+        const running = rpm === null ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 450));
+        mixLayers(this._loops, rpm === null ? rpmFromThrottle(throttle) : rpm, volume * running, now, doppler);
     }
 
     dispose() {

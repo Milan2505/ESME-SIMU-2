@@ -2739,7 +2739,7 @@ renderer.setAnimationLoop((time)=>{
     updateSounds();
     updateLoad();
     updateHud(delta);
-    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
+    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights, rpm: systems.rpm } );
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
