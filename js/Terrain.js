@@ -27,6 +27,9 @@ const LOD_DISTANCES = [1600, 3200, 6000];
 const MIN_SEGMENTS = 4;
 const SKIRT = 25;
 const BUILD_PER_FRAME = 3;   // dalles (re)construites au plus par image : pas d'à-coup en vol
+// Lacs : rive à 1,4 × le rayon au plus (sol relevé au-dessus de l'eau entre 1,25 et 1,4) ; profondeur au centre (m)
+const LAKE_RIM = 1.4;
+const LAKE_DEPTH = 4;
 
 function smoothstep(edge0, edge1, x) {
     const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -57,10 +60,22 @@ class Terrain {
         // dans l'axe de chaque piste, pour décoller et atterrir face au relief dégagé
         clearings = [],       // [{ x, z, rx, rz }]
         limit = () => Infinity, // hauteur maximale du relief en (x, z) : couloirs d'approche (voir Airport.terrainLimit)
-        dips = () => 1,       // facteur appliqué aux creux (hauteurs négatives) : 0 = pas de creux (abords des aérodromes)
+        dips = () => 1,       // abords des aérodromes : 0 = ni creux ni ondulations (pas de talus autour de la piste), 1 = loin
+        rolling = 30,         // m : ondulations douces des fonds de vallée (grandes collines arrondies)
+        lakes = [],           // [{ x, z, radius }] : cuvette et plan d'eau (bord irrégulier)
     } = {}) {
         this.noise = new ImprovedNoise();
-        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearings, limit, dips });
+        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearings, limit, dips, rolling });
+        // Lacs : niveau de l'eau sous le point le plus bas de leur rive (le sol remonte tout autour)
+        this.lakes = lakes.map((lake, i) => ({ ...lake, seed: 11.3 + i * 4.7 }));
+        for (const lake of this.lakes) {
+            let low = Infinity;
+            for (let a = 0; a < 48; a++) {
+                const angle = a / 48 * Math.PI * 2, rim = LAKE_RIM * lake.radius * this._lakeWobble(lake, angle);
+                low = Math.min(low, this._baseHeight(lake.x + Math.cos(angle) * rim, lake.z + Math.sin(angle) * rim));
+            }
+            lake.level = low - 0.6;
+        }
 
         this.size = size;
         this.material = this._createMaterial(renderer, { snowHeight, tile, grassTint });
@@ -84,6 +99,8 @@ class Terrain {
             set: (value) => { for (const t of this._tiles) t.mesh.receiveShadow = value; },
             get: () => true,
         });
+        this.water = this._createWater();
+        if (this.water) this.mesh.add(this.water);
         this._fullSegments = 0;
         this._viewer = new Vector3(0, 0, 0);
         this._range = 3000;
@@ -166,7 +183,7 @@ class Terrain {
         const step = TILE / n, side = n + 1;
         const heights = new Float32Array((n + 3) * (n + 3));
         for (let j = -1; j <= n + 1; j++) {
-            for (let i = -1; i <= n + 1; i++) heights[(j + 1) * (n + 3) + (i + 1)] = this.heightAt(t.x0 + i * step, t.z0 + j * step);
+            for (let i = -1; i <= n + 1; i++) heights[(j + 1) * (n + 3) + (i + 1)] = this.groundAt(t.x0 + i * step, t.z0 + j * step);
         }
         const h = (i, j) => heights[(j + 1) * (n + 3) + (i + 1)];
         const vertexCount = side * side + 4 * side;
@@ -219,8 +236,69 @@ class Terrain {
         return geometry;
     }
 
-    // Hauteur du sol au point (x, z), utilisée aussi pour poser les objets et pour les collisions
+    // Hauteur de la surface au point (x, z) : sol, ou eau d'un lac. Pour poser les objets et pour les collisions
     heightAt(x, z) {
+        const lake = this.lakeAt(x, z);
+        const ground = this.groundAt(x, z, lake);
+        return lake && ground < lake.level ? lake.level : ground;
+    }
+
+    // Lac en (x, z) (null hors des lacs et de leurs rives) ; margin : m autour de la rive
+    lakeAt(x, z, margin = 0) {
+        for (const lake of this.lakes) {
+            const dx = x - lake.x, dz = z - lake.z, reach = lake.radius * LAKE_RIM * 1.3 + margin;
+            if (dx * dx + dz * dz < reach * reach && Math.hypot(dx, dz) < lake.radius * LAKE_RIM * this._lakeWobble(lake, Math.atan2(dz, dx)) + margin) return lake;
+        }
+        return null;
+    }
+
+    // Hauteur du sol (fond des lacs compris) : maillage du terrain
+    groundAt(x, z, lake = this.lakeAt(x, z)) {
+        const base = this._baseHeight(x, z);
+        if (!lake) return base;
+        // Cuvette : fond sous l'eau jusqu'à la rive (d = 1), berge jusqu'à 1,25, puis sol relevé au-dessus de l'eau
+        const dx = x - lake.x, dz = z - lake.z;
+        const d = Math.hypot(dx, dz) / (lake.radius * this._lakeWobble(lake, Math.atan2(dz, dx)));
+        const shore = lake.level - 0.5;
+        if (d < 1) return shore - LAKE_DEPTH * (1 - d * d);
+        const dry = Math.max(base, lake.level + 0.5);
+        return d < 1.25 ? shore + (dry - shore) * smoothstep(1, 1.25, d) : dry;
+    }
+
+    // Plans d'eau de tous les lacs (un seul maillage) : bord sous la berge relevée (1,3 × le rayon)
+    _createWater() {
+        if (!this.lakes.length) return null;
+        const SIDES = 64, positions = [], indices = [];
+        for (const lake of this.lakes) {
+            const center = positions.length / 3;
+            positions.push(lake.x, lake.level, lake.z);
+            for (let a = 0; a < SIDES; a++) {
+                const angle = a / SIDES * Math.PI * 2, rim = 1.3 * lake.radius * this._lakeWobble(lake, angle);
+                positions.push(lake.x + Math.cos(angle) * rim, lake.level, lake.z + Math.sin(angle) * rim);
+                indices.push(center, center + 1 + (a + 1) % SIDES, center + 1 + a);
+            }
+        }
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+        geometry.setAttribute('normal', new BufferAttribute(new Float32Array(positions.length).map((v, i) => (i % 3 === 1 ? 1 : 0)), 3));
+        geometry.setIndex(indices);
+        geometry.computeBoundingSphere();
+        // Eau calme : sombre, très lisse (reflet du soleil), ombres reçues
+        const mesh = new Mesh(geometry, new MeshStandardMaterial({ color: 0x2c5a68, roughness: 0.12, metalness: 0.25 }));
+        mesh.name = 'lacs';
+        mesh.receiveShadow = true;
+        mesh.matrixAutoUpdate = false;
+        return mesh;
+    }
+
+    // Bord irrégulier d'un lac : rayon relatif selon la direction (ne dépend que de l'angle)
+    _lakeWobble(lake, angle) {
+        return 1 + 0.2 * this.noise.noise(Math.cos(angle) * 1.4, Math.sin(angle) * 1.4, lake.seed)
+            + 0.08 * this.noise.noise(Math.cos(angle) * 4, Math.sin(angle) * 4, lake.seed + 2);
+    }
+
+    // Relief sans les lacs
+    _baseHeight(x, z) {
         const relief = this.flatten(x, z);
         if (relief <= 0) return 0;
         const r = Math.hypot(x, z);
@@ -247,9 +325,13 @@ class Terrain {
             mountains /= total;
         }
 
+        // Ondulations : grandes collines arrondies (pentes douces, herbe), effacées aux abords des aérodromes
+        const around = this.dips(x, z);
+        const rolling = around > 0 ? (this.noise.noise(x / 1300, z / 1300, 2.1) + 0.35 * this.noise.noise(x / 560, z / 560, 4.6) + 0.25)
+            * this.rolling * around : 0;
         let height = relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
-            + mountains * this.mountainHeight * valley);
-        if (height < 0) height *= this.dips(x, z);
+            + mountains * this.mountainHeight * valley + rolling);
+        if (height < 0) height *= around;
         // Couloirs d'approche : le relief ne dépasse pas le plafond (raccord adouci sur 30 m), sans jamais creuser
         // sous le niveau de la piste (sinon talus le long de la piste et au bout des seuils)
         const cap = this.limit(x, z);

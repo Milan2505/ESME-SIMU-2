@@ -21,9 +21,10 @@ function reliefColor(height, shade) {
 class MapView {
     // heightAt(x, z) : hauteur du sol ; worldSize : côté du terrain (m) ; shapes : pistes et parkings [{ minX, maxX, minZ, maxZ, kind }]
     // runways : [{ name, threshold }]
-    constructor(canvas, { heightAt, worldSize, shapes = [], runways = [], navaids = [], zooms = ZOOMS }) {
+    constructor(canvas, { heightAt, waterAt = () => false, worldSize, shapes = [], runways = [], navaids = [], zooms = ZOOMS }) {
         this.canvas = canvas;
         this.heightAt = heightAt;
+        this.waterAt = waterAt;   // vrai sur un lac
         this.worldSize = worldSize;
         this.shapes = shapes;
         this.runways = runways;
@@ -223,7 +224,8 @@ class MapView {
                 // Ombrage : pente vers le nord-ouest éclairée, vers le sud-est dans l'ombre
                 const dx = heights[j * n + Math.min(n - 1, i + 1)] - heights[j * n + Math.max(0, i - 1)];
                 const dz = heights[Math.min(n - 1, j + 1) * n + i] - heights[Math.max(0, j - 1) * n + i];
-                const [r, g, b] = reliefColor(h, -(dx + dz) / (pixel * 2) * 1.2);
+                const [r, g, b] = this.waterAt(-half + (i + 0.5) * pixel, -half + (j + 0.5) * pixel)
+                    ? [64, 120, 160] : reliefColor(h, -(dx + dz) / (pixel * 2) * 1.2);
                 const k = (j * n + i) * 4;
                 image.data[k] = r;
                 image.data[k + 1] = g;

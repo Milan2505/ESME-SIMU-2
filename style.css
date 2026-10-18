@@ -1182,6 +1182,28 @@ img{margin: 0px;
     flex: 1;
     color: #ffb000;
   }
+  #atc-aerodromes {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px 0;
+  }
+  #atc-aerodromes button {
+    flex: 1;
+    padding: 3px 4px;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: #9aa3ab;
+    background: #111;
+    border: 1px solid #444;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #atc-aerodromes button.actif {
+    color: #9fe3ff;
+    border-color: #9fe3ff;
+  }
   #atc-com {
     display: flex;
     gap: 6px;

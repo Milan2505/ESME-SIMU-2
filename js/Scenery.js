@@ -52,7 +52,9 @@ const STREET = [36, 40];         // m : pas de la grille des rues (entre maisons
 const TREE_SLOPE = 0.08;         // 1 - normale.y
 const HOUSE_SLOPE = 0.035;
 const GRASS_TOP = 65;            // m
-const TREE_COUNT = 8000;         // arbres par région à 100 % du réglage « Arbres et décor » (massifs denses)
+const TREE_COUNT = 9000;         // arbres des massifs par région à 100 % du réglage « Arbres et décor » (massifs denses)
+const HEDGES = 30;               // haies par région (rangées d'arbres le long des champs, en plaine)
+const LONE_TREES = 350;          // arbres isolés par région (en plaine)
 const MAP_EDGE = 7800;           // m : rien au-delà (le terrain s'arrête à 8000 m du centre)
 const REGION = 2800;             // m : demi-côté de la zone décorée autour de chaque aérodrome
 const NEAR = 100;                // m : arbres complets en deçà, imposteurs au-delà
@@ -234,6 +236,7 @@ class Scenery {
         if (Math.abs(x) > MAP_EDGE || Math.abs(z) > MAP_EDGE) return false;   // (bord du terrain)
         if (this.airport.contains(x, z, 60)) return false;
         if (this.corridor(x, z)) return false;
+        if (this.terrain.lakeAt?.(x, z, 8)) return false;
         return !villages.some((v) => Math.hypot(x - v.x, z - v.z) < v.radius + margin);
     }
 
@@ -272,11 +275,14 @@ class Scenery {
     _placeTrees(rnd, villages) {
         // Massifs : centres et rayons tirés, puis arbres dans chaque massif (plus serrés au centre)
         const patches = [];
-        // 30 massifs par région
-        const wanted = 30 * this.regions.length;
+        // 30 massifs par région, plus 20 dans la plaine autour de l'aérodrome (entre 250 et 1500 m de son centre)
+        const wanted = 50 * this.regions.length;
         for (let tries = 0; patches.length < wanted && tries < 2000 * this.regions.length; tries++) {
             const region = this.regions[patches.length % this.regions.length];
-            const x = region.x + (rnd() * 2 - 1) * 2600, z = region.z + (rnd() * 2 - 1) * 2600;
+            const plain = patches.length >= 30 * this.regions.length;
+            const a = rnd() * Math.PI * 2, d = 250 + rnd() * 1250;
+            const x = plain ? region.x + Math.cos(a) * d : region.x + (rnd() * 2 - 1) * 2600;
+            const z = plain ? region.z + Math.sin(a) * d : region.z + (rnd() * 2 - 1) * 2600;
             if (!this._free(x, z, villages, 40) || !this._grass(x, z, TREE_SLOPE)) continue;
             patches.push({ x, z, radius: 80 + rnd() * 160, pine: rnd() < 0.4 });
         }
@@ -299,6 +305,32 @@ class Scenery {
                 const [h0, h1] = SPECIES[species].height;
                 trees.push({ x, z, species, height: h0 + (h1 - h0) * rnd(), angle: rnd() * Math.PI * 2, order: rnd() });
                 k++;
+            }
+        }
+        // Haies (rangées irrégulières d'arbres, légèrement courbes) et arbres isolés : la plaine autour des aérodromes
+        const tree = (x, z, pine) => {
+            if (!this._free(x, z, villages, 15) || !this._grass(x, z, TREE_SLOPE)) return;
+            const species = pick(pine);
+            const [h0, h1] = SPECIES[species].height;
+            trees.push({ x, z, species, height: (h0 + (h1 - h0) * rnd()) * (0.75 + 0.25 * rnd()), angle: rnd() * Math.PI * 2, order: rnd() });
+        };
+        for (const region of this.regions) {
+            for (let h = 0; h < HEDGES; h++) {
+                const a = rnd() * Math.PI * 2, d = 220 + rnd() * 1800;
+                let x = region.x + Math.cos(a) * d, z = region.z + Math.sin(a) * d;
+                let heading = rnd() * Math.PI;
+                const length = 150 + rnd() * 350, bend = (rnd() - 0.5) * 0.004;
+                for (let s = 0; s < length;) {
+                    tree(x + (rnd() - 0.5) * 3, z + (rnd() - 0.5) * 3, rnd() < 0.15);
+                    const step = 7 + rnd() * 4;
+                    x += Math.cos(heading) * step; z += Math.sin(heading) * step;
+                    heading += bend * step;
+                    s += step;
+                }
+            }
+            for (let k = 0; k < LONE_TREES; k++) {
+                const a = rnd() * Math.PI * 2, d = 180 + rnd() * 2200;
+                tree(region.x + Math.cos(a) * d, region.z + Math.sin(a) * d, rnd() < 0.3);
             }
         }
         // Ordre aléatoire : le réglage de densité garde les premiers, répartis partout

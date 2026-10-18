@@ -414,6 +414,7 @@ const AIRPORTS = {
         vor: { ident: VOR_STATION.ident, frequency: VOR_STATION.frequency }, ils: '110.30',
         hangars: ['ESME AÉRO-CLUB', 'HANGAR 2'],
         parked: [['origine', 'F-GKTA'], ['vert', 'F-HBLU'], ['orange', 'F-GMOZ']],
+        lakes: [{ x: -150, z: -1100, radius: 210 }, { x: 680, z: 980, radius: 170 }],
         description: 'Aérodrome de l\'école, au fond de la vallée',
     },
     montval: {
@@ -424,6 +425,7 @@ const AIRPORTS = {
         vor: { ident: 'MTV', frequency: '115.20' }, ils: '109.70',
         hangars: ['AÉRO-CLUB MONTVAL', 'HANGAR 2'],
         parked: [['bleu', 'F-GDVM'], ['jaune', 'F-HMTV'], ['violet', 'F-GJPA']],
+        lakes: [{ x: -300, z: -620, radius: 190 }, { x: 640, z: 800, radius: 230 }],
         description: 'Terrain de montagne, piste est-ouest',
     },
 };
@@ -511,6 +513,8 @@ class Airport {
             ...TURN_PADS.map((pad) => ({ ...pad, kind: 'asphalt' })), { ...RUNWAY_RECT, kind: 'runway' }].map((s) => ({ ...s, ...this.rectToWorld(s) }));
         // Centre de l'aérodrome (choix du départ, carte) et rayon autour duquel il est dessiné
         this.center = vector(300, 0, 0);
+        // Lacs des abords (Terrain.js : cuvette et plan d'eau), dans le monde
+        this.lakes = (config.lakes ?? []).map((lake) => ({ ...world(lake.x, lake.z), radius: lake.radius }));
         this._papi = [];
         this._night = 0;
         this._time = 0;
@@ -556,12 +560,12 @@ class Airport {
         return smoothstep(0, FLAT_ZONE.blend, Math.hypot(dx, dz));
     }
 
-    // 0 au bord de l'aérodrome, 1 à 800 m : les creux du relief s'y effacent (pas de talus autour de la piste)
+    // 0 au bord de l'aérodrome, 1 à 450 m : creux et ondulations du relief s'y effacent (pas de talus autour de la piste)
     dipFactor(x, z) {
         const p = this.toLocal(x, z);
         const dx = Math.max(FLAT_ZONE.minX - p.x, 0, p.x - FLAT_ZONE.maxX);
         const dz = Math.max(FLAT_ZONE.minZ - p.z, 0, p.z - FLAT_ZONE.maxZ);
-        return smoothstep(0, 800, Math.hypot(dx, dz));
+        return smoothstep(0, 450, Math.hypot(dx, dz));
     }
 
     // Zone où l'on ne place pas d'arbres ni de rochers
@@ -606,7 +610,7 @@ class Airport {
 
     // Couloirs d'approche et de départ : hauteur maximale du relief en (x, z) (Infinity hors des couloirs). Sous une
     // pente de 2,5° qui part du seuil (le plan d'approche de 3° passe au moins ~50 m au-dessus à 5 km), dans un couloir
-    // qui s'évase (200 m de part et d'autre de l'axe au seuil, +15 % de la distance), aux flancs remontant de 1 pour 3
+    // qui s'évase (300 m de part et d'autre de l'axe au seuil, +15 % de la distance), aux flancs remontant de 1 pour 3
     terrainLimit(x, z) {
         let limit = Infinity;
         for (const rw of this.runways) {
@@ -615,7 +619,7 @@ class Airport {
             if (before < -RUNWAY.length || before > APPROACH_LENGTH) continue;
             const lateral = Math.abs(dx * rw.left.x + dz * rw.left.z);
             const along = Math.max(0, before);
-            const halfWidth = 200 + along * 0.15;
+            const halfWidth = 300 + along * 0.15;
             const cap = along * APPROACH_SLOPE - 15 + Math.max(0, lateral - halfWidth) / 3;
             if (cap < limit) limit = cap;
         }
@@ -1370,6 +1374,7 @@ class AirportNetwork extends EventTarget {
     get vors() { return this.list.map((a) => a.vor); }
     get hangars() { return this.current.hangars; }
     get mapShapes() { return this.list.flatMap((a) => a.mapShapes); }
+    get lakes() { return this.list.flatMap((a) => a.lakes); }
     get ndb() { return this.current.ndb; }
 
     // Aérodrome choisi (départs, tour, ILS) ; ses plafonniers seuls sont de vraies lumières

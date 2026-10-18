@@ -118,15 +118,15 @@ view.addEventListener('webglcontextrestored', () => { document.getElementById('c
 document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
 // Aérodromes (ESME, MONTVAL) : airport répond comme un aérodrome seul, celui choisi au départ (airport.current)
 const airport = new AirportNetwork();
-// Vallée dégagée dans l'axe de la piste (x 220, nord-sud) : ~2,3 km de chaque côté, ~0,7 km de large
+// Vallée dégagée dans l'axe de chaque piste : ~2,5 km de chaque côté, ~1 km de large (plaine ondulée, lacs)
 // Terrain de 16 km : une vallée par aérodrome, allongée dans l'axe de sa piste, et des couloirs d'approche dégagés
 const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z),
     clearings: airport.allRunways.filter((rw, i) => i % 2 === 0).map((rw) => {
         const mx = rw.threshold.x + rw.direction.x * rw.length / 2, mz = rw.threshold.z + rw.direction.z * rw.length / 2;
         const along = Math.abs(rw.direction.z) > 0.5;   // piste nord-sud
-        return { x: mx, z: mz, rx: along ? 750 : 2300, rz: along ? 2300 : 750 };
+        return { x: mx, z: mz, rx: along ? 1050 : 2500, rz: along ? 2500 : 1050 };
     }),
-    limit: (x, z) => airport.terrainLimit(x, z), dips: (x, z) => airport.dipFactor(x, z) });
+    limit: (x, z) => airport.terrainLimit(x, z), dips: (x, z) => airport.dipFactor(x, z), lakes: airport.lakes });
 const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
@@ -738,7 +738,7 @@ async function buildWorld() {
                     do {
                         x = origin.x + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
                         z = origin.z + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-                    } while (airport.contains(x, z, 30));
+                    } while (airport.contains(x, z, 30) || terrain.lakeAt(x, z, 10));
                     // Légèrement enfoncé pour ne pas flotter sur les pentes
                     placement.position.set(x, terrain.heightAt(x, z) - 0.5, z);
                     placement.rotation.y = Math.random() * Math.PI * 2;
@@ -1756,6 +1756,7 @@ const mapPanel = document.getElementById('carte');
 const mapButton = document.getElementById('carte-bouton');
 const mapView = new MapView(document.getElementById('carte-canvas'), {
     heightAt: (x, z) => terrain.heightAt(x, z),
+    waterAt: (x, z) => { const lake = terrain.lakeAt(x, z); return Boolean(lake) && terrain.groundAt(x, z, lake) < lake.level; },
     worldSize: terrain.size,
     shapes: airport.mapShapes,
     runways: airport.allRunways,
@@ -1885,8 +1886,24 @@ atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
     return button;
 }));
 }
+// Aérodrome contacté (fenêtre Tour) : ses fréquences remplacent celles de l'autre, et la même station (Sol, Tour…)
+// s'affiche sur la COM au micro
+const atcFields = document.getElementById('atc-aerodromes');
+atcFields.replaceChildren(...airport.list.map((field) => {
+    const button = document.createElement('button');
+    button.textContent = `${field.aerodrome.name} (${field.aerodrome.icao})`;
+    button.title = `Contacter ${field.aerodrome.name}`;
+    button.addEventListener('click', () => {
+        airport.setCurrent(field);
+        avionics.showOnCom(avionics.audio.mic, parseFrequency(field.aerodrome.frequencies[atc.freq]));
+        view.focus();
+    });
+    return button;
+}));
+const renderAtcFields = () => airport.list.forEach((field, i) => atcFields.children[i].classList.toggle('actif', field === airport.current));
 renderAtcStations();
-airport.addEventListener('change', () => { renderAtcStations(); renderAtc(); });
+airport.addEventListener('change', () => { renderAtcStations(); renderAtcFields(); renderAtc(); });
+renderAtcFields();
 
 // Personnes à bord (annoncées au premier contact)
 atcPersons.addEventListener('change', () => {
