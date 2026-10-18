@@ -2255,6 +2255,7 @@ function updateHud(delta) {
         flapMax,
         trim: controls.getTrim(), trimMin, trimMax, takeoffTrim: controls.getTakeoffTrim(),
         baro: avionics.baro,
+        windDirection: wind.direction, windSpeed: wind.speed,
     } : null);
 }
 

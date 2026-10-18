@@ -1,12 +1,14 @@
 import { Vector3 } from 'three';
 
 // Vent de l'aérodrome : direction et force qui varient lentement autour des valeurs de la météo (vent variable),
-// avec des rafales. Le temps vient de l'horloge réelle : tous les joueurs d'une partie ont le même vent.
+// avec des rafales. La direction moyenne elle-même tourne très lentement sur 360° au fil de la partie (un tour en
+// ~2 h, avec des allers-retours de quelques dizaines de degrés) : la piste en service finit par changer. Le temps vient de l'horloge réelle : tous les joueurs d'une partie ont le même vent.
 const KT = 0.514444;   // nœud -> m/s
 
 class Wind {
     constructor() {
-        this.base = 360;         // direction moyenne d'où vient le vent (°)
+        this.metarBase = 360;    // direction moyenne de la météo choisie (°)
+        this.base = 360;         // direction moyenne actuelle (°) : celle de la météo, plus la dérive lente
         this.knots = 0;          // force moyenne (kt)
         this.variation = 0;      // amplitude totale de la variation de direction (°), ex. 60 : de -30 à +30
         this.gust = 0;           // rafales max (kt), 0 = sans rafales
@@ -16,7 +18,7 @@ class Wind {
     }
 
     set({ wind = 360, knots = 0, variation = 0, gust = 0 } = {}) {
-        this.base = wind;
+        this.metarBase = wind;
         this.knots = knots;
         this.variation = variation;
         this.gust = gust;
@@ -35,6 +37,9 @@ class Wind {
 
     update() {
         const t = Date.now() / 1000;
+        // Dérive lente de la direction moyenne : au plus ~10° par minute, souvent bien moins
+        const drift = 360 * t / 7200 + 35 * Math.sin(t * 2 * Math.PI / 3000) + 10 * Math.sin(t * 2 * Math.PI / 1300 + 2.4);
+        this.base = ((this.metarBase + drift) % 360 + 360) % 360;
         // Bruits lents (sommes de sinus) : la direction tourne en quelques dizaines de secondes, la force varie
         const turn = Math.sin(t * 0.031) * 0.6 + Math.sin(t * 0.077 + 1.3) * 0.3 + Math.sin(t * 0.19 + 4.1) * 0.1;
         const swell = Math.sin(t * 0.043 + 2) * 0.5 + Math.sin(t * 0.13 + 0.7) * 0.3 + Math.sin(t * 0.9 + 3) * 0.2;

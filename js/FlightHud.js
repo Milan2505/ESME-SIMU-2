@@ -1,6 +1,7 @@
 // Informations de vol en vue extérieure (à la manière des simulateurs grand public) : dessinées sur un calque par-dessus
 // l'écran de vol, rafraîchi ~20 fois par seconde.
-// - en haut à gauche : rose des caps, avion au centre ;
+// - en haut à gauche : rose des caps, avion au centre, flèche du vent (entre l'avion et les graduations) ; cap et vent
+//   (direction d'où il vient, force) dans les cases dessous ;
 // - en bas à gauche : bande de vitesse (kt, arcs de l'anémomètre), vitesse vraie, compte-tours, carburant, incidence ;
 // - en bas à droite : volets, trim (repère de décollage), bande d'altitude (pieds, calage), variomètre (ft/min).
 
@@ -33,7 +34,8 @@ class FlightHud {
     }
 
     // data : { speed (m/s, anémomètre), tas (m/s), altitude (m), verticalSpeed (m/s), heading (deg), rpm, fuel (0 -> 1),
-    // alpha, stallAlpha (deg), flaps (deg réels), flapTarget (deg), trim, trimMin, trimMax, takeoffTrim (deg), baro (hPa) }
+    // alpha, stallAlpha (deg), flaps (deg réels), flapTarget (deg), trim, trimMin, trimMax, takeoffTrim (deg), baro (hPa),
+    // windDirection (deg, d'où vient le vent), windSpeed (kt) }
     update(delta, visible, data) {
         if (!visible) {
             if (this._shown) {
@@ -74,7 +76,7 @@ class FlightHud {
         const W = canvas.width / u, H = canvas.height / u;
         const m = 14, bottom = H - m;
 
-        this._compass(m + 78, m + 78, 70, d.heading);
+        this._compass(m + 78, m + 78, 70, d.heading, d.windDirection, d.windSpeed);
 
         // Bas gauche
         let x = m;
@@ -139,7 +141,7 @@ class FlightHud {
     }
 
     // Rose des caps : graduations tous les 10°, lettres N E S W et 3 / 6 / 12…, avion fixe au centre
-    _compass(cx, cy, r, heading) {
+    _compass(cx, cy, r, heading, windDirection = 0, windSpeed = 0) {
         const { ctx } = this;
         ctx.save();
         ctx.fillStyle = 'rgba(70, 90, 60, 0.78)';
@@ -173,6 +175,27 @@ class FlightHud {
                 ctx.restore();
             }
         }
+        // Vent : flèche dans l'anneau libre entre l'avion et le cercle intérieur, du côté d'où il vient, pointée vers
+        // l'avion (sens où il souffle)
+        const calm = windSpeed < 1;
+        if (!calm) {
+            const a = (windDirection - heading) * Math.PI / 180 - Math.PI / 2;
+            const ux = Math.cos(a), uy = Math.sin(a), tail = r * 0.5, head = 17;
+            ctx.strokeStyle = COLORS.accent;
+            ctx.fillStyle = COLORS.accent;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(cx + ux * tail, cy + uy * tail);
+            ctx.lineTo(cx + ux * (head + 7), cy + uy * (head + 7));
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(cx + ux * head, cy + uy * head);
+            ctx.lineTo(cx + ux * (head + 9) - uy * 5, cy + uy * (head + 9) + ux * 5);
+            ctx.lineTo(cx + ux * (head + 9) + uy * 5, cy + uy * (head + 9) - ux * 5);
+            ctx.closePath();
+            ctx.fill();
+        }
         // Repère du cap en haut, avion au centre
         ctx.fillStyle = COLORS.yellow;
         ctx.beginPath();
@@ -200,6 +223,9 @@ class FlightHud {
         ctx.fill();
         ctx.restore();
         this._valueBox(cx - 24, cy + r + 8, 48, 20, `${String(Math.round(heading) % 360).padStart(3, '0')}°`, COLORS.text, 13);
+        const windText = calm ? 'VENT CALME'
+            : `VENT ${String(Math.round(windDirection) % 360 || 360).padStart(3, '0')}° ${Math.round(windSpeed)} kt`;
+        this._valueBox(cx - 60, cy + r + 32, 120, 20, windText, COLORS.accent, 12);
     }
 
     // Bande défilante verticale : value au centre ; step : écart entre graduations ; labelEvery : graduations chiffrées

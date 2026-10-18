@@ -69,6 +69,10 @@ const STATUS = {
     toApproach: "Contacter l'Approche", outbound: "Identifié par l'Approche", appIn: `Rappeler à ${ZONE_NM} NM du terrain`,
     toTower: 'Contacter la Tour',
 };
+// Piste en service : changement possible seulement dans ces états (rien d'engagé vers une piste), et quand le vent
+// moyen vient à plus de RUNWAY_SWITCH° de son axe (15° au-delà du travers : pas d'aller-retour quand il hésite)
+const RUNWAY_FREE_STATES = ['idle', 'startup', 'taxiIn', 'toGround', 'leaving', 'outbound'];
+const RUNWAY_SWITCH = 105;
 const TOWER_STATES = ['holding', 'lineup', 'takeoff', 'circuit', 'inbound', 'downwind', 'continue', 'landing', 'touchgo', 'landed', 'vacate', 'leaving'];
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -267,6 +271,7 @@ class ATC extends EventDispatcher {
     // --- Appelé à chaque image ---------------------------------------------------------------
     // input : { position, heading (°), onGround, agl (ft), speed (m/s), engine, active, traffic }
     update(delta, input) {
+        this._updateRunwayInUse();
         this.traffic = input.traffic ?? [];
         const s = input.active ? this._situation(input) : null;
         this.s = s;
@@ -528,11 +533,38 @@ class ATC extends EventDispatcher {
         return reply;
     }
 
-    // Piste face au vent moyen (vent calme : la 36)
+    // Piste en service de l'aérodrome contacté : face au vent moyen au départ (vent calme : la première), puis gardée
+    // tant que le vent ne la prend pas nettement par l'arrière (voir _updateRunwayInUse)
     _activeRunway() {
         const runways = this.airport.runways;
-        if (this.wind.calm) return runways[0];
-        return runways.reduce((best, rw) => headingDiff(rw.heading, this.wind.base) < headingDiff(best.heading, this.wind.base) ? rw : best);
+        this._inUse ??= new Map();
+        if (!this._inUse.has(runways[0])) this._inUse.set(runways[0], this._intoWind() ?? runways[0]);
+        return this._inUse.get(runways[0]);
+    }
+
+    _intoWind() {
+        if (this.wind.calm) return null;
+        return this.airport.runways.reduce((best, rw) => headingDiff(rw.heading, this.wind.base) < headingDiff(best.heading, this.wind.base) ? rw : best);
+    }
+
+    // Changement de piste en service, quand le vent moyen (qui tourne lentement, voir Wind.js) vient à plus de
+    // RUNWAY_SWITCH° de son axe : nouvelle information ATIS, annoncée sur la fréquence. Jamais pendant que l'avion
+    // roule vers la piste, attend, décolle ou est dans le circuit : il finit sur la piste qui lui a été donnée
+    _updateRunwayInUse() {
+        const current = this._activeRunway(), best = this._intoWind();
+        if (!best || best === current || headingDiff(current.heading, this.wind.base) < RUNWAY_SWITCH) return;
+        if (!RUNWAY_FREE_STATES.includes(this.state)) return;
+        this._inUse.set(this.airport.runways[0], best);
+        this.atisIndex++;
+        this._stampAtis();
+        if (this.contact && this.contacted.has(this.freq) && this.freq !== 'info') {
+            const L = this._atisTok(), rwy = this._rwy(best);
+            this._say(this.freq, () => msg`${this._abbr()}, changement de piste en service, ${rwy} en service, nouvelle ${L}, ${this._qnh()}.`,
+                () => msg`${this._abbr()}, runway change, ${rwy} now in use, ${L} now current, ${this._qnh()}.`,
+                () => msg`${this._capital(rwy)}, ${this._qnh()}, ${this._abbr()}.`, () => msg`${this._capital(rwy)}, ${this._qnh()}, ${this._abbr()}.`);
+        }
+        this._optionsKey = '';
+        this._changed();
     }
 
     // Fréquence qui gère l'avion là où il est
@@ -1552,7 +1584,7 @@ class ATC extends EventDispatcher {
     _atisWind() {
         const w = this.wind;
         if (w.calm) return this._t(() => tok('vent calme'), () => tok('wind calm'));
-        const dir = String(w.base % 360 || 360).padStart(3, '0');
+        const dir = String((Math.round(w.base / 10) * 10) % 360 || 360).padStart(3, '0');
         const range = w.variation >= 60 ? w.range.map((d) => String(d).padStart(3, '0')) : null;
         return this._windTok(dir, w.knots, w.gust, range);
     }
