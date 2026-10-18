@@ -36,6 +36,7 @@ const _force = new Vector3();
 const _basis = new Matrix4();
 
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
+const DRIFT_RATE = 2;               // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
 
 class FlightModel extends EventDispatcher {
 
@@ -56,6 +57,7 @@ class FlightModel extends EventDispatcher {
 			rotation: false,             // au sol, le trim lève le nez tout seul
 			stallProtection: false,      // la profondeur seule ne fait pas décrocher
 			smoothLiftoff: false,        // après l'envol, manche relâché, le nez se rend progressivement
+			crosswindCorrection: false,  // vent de travers : après l'envol, le nez se met tout seul face au vent (pas de dérive)
 		};
 
 		// Commandes du pilote
@@ -128,7 +130,7 @@ class FlightModel extends EventDispatcher {
 		this.alpha = 0;
 		this.trim = this.aircraft.takeoffTrim;
 		this._liftoffBlend = 0;
-		this._weathervaneBlend = 0;
+		this._weathervaneBlend = onGround ? 0 : 1;   // départ en vol : comme après un envol (voir _updateFlight)
 		this.crashed = false;
 		this.flapLevel = 0;
 		this.flaps = 0;
@@ -259,6 +261,15 @@ class FlightModel extends EventDispatcher {
 		_forward.copy( _front ).applyQuaternion( quaternion );
 		_planeUp.copy( _up ).applyQuaternion( quaternion );
 		_right.copy( _xAxis ).applyQuaternion( quaternion );
+
+		// Juste après l'envol (ou un départ en vol), l'avion garde la vitesse que les roues tenaient dans l'axe de la piste :
+		// le vent de travers le prend de côté. Sans l'aide « correction de dérive », il part avec la masse d'air en ~1 s,
+		// nez gardé sur son cap : il dérive, au pilote de prendre un cap de correction. Avec l'aide, la dérive fait
+		// pivoter le nez face au vent (voir vane) juste de l'angle qui garde la trajectoire dans l'axe
+		if ( ! this.assists.crosswindCorrection && this._weathervaneBlend > 0 ) {
+			const side = _air.subVectors( this.velocity, this._wind ).sub( this.wind ).dot( _right );
+			this.velocity.addScaledVector( _right, - side * Math.min( 1, dt * DRIFT_RATE ) );
+		}
 
 		// Vent relatif : incidence (dans le plan de symétrie de l'avion) et dérapage
 		_air.subVectors( this.velocity, this._wind ).sub( this.wind );

@@ -2611,6 +2611,7 @@ function applySettings(values) {
         rotation: values.rotationAuto,
         stallProtection: values.stallProtection,
         smoothLiftoff: values.smoothLiftoff,
+        crosswindCorrection: values.crosswind ?? false,
     });
 }
 

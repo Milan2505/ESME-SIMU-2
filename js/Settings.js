@@ -34,6 +34,8 @@ const OPTIONS = {
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
     smoothLiftoff:   { group: 'Pilotage', label: 'Envol en douceur', hint: 'Après l\'envol, manche relâché, le nez se rend progressivement',
                        choices: [[false, 'Désactivé'], [true, 'Activé']] },
+    crosswind:       { group: 'Pilotage', label: 'Correction de dérive', hint: "Vent de travers : après l'envol, le nez se met tout seul face au vent et la trajectoire reste dans l'axe (sinon, au pilote de corriger la dérive)",
+                       choices: [[false, 'Désactivée'], [true, 'Activée']] },
     hud:             { group: 'Pilotage', label: 'Infos de vol (vue extérieure)', hint: 'Vitesse, moteur, carburant, volets, trim, altitude, vario et cap sur l\'écran',
                        choices: [[true, 'Affichées'], [false, 'Masquées']] },
     // Multijoueur
@@ -42,7 +44,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, decor: 0.25, decorStyle: 'classique', bloom: false },
