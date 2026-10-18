@@ -222,12 +222,16 @@ class FlightModel extends EventDispatcher {
 	}
 
 	// Coefficient de portance selon l'incidence (rad) ; au-delà de l'incidence de décrochage, il s'effondre
-	_liftCoefficient( alpha ) {
+	// stalled : aile décrochée (filets d'air décollés) : la portance chute d'un coup (A.stallLift) et ne revient
+	// qu'une fois l'incidence nettement réduite (voir _updateFlight)
+	_liftCoefficient( alpha, stalled = false ) {
 		const A = this.aircraft;
 		const base = A.cl0 + A.flapLift * this.flaps;
 		const stallAlpha = this.stallAlpha();
-		if ( alpha <= stallAlpha ) return Math.max( - 1, base + A.clAlpha * alpha );
+		const linear = Math.max( - 1, base + A.clAlpha * alpha );
 		const peak = base + A.clAlpha * stallAlpha;
+		if ( stalled ) return Math.min( linear, Math.max( peak * 0.45, peak * A.stallLift - 2.5 * Math.max( 0, alpha - stallAlpha ) ) );
+		if ( alpha <= stallAlpha ) return linear;
 		return Math.max( peak * 0.55, peak - 3.5 * ( alpha - stallAlpha ) );
 	}
 
@@ -268,8 +272,8 @@ class FlightModel extends EventDispatcher {
 		const stallAlpha = this.stallAlpha();
 		if ( ! this.stalled && alpha > stallAlpha ) {
 			this.stalled = true;
-			this._wingDrop = Math.random() < 0.5 ? - 1 : 1;
-		} else if ( this.stalled && alpha < stallAlpha - MathUtils.degToRad( 2 ) ) {
+			this._wingDrop = ( Math.random() < 0.5 ? - 1 : 1 ) * ( 0.5 + 0.5 * Math.random() );   // côté et force au hasard
+		} else if ( this.stalled && alpha < stallAlpha - A.stallRecovery ) {
 			this.stalled = false;
 		}
 
@@ -284,7 +288,7 @@ class FlightModel extends EventDispatcher {
 		this.groundEffect = 1 - groundEffect;      // 0 -> ~0,07 : intensité de l'effet de sol (instruments, tests)
 
 		const pressure = 0.5 * AIR_DENSITY * speed * speed * A.wingArea;
-		const lift = this._liftCoefficient( alpha ) * ( 1 + A.groundEffectLift * this.groundEffect );
+		const lift = this._liftCoefficient( alpha, this.stalled ) * ( 1 + A.groundEffectLift * this.groundEffect );
 		_liftDirection.crossVectors( _right, _air ).normalize(); // perpendiculaire au vent relatif
 		_force.copy( _liftDirection ).multiplyScalar( lift * pressure )
 			.addScaledVector( _air, - ( this._dragCoefficient( lift, groundEffect ) + A.sideslipDrag * beta * beta ) * pressure / speed )
@@ -299,9 +303,10 @@ class FlightModel extends EventDispatcher {
 
 		// Gouvernes : efficacité selon la vitesse. Manche relâché, la stabilité ramène l'avion à l'incidence du trim
 		const effect = Math.min( 1, ( speed / A.controlSpeed ) ** 2 );
-		// La stabilité garde de l'effet à basse vitesse : le nez suit la trajectoire (sinon, en chandelle, l'incidence
-		// dépassait le décrochage sans action du pilote)
-		const stability = MathUtils.clamp( ( speed / 20 ) ** 2, 0.6, 1 );
+		// Stabilité (empennage, dérive) : elle croît avec la pression dynamique. À très basse vitesse (chandelle, montée
+		// trop raide), elle ne suffit plus à garder le nez sur la trajectoire qui s'incurve vers le bas : l'incidence
+		// monte et l'avion décroche, comme un vrai (avant : stabilité gardée à 60 %, l'avion tombait à 20 kt sans décrocher)
+		const stability = MathUtils.clamp( ( speed / 25 ) ** 2, A.lowSpeedStability, 1 );
 		const input = this.controls;
 		let trimAlpha = Math.min( this.trimAlpha(), stallAlpha - MathUtils.degToRad( 5 ) ); // trim seul : jamais de décrochage
 		// Aide "envol en douceur" : juste après l'envol, on part de l'incidence d'envol et on rejoint le trim en douceur
@@ -310,10 +315,12 @@ class FlightModel extends EventDispatcher {
 			trimAlpha = MathUtils.lerp( trimAlpha, this._liftoffAlpha, this._liftoffBlend );
 		}
 
-		// Profondeur : le manche décale l'incidence visée par rapport au trim (moins d'autorité à très basse vitesse) ;
-		// la stabilité y amène l'avion
+		// Profondeur : le manche décale l'incidence visée par rapport au trim, quelle que soit la vitesse (comme sur un
+		// vrai avion : à une position du manche correspond une incidence) ; la stabilité y amène l'avion, d'autant plus
+		// lentement que la vitesse est faible. Avant, l'autorité baissait sous ~48 kt : manche au ventre, l'incidence
+		// restait sous le décrochage et l'avion tombait à 15 kt sans décrocher
 		const limit = stallAlpha + ( this.assists.stallProtection ? A.elevatorLimitProtected : A.elevatorLimit );
-		const authority = Math.min( 1, effect * 1.5 );
+		const authority = 1;
 		// Manche tiré : +elevatorUp près du neutre (pilotage fin inchangé), puis, en fin de course, jusqu'à la limite :
 		// manche à fond, on atteint l'alarme et le décrochage quel que soit le trim
 		const pull = Math.max( 0, input.pitch );

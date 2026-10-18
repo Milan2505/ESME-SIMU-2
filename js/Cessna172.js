@@ -41,8 +41,11 @@ const CESSNA_172 = {
 	sideslipDrag: 0.6,                // traînée en plus en dérapage (par rad²) : glissade, l'avion ralentit
 	spiralStability: 0.1,             // manche lâché, l'inclinaison se réduit doucement (sinon le virage se resserre)
 	angularResponse: 5,               // rapidité avec laquelle l'avion suit les gouvernes (1/s)
-	stallPitchDown: 0.4,              // abattée au décrochage (rad/s)
-	stallWingDrop: 0.5,               // une aile tombe au décrochage (rad/s)
+	stallPitchDown: 0.55,             // abattée au décrochage (rad/s)
+	stallWingDrop: 0.6,               // une aile tombe au décrochage (rad/s, au plus : force tirée au hasard)
+	stallLift: 0.72,                  // aile décrochée : portance ramenée à 72 % du maximum d'un coup (le « décrochage »)
+	stallRecovery: deg( 3 ),          // l'aile ne porte de nouveau qu'à 3° sous l'incidence de décrochage
+	lowSpeedStability: 0.12,          // stabilité qui reste à très basse vitesse (part de la pleine stabilité)
 	// Profondeur : la position du manche fixe l'incidence visée, par rapport à celle du trim
 	elevatorUp: deg( 6 ),             // manche tiré : +6° par course de manche près du neutre ; à fond, jusqu'à la limite ci-dessous
 	elevatorDown: deg( 10 ),          // manche poussé à fond : -10°
@@ -50,7 +53,7 @@ const CESSNA_172 = {
 	phugoidDamping: 1.5,              // manche lâché : amortit les longues oscillations de trajectoire (s)
 	phugoidFilter: 30,                // réactivité de cet amortissement (1/s) : trop lent, il fait osciller le nez
 	// Incidence visée au plus (par rapport au décrochage)
-	elevatorLimit: deg( 2 ),          // sans aide : 2° au-delà (on peut décrocher en tirant)
+	elevatorLimit: deg( 4 ),          // sans aide : 4° au-delà (manche au ventre, on décroche franchement)
 	elevatorLimitProtected: deg( - 1 ), // aide "protection décrochage" : 1° en deçà
 
 	// Volets

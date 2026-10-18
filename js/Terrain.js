@@ -312,10 +312,18 @@ class Terrain {
                     uniform float uWaterTime;
                     varying vec3 vWaterPos;
                     // Pente d'une vague : direction, longueur d'onde (m), vitesse, amplitude de pente
+                    // Taille d'un pixel sur l'eau (m) : une vague plus courte que ~3 pixels est effacée (sinon, de loin, elle
+                    // scintille et dessine des moirés)
+                    float waterFoot;
                     vec2 wave(vec2 p, vec2 dir, float length, float speed, float slope) {
                         float k = 6.2832 / length;
-                        return dir * slope * cos(dot(dir, p) * k + uWaterTime * speed);
+                        float fade = 1.0 - smoothstep(length * 0.08, length * 0.3, waterFoot);
+                        return dir * slope * fade * cos(dot(dir, p) * k + uWaterTime * speed);
                     }`)
+                // De loin, l'eau devient moins lisse : le reflet du soleil s'étale au lieu de scintiller
+                .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+                    waterFoot = max(length(dFdx(vWaterPos.xz)), length(dFdy(vWaterPos.xz)));
+                    roughnessFactor = mix(roughnessFactor, 0.4, smoothstep(0.15, 2.0, waterFoot));`)
                 .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
                     vec2 waterSlope = wave(vWaterPos.xz, vec2(0.8, 0.6), 9.0, 1.7, 0.035)
                         + wave(vWaterPos.xz, vec2(-0.5, 0.87), 5.3, 2.3, 0.03)
