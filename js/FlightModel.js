@@ -293,7 +293,7 @@ class FlightModel extends EventDispatcher {
 		if ( ! this.stalled && alpha > stallAlpha ) {
 			this.stalled = true;
 			// Abattée : le nez, lourd (moteur à l'avant), tombe franchement pendant ~1,5 s, quoi que fasse le manche
-			this._stallBreak = A.stallBreakTime;
+			this._stallBreak = A.stallBreakTime + A.stallBreakDelay;
 			// Aile qui tombe : force au hasard ; côté au hasard moteur réduit, plutôt la gauche avec de la puissance (couple,
 			// facteur P) ou en dérapant vers la gauche (nez à gauche de la trajectoire : l'aile droite avance, porte plus)
 			const left = MathUtils.clamp( 0.5 + 0.35 * power + 4 * beta, 0.1, 0.9 );
@@ -350,7 +350,7 @@ class FlightModel extends EventDispatcher {
 		// manche à fond, on atteint l'alarme et le décrochage quel que soit le trim
 		const pull = Math.max( 0, input.pitch );
 		const elevator = input.pitch > 0
-			? A.elevatorUp * pull + Math.max( 0, limit - trimAlpha - A.elevatorUp ) * pull ** 3
+			? A.elevatorUp * pull + Math.max( 0, limit - trimAlpha - A.elevatorUp ) * pull ** 2
 			: A.elevatorDown * input.pitch;
 		let alphaTarget = trimAlpha + elevator * authority - A.groundEffectPitch * this.groundEffect;
 		if ( input.pitch > 0 ) alphaTarget = Math.min( alphaTarget, Math.max( limit, trimAlpha ) );
@@ -399,15 +399,17 @@ class FlightModel extends EventDispatcher {
 		const yawRate = input.yaw * A.yawRate * effect - A.yawStability * beta * stability * vane
 			- A.adverseYaw * input.roll * effect + A.engineYaw * power * slow * pFactor;
 		if ( this._stallBreak > 0 ) {
-			// Abattée : le nez tombe franchement (centrage avant, moteur lourd), la profondeur ne peut pas le retenir ;
-			// d'abord en cabré (l'aile décroche nez haut), puis le nez passe sous l'horizon
+			// Abattée : l'aile décroche en cabrant (stallBreakDelay : le manche fait encore monter le nez), puis le nez tombe
+			// franchement (centrage avant, moteur lourd) et passe sous l'horizon ; le manche garde un peu d'effet
 			this._stallBreak -= dt;
-			const k = Math.min( 1, this._stallBreak / ( A.stallBreakTime * 0.4 ) );   // s'atténue à la fin
-			// (manche tenu en arrière : la profondeur freine l'abattée, le nez tombe moins et l'aile reste décrochée)
-			pitchRate = Math.min( pitchRate, 0 ) - A.stallPitchDown * k * ( 1 - 0.6 * Math.max( 0, input.pitch ) );
+			if ( this._stallBreak < A.stallBreakTime ) {
+				const k = Math.min( 1, this._stallBreak / ( A.stallBreakTime * 0.4 ) );   // s'atténue à la fin
+				// (manche tenu en arrière : la profondeur freine l'abattée, le nez tombe moins et l'aile reste décrochée)
+				pitchRate = Math.min( pitchRate, pitchRate * 0.35 ) - A.stallPitchDown * k * ( 1 - 0.6 * Math.max( 0, input.pitch ) );
+			}
 		}
 		// Une aile tombe, pendant l'abattée : à peine moteur réduit (le 172 est docile), nettement plein gaz
-		if ( this.stalled && this._stallBreak > 0 ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
+		if ( this.stalled && this._stallBreak > 0 && this._stallBreak < A.stallBreakTime ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
 		const response = Math.min( 1, A.angularResponse * dt );
 		const w = this._angularVelocity;
 		w.x += ( pitchRate - w.x ) * response;

@@ -52,6 +52,7 @@ const CESSNA_172 = {
 	angularResponse: 5,               // rapidité avec laquelle l'avion suit les gouvernes (1/s)
 	stallPitchDown: 0.32,             // abattée (rad/s) : le nez, lourd (moteur à l'avant), tombe de ~20° au décrochage
 	stallBreakTime: 1.4,              // durée de l'abattée (s) : la profondeur ne retient pas le nez pendant ce temps
+	stallBreakDelay: 0.5,             // avant l'abattée (s) : l'aile décroche en cabrant, le manche fait encore monter le nez
 	stallWingDrop: 0.35,              // une aile tombe au décrochage (rad/s au plus, plein gaz ; moteur réduit, bien moins)
 	stallLift: 0.8,                   // aile décrochée : portance ramenée à 80 % du maximum d'un coup (le « décrochage » : l'avion s'enfonce)
 	stallRecovery: deg( 3 ),          // l'aile ne porte de nouveau qu'à 3° sous l'incidence de décrochage
@@ -64,7 +65,7 @@ const CESSNA_172 = {
 	phugoidDamping: 1.5,              // manche lâché : amortit les longues oscillations de trajectoire (s)
 	phugoidFilter: 30,                // réactivité de cet amortissement (1/s) : trop lent, il fait osciller le nez
 	// Incidence visée au plus (par rapport au décrochage)
-	elevatorLimit: deg( 4 ),          // sans aide : 4° au-delà (manche au ventre, on décroche franchement)
+	elevatorLimit: deg( 6 ),          // sans aide : 6° au-delà (manche au ventre, on décroche franchement, nez haut)
 	elevatorLimitProtected: deg( - 1 ), // aide "protection décrochage" : 1° en deçà
 
 	// Volets
