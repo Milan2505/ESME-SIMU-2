@@ -556,6 +556,14 @@ class Airport {
         return smoothstep(0, FLAT_ZONE.blend, Math.hypot(dx, dz));
     }
 
+    // 0 au bord de l'aérodrome, 1 à 800 m : les creux du relief s'y effacent (pas de talus autour de la piste)
+    dipFactor(x, z) {
+        const p = this.toLocal(x, z);
+        const dx = Math.max(FLAT_ZONE.minX - p.x, 0, p.x - FLAT_ZONE.maxX);
+        const dz = Math.max(FLAT_ZONE.minZ - p.z, 0, p.z - FLAT_ZONE.maxZ);
+        return smoothstep(0, 800, Math.hypot(dx, dz));
+    }
+
     // Zone où l'on ne place pas d'arbres ni de rochers
     contains(x, z, margin = 0) {
         const p = this.toLocal(x, z);
@@ -1394,6 +1402,12 @@ class AirportNetwork extends EventTarget {
     reliefFactor(x, z) {
         let factor = 1;
         for (const a of this.list) factor = Math.min(factor, a.reliefFactor(x, z));
+        return factor;
+    }
+
+    dipFactor(x, z) {
+        let factor = 1;
+        for (const a of this.list) factor = Math.min(factor, a.dipFactor(x, z));
         return factor;
     }
 

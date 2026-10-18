@@ -126,7 +126,7 @@ const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z)
         const along = Math.abs(rw.direction.z) > 0.5;   // piste nord-sud
         return { x: mx, z: mz, rx: along ? 750 : 2300, rz: along ? 2300 : 750 };
     }),
-    limit: (x, z) => airport.terrainLimit(x, z) });
+    limit: (x, z) => airport.terrainLimit(x, z), dips: (x, z) => airport.dipFactor(x, z) });
 const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();

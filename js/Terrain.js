@@ -57,9 +57,10 @@ class Terrain {
         // dans l'axe de chaque piste, pour décoller et atterrir face au relief dégagé
         clearings = [],       // [{ x, z, rx, rz }]
         limit = () => Infinity, // hauteur maximale du relief en (x, z) : couloirs d'approche (voir Airport.terrainLimit)
+        dips = () => 1,       // facteur appliqué aux creux (hauteurs négatives) : 0 = pas de creux (abords des aérodromes)
     } = {}) {
         this.noise = new ImprovedNoise();
-        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearings, limit });
+        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearings, limit, dips });
 
         this.size = size;
         this.material = this._createMaterial(renderer, { snowHeight, tile, grassTint });
@@ -246,11 +247,13 @@ class Terrain {
             mountains /= total;
         }
 
-        const height = relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
+        let height = relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
             + mountains * this.mountainHeight * valley);
-        // Couloirs d'approche : le relief ne dépasse pas le plafond (raccord adouci sur 30 m)
+        if (height < 0) height *= this.dips(x, z);
+        // Couloirs d'approche : le relief ne dépasse pas le plafond (raccord adouci sur 30 m), sans jamais creuser
+        // sous le niveau de la piste (sinon talus le long de la piste et au bout des seuils)
         const cap = this.limit(x, z);
-        return cap === Infinity ? height : softMin(height, cap, 30);
+        return cap === Infinity ? height : Math.max(softMin(height, cap, 30), Math.min(height, 0));
     }
 
     // 0 au fond des vallées des pistes, 1 hors des vallées (montagnes normales), fondu sur leurs bords
