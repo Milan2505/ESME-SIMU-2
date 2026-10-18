@@ -451,10 +451,17 @@ function recenterCamera() {
     updateCamera(0, true);
 }
 
+// Manettes des gaz et de la mixture : clic gauche maintenu, glisser vers le haut pour pousser, vers le bas pour tirer
+// (la tête ne tourne pas pendant ce temps)
+const LEVERS = new Set(['throttle', 'mixture']);
+const LEVER_TRAVEL = 220;   // px de glissement pour toute la course
+let leverDrag = null;
 let dragDistance = 0;
 view.addEventListener('pointerdown', (event) => {
     drag = { x: event.clientX, y: event.clientY };
     dragDistance = 0;
+    const lever = event.button === 0 ? controlAt(event) : null;
+    leverDrag = lever && LEVERS.has(lever.id) ? { id: lever.id, y: event.clientY, notch: null } : null;
     view.setPointerCapture(event.pointerId);
     view.focus();
 });
@@ -463,6 +470,11 @@ view.addEventListener('pointermove', (event) => {
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     drag = { x: event.clientX, y: event.clientY };
     dragDistance += Math.abs(dx) + Math.abs(dy);
+    if (leverDrag) {
+        moveLever(leverDrag, -(event.clientY - leverDrag.y) / LEVER_TRAVEL);
+        leverDrag.y = event.clientY;
+        return;
+    }
     if (dx || dy) headTarget = null;   // la souris reprend la main sur une vue préréglée
     if (choosingSpawn && !inHangar && !inMenu) {
         const goal = spawnCam.goal;
@@ -486,7 +498,20 @@ view.addEventListener('pointermove', (event) => {
         head.pitch = THREE.MathUtils.clamp(head.pitch - dy * ORBIT_SPEED * 0.7, -1.0, 1.1);
     }
 });
-for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, () => { drag = null; });
+for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, () => { drag = null; leverDrag = null; });
+// Manette glissée de amount (part de la course, + = pousser) ; un petit clic tous les dixièmes de course
+function moveLever(lever, amount) {
+    if (!amount) return;
+    let value;
+    if (lever.id === 'throttle') value = controls.throttle = THREE.MathUtils.clamp(controls.throttle + amount, 0, 1);
+    else {
+        systems.setMixture(systems.mixture + amount);
+        value = systems.mixture;
+    }
+    const notch = Math.round(value * 10);
+    if (lever.notch !== null && notch !== lever.notch) sounds.click();
+    lever.notch = notch;
+}
 view.addEventListener('dblclick', (event) => {
     if (!controlAt(event)) recenterCamera(); // double-clic sur une commande : pas de recentrage
 });
@@ -2516,12 +2541,16 @@ function useControl(control, step, wheel = false, fine = false) {
     return true;
 }
 
-// En cabine : clic (sans glisser) sur une commande. Boutons rotatifs : côté gauche = moins, côté droit = plus ;
+// Boutons rotatifs (fréquences, transpondeur, calage, cap, OBS, ADF, gyro, éclairages) : réglés à la molette seulement,
+// comme un vrai bouton qu'on tourne (Maj : plus vite) ; le clic ne les change plus
+const WHEEL_ONLY = /^((com|nav)[12]:(outer|inner)|xpdr:(mode|d\d)|baro|hdgBug|dg|ai|obs2?|adf|panelLights|domeLight)$/;
+// En cabine : clic (sans glisser) sur une commande : interrupteurs, boutons, sélecteurs ;
 // manettes (gaz, mixture) et molette de trim : moitié haute = pousser / piquer, moitié basse = tirer / cabrer
 view.addEventListener('click', (event) => {
     if (dragDistance > 6) return;
     const control = controlAt(event);
     if (!control) return;
+    if (WHEEL_ONLY.test(control.id)) return;   // bouton rotatif : à la molette
     const vertical = ['throttle', 'mixture'].includes(control.id) ? -control.vertical
         : ['trimWheel', 'flaps:lever'].includes(control.id) ? control.vertical : control.side;
     useControl(control, vertical || 1, false, event.shiftKey);
@@ -2532,7 +2561,9 @@ view.addEventListener('pointermove', (event) => {
         if (!drag) view.style.cursor = '';
         return;
     }
-    view.style.cursor = controlAt(event) ? 'pointer' : '';
+    // (manettes : flèches haut / bas, elles se glissent)
+    const control = controlAt(event);
+    view.style.cursor = !control ? '' : LEVERS.has(control.id) ? 'ns-resize' : 'pointer';
 });
 
 // Bruits de l'environnement : pluie (étouffée en cabine), roulement des pneus selon le revêtement
