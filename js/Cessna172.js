@@ -40,16 +40,26 @@ const CESSNA_172 = {
 	yawRoll: 0.4,                     // le nez qui tourne incline l'avion du même côté (l'aile extérieure, plus rapide, porte plus)
 	sideslipDrag: 0.6,                // traînée en plus en dérapage (par rad²) : glissade, l'avion ralentit
 	spiralStability: 0.1,             // manche lâché, l'inclinaison se réduit doucement (sinon le virage se resserre)
+	spiralBank: deg( 35 ),            // au-delà, virage engagé : l'inclinaison augmente toute seule…
+	spiralDivergence: 0.05,           // … de plus en plus vite (rad/s par rad au-delà de spiralBank)
+	adverseYaw: 0.08,                 // lacet inverse aux ailerons (rad/s à fond) : le nez part à l'opposé du virage
+	// Effets moteur (hélice tournant à droite vue de la cabine), à pleine poussée et basse vitesse, nuls en croisière
+	engineEffectSpeed: 55,            // vitesse (m/s, ~107 kt) où ils s'annulent (dérive calée pour la croisière)
+	engineYaw: 0.03,                  // souffle hélicoïdal + facteur P : lacet à gauche (rad/s) : en montée, ~1°/s de virage à gauche sans pied droit
+	engineRoll: 0.006,                // couple : roulis à gauche (rad/s ; en grande partie compensé par le calage des ailes)
+	engineGroundYaw: 0.006,           // au roulage plein gaz : le nez tire à gauche (rad/s : ~5° sur un décollage, sans pied droit)
 	angularResponse: 5,               // rapidité avec laquelle l'avion suit les gouvernes (1/s)
-	stallPitchDown: 0.55,             // abattée au décrochage (rad/s)
-	stallWingDrop: 0.6,               // une aile tombe au décrochage (rad/s, au plus : force tirée au hasard)
+	stallPitchDown: 0.32,             // abattée (rad/s) : le nez, lourd (moteur à l'avant), tombe de ~20° au décrochage
+	stallBreakTime: 1.4,              // durée de l'abattée (s) : la profondeur ne retient pas le nez pendant ce temps
+	stallWingDrop: 0.45,              // une aile tombe au décrochage (rad/s au plus, plein gaz ; moteur réduit, bien moins)
 	stallLift: 0.72,                  // aile décrochée : portance ramenée à 72 % du maximum d'un coup (le « décrochage »)
 	stallRecovery: deg( 3 ),          // l'aile ne porte de nouveau qu'à 3° sous l'incidence de décrochage
 	lowSpeedStability: 0.12,          // stabilité qui reste à très basse vitesse (part de la pleine stabilité)
 	// Profondeur : la position du manche fixe l'incidence visée, par rapport à celle du trim
 	elevatorUp: deg( 6 ),             // manche tiré : +6° par course de manche près du neutre ; à fond, jusqu'à la limite ci-dessous
 	elevatorDown: deg( 10 ),          // manche poussé à fond : -10°
-	pitchRateMax: 0.35,               // rotation en tangage au plus 20°/s
+	pitchRateMax: 0.5,                // rotation en tangage au plus ~29°/s (avant 20°/s : manche au ventre à 90 kt, l'avion bouclait
+	                                  // sans jamais atteindre le décrochage dynamique)
 	phugoidDamping: 1.5,              // manche lâché : amortit les longues oscillations de trajectoire (s)
 	phugoidFilter: 30,                // réactivité de cet amortissement (1/s) : trop lent, il fait osciller le nez
 	// Incidence visée au plus (par rapport au décrochage)

@@ -34,6 +34,7 @@ const _air = new Vector3();
 const _liftDirection = new Vector3();
 const _force = new Vector3();
 const _basis = new Matrix4();
+const _pathAxis = new Vector3();
 
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
 const DRIFT_RATE = 2;               // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
@@ -92,7 +93,9 @@ class FlightModel extends EventDispatcher {
 		this._liftoffAlpha = 0;          // incidence à l'envol...
 		this._liftoffBlend = 0;          // ... dont l'avion se détache progressivement (1 -> 0) pour rejoindre celle du trim
 		this._weathervaneBlend = 0;      // après l'envol (1 -> 0) : la dérive reprend peu à peu son effet (voir _updateAir)
-		this._wingDrop = 0;              // aile qui tombe au décrochage (-1 gauche, 1 droite)
+		this._wingDrop = 0;              // aile qui tombe au décrochage (1 gauche, -1 droite : roulis + = à gauche)
+		this._stallBreak = 0;            // abattée en cours (s restantes), voir _updateFlight
+		this._prevAir = null;            // vent relatif au pas précédent (rotation de la trajectoire)
 		this._pathAngle = null;          // pente de la trajectoire (rad) et sa vitesse de variation (rad/s), lissée
 		this._pathRate = 0;
 		this._groundYaw = 0;             // cap au sol (rad, + = vers la gauche)
@@ -127,6 +130,8 @@ class FlightModel extends EventDispatcher {
 		this._angularVelocity.set( 0, 0, 0 );
 		this._pathAngle = null;
 		this.stalled = false;
+		this._stallBreak = 0;
+		this._prevAir = null;
 		this.alpha = 0;
 		this.trim = this.aircraft.takeoffTrim;
 		this._liftoffBlend = 0;
@@ -281,9 +286,18 @@ class FlightModel extends EventDispatcher {
 		this.beta = beta;
 
 		const stallAlpha = this.stallAlpha();
+		// Effets du moteur : part de la poussée maxi (0 -> 1) et poids de la basse vitesse (0 en croisière, ~0,5 près du
+		// décrochage) ; voir plus bas (couple, souffle hélicoïdal, facteur P)
+		const power = this._thrust( speed ) / A.staticThrust;
+		const slow = MathUtils.clamp( 1 - speed / A.engineEffectSpeed, 0, 1 );
 		if ( ! this.stalled && alpha > stallAlpha ) {
 			this.stalled = true;
-			this._wingDrop = ( Math.random() < 0.5 ? - 1 : 1 ) * ( 0.5 + 0.5 * Math.random() );   // côté et force au hasard
+			// Abattée : le nez, lourd (moteur à l'avant), tombe franchement pendant ~1,5 s, quoi que fasse le manche
+			this._stallBreak = A.stallBreakTime;
+			// Aile qui tombe : force au hasard ; côté au hasard moteur réduit, plutôt la gauche avec de la puissance (couple,
+			// facteur P) ou en dérapant vers la gauche (nez à gauche de la trajectoire : l'aile droite avance, porte plus)
+			const left = MathUtils.clamp( 0.5 + 0.35 * power + 4 * beta, 0.1, 0.9 );
+			this._wingDrop = ( Math.random() < left ? 1 : - 1 ) * ( 0.5 + 0.5 * Math.random() );
 		} else if ( this.stalled && alpha < stallAlpha - A.stallRecovery ) {
 			this.stalled = false;
 		}
@@ -349,19 +363,46 @@ class FlightModel extends EventDispatcher {
 		this._pathAngle = pathAngle;
 		if ( Math.abs( input.pitch ) < 0.1 ) alphaTarget -= A.phugoidDamping * this._pathRate;
 		const cgStability = MathUtils.clamp( 1 - this.cgOffset * CG_STABILITY, 0.5, 1.5 );
-		let pitchRate = MathUtils.clamp( A.pitchStability * cgStability * ( alphaTarget - alpha ) * stability, - A.pitchRateMax, A.pitchRateMax );
+		// Stabilité en tangage : elle tient l'incidence voulue pendant que la trajectoire tourne (ressource, virage,
+		// arrondi) : le nez suit la rotation du vent relatif autour de l'axe de tangage, plus un rappel vers l'incidence
+		// visée. Le tout faiblit avec la vitesse (stability) : à très basse vitesse, la trajectoire s'incurve sans le nez et
+		// l'incidence monte (décrochage). Avant, sans ce suivi, l'incidence restait ~5° sous la visée en ressource : manche
+		// au ventre à 90 kt, l'avion bouclait sans jamais décrocher
+		let pathPitchRate = 0;
+		if ( this._prevAir ) pathPitchRate = MathUtils.clamp( _pathAxis.crossVectors( this._prevAir, _air ).dot( _right ) / ( speed * speed ) / dt, - 1, 1 );
+		( this._prevAir ??= new Vector3() ).copy( _air );
+		let pitchRate = MathUtils.clamp( ( pathPitchRate + A.pitchStability * cgStability * ( alphaTarget - alpha ) ) * stability, - A.pitchRateMax, A.pitchRateMax );
 		const bank = Math.atan2( _right.y, _planeUp.y ); // > 0 : penché à gauche (aile droite haute)
 		// Envol avec du vent de travers : au sol, les roues tenaient l'axe de piste ; en l'air, la dérive aligne le nez
 		// sur le vent relatif. Effet amené en ~3 s (avant : le nez pivotait d'un coup à la rotation, un dérapage brusque)
 		this._weathervaneBlend = Math.max( 0, this._weathervaneBlend - dt / WEATHERVANE_BLEND_TIME );
 		const vane = 1 - MathUtils.smoothstep( this._weathervaneBlend, 0, 1 );
-		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta * vane - A.spiralStability * bank ) * stability + this._gustRoll
-			+ A.yawRoll * this._angularVelocity.y;   // lacet à gauche (+) : roulis à gauche (+)
-		const yawRate = input.yaw * A.yawRate * effect - A.yawStability * beta * stability * vane;
-		if ( this.stalled ) {
-			pitchRate -= A.stallPitchDown;                  // abattée : le nez tombe
-			rollRate += this._wingDrop * A.stallWingDrop;   // une aile tombe
+		// Spirale : en faible inclinaison, manche lâché, l'avion revient doucement à plat ; au-delà de spiralBank, il
+		// s'incline de plus en plus (virage engagé : l'aile extérieure, plus rapide, porte plus), le nez descend et la
+		// vitesse monte si le pilote ne remet pas les ailes à plat
+		const steep = Math.max( 0, Math.abs( bank ) - A.spiralBank ) * Math.sign( bank );
+		const settle = 1 - MathUtils.smoothstep( Math.abs( bank ), A.spiralBank * 0.55, A.spiralBank );   // rappel à plat qui s'efface
+		const spiral = - A.spiralStability * bank * settle + A.spiralDivergence * steep;
+		// Moteur (hélice tournant à droite vue de la cabine) : couple -> roulis à gauche ; souffle hélicoïdal sur la
+		// dérive et facteur P (pale descendante, à droite, qui mord plus, d'autant plus que l'incidence est forte) ->
+		// lacet à gauche. Forts plein gaz à basse vitesse (montée, remise de gaz), nuls en croisière : du pied droit
+		const pFactor = 0.6 + 0.4 * MathUtils.clamp( alpha / stallAlpha, 0, 1.5 );
+		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta * vane + spiral ) * stability + this._gustRoll
+			+ A.yawRoll * this._angularVelocity.y   // lacet à gauche (+) : roulis à gauche (+)
+			+ A.engineRoll * power * slow;
+		// Lacet inverse : l'aileron baissé (aile qui monte) traîne plus, le nez part du côté opposé au virage : on
+		// coordonne au palonnier
+		const yawRate = input.yaw * A.yawRate * effect - A.yawStability * beta * stability * vane
+			- A.adverseYaw * input.roll * effect + A.engineYaw * power * slow * pFactor;
+		if ( this._stallBreak > 0 ) {
+			// Abattée : le nez tombe franchement (centrage avant, moteur lourd), la profondeur ne peut pas le retenir ;
+			// d'abord en cabré (l'aile décroche nez haut), puis le nez passe sous l'horizon
+			this._stallBreak -= dt;
+			const k = Math.min( 1, this._stallBreak / ( A.stallBreakTime * 0.4 ) );   // s'atténue à la fin
+			pitchRate = Math.min( pitchRate, 0 ) - A.stallPitchDown * k;
 		}
+		// Une aile tombe : à peine moteur réduit (le 172 est docile), nettement plein gaz
+		if ( this.stalled ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
 		const response = Math.min( 1, A.angularResponse * dt );
 		const w = this._angularVelocity;
 		w.x += ( pitchRate - w.x ) * response;
@@ -377,6 +418,7 @@ class FlightModel extends EventDispatcher {
 	// roulette de nez orientable ; l'avion décolle quand la portance dépasse le poids
 	_updateGround( dt ) {
 		this.beta = this.sideAcceleration = 0;
+		this._prevAir = null;   // en l'air : suivi de la trajectoire repris sans à-coup (voir _updateFlight)
 		const A = this.aircraft;
 		const object = this.object;
 		const input = this.controls;
@@ -403,6 +445,8 @@ class FlightModel extends EventDispatcher {
 		const steer = MathUtils.clamp( input.yaw + input.roll * 0.5, - 1, 1 );
 		const authority = Math.min( 1, speed / 3 ) * ( 1 - 0.6 * Math.min( 1, speed / this.rotateSpeed ) );
 		this._groundYaw += steer * 0.6 * authority * dt;
+		// Plein gaz au roulage (décollage) : couple et souffle de l'hélice tirent le nez à gauche, du pied droit
+		this._groundYaw += A.engineGroundYaw * ( this._thrust( air ) / A.staticThrust ) * Math.min( 1, speed / 8 ) * dt;
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
 		// Aide "rotation automatique" : manche au neutre, le trim lève doucement le nez jusqu'à son assiette
@@ -489,6 +533,7 @@ class FlightModel extends EventDispatcher {
 		this._angularVelocity.set( 0, 0, 0 );
 		this._pathAngle = null;
 		this.stalled = false;
+		this._stallBreak = 0;
 		this._wind.set( 0, 0, 0 );
 		this._alignToGround();
 		this.dispatchEvent( { type: 'touchdown', impact } );
@@ -507,6 +552,7 @@ class FlightModel extends EventDispatcher {
 	_crash( reason ) {
 		this.crashed = true;
 		this.stalled = false;
+		this._stallBreak = 0;
 		this.airspeed = 0;
 		this.velocity.set( 0, 0, 0 );
 		this.throttle = 0;
