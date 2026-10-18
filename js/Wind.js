@@ -2,7 +2,10 @@ import { Vector3 } from 'three';
 
 // Vent de l'aérodrome : direction et force qui varient lentement autour des valeurs de la météo (vent variable),
 // avec des rafales. La direction moyenne elle-même tourne très lentement sur 360° au fil de la partie (un tour en
-// ~2 h, avec des allers-retours de quelques dizaines de degrés) : la piste en service finit par changer. Le temps vient de l'horloge réelle : tous les joueurs d'une partie ont le même vent.
+// ~2 h, avec des allers-retours de quelques dizaines de degrés) : la piste en service finit par changer. 
+// Chaque partie a son vent (setSeed) : direction de départ, force (de 0,5 à 1,6 fois celle de la météo) et moment du
+// cycle tirés d'une graine. En multijoueur, la graine vient du code de la partie et le temps de l'horloge réelle : tous
+// les joueurs d'une même partie ont le même vent.
 const KT = 0.514444;   // nœud -> m/s
 
 class Wind {
@@ -15,13 +18,50 @@ class Wind {
         this.direction = 360;    // direction actuelle (°)
         this.speed = 0;          // force actuelle (kt)
         this.vector = new Vector3();  // vitesse de l'air (repère monde, m/s) : vers où souffle le vent
+        this.metarKnots = 0;     // force et rafales de la météo choisie (kt), avant le tirage de la partie
+        this.metarGust = 0;
+        this.local = null;       // météo de ce joueur ; shared : celle du créateur de la partie (multijoueur), prioritaire
+        this.shared = null;
+        this.setSeed(Math.floor(Math.random() * 2 ** 32));
     }
 
-    set({ wind = 360, knots = 0, variation = 0, gust = 0 } = {}) {
+    // Météo choisie par ce joueur (METAR : wind, knots, variation, gust)
+    set(metar = {}) {
+        this.local = metar;
+        this._apply();
+    }
+
+    // Multijoueur : vent de la météo du créateur de la partie (null : la sienne), pour que tous aient le même vent
+    setShared(metar) {
+        if (metar === this.shared) return;
+        this.shared = metar;
+        this._apply();
+    }
+
+    // Vent d'une nouvelle partie : seed (entier) -> décalage de direction (0 à 360°), facteur de force, phase du cycle
+    setSeed(seed) {
+        let s = seed >>> 0;
+        const rnd = () => {   // mulberry32
+            s = (s + 0x6D2B79F5) >>> 0;
+            let t = Math.imul(s ^ (s >>> 15), 1 | s);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        this.seedDirection = rnd() * 360;
+        this.seedStrength = 0.5 + rnd() * 1.1;
+        this.seedPhase = rnd() * 7200;
+        this._apply();
+    }
+
+    _apply() {
+        const { wind = 360, knots = 0, variation = 0, gust = 0 } = this.shared ?? this.local ?? {};
         this.metarBase = wind;
-        this.knots = knots;
+        this.metarKnots = knots;
+        this.metarGust = gust;
         this.variation = variation;
-        this.gust = gust;
+        // (au plus 25 kt, rafales à 35 kt : au-delà, un Cessna ne vole plus)
+        this.knots = Math.min(25, Math.round(this.metarKnots * this.seedStrength));
+        this.gust = this.metarGust ? Math.min(35, Math.max(this.knots + 5, Math.round(this.metarGust * this.seedStrength))) : 0;
         this.update();
     }
 
@@ -38,7 +78,7 @@ class Wind {
     update() {
         const t = Date.now() / 1000;
         // Dérive lente de la direction moyenne : au plus ~10° par minute, souvent bien moins
-        const drift = 360 * t / 7200 + 35 * Math.sin(t * 2 * Math.PI / 3000) + 10 * Math.sin(t * 2 * Math.PI / 1300 + 2.4);
+        const drift = this.seedDirection + 360 * (t + this.seedPhase) / 7200 + 35 * Math.sin(t * 2 * Math.PI / 3000) + 10 * Math.sin(t * 2 * Math.PI / 1300 + 2.4);
         this.base = ((this.metarBase + drift) % 360 + 360) % 360;
         // Bruits lents (sommes de sinus) : la direction tourne en quelques dizaines de secondes, la force varie
         const turn = Math.sin(t * 0.031) * 0.6 + Math.sin(t * 0.077 + 1.3) * 0.3 + Math.sin(t * 0.19 + 4.1) * 0.1;

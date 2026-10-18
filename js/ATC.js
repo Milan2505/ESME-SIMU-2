@@ -542,6 +542,13 @@ class ATC extends EventDispatcher {
         return this._inUse.get(runways[0]);
     }
 
+    // Nouvelle partie (nouveau vent) : piste en service choisie de nouveau face au vent
+    resetRunwayInUse() {
+        this._inUse?.clear();
+        this._optionsKey = '';
+        this._changed();
+    }
+
     _intoWind() {
         if (this.wind.calm) return null;
         return this.airport.runways.reduce((best, rw) => headingDiff(rw.heading, this.wind.base) < headingDiff(best.heading, this.wind.base) ? rw : best);
@@ -1629,4 +1636,4 @@ class ATC extends EventDispatcher {
     }
 }
 
-export { ATC, LABELS };
+export { ATC, LABELS, METARS };

@@ -24,7 +24,7 @@ import { AircraftLights, beaconOn } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
-import { ATC } from './js/ATC.js';
+import { ATC, METARS } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
@@ -138,6 +138,7 @@ const cockpit = new Cockpit();
 try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false); } catch { /* stockage indisponible */ }
 const crashEffect = new CrashEffect();
 let weather = null;
+let weatherName = 'jour';   // nom de la météo choisie (envoyé aux autres joueurs : celle du créateur donne le vent)
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
@@ -782,6 +783,7 @@ rebuildObstacles();
 // Panneau Météo
 function setWeather(name) {
     const w = weather = WEATHERS[name];
+    weatherName = name;
     scene.background = new THREE.Color(w.sky); // caché par le ciel atmosphérique s'il est actif
     graphics.setAtmosphere(w.atmosphere ?? null, w.moon);
     hemiLight.color.set(w.sky).lerp(new THREE.Color(COLOR_LIGHT), 0.5);
@@ -1055,7 +1057,19 @@ document.getElementById('multi-fermer').addEventListener('click', () => multiDia
 const multiPartage = document.getElementById('multi-partage');
 const multiLien = document.getElementById('multi-lien');
 
+// Vent de la partie : tiré au hasard à chaque vol en solo ; en multijoueur, tiré du code de la partie (le même pour
+// tous ses joueurs, voir Wind.setSeed)
+function newWind(seed) {
+    wind.setSeed(seed);
+    atc.resetRunwayInUse();
+}
+const codeSeed = (code) => [...code].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
+let windCode = null;
 multiplayer.addEventListener('status', ({ detail }) => {
+    if (multiplayer.code !== windCode) {
+        windCode = multiplayer.code;
+        if (windCode) newWind(codeSeed(windCode));
+    }
     if (multiplayer.code && initiation?.active) initiation.stop();
     multiStatut.textContent = detail.text;
     multiStatut.classList.toggle('erreur', detail.error);
@@ -1484,6 +1498,7 @@ document.getElementById('mp-vol-libre').addEventListener('click', () => {
         multiplayer.leave();
         updateModes();
     }
+    newWind(Math.floor(Math.random() * 2 ** 32));   // nouvelle partie solo : nouveau vent
     closeMainMenu();
     openAirportChoice();
 });
@@ -2740,7 +2755,10 @@ renderer.setAnimationLoop((time)=>{
     updateSounds();
     updateLoad();
     updateHud(delta);
-    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights, rpm: systems.rpm } );
+    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName } );
+    // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
+    const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
+    wind.setShared(host?.weather ? METARS[host.weather] ?? null : null);
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
