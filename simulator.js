@@ -2537,6 +2537,7 @@ function useControl(control, step, wheel = false, fine = false) {
         controls.parkingBrake = !controls.parkingBrake;
         systems.brake = controls.parkingBrake;
     } else return false;
+    cockpit.panel.turnKnob(id, step);   // bouton rotatif : il pivote d'un cran
     if (id !== 'trimWheel') sounds.click(); // la molette de trim fait ses crans d'elle-même (voir la boucle)
     return true;
 }
