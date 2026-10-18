@@ -992,7 +992,7 @@ img{margin: 0px;
 
   /* Choix du point de départ */
   /* Colonne intégrée à l'écran de vol, à gauche : la vue 3D de l'aérodrome reste visible */
-  #depart-dialog, #hangar-panneau {
+  #depart-dialog, #hangar-panneau, #aerodrome-panneau {
     grid-column: 4/15;
     grid-row: 10/17;
     align-self: start;
@@ -1010,14 +1010,14 @@ img{margin: 0px;
     border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   }
-  #depart-dialog[hidden], #hangar-panneau[hidden] {
+  #depart-dialog[hidden], #hangar-panneau[hidden], #aerodrome-panneau[hidden] {
     display: none;
   }
-  #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau {
+  #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau, #simulator:is(:fullscreen, .jeu) > #aerodrome-panneau {
     grid-column: 1 / -1;
     grid-row: 2;
   }
-  #depart-dialog h3, #hangar-panneau h3 {
+  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
     margin-top: 0;
     color: black;
   }
@@ -1083,7 +1083,7 @@ img{margin: 0px;
     font-size: 11px;
     text-align: left;
   }
-  #depart-dialog h3, #hangar-panneau h3 {
+  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
     margin: 0 0 4px;
     font-size: 15px;
   }
@@ -2836,4 +2836,34 @@ body:has(#simulator.jeu) {
 #masse-dialog button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Choix de l'aérodrome : mêmes cases que la liste des départs */
+#aerodrome-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+#aerodrome-liste button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: white;
+  border: 2px solid #114E69;
+  border-radius: 6px;
+}
+#aerodrome-liste button:hover,
+#aerodrome-liste button.survol {
+  background: #C3E6F5;
+}
+#aerodrome-liste button small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: #46697A;
 }

@@ -1,9 +1,12 @@
 import {
+    BufferAttribute,
+    BufferGeometry,
+    Group,
     Mesh,
     MeshStandardMaterial,
-    PlaneGeometry,
     RepeatWrapping,
     SRGBColorSpace,
+    Sphere,
     TextureLoader,
     Vector3
 } from 'three';
@@ -16,16 +19,31 @@ const TEXTURES = {
     snow:  'asset/textures/snow_02_diff_1k.jpg',
 };
 
+// Dalles du terrain : TILE m de côté. Finesse selon la distance à la caméra : pleine (réglage « Détail du sol ») en
+// deçà de LOD_DISTANCES[0], moitié jusqu'au suivant, etc. ; au-delà de la fin du brouillard, dalle cachée.
+// Jupes : bord de chaque dalle prolongé vers le bas (SKIRT m), cache les fentes entre deux finesses différentes
+const TILE = 1000;
+const LOD_DISTANCES = [1600, 3200, 6000];
+const MIN_SEGMENTS = 4;
+const SKIRT = 25;
+const BUILD_PER_FRAME = 3;   // dalles (re)construites au plus par image : pas d'à-coup en vol
+
 function smoothstep(edge0, edge1, x) {
     const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
     return t * t * (3 - 2 * t);
 }
 
-// Relief procédural : plaine au centre, collines autour, montagnes au loin
+// Minimum adouci (raccord sans arête entre le relief et un plafond)
+function softMin(a, b, k) {
+    const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k));
+    return b + (a - b) * h - k * h * (1 - h);
+}
+
+// Relief procédural : plaine au centre, collines autour, montagnes au loin ; vallées dégagées autour des pistes
 class Terrain {
     constructor(renderer, {
-        size = 6000,          // côté du terrain
-        segments = 384,       // finesse du maillage
+        size = 16000,         // côté du terrain (m) : deux aérodromes et leurs vallées
+        segments = 384,       // finesse : segments pour 6000 m (réglage « Détail du sol », comme avant les dalles)
         flatRadius = 80,      // zone plate au centre (point de départ)
         hillHeight = 15,
         mountainStart = 350,  // distance où les montagnes commencent
@@ -35,32 +53,168 @@ class Terrain {
         tile = 60,            // taille d'une répétition de texture (m)
         grassTint = 0x219313,
         flatten = () => 1,    // facteur de relief en (x, z) : 0 = sol plat (aérodrome), 1 = relief normal
-        // Vallée sans montagnes autour de la piste : ellipse allongée dans l'axe (rz, nord-sud) aux bords irréguliers,
-        // pour décoller et atterrir face au relief dégagé
-        clearing = null,      // { x, z, rx, rz }
+        // Vallées sans montagnes autour des pistes : ellipses (rx, rz : demi-axes) aux bords irréguliers, allongées
+        // dans l'axe de chaque piste, pour décoller et atterrir face au relief dégagé
+        clearings = [],       // [{ x, z, rx, rz }]
+        limit = () => Infinity, // hauteur maximale du relief en (x, z) : couloirs d'approche (voir Airport.terrainLimit)
     } = {}) {
         this.noise = new ImprovedNoise();
-        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearing });
+        Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearings, limit });
 
         this.size = size;
-        this.mesh = new Mesh(this._createGeometry(segments), this._createMaterial(renderer, { snowHeight, tile, grassTint }));
-    }
-
-    // Finesse du maillage (réglage "Détail du sol") ; les collisions utilisent heightAt, indépendant du maillage
-    setDetail(segments) {
-        if (this.mesh.geometry.parameters?.widthSegments === segments) return;
-        this.mesh.geometry.dispose();
-        this.mesh.geometry = this._createGeometry(segments);
-    }
-
-    _createGeometry(segments) {
-        const geometry = new PlaneGeometry(this.size, this.size, segments, segments);
-        geometry.rotateX(- Math.PI / 2);
-        const position = geometry.attributes.position;
-        for (let i = 0; i < position.count; i++) {
-            position.setY(i, this.heightAt(position.getX(i), position.getZ(i)));
+        this.material = this._createMaterial(renderer, { snowHeight, tile, grassTint });
+        // Groupe des dalles (scene.add(terrain.mesh) ; receiveShadow transmis aux dalles)
+        this.mesh = new Group();
+        this.mesh.name = 'terrain';
+        const count = Math.ceil(size / TILE);
+        this._tiles = [];
+        for (let i = 0; i < count; i++) {
+            for (let j = 0; j < count; j++) {
+                const x0 = -size / 2 + i * TILE, z0 = -size / 2 + j * TILE;
+                const mesh = new Mesh(new BufferGeometry(), this.material);
+                mesh.receiveShadow = true;
+                mesh.visible = false;
+                mesh.matrixAutoUpdate = false;
+                this.mesh.add(mesh);
+                this._tiles.push({ x0, z0, cx: x0 + TILE / 2, cz: z0 + TILE / 2, mesh, level: -1, cache: new Map() });
+            }
         }
-        geometry.computeVertexNormals();
+        Object.defineProperty(this.mesh, 'receiveShadow', {
+            set: (value) => { for (const t of this._tiles) t.mesh.receiveShadow = value; },
+            get: () => true,
+        });
+        this._fullSegments = 0;
+        this._viewer = new Vector3(0, 0, 0);
+        this._range = 3000;
+        this.setDetail(segments);
+    }
+
+    // Finesse du maillage (réglage "Détail du sol", segments pour 6000 m) ; les collisions utilisent heightAt
+    setDetail(segments) {
+        const full = Math.max(MIN_SEGMENTS, Math.round(segments * TILE / 6000));
+        if (full === this._fullSegments) return;
+        this._fullSegments = full;
+        for (const t of this._tiles) {
+            for (const geometry of t.cache.values()) geometry.dispose();
+            t.cache.clear();
+            t.level = -1;
+        }
+        this.update(this._viewer, this._range, true);
+    }
+
+    // Chaque image : finesse de chaque dalle selon sa distance à viewer ; range : distance de dessin (brouillard)
+    // all : tout reconstruire sans limite (au départ, changement de réglage)
+    update(viewer, range = this._range, all = false) {
+        // Rien à revoir tant que la caméra n'a pas bougé de 50 m (et que tout est construit)
+        if (!all && !this._pending && this._viewer.distanceToSquared(viewer) < 2500 && Math.abs(range - this._range) < 50) return;
+        // Saut de caméra (autre aérodrome choisi) : tout de suite en entier, plutôt que des trous dans le sol
+        if (this._viewer.distanceToSquared(viewer) > 1500 * 1500) all = true;
+        this._viewer.copy(viewer);
+        this._range = range;
+        this._pending = false;
+        let budget = all ? Infinity : BUILD_PER_FRAME;
+        // Les plus proches d'abord (la dalle sous l'avion est prête en premier)
+        const order = this._tiles.map((t) => [t, this._distance(t, viewer)]).sort((a, b) => a[1] - b[1]);
+        for (const [t, d] of order) {
+            const visible = d < range + TILE * 0.75;
+            t.mesh.visible = visible && t.level >= 0;
+            if (!visible) continue;
+            let level = LOD_DISTANCES.findIndex((limit) => d < limit);
+            if (level < 0) level = LOD_DISTANCES.length;
+            if (level === t.level) continue;
+            if (!t.cache.has(level)) {
+                // Pas de budget : on garde la finesse actuelle (ou une plus grossière déjà prête) pour l'instant
+                if (budget <= 0) {
+                    this._pending = true;   // à finir aux images suivantes
+                    if (t.level < 0) {
+                        const any = [...t.cache.keys()].sort((a, b) => b - a)[0];
+                        if (any !== undefined) this._show(t, any);
+                    }
+                    continue;
+                }
+                budget--;
+                t.cache.set(level, this._createTile(t, Math.max(MIN_SEGMENTS, this._fullSegments >> level)));
+            }
+            this._show(t, level);
+        }
+    }
+
+    _show(tile, level) {
+        // Finesses plus fines que celle affichée : libérées (mémoire), refaites si l'on revient près de la dalle
+        for (const [k, geometry] of tile.cache) {
+            if (k < level) {
+                geometry.dispose();
+                tile.cache.delete(k);
+            }
+        }
+        tile.level = level;
+        tile.mesh.geometry = tile.cache.get(level);
+        tile.mesh.visible = true;
+    }
+
+    // Distance horizontale de viewer au bord de la dalle (0 dedans)
+    _distance(t, p) {
+        const dx = Math.max(t.x0 - p.x, 0, p.x - (t.x0 + TILE));
+        const dz = Math.max(t.z0 - p.z, 0, p.z - (t.z0 + TILE));
+        return Math.hypot(dx, dz);
+    }
+
+    // Dalle de n × n segments : hauteurs sur une grille élargie d'un rang (normales par différences centrales, sans
+    // raccord visible avec la voisine), plus une jupe sur les quatre bords
+    _createTile(t, n) {
+        const step = TILE / n, side = n + 1;
+        const heights = new Float32Array((n + 3) * (n + 3));
+        for (let j = -1; j <= n + 1; j++) {
+            for (let i = -1; i <= n + 1; i++) heights[(j + 1) * (n + 3) + (i + 1)] = this.heightAt(t.x0 + i * step, t.z0 + j * step);
+        }
+        const h = (i, j) => heights[(j + 1) * (n + 3) + (i + 1)];
+        const vertexCount = side * side + 4 * side;
+        const positions = new Float32Array(vertexCount * 3), normals = new Float32Array(vertexCount * 3);
+        const n3 = new Vector3();
+        const put = (index, i, j, y) => {
+            positions[index * 3] = t.x0 + i * step;
+            positions[index * 3 + 1] = y;
+            positions[index * 3 + 2] = t.z0 + j * step;
+            n3.set(h(i - 1, j) - h(i + 1, j), 2 * step, h(i, j - 1) - h(i, j + 1)).normalize();
+            normals[index * 3] = n3.x;
+            normals[index * 3 + 1] = n3.y;
+            normals[index * 3 + 2] = n3.z;
+        };
+        for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) put(j * side + i, i, j, h(i, j));
+        // Jupes : bords nord (j = 0), sud (j = n), ouest (i = 0), est (i = n)
+        const skirtBase = side * side;
+        const edges = [
+            (k) => [k, 0], (k) => [k, n], (k) => [0, k], (k) => [n, k],
+        ];
+        edges.forEach((edge, e) => {
+            for (let k = 0; k <= n; k++) {
+                const [i, j] = edge(k);
+                put(skirtBase + e * side + k, i, j, h(i, j) - SKIRT);
+            }
+        });
+        const indices = [];
+        for (let j = 0; j < n; j++) {
+            for (let i = 0; i < n; i++) {
+                const a = j * side + i, b = a + 1, c = a + side, d = c + 1;
+                indices.push(a, c, b, b, c, d);
+            }
+        }
+        // Jupe : bande verticale entre le bord et son double abaissé, dessinée des deux côtés
+        edges.forEach((edge, e) => {
+            for (let k = 0; k < n; k++) {
+                const [i0, j0] = edge(k), [i1, j1] = edge(k + 1);
+                const top0 = j0 * side + i0, top1 = j1 * side + i1;
+                const low0 = skirtBase + e * side + k, low1 = low0 + 1;
+                indices.push(top0, low0, top1, top1, low0, low1, top0, top1, low0, top1, low1, low0);
+            }
+        });
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new BufferAttribute(positions, 3));
+        geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+        geometry.setIndex(indices);
+        let minY = Infinity, maxY = -Infinity;
+        for (let k = 1; k < positions.length; k += 3) { minY = Math.min(minY, positions[k]); maxY = Math.max(maxY, positions[k]); }
+        geometry.boundingSphere = new Sphere(new Vector3(t.cx, (minY + maxY) / 2, t.cz), Math.hypot(TILE / 2 * Math.SQRT2, (maxY - minY) / 2));
         return geometry;
     }
 
@@ -77,33 +231,42 @@ class Terrain {
             amp *= 0.5; freq *= 2;
         }
 
-        // Montagnes : bruit "en crêtes" pour des sommets marqués
-        let mountains = 0, total = 0;
-        amp = 1; freq = 1 / 700;
-        for (let o = 0; o < 5; o++) {
-            const ridge = 1 - Math.abs(this.noise.noise(x * freq, z * freq, 7.3));
-            mountains += ridge * ridge * amp;
-            total += amp;
-            amp *= 0.5; freq *= 2;
+        // Montagnes : bruit "en crêtes" pour des sommets marqués (pas calculées au fond des vallées)
+        const valley = this._clearingFactor(x, z) * smoothstep(this.mountainStart, this.mountainFull, r);
+        let mountains = 0;
+        if (valley > 0) {
+            let total = 0;
+            amp = 1; freq = 1 / 700;
+            for (let o = 0; o < 5; o++) {
+                const ridge = 1 - Math.abs(this.noise.noise(x * freq, z * freq, 7.3));
+                mountains += ridge * ridge * amp;
+                total += amp;
+                amp *= 0.5; freq *= 2;
+            }
+            mountains /= total;
         }
-        mountains /= total;
 
-        return relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
-            + mountains * this.mountainHeight * smoothstep(this.mountainStart, this.mountainFull, r) * this._clearingFactor(x, z));
+        const height = relief * (hills * this.hillHeight * smoothstep(this.flatRadius, this.flatRadius * 4, r)
+            + mountains * this.mountainHeight * valley);
+        // Couloirs d'approche : le relief ne dépasse pas le plafond (raccord adouci sur 30 m)
+        const cap = this.limit(x, z);
+        return cap === Infinity ? height : softMin(height, cap, 30);
     }
 
-    // 0 au fond de la vallée de la piste, 1 hors de la vallée (montagnes normales), fondu sur ses bords
+    // 0 au fond des vallées des pistes, 1 hors des vallées (montagnes normales), fondu sur leurs bords
     _clearingFactor(x, z) {
-        const c = this.clearing;
-        if (!c) return 1;
-        const dx = (x - c.x) / c.rx, dz = (z - c.z) / c.rz;
-        const d = Math.hypot(dx, dz);
-        if (d > 2) return 1;
-        // Bord irrégulier : rayon qui varie avec la direction (grandes et petites ondulations) et le lieu
-        const angle = Math.atan2(dz, dx);
-        const wobble = 1 + 0.22 * this.noise.noise(Math.cos(angle) * 1.6, Math.sin(angle) * 1.6, 3.7)
-            + 0.1 * this.noise.noise(x / 300, z / 300, 9.1);
-        return smoothstep(0.75, 1.3, d / wobble);
+        let factor = 1;
+        for (const c of this.clearings) {
+            const dx = (x - c.x) / c.rx, dz = (z - c.z) / c.rz;
+            const d = Math.hypot(dx, dz);
+            if (d > 2) continue;
+            // Bord irrégulier : rayon qui varie avec la direction (grandes et petites ondulations) et le lieu
+            const angle = Math.atan2(dz, dx);
+            const wobble = 1 + 0.22 * this.noise.noise(Math.cos(angle) * 1.6, Math.sin(angle) * 1.6, 3.7)
+                + 0.1 * this.noise.noise(x / 300, z / 300, 9.1);
+            factor = Math.min(factor, smoothstep(0.75, 1.3, d / wobble));
+        }
+        return factor;
     }
 
     _createMaterial(renderer, { snowHeight, tile, grassTint }) {

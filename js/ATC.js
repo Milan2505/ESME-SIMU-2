@@ -99,7 +99,6 @@ class ATC extends EventDispatcher {
         super();
         this.voices = voices;
         this.airport = airport;
-        this.aerodrome = airport.aerodrome;
         this.wind = wind;
         this.sounds = sounds;
         this.registration = registration;
@@ -124,6 +123,11 @@ class ATC extends EventDispatcher {
         this.reset();
     }
 
+    // Aérodrome dont on parle : celui du départ choisi (identité, fréquences, places)
+    get aerodrome() {
+        return this.airport.aerodrome;
+    }
+
     get atisLetter() {
         return Object.keys(PHONETIC)[this.atisIndex % 26];
     }
@@ -135,7 +139,7 @@ class ATC extends EventDispatcher {
     get status() {
         if (!this.radio.powered) return "Radio éteinte : allumez l'avionique (AVIONICS BUS 1) et la NAV/COM 1";
         if (!this.radio.tuned) return `Aucune station sur ${this.radio.frequency} : affichez une fréquence de l'aérodrome sur la COM`;
-        if (this.freq === 'info') return this.contacted.has('info') ? "Information de vol : ESME Info (trafic, météo)" : "Pas de contact avec ESME Info";
+        if (this.freq === 'info') return this.contacted.has('info') ? `Information de vol : ${this.aerodrome.name} Info (trafic, météo)` : `Pas de contact avec ${this.aerodrome.name} Info`;
         if (!this.contact) return STATUS.idle;
         if (this.state === 'taxiIn') return `Roulage vers le parking ${this.assignedStand}`;
         const handoff = { toGround: 'ground', toApproach: 'approach', toTower: 'tower' }[this.state];
@@ -362,7 +366,7 @@ class ATC extends EventDispatcher {
             distance: Math.hypot(dx, dz) / NM,
             bearing: (Math.atan2(dx, -dz) * 180 / Math.PI + 360) % 360,
             zone,
-            nearHolding: (zone === 'taxiway' || zone === 'entry') && p.x < this.aerodrome.holdingX + 20,
+            nearHolding: this.airport.nearHolding(p.x, p.z),
             stand: this.airport.standAt(p.x, p.z),
             active: this._activeRunway(),
             aligned: null,
@@ -410,7 +414,7 @@ class ATC extends EventDispatcher {
             const o = {
                 id: t.id, callsign: t.callsign, position: p, altitude: t.altitude, onGround, zone,
                 stand: onGround ? this.airport.standAt(p.x, p.z) : null,
-                nearHolding: (zone === 'taxiway' || zone === 'entry') && p.x < this.aerodrome.holdingX + 20,
+                nearHolding: this.airport.nearHolding(p.x, p.z),
                 distance: Math.hypot(p.x - cx, p.z - cz) / NM,
                 bearing: (Math.atan2(p.x - cx, -(p.z - cz)) * 180 / Math.PI + 360) % 360,
             };
@@ -1463,14 +1467,20 @@ class ATC extends EventDispatcher {
         return this._t(() => `${n} personne${n > 1 ? 's' : ''} à bord`, () => `${n} person${n > 1 ? 's' : ''} on board`);
     }
 
+    // Nom de l'aérodrome tel qu'il est prononcé (synthèse vocale)
+    _spoken() {
+        const speech = this.aerodrome.speech;
+        return speech?.[this.lang] ?? (this.lang === 'fr' ? 'Esmé' : 'Ezmay');
+    }
+
     _stationName() {
-        return tok(this.aerodrome.name, this.lang === 'fr' ? 'Esmé' : 'Ezmay');
+        return tok(this.aerodrome.name, this._spoken());
     }
 
     // "ESME Sol", "ESME Tower"…
     _station(id = this.freq) {
         const word = STATIONS[id][this.lang];
-        return tok(`${this.aerodrome.name} ${word}`, `${this.lang === 'fr' ? 'Esmé' : 'Ezmay'} ${word}`);
+        return tok(`${this.aerodrome.name} ${word}`, `${this._spoken()} ${word}`);
     }
 
     // Station sans le nom du terrain, dans les collationnements ("Tour 118.300")

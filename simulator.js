@@ -11,7 +11,7 @@ import { SoundEffects } from './js/SoundEffects.js';
 import { Graphics } from './js/Graphics.js';
 import { Multiplayer, cleanRegistration } from './js/Multiplayer.js';
 import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
-import { Airport } from './js/Airport.js';
+import { AirportNetwork } from './js/Airport.js';
 import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
@@ -116,10 +116,17 @@ view.addEventListener('webglcontextlost', (event) => {
 });
 view.addEventListener('webglcontextrestored', () => { document.getElementById('contexte-perdu').hidden = true; });
 document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
-const airport = new Airport();
+// Aérodromes (ESME, MONTVAL) : airport répond comme un aérodrome seul, celui choisi au départ (airport.current)
+const airport = new AirportNetwork();
 // Vallée dégagée dans l'axe de la piste (x 220, nord-sud) : ~2,3 km de chaque côté, ~0,7 km de large
+// Terrain de 16 km : une vallée par aérodrome, allongée dans l'axe de sa piste, et des couloirs d'approche dégagés
 const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z),
-    clearing: { x: 220, z: 0, rx: 750, rz: 2300 } });
+    clearings: airport.allRunways.filter((rw, i) => i % 2 === 0).map((rw) => {
+        const mx = rw.threshold.x + rw.direction.x * rw.length / 2, mz = rw.threshold.z + rw.direction.z * rw.length / 2;
+        const along = Math.abs(rw.direction.z) > 0.5;   // piste nord-sud
+        return { x: mx, z: mz, rx: along ? 750 : 2300, rz: along ? 2300 : 750 };
+    }),
+    limit: (x, z) => airport.terrainLimit(x, z) });
 const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
@@ -162,7 +169,9 @@ let decorDensity = 1;
 let decorStyle = 'realiste';   // 'classique' (arbres stylisés), 'realiste' (forêts et villages), 'mixte' (les deux)
 const CLASSIC_TREES = new Set(['TREE', 'TREE_F']);
 // Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
-const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => Math.abs(x - 220) < 150 && Math.abs(z) < 3000 });
+// Forêts et villages réalistes autour de chaque aérodrome (régions : centres), rien dans l'axe des pistes
+const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => airport.inCorridor(x, z),
+    regions: airport.list.map((a) => ({ x: a.center.x, z: a.center.z })) });
 let aircraftModel = null;
 let propeller = null;
 let propellerParts = new Set();   // pièces de l'hélice (estompées quand elle tourne vite)
@@ -540,7 +549,11 @@ const SPAWN_VIEWS = {
     rwy18:    { label: 'Piste 18 (nord)', target: [220, 0, -300], yaw: Math.PI - 0.5, pitch: 0.42, distance: 170 },
     parking:  { label: 'Parking et hangars', target: [360, 0, 35], yaw: -Math.PI / 2 - 0.4, pitch: 0.55, distance: 190 },
 };
-const spawnViewState = (view) => ({ target: new THREE.Vector3(...view.target), yaw: view.yaw, pitch: view.pitch, distance: view.distance });
+// Vues données dans le repère de l'aérodrome (piste nord-sud) : placées et tournées comme l'aérodrome choisi
+const spawnViewState = (view, field = airport.current) => {
+    const p = field.toWorld(view.target[0], view.target[2]);
+    return { target: new THREE.Vector3(p.x, view.target[1], p.z), yaw: view.yaw + field.rotation, pitch: view.pitch, distance: view.distance };
+};
 const spawnCam = { ...spawnViewState(SPAWN_VIEWS.ensemble), goal: spawnViewState(SPAWN_VIEWS.ensemble) };
 // Vue préréglée choisie (null : caméra déplacée à la souris) ; snap : sans glissement
 function setSpawnView(name, snap = false) {
@@ -707,8 +720,12 @@ async function buildWorld() {
             // Position, orientation et taille de chaque exemplaire
             const placement = new THREE.Object3D();
             const matrices = [];
-            for (let i = 0; i < nombre; i++) {
+            // Autant d'exemplaires tirés au hasard autour de chaque autre aérodrome (même place relative)
+            const random = Math.max(0, nombre - placed.length), total = nombre + random * (airport.list.length - 1);
+            for (let i = 0; i < total; i++) {
                 const o = placed[i];
+                const field = i < nombre ? airport.main : airport.list[1 + Math.floor((i - nombre) / random)];
+                const origin = field.toWorld(0, 0);
                 placement.rotation.set(0, 0, 0);
                 if (o) {
                     placement.scale.set(Number(o.scalex), Number(o.scaley), Number(o.scalez));
@@ -719,8 +736,8 @@ async function buildWorld() {
                     // Rien sur l'aérodrome (piste, parking, bâtiments)
                     let x, z;
                     do {
-                        x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-                        z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
+                        x = origin.x + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
+                        z = origin.z + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
                     } while (airport.contains(x, z, 30));
                     // Légèrement enfoncé pour ne pas flotter sur les pentes
                     placement.position.set(x, terrain.heightAt(x, z) - 0.5, z);
@@ -1110,7 +1127,8 @@ function numberSprite(text) {
     sprite.renderOrder = 12;
     return sprite;
 }
-airport.spawns.forEach((spawn, i) => {
+// Une case par départ de chaque aérodrome ; seules celles de l'aérodrome choisi sont montrées (voir openSpawnDialog)
+for (const field of airport.list) field.spawns.forEach((spawn, i) => {
     const size = 24, height = 8;
     const marker = new THREE.Group();
     marker.position.set(spawn.x, 0.1, spawn.z);
@@ -1154,12 +1172,13 @@ function spawnUnderPointer(event) {
     const rect = view.getBoundingClientRect();
     const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     spawnRaycaster.setFromCamera(ndc, camera);
-    const boxes = spawnMarkers.children.map((marker) => marker.children[0]);
+    const shown = spawnMarkers.children.filter((marker) => marker.visible);   // (cases de l'aérodrome choisi)
+    const boxes = shown.map((marker) => marker.children[0]);
     const hit = spawnRaycaster.intersectObjects(boxes, false)[0];
     if (hit) return hit.object.userData.spawn;
     // Au loin, les cases sont petites à l'écran : tolérance autour de leur centre
     let best = null, bestDistance = 40;
-    for (const marker of spawnMarkers.children) {
+    for (const marker of shown) {
         const p = marker.position.clone().project(camera);
         const d = Math.hypot((p.x - ndc.x) * rect.width / 2, (p.y - ndc.y) * rect.height / 2);
         if (d < bestDistance) [best, bestDistance] = [marker.userData.spawn, d];
@@ -1181,6 +1200,10 @@ function applySpawnState() {
     avionics.reset(Boolean(currentSpawn.cold));
     gloveboxOpen = false;
     avionics.com1.active = parseFrequency(airport.aerodrome.frequencies[atc.freq]);
+    // Radios réglées sur l'aérodrome de départ : COM 2 sur son Info, NAV 1 et 2 sur son VOR, ILS en attente sur la NAV 1
+    avionics.com2.active = parseFrequency(airport.aerodrome.frequencies.info);
+    avionics.nav1.active = avionics.nav2.active = parseFrequency(airport.vor.frequency);
+    avionics.nav1.standby = parseFrequency(airport.current.ilsFrequency);
     radioSync.freq = atc.freq;
     radioSync.code = avionics.xpdr.code = atc.transponder;
     if (currentSpawn.cold) {
@@ -1241,7 +1264,31 @@ function openSpawnDialog() {
     choosingSpawn = true;
     aircraft.visible = false;
     spawnMarkers.visible = true;
+    for (const marker of spawnMarkers.children) marker.visible = marker.userData.spawn.airport === airport.current;
+    renderAirportTabs();
     setSpawnView('ensemble', true);
+}
+// Onglets des aérodromes, en haut du choix du départ : changer d'aérodrome refait la liste et la vue
+const airportTabs = document.getElementById('depart-aerodromes');
+function renderAirportTabs() {
+    // Vues préréglées : numéros des pistes de l'aérodrome choisi
+    const [first, second] = airport.current.runways;
+    for (const button of spawnViewButtons.children) {
+        if (button.dataset.vue === 'rwy36') button.textContent = `Piste ${first.name}`;
+        if (button.dataset.vue === 'rwy18') button.textContent = `Piste ${second.name}`;
+    }
+    airportTabs.replaceChildren(...airport.list.map((field) => {
+        const button = document.createElement('button');
+        button.textContent = `${field.label} · ${field.runways.map((rw) => rw.name).join('/')}`;
+        button.title = field.description;
+        button.classList.toggle('actif', field === airport.current);
+        button.addEventListener('click', () => {
+            selectAirport(field);
+            openSpawnDialog();
+            button.blur();
+        });
+        return button;
+    }));
 }
 // Boutons des vues préréglées (au-dessus de la liste des départs) ; survoler un départ de la liste n'y bouge pas
 const spawnViewButtons = document.getElementById('depart-vues');
@@ -1288,7 +1335,7 @@ function setMenuBar(visible) {
 }
 window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.repeat) return;
-    if (inMenu || inHangar || !spawnDialog.hidden || document.querySelector('dialog[open]')) return;
+    if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
     if (menus.some((menu) => !menu.querySelector('.menu-contenu').hidden)) return;   // Échap referme d'abord le menu
     setMenuBar(!simulatorElement.classList.contains('barre'));
 }, true);
@@ -1319,19 +1366,70 @@ document.getElementById('depart').addEventListener('click', (event) => {
 // Hangar : au lancement, l'avion est présenté dans le hangar de l'aéro-club, éteint, portes ouvertes et plafonniers
 // allumés (l'avion est tout près des portes, voir Airport.updateHangars). À côté : livrée et immatriculation ; le
 // bouton passe au choix du départ. Comme pendant le choix du départ, rien ne bouge (ni physique, ni son, ni réseau)
+// Aérodrome choisi : départs, hangar, tour de contrôle, radios ; le départ par défaut devient sa première piste
+function selectAirport(field) {
+    airport.setCurrent(field);
+    if (currentSpawn.airport !== airport.current) currentSpawn = airport.current.spawns[0];
+}
+
+// Choix de l'aérodrome (après Vol libre / Multijoueur, avant le hangar) : une case par terrain (pistes, fréquences,
+// balises) ; la survoler y amène la caméra, la cliquer ouvre son hangar
+const airportPanel = document.getElementById('aerodrome-panneau');
+const airportList = document.getElementById('aerodrome-liste');
+function openAirportChoice() {
+    inHangar = false;
+    hangarPanel.hidden = true;
+    spawnDialog.hidden = true;
+    choosingSpawn = true;
+    aircraft.visible = false;
+    spawnMarkers.visible = false;
+    airportPanel.hidden = false;
+    setSpawnView('ensemble', true);
+    airportList.replaceChildren(...airport.list.map((field, i) => {
+        const button = document.createElement('button');
+        const number = document.createElement('span');
+        number.className = 'depart-numero';
+        number.textContent = String(i + 1);
+        const text = document.createElement('span');
+        text.textContent = `${field.aerodrome.name} (${field.aerodrome.icao})`;
+        const detail = document.createElement('small');
+        detail.textContent = `${field.description} · pistes ${field.runways.map((rw) => rw.name).join(' / ')} · `
+            + `Tour ${field.aerodrome.frequencies.tower} · VOR ${field.vor.ident} ${field.vor.frequency} · ILS ${field.ilsFrequency}`;
+        text.append(detail);
+        button.append(number, text);
+        button.classList.toggle('survol', field === airport.current);
+        button.addEventListener('pointerenter', () => {
+            // Saut direct (sans survol de la carte entre les deux : le relief n'aurait pas le temps d'être construit)
+            spawnCam.goal = spawnViewState(SPAWN_VIEWS.ensemble, field);
+            Object.assign(spawnCam, spawnViewState(SPAWN_VIEWS.ensemble, field));
+            markSpawnView(null);
+        });
+        button.addEventListener('click', () => {
+            selectAirport(field);
+            openHangar();
+        });
+        return button;
+    }));
+}
+document.getElementById('aerodrome-menu').addEventListener('click', () => {
+    airportPanel.hidden = true;
+    openMainMenu();
+});
+
 const hangarPanel = document.getElementById('hangar-panneau');
 let viewBeforeHangar = null;
 function openHangar() {
-    const hangar = airport.hangars[0];
+    const hangar = airport.hangars[0];   // (aérodrome choisi)
     inHangar = choosingSpawn = true;
+    airportPanel.hidden = true;
     hangarPanel.hidden = false;
     systems.reset();
     systems.coldAndDark();
     controls.throttle = 0;
     applyLights();
-    // Au milieu du hangar, nez vers les portes (ouest)
-    aircraft.position.set(hangar.x + 2, 0, hangar.z);
-    aircraft.rotation.set(0, Math.PI / 2, 0);
+    // Au milieu du hangar, nez vers les portes
+    aircraft.position.set(hangar.spot.x, 0, hangar.spot.z);
+    aircraft.rotation.set(0, hangar.spot.heading, 0);
     controls.placeOnGround();
     aircraft.position.y += 0.05;   // sol du hangar, un peu au-dessus du terrain
     aircraft.visible = true;
@@ -1363,6 +1461,7 @@ function openMainMenu() {
     if (initiation?.active) initiation.stop();
     inHangar = false;
     hangarPanel.hidden = true;
+    airportPanel.hidden = true;
     spawnDialog.hidden = true;
     spawnMarkers.visible = false;
     choosingSpawn = inMenu = true;
@@ -1386,14 +1485,14 @@ document.getElementById('mp-vol-libre').addEventListener('click', () => {
         updateModes();
     }
     closeMainMenu();
-    openHangar();
+    openAirportChoice();
 });
 document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
 // Partie créée ou rejointe depuis le menu : fenêtre fermée -> au hangar
 multiDialog.addEventListener('close', () => {
     if (!inMenu || !multiplayer.code) return;
     closeMainMenu();
-    openHangar();
+    openAirportChoice();
 });
 document.getElementById('mp-initiation').addEventListener('click', () => openInitiation());
 document.getElementById('mp-parametres').addEventListener('click', () => openSettings());
@@ -1659,8 +1758,8 @@ const mapView = new MapView(document.getElementById('carte-canvas'), {
     heightAt: (x, z) => terrain.heightAt(x, z),
     worldSize: terrain.size,
     shapes: airport.mapShapes,
-    runways: airport.runways,
-    navaids: [airport.vor],
+    runways: airport.allRunways,
+    navaids: airport.vors,
 });
 
 function toggleMap(open = mapPanel.hidden) {
@@ -1770,7 +1869,9 @@ function renderVoiceStatus() {
 }
 radioVoices.addEventListener('status', renderVoiceStatus);
 
-// Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée
+// Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée (refaites quand on change
+// d'aérodrome : fréquences différentes)
+function renderAtcStations() {
 atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
     const button = document.createElement('button');
     button.dataset.station = id;
@@ -1783,6 +1884,9 @@ atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
     button.addEventListener('click', () => { atc.setFrequency(id); view.focus(); });
     return button;
 }));
+}
+renderAtcStations();
+airport.addEventListener('change', () => { renderAtcStations(); renderAtc(); });
 
 // Personnes à bord (annoncées au premier contact)
 atcPersons.addEventListener('change', () => {
@@ -1966,11 +2070,19 @@ const _atcForward = new THREE.Vector3();
 // Radio de bord <-> contrôle aérien : la COM choisie au micro (boîte audio) règle la station écoutée ; un changement
 // fait dans la fenêtre Tour (ou par le contrôleur) s'affiche sur cette COM. Transpondeur : même code des deux côtés
 const stationOn = (khz) => Object.keys(airport.aerodrome.frequencies).find((id) => parseFrequency(airport.aerodrome.frequencies[id]) === khz) ?? null;
+// Fréquence d'un autre aérodrome affichée sur la COM (en route vers lui) : c'est désormais lui qui répond (tour,
+// ILS conseillé, places de parking) ; le point de départ (touche R) ne change pas
+function followTunedAirport(khz) {
+    if (stationOn(khz)) return;
+    const other = airport.list.find((field) => Object.values(field.aerodrome.frequencies).some((f) => parseFrequency(f) === khz));
+    if (other) airport.setCurrent(other);
+}
 function syncRadios() {
     const micCom = avionics.audio.mic, com = avionics[micCom];
     if (atc.freq !== radioSync.freq) avionics.showOnCom(micCom, parseFrequency(airport.aerodrome.frequencies[atc.freq]));
     if (atc.transponder !== radioSync.code) avionics.xpdr.code = atc.transponder;
     else if (avionics.xpdr.code !== atc.transponder) atc.setTransponder(avionics.xpdr.code);
+    if (!choosingSpawn) followTunedAirport(com.active);
     const station = stationOn(com.active);
     if (station && station !== atc.freq) atc.setFrequency(station);
     atc.setRadio(Boolean(avionics.powered(systems)[micCom === 'com1' ? 'navcom1' : 'navcom2']), Boolean(station), (com.active / 1000).toFixed(3));
@@ -2010,6 +2122,8 @@ var initiation = new Initiation({
     // Départ : avion éteint au parking N4, en solo, vue cabine
     startCold: () => {
         multiplayer.leave();
+        selectAirport(airport.main);   // les leçons ont lieu à ESME
+        airportPanel.hidden = true;
         const spawn = airport.spawns.find((sp) => sp.id === 'stand4') ?? airport.spawns.find((sp) => sp.cold);
         closeMainMenu();
         leaveHangar();
@@ -2169,16 +2283,20 @@ atc.addEventListener('transmit', ({ from, on }) => {
 
 // Radionavigation : NAV 1 / NAV 2 (VOR ou ILS selon la fréquence affichée), DME (sur la NAV 1), ADF (balise NDB
 // fixe au milieu des pistes, rose réglée au bouton HDG)
-const VOR_FREQ = parseFrequency(airport.vor.frequency), ILS_FREQ = 110300;
-const NDB = airport.runways[0].threshold.clone().add(airport.runways[1].threshold).multiplyScalar(0.5);
+// Chaque aérodrome a son VOR et son ILS (fréquences : voir AIRPORTS dans Airport.js) ; l'ADF pointe la balise NDB
+// de l'aérodrome le plus proche
+const vorByKhz = new Map(airport.vors.map((station) => [parseFrequency(station.frequency), station]));
+const ilsByKhz = new Map(airport.list.map((a) => [parseFrequency(a.ilsFrequency), a.ilsFrequency]));
+const nearestAirport = () => airport.nearest(aircraft.position.x, aircraft.position.z);
+const nearestIlsKhz = () => parseFrequency(nearestAirport().ilsFrequency);
 const dmeTrack = { distance: null, kt: 0 };
 function navReceiver(khz, powered, receiver, glide) {
     if (!powered) return { available: false };
-    if (khz === VOR_FREQ) {
+    if (vorByKhz.has(khz) && receiver.station === vorByKhz.get(khz)) {
         const s = receiver.state;
         return { available: s.available && !s.overhead, deviation: s.deviation, to: s.to, glide: false, distance: s.distance };
     }
-    if (khz === ILS_FREQ && ils.state.available) {
+    if (ilsByKhz.has(khz) && ils.state.available && ils.state.frequency === ilsByKhz.get(khz)) {
         const s = ils.state;
         return { available: true, deviation: s.localizer, to: null, glide: glide && s.distance > 0, glideslope: s.glideslope, distance: s.distance };
     }
@@ -2195,7 +2313,8 @@ function navInstruments() {
     }
     let adf = 90;   // aiguille au repos (pas de signal)
     if (powered.adf) {
-        const bearing = Math.atan2(NDB.x - aircraft.position.x, -(NDB.z - aircraft.position.z)) * 180 / Math.PI;
+        const ndb = nearestAirport().ndb;
+        const bearing = Math.atan2(ndb.x - aircraft.position.x, -(ndb.z - aircraft.position.z)) * 180 / Math.PI;
         adf = ((bearing - controls.getHeading()) % 360 + 360) % 360;
     }
     return {
@@ -2219,7 +2338,7 @@ function updateDme(delta) {
 
 // ILS : disponible près de la piste, dans l'axe d'approche. Bouton sur le tableau de bord en cabine,
 // bouton à l'écran en vue extérieure, touche I dans les deux cas.
-const ils = new ILS(airport.runways, airport.runwayLength);
+const ils = new ILS(airport.allRunways, airport.runwayLength);
 
 // VOR (NAV1) : balise de l'aérodrome. Indicateur au tableau de bord ; en vue extérieure, touche O.
 // OBS : J / K (Maj : 10° par appui), H : centrer l'aiguille sur la route directe vers la balise
@@ -2245,6 +2364,9 @@ for (const [id, action] of [['vor-moins', () => vor.turnCourse(-1)], ['vor-plus'
 }
 
 function updateVor(delta) {
+    // Balise reçue : celle de la fréquence affichée sur chaque NAV (sinon la dernière)
+    vor.station = vorByKhz.get(avionics.nav1.active) ?? vor.station;
+    vor2.station = vorByKhz.get(avionics.nav2.active) ?? vor2.station;
     vor.update(aircraft.position);
     vor2.setCourse(avionics.obs2);
     vor2.update(aircraft.position);
@@ -2267,13 +2389,15 @@ const ilsText = document.getElementById('ils-texte');
 
 // ILS : affiché sur la NAV 1 (fréquence 110.30) ; touche I et bouton en vue extérieure : y passer ou en revenir
 function toggleIls() {
-    avionics.toggleNav1(ILS_FREQ);
+    avionics.toggleNav1(nearestIlsKhz());
     updateIls();
 }
 
 function updateIls() {
-    const state = ils.update(aircraft.position);
-    ils.active = state.available && avionics.nav1.active === ILS_FREQ && avionics.powered(systems).navcom1;
+    // ILS affiché sur la NAV 1, sinon celui de l'aérodrome le plus proche (bouton « ILS disponible »)
+    const tuned = ilsByKhz.get(avionics.nav1.active);
+    const state = ils.update(aircraft.position, tuned ?? nearestAirport().ilsFrequency);
+    ils.active = state.available && Boolean(tuned) && avionics.powered(systems).navcom1;
     const showButton = chaseView && state.available && !controls.isCrashed();
     ilsButton.hidden = !showButton;
     ilsButton.classList.toggle('actif', ils.active);
@@ -2618,7 +2742,10 @@ renderer.setAnimationLoop((time)=>{
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
     // PAPI : couleur vue de l'œil du pilote, même en vue extérieure
     pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
-    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld );
+    // Dessin limité à ce qui est visible : dalles du terrain et aérodromes au-delà du brouillard cachés
+    const drawRange = Math.max(scene.fog?.far ?? 3000, 2400) + 600;
+    terrain.update( camera.position, drawRange );
+    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld, drawRange + 1500 );
     airport.updateHangars( delta, aircraft.position );
     decorShadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
     scenery.update( camera.position, clock.elapsedTime, decorShadowCenter );

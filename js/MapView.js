@@ -2,8 +2,8 @@
 // Nord en haut. Le relief est calculé une seule fois, à la première ouverture.
 
 const NM = 1852;
-const RELIEF_PIXELS = 320;               // finesse de l'image du relief (pour tout le terrain)
-const ZOOMS = [6000, 3000, 1500, 700];   // largeur montrée par la carte (m)
+const RELIEF_PIXELS = 480;               // finesse de l'image du relief (pour tout le terrain : ~33 m par pixel)
+const ZOOMS = [14000, 6000, 3000, 1500, 700];   // largeur montrée par la carte (m) ; la plus large montre les deux aérodromes
 const REDRAW = 1 / 12;                   // carte redessinée 12 fois par seconde au plus (s)
 
 // Couleur du relief selon l'altitude (m), ombrée selon la pente (lumière venant du nord-ouest)

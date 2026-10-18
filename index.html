@@ -267,6 +267,14 @@
 		<p class="mp-pied">Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
 	</div>
 
+	<!-- Choix de l'aérodrome (Vol libre, Multijoueur), avant le hangar : survoler un terrain le montre -->
+	<div id="aerodrome-panneau" hidden>
+		<h3>Choisissez votre aérodrome</h3>
+		<p class="depart-aide">Survolez un terrain pour le voir. Vous pourrez en changer au choix du départ.</p>
+		<div id="aerodrome-liste"></div>
+		<button id="aerodrome-menu" class="mp-retour">← Menu principal</button>
+	</div>
+
 	<!-- Hangar (au lancement, avant le choix du départ) : l'avion présenté au hangar, sa livrée et son immatriculation -->
 	<div id="hangar-panneau" hidden>
 		<h3>Votre avion</h3>
@@ -281,6 +289,7 @@
 	<!-- Choix du point de départ (au lancement, et menu Commandes) -->
 	<div id="depart-dialog" hidden>
 		<h3>Où voulez-vous commencer ?</h3>
+		<div id="depart-aerodromes" class="depart-vues" aria-label="Aérodrome"></div>
 		<p class="depart-aide">Cliquez sur une case jaune, ou choisissez ci-dessous.</p>
 		<div id="depart-vues" class="depart-vues" aria-label="Vue de l'aérodrome"></div>
 		<p class="depart-aide">Glisser : tourner · clic droit glissé : déplacer · molette : zoom</p>

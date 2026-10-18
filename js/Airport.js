@@ -137,8 +137,12 @@ function speckle(ctx, width, height, base, amount, count) {
 // plots de point d'aiming, axe discontinu, bandes de bord. Distances en mètres depuis chaque extrémité.
 const THRESHOLD_OFFSET = 2;      // début des bandes de seuil (peigne), juste après le seuil et ses feux (avant : 6 m)
 const AIMING_POINT = 240;        // point visé à l'atterrissage (PAPI et pente ILS calés dessus) : 3° -> seuil passé à ~41 ft (150 m : 26 ft, trop bas)
+// Couloirs d'approche dégagés (voir Airport.terrainLimit)
+const APPROACH_LENGTH = 9000;
+const APPROACH_SLOPE = Math.tan(MathUtils.degToRad(2.5));
 
-function runwayTexture(maxAnisotropy) {
+// names : [numéro peint au nord, au sud] (repère de l'aérodrome)
+function runwayTexture(maxAnisotropy, names = ['18', '36']) {
     const { width: w, length: l } = RUNWAY;
     return canvasTexture(256, 4096, (ctx, cw, ch) => {
         speckle(ctx, cw, ch, '#3b3c3e', 0.12, 60000);
@@ -168,11 +172,11 @@ function runwayTexture(maxAnisotropy) {
             ctx.fillRect(w / 2 - 6 - 4, AIMING_POINT - 10, 4, 45);
             ctx.fillRect(w / 2 + 6, AIMING_POINT - 10, 4, 45);
         };
-        markings('18'); // extrémité nord : piste 18 (on y atterrit cap au sud)
+        markings(names[0]); // extrémité nord : piste 18 (on y atterrit cap au sud)
         ctx.save();
         ctx.translate(w, l);
         ctx.rotate(Math.PI); // extrémité sud : mêmes marquages, retournés
-        markings('36');      // piste 36 (on y atterrit cap au nord)
+        markings(names[1]);    // piste 36 (on y atterrit cap au nord)
         ctx.restore();
 
         // Axe : traits de 30 m, espaces de 20 m, entre les deux numéros
@@ -399,57 +403,167 @@ function sockTexture() {
     });
 }
 
+// Identité de chaque aérodrome. Tous ont le même plan (piste de 1000 m, bretelle, parking, deux hangars, tour,
+// terminal, VOR) : il est dessiné dans le repère de l'aérodrome (piste nord-sud, voir les constantes ci-dessus), puis
+// placé (position) et tourné (rotation autour de la verticale, en quarts de tour : les boîtes de collision restent
+// alignées sur les axes) dans le monde. Une rotation de -PI / 2 donne une piste est-ouest (09 / 27)
+const AIRPORTS = {
+    esme: {
+        id: 'esme', label: 'ESME', position: { x: 0, z: 0 }, rotation: 0,
+        aerodrome: AERODROME, speech: { fr: 'Esmé', en: 'Ezmay' },
+        vor: { ident: VOR_STATION.ident, frequency: VOR_STATION.frequency }, ils: '110.30',
+        hangars: ['ESME AÉRO-CLUB', 'HANGAR 2'],
+        parked: [['origine', 'F-GKTA'], ['vert', 'F-HBLU'], ['orange', 'F-GMOZ']],
+        description: 'Aérodrome de l\'école, au fond de la vallée',
+    },
+    montval: {
+        // Piste au centre en (5200, -4300) : à ~3,6 NM au sud-est d'ESME, dans sa propre vallée
+        id: 'montval', label: 'MONTVAL', position: { x: 5200, z: -4520 }, rotation: -Math.PI / 2,
+        aerodrome: { icao: 'LFXM', name: 'MONTVAL', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
+        speech: { fr: 'Montval', en: 'Montval' },
+        vor: { ident: 'MTV', frequency: '115.20' }, ils: '109.70',
+        hangars: ['AÉRO-CLUB MONTVAL', 'HANGAR 2'],
+        parked: [['bleu', 'F-GDVM'], ['jaune', 'F-HMTV'], ['violet', 'F-GJPA']],
+        description: 'Terrain de montagne, piste est-ouest',
+    },
+};
+const CARDINALS = ['nord', 'est', 'sud', 'ouest'];
+const cardinal = (deg) => CARDINALS[Math.round(((deg % 360) + 360) % 360 / 90) % 4];
+const runwayName = (deg) => String(Math.round(((deg % 360) + 360) % 360 / 10) || 36).padStart(2, '0');
+
 class Airport {
-    constructor() {
+    constructor(config = AIRPORTS.esme) {
+        this.config = config;
+        this.id = config.id;
+        this.label = config.label;
+        this.description = config.description;
         this.group = new Group();
-        this.obstacles = [];         // boîtes à ne pas percuter (bâtiments, avions garés…)
-        this.start = { x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15 }; // seuil sud, cap au nord
-        // Points de départ (écran de choix) : seuils de piste, avion prêt à décoller ; places de parking libres,
-        // avion éteint. heading : rotation autour de la verticale (0 = nord, PI / 2 = ouest)
-        this.spawns = [
-            { id: 'rwy36', name: 'Piste 36', detail: 'Seuil sud, face au nord · prêt à décoller', x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15, heading: 0, cold: false },
-            { id: 'rwy18', name: 'Piste 18', detail: 'Seuil nord, face au sud · prêt à décoller', x: RUNWAY.x, z: RUNWAY.z - RUNWAY.length / 2 + 15, heading: Math.PI, cold: false },
-            { id: 'stand4', name: `Parking ${STAND_NAMES[3]}`, detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[3], heading: Math.PI / 2, cold: true, stand: STAND_NAMES[3] },
-            { id: 'stand7', name: `Parking ${STAND_NAMES[6]}`, detail: 'Avion éteint : à mettre en route', x: 336, z: STANDS[6], heading: Math.PI / 2, cold: true, stand: STAND_NAMES[6] },
+        this.obstacles = [];         // boîtes à ne pas percuter (bâtiments, avions garés…), repère monde
+        this._worldObstacles = 0;    // boîtes déjà passées du repère de l'aérodrome au repère monde
+        // Placement dans le monde : (x, z) local -> monde, et l'inverse ; caps (degrés, 0 = nord) : monde = local - rotation
+        const rotation = config.rotation ?? 0;
+        this.rotation = rotation;
+        this._cos = Math.cos(rotation);
+        this._sin = Math.sin(rotation);
+        this._ox = config.position.x;
+        this._oz = config.position.z;
+        this._rotationDeg = MathUtils.radToDeg(rotation);
+        this._matrix = new Matrix4().makeRotationY(rotation).setPosition(this._ox, 0, this._oz);
+        const world = (x, z) => this.toWorld(x, z);
+        const vector = (x, y, z) => { const p = world(x, z); return new Vector3(p.x, y, p.z); };
+
+        // Pistes, dans le repère de l'aérodrome (PAPI) puis dans le monde (tour, ILS, carte, départs)
+        this._localRunways = [
+            { heading: 0, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z + RUNWAY.length / 2), direction: new Vector3(0, 0, -1) },
+            { heading: 180, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z - RUNWAY.length / 2), direction: new Vector3(0, 0, 1) },
         ];
-        // Les deux sens d'atterrissage : seuil (bout de piste), direction d'atterrissage, point visé
-        this.runways = [
-            { name: '36', heading: 0, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z + RUNWAY.length / 2), direction: new Vector3(0, 0, -1) },
-            { name: '18', heading: 180, threshold: new Vector3(RUNWAY.x, 0, RUNWAY.z - RUNWAY.length / 2), direction: new Vector3(0, 0, 1) },
-        ];
-        for (const runway of this.runways) {
+        for (const runway of this._localRunways) {
             runway.aimPoint = runway.threshold.clone().addScaledVector(runway.direction, AIMING_POINT);
-            runway.left = new Vector3(runway.direction.z, 0, -runway.direction.x); // à gauche de l'avion qui atterrit
+            runway.left = new Vector3(runway.direction.z, 0, -runway.direction.x);
         }
+        this.runways = this._localRunways.map((r) => {
+            const heading = ((r.heading - this._rotationDeg) % 360 + 360) % 360;
+            const direction = this.directionToWorld(r.direction);
+            return {
+                name: runwayName(heading), heading, airport: this, length: RUNWAY.length, ilsFrequency: config.ils,
+                threshold: vector(r.threshold.x, 0, r.threshold.z), direction,
+                aimPoint: vector(r.aimPoint.x, 0, r.aimPoint.z),
+                left: new Vector3(direction.z, 0, -direction.x),   // à gauche de l'avion qui atterrit
+            };
+        });
+        this._localRunways.forEach((r, i) => { r.name = this.runways[i].name; });
         this.runwayLength = RUNWAY.length;
+        const startLocal = { x: RUNWAY.x, z: RUNWAY.z + RUNWAY.length / 2 - 15 };
+        this.start = world(startLocal.x, startLocal.z);   // seuil de la première piste
+        // Points de départ (écran de choix) : seuils de piste, avion prêt à décoller ; places de parking libres,
+        // avion éteint. heading : rotation autour de la verticale (0 = nord, PI / 2 = ouest). Identifiants d'ESME
+        // inchangés (l'initiation part de « stand4 ») ; ceux des autres terrains préfixés
+        const prefix = config.id === 'esme' ? '' : `${config.id}-`;
+        const spawnAt = (id, name, detail, x, z, heading, extra = {}) => {
+            const p = world(x, z);
+            return { id: prefix + id, name, detail, x: p.x, z: p.z, heading: heading + rotation, airport: this, ...extra };
+        };
+        const [rw1, rw2] = this.runways;
+        const facing = { nord: 'au nord', est: 'à l\'est', sud: 'au sud', ouest: 'à l\'ouest' };
+        const runwaySpawn = (rw) => `Seuil ${cardinal(rw.heading + 180)}, face ${facing[cardinal(rw.heading)]} · prêt à décoller`;
+        this.spawns = [
+            spawnAt(`rwy${rw1.name}`, `Piste ${rw1.name}`, runwaySpawn(rw1), startLocal.x, startLocal.z, 0, { cold: false }),
+            spawnAt(`rwy${rw2.name}`, `Piste ${rw2.name}`, runwaySpawn(rw2), RUNWAY.x, RUNWAY.z - RUNWAY.length / 2 + 15, Math.PI, { cold: false }),
+            spawnAt('stand4', `Parking ${STAND_NAMES[3]}`, 'Avion éteint : à mettre en route', 336, STANDS[3], Math.PI / 2, { cold: true, stand: STAND_NAMES[3] }),
+            spawnAt('stand7', `Parking ${STAND_NAMES[6]}`, 'Avion éteint : à mettre en route', 336, STANDS[6], Math.PI / 2, { cold: true, stand: STAND_NAMES[6] }),
+        ];
         // Tour de contrôle (ATC.js) : identité du terrain, places (libres : celles des départs au parking)
-        this.aerodrome = { ...AERODROME, holdingX: HOLDING_X,
-            stands: STANDS.map((z, i) => ({ name: STAND_NAMES[i], x: 336, z, free: i === 3 || i === 6 })) };
+        this.aerodrome = { ...config.aerodrome, speech: config.speech, holdingX: HOLDING_X,
+            stands: STANDS.map((z, i) => ({ name: STAND_NAMES[i], ...world(336, z), free: i === 3 || i === 6 })) };
         // Balise VOR (antenne à 6,5 m de haut)
-        this.vor = { ...VOR_STATION, y: 6.5 };
-        // Contours pour la carte (MapView.js)
+        this.vor = { ...config.vor, ...world(VOR_STATION.x, VOR_STATION.z), y: 6.5 };
+        this.ilsFrequency = config.ils;
+        // Balise NDB (ADF) : au milieu de la piste
+        this.ndb = vector(RUNWAY.x, 0, RUNWAY.z);
         this._hangars = [];          // portes animées et éclairage intérieur, voir updateHangars
-        this.hangars = HANGARS;      // { x, z, name } : centre de chaque hangar (portes côté ouest)
+        // Centre de chaque hangar (portes côté parking) ; spot : avion présenté au milieu, nez vers les portes
+        this.hangars = HANGARS.map((h, i) => ({
+            ...world(h.x, h.z), name: config.hangars[i] ?? h.name,
+            spot: { ...world(h.x + 2, h.z), heading: Math.PI / 2 + rotation },
+        }));
+        // Contours pour la carte (MapView.js), dans le monde
         this.mapShapes = [{ ...TAXIWAY, kind: 'asphalt' }, { ...APRON, kind: 'asphalt' }, { ...HANGAR_APRON, kind: 'asphalt' },
-            ...TURN_PADS.map((pad) => ({ ...pad, kind: 'asphalt' })), { ...RUNWAY_RECT, kind: 'runway' }];
+            ...TURN_PADS.map((pad) => ({ ...pad, kind: 'asphalt' })), { ...RUNWAY_RECT, kind: 'runway' }].map((s) => ({ ...s, ...this.rectToWorld(s) }));
+        // Centre de l'aérodrome (choix du départ, carte) et rayon autour duquel il est dessiné
+        this.center = vector(300, 0, 0);
         this._papi = [];
         this._night = 0;
         this._time = 0;
+        this._eye = new Vector3();
+        this._pilotEye = new Vector3();
+    }
+
+    // --- Repère de l'aérodrome <-> monde ----------------------------------------------------------------------
+    toWorld(x, z) {
+        return { x: this._ox + x * this._cos + z * this._sin, z: this._oz - x * this._sin + z * this._cos };
+    }
+
+    toLocal(x, z) {
+        const dx = x - this._ox, dz = z - this._oz;
+        return { x: dx * this._cos - dz * this._sin, z: dx * this._sin + dz * this._cos };
+    }
+
+    directionToWorld(v) {
+        return new Vector3(v.x * this._cos + v.z * this._sin, 0, -v.x * this._sin + v.z * this._cos);
+    }
+
+    rectToWorld(rect) {
+        const a = this.toWorld(rect.minX, rect.minZ), b = this.toWorld(rect.maxX, rect.maxZ);
+        return { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z) };
+    }
+
+    // Boîtes de collision ajoutées depuis le dernier appel : repère de l'aérodrome -> monde
+    _obstaclesToWorld() {
+        for (let i = this._worldObstacles; i < this.obstacles.length; i++) this.obstacles[i].applyMatrix4(this._matrix);
+        for (const hangar of this._hangars) {
+            if (hangar.doorWorld) continue;
+            hangar.doorBox.applyMatrix4(this._matrix);   // (la porte elle-même est dans obstacles)
+            hangar.doorWorld = true;
+        }
+        this._worldObstacles = this.obstacles.length;
     }
 
     // 0 au milieu de l'aérodrome (sol plat), 1 loin autour (relief normal)
     reliefFactor(x, z) {
-        const dx = Math.max(FLAT_ZONE.minX - x, 0, x - FLAT_ZONE.maxX);
-        const dz = Math.max(FLAT_ZONE.minZ - z, 0, z - FLAT_ZONE.maxZ);
+        const p = this.toLocal(x, z);
+        const dx = Math.max(FLAT_ZONE.minX - p.x, 0, p.x - FLAT_ZONE.maxX);
+        const dz = Math.max(FLAT_ZONE.minZ - p.z, 0, p.z - FLAT_ZONE.maxZ);
         return smoothstep(0, FLAT_ZONE.blend, Math.hypot(dx, dz));
     }
 
     // Zone où l'on ne place pas d'arbres ni de rochers
     contains(x, z, margin = 0) {
-        return inside(FLAT_ZONE, x, z, margin);
+        const p = this.toLocal(x, z);
+        return inside(FLAT_ZONE, p.x, p.z, margin);
     }
 
     surfaceAt(x, z) {
+        ({ x, z } = this.toLocal(x, z));
         return inside(RUNWAY_RECT, x, z) || inside(TAXIWAY, x, z) || inside(APRON, x, z) || inside(HANGAR_APRON, x, z)
             || TURN_PADS.some((pad) => inside(pad, x, z)) || HANGARS.some((h) => inside(h, x, z)) ? 'asphalt' : 'grass';
     }
@@ -457,6 +571,7 @@ class Airport {
     // Zone de l'aérodrome pour la tour : 'runway' (piste et raquettes), 'entry' (entre le point d'attente et la
     // piste), 'taxiway', 'apron' (parking, hangars) ou 'grass'
     zoneAt(x, z) {
+        ({ x, z } = this.toLocal(x, z));
         if (inside(RUNWAY_RECT, x, z) || TURN_PADS.some((pad) => inside(pad, x, z))) return 'runway';
         if (inside(LEAD_ON, x, z) || (inside(TAXIWAY, x, z) && x < HOLDING_X)) return 'entry';
         if (inside(TAXIWAY, x, z)) return 'taxiway';
@@ -464,14 +579,39 @@ class Airport {
         return 'grass';
     }
 
+    // Avion sur la bretelle, près du point d'attente (tour : « prêt au point d'attente »)
+    nearHolding(x, z) {
+        const zone = this.zoneAt(x, z);
+        return (zone === 'taxiway' || zone === 'entry') && this.toLocal(x, z).x < HOLDING_X + 20;
+    }
+
     // Nom de la place de parking où se trouve l'avion (null hors des places)
     standAt(x, z) {
+        ({ x, z } = this.toLocal(x, z));
         if (x < 318 || x > 360) return null;
         let best = null, bestDistance = 10;
         STANDS.forEach((sz, i) => {
             if (Math.abs(z - sz) < bestDistance) [best, bestDistance] = [STAND_NAMES[i], Math.abs(z - sz)];
         });
         return best;
+    }
+
+    // Couloirs d'approche et de départ : hauteur maximale du relief en (x, z) (Infinity hors des couloirs). Sous une
+    // pente de 2,5° qui part du seuil (le plan d'approche de 3° passe au moins ~50 m au-dessus à 5 km), dans un couloir
+    // qui s'évase (200 m de part et d'autre de l'axe au seuil, +15 % de la distance), aux flancs remontant de 1 pour 3
+    terrainLimit(x, z) {
+        let limit = Infinity;
+        for (const rw of this.runways) {
+            const dx = x - rw.threshold.x, dz = z - rw.threshold.z;
+            const before = -(dx * rw.direction.x + dz * rw.direction.z);   // distance avant le seuil, dans l'axe
+            if (before < -RUNWAY.length || before > APPROACH_LENGTH) continue;
+            const lateral = Math.abs(dx * rw.left.x + dz * rw.left.z);
+            const along = Math.max(0, before);
+            const halfWidth = 200 + along * 0.15;
+            const cap = along * APPROACH_SLOPE - 15 + Math.max(0, lateral - halfWidth) / 3;
+            if (cap < limit) limit = cap;
+        }
+        return limit;
     }
 
     build(renderer) {
@@ -492,19 +632,32 @@ class Airport {
         // bouge : vantaux des portes de hangar, feu à éclats de la tour, manche à air
         const dynamic = new Set([this._beacon, this._sockPivot, ...this._hangars.flatMap((h) => h.panels.map((panel) => panel.mesh))]);
         mergeStatic(this.group, (node) => dynamic.has(node));
+        // Tout est dessiné dans le repère de l'aérodrome : placé maintenant dans le monde (et ses boîtes de collision)
+        this.group.position.set(this._ox, 0, this._oz);
+        this.group.rotation.y = this.rotation;
+        this.group.updateMatrixWorld(true);
+        this._obstaclesToWorld();
         return this.group;
+    }
+
+    // Vraies lumières (plafonniers des hangars) : seulement sur l'aérodrome où l'on vole. Le nombre de lumières de la
+    // scène reste le même (pas de recompilation des matériaux) et chacune coûte sur tous les pixels
+    setLightsEnabled(enabled) {
+        for (const hangar of this._hangars) hangar.lights[3].visible = enabled;
+    }
+
+    // Aérodrome dessiné seulement à portée de vue (au-delà du brouillard : rien à dessiner, ombres comprises)
+    setVisibleFrom(position, range) {
+        const visible = Math.hypot(position.x - this.center.x, position.z - this.center.z) < range;
+        this.group.visible = visible;
+        return visible;
     }
 
     // Avions garés sur le parking : copies du Cessna du joueur, repeintes
     // paint(avion, livrée, immatriculation) : peint une copie du modèle
     addParkedPlanes(model, wheelHeight, paint) {
-        const spots = [
-            { x: 338, z: -80, livery: 'origine', registration: 'F-GKTA' },
-            { x: 338, z: -60, livery: 'vert', registration: 'F-HBLU' },
-            { x: 338, z: -40, livery: 'orange', registration: 'F-GMOZ' },
-        ];
+        const spots = [-80, -60, -40].map((z, i) => ({ x: 338, z, livery: this.config.parked[i][0], registration: this.config.parked[i][1] }));
         const parked = new Group();
-        this.group.add(parked);
         for (const spot of spots) {
             const plane = model.clone();
             plane.visible = true;
@@ -514,11 +667,16 @@ class Airport {
             holder.position.set(spot.x, wheelHeight - 0.01, spot.z); // roues posées sur le parking
             holder.rotation.y = Math.PI / 2;           // nez vers la piste (ouest)
             holder.add(plane);
-            parked.add(holder);
-            holder.updateMatrixWorld(true);
+            holder.updateMatrixWorld(true);            // (pas encore rattaché : boîte dans le repère de l'aérodrome)
             this.obstacles.push(new Box3().setFromObject(holder).expandByScalar(-1));
+            parked.add(holder);
         }
+        this.group.add(parked);
+        const shown = this.group.visible;
+        this.group.visible = true;   // (mergeStatic ignore les pièces cachées : aérodrome peut-être hors de vue)
         mergeStatic(parked);   // les 3 avions garés : une pièce par matériau
+        this.group.visible = shown;
+        this._obstaclesToWorld();
     }
 
     // Mâts d'éclairage du parking. La nuit : verres lumineux, halo sur chaque projecteur et flaque de lumière au sol
@@ -649,6 +807,7 @@ class Airport {
         for (const [fx, z] of FLOODLIGHTS.points) {
             this._flat(new PlaneGeometry(38, 38), this._poolMaterial, fx, 0.04, z);
         }
+        this._obstaclesToWorld();
         this.setNight(this._night);
     }
 
@@ -689,9 +848,17 @@ class Airport {
 
     // windDirection : d'où vient le vent (°, 0 = nord) ; la manche à air s'oriente sous le vent
     // pilotEye : position de l'œil du pilote (couleur des PAPI) ; sinon la caméra
+    // (camera et pilotEye : repère monde ; PAPI, projecteurs et manche à air sont calculés dans celui de l'aérodrome)
     update(delta, windStrength, camera, windDirection = WIND_DIRECTION, pilotEye = null) {
+        if (!this.group.visible) return;
+        const local = (world, out) => {
+            const p = this.toLocal(world.x, world.z);
+            return out.set(p.x, world.y, p.z);
+        };
+        if (camera) camera = { position: local(camera.position, this._eye) };
+        if (pilotEye) pilotEye = local(pilotEye, this._pilotEye);
         if (this._sockPivot) {
-            const target = -windDirection * Math.PI / 180;
+            const target = -(windDirection + this._rotationDeg) * Math.PI / 180;
             const diff = Math.atan2(Math.sin(target - this._sockPivot.rotation.y), Math.cos(target - this._sockPivot.rotation.y));
             this._sockPivot.rotation.y += diff * Math.min(1, delta * 1.5);
         }
@@ -712,7 +879,7 @@ class Airport {
     _buildPapi() {
         const housing = new MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.6 });
         const angles = [3.5, 3.17, 2.83, 2.5]; // du feu le plus proche de la piste au plus éloigné
-        for (const runway of this.runways) {
+        for (const runway of this._localRunways) {
             angles.forEach((angle, i) => {
                 const position = runway.aimPoint.clone().addScaledVector(runway.left, RUNWAY.width / 2 + 15 + i * 9);
                 const box = new Mesh(new BoxGeometry(1.4, 0.7, 1.4), housing);
@@ -766,7 +933,7 @@ class Airport {
             map, color, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
         });
 
-        this._flat(new PlaneGeometry(RUNWAY.width, RUNWAY.length), surface(runwayTexture(maxAnisotropy)),
+        this._flat(new PlaneGeometry(RUNWAY.width, RUNWAY.length), surface(runwayTexture(maxAnisotropy, [this._localRunways[1].name, this._localRunways[0].name])),
             RUNWAY.x, 0.02, RUNWAY.z);
 
         // Bretelle (taxiway) avec ses marques jaunes : axe, bords, point d'attente
@@ -861,7 +1028,7 @@ class Airport {
         this.group.add(this._beacon);
 
         // Hangars métalliques : toit à deux pans, bardage nervuré, portes coulissantes entrouvertes vers le parking
-        for (const h of HANGARS) this._buildHangar(h.x, h.z, h.name);
+        HANGARS.forEach((h, i) => this._buildHangar(h.x, h.z, this.hangars[i].name));
         this._buildSigns();
     }
 
@@ -982,6 +1149,10 @@ class Airport {
     // Portes des hangars : s'ouvrent quand l'avion approche, se referment quand il s'éloigne ; les plafonniers
     // s'allument avec l'ouverture. position : avion du joueur
     updateHangars(delta, position) {
+        if (position) {
+            const p = this.toLocal(position.x, position.z);
+            position = this._eye.set(p.x, position.y, p.z);
+        }
         for (const hangar of this._hangars) {
             const near = position && position.distanceTo(hangar.front) < DOOR_TRIGGER;
             const target = near ? 1 : 0;
@@ -1005,7 +1176,7 @@ class Airport {
     // vers la piste, cap à l'ouest, le seuil 36 est à gauche, au sud), position "A" (noir), information
     // "TORA 1000 m" (longueur de piste utilisable au décollage, jaune). Éclairés la nuit
     _buildSigns() {
-        const red = { text: '36 - 18', bg: '#c8102e', fg: '#ffffff', width: 1.9 };
+        const red = { text: `${this._localRunways[0].name} - ${this._localRunways[1].name}`, bg: '#c8102e', fg: '#ffffff', width: 1.9 };
         const location = { text: 'A', bg: '#111111', fg: YELLOW, width: 0.8, border: true };
         const info = { text: `TORA ${RUNWAY.length} m`, bg: YELLOW, fg: '#111111', width: 2.6, size: 54 };
         const back = new MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8 });
@@ -1123,7 +1294,8 @@ class Airport {
     // VOR conventionnel : abri technique blanc, plan réflecteur circulaire (contrepoids) sur pieds, antenne centrale
     // sous radôme conique, couronne d'antennes de mesure et feu d'obstacle rouge au sommet
     _buildVor() {
-        const { x, z } = VOR_STATION;
+        const { x, z } = VOR_STATION;   // (repère de l'aérodrome)
+        const { ident, frequency } = this.config.vor;
         const vor = new Group();
         vor.position.set(x, 0, z);
         const white = new MeshStandardMaterial({ color: 0xf2f2f0, roughness: 0.7 });
@@ -1156,7 +1328,7 @@ class Airport {
         const beacon = add(new SphereGeometry(0.15, 10, 8), new MeshStandardMaterial({ color: 0xff2010, emissive: 0xff2010, emissiveIntensity: 0.5 }), 0, 6.3, 0);
         this._glowingMaterials.push(beacon.material);
         // Panneau d'identification
-        const map = signTexture([{ text: `VOR ${VOR_STATION.ident} ${VOR_STATION.frequency}`, bg: '#ffffff', fg: '#111111', width: 3.2, size: 44 }], 0.6);
+        const map = signTexture([{ text: `VOR ${ident} ${frequency}`, bg: '#ffffff', fg: '#111111', width: 3.2, size: 44 }], 0.6);
         add(new PlaneGeometry(3.2, 0.6), new MeshStandardMaterial({ map, roughness: 0.7 }), 2.03, 2.1, -0.1).rotation.y = Math.PI / 2;
 
         this.group.add(vor);
@@ -1165,4 +1337,106 @@ class Airport {
     }
 }
 
-export { Airport };
+// Ensemble des aérodromes : même interface qu'un aérodrome seul. Les questions sur un lieu (surface, zone, relief,
+// place de parking…) vont à l'aérodrome qui s'y trouve ; tour de contrôle, ILS, départs et hangar suivent
+// l'aérodrome choisi (current, voir setCurrent). Les boîtes de collision sont celles de tous
+class AirportNetwork extends EventTarget {
+    constructor(configs = Object.values(AIRPORTS)) {
+        super();
+        this.list = configs.map((config) => new Airport(config));
+        this.current = this.list[0];
+        this.group = new Group();
+        this.group.name = 'aerodromes';
+    }
+
+    get main() { return this.list[0]; }
+    get start() { return this.main.start; }
+    get obstacles() { return this.list.flatMap((a) => a.obstacles); }
+    get runways() { return this.current.runways; }
+    get allRunways() { return this.list.flatMap((a) => a.runways); }
+    get runwayLength() { return this.current.runwayLength; }
+    get spawns() { return this.current.spawns; }
+    get allSpawns() { return this.list.flatMap((a) => a.spawns); }
+    get aerodrome() { return this.current.aerodrome; }
+    get vor() { return this.current.vor; }
+    get vors() { return this.list.map((a) => a.vor); }
+    get hangars() { return this.current.hangars; }
+    get mapShapes() { return this.list.flatMap((a) => a.mapShapes); }
+    get ndb() { return this.current.ndb; }
+
+    // Aérodrome choisi (départs, tour, ILS) ; ses plafonniers seuls sont de vraies lumières
+    setCurrent(airport) {
+        if (typeof airport === 'string' || typeof airport === 'number') airport = this.byId(airport);
+        if (!airport || airport === this.current) return;
+        this.current = airport;
+        for (const a of this.list) a.setLightsEnabled(a === airport);
+        this.dispatchEvent(new Event('change'));
+    }
+
+    byId(id) {
+        return typeof id === 'number' ? this.list[id] : this.list.find((a) => a.id === id);
+    }
+
+    // Aérodrome à cet endroit (dans sa zone aplanie), sinon null
+    at(x, z, margin = 0) {
+        return this.list.find((a) => a.contains(x, z, margin)) ?? null;
+    }
+
+    nearest(x, z) {
+        let best = this.list[0], bestDistance = Infinity;
+        for (const a of this.list) {
+            const d = Math.hypot(x - a.center.x, z - a.center.z);
+            if (d < bestDistance) [best, bestDistance] = [a, d];
+        }
+        return best;
+    }
+
+    reliefFactor(x, z) {
+        let factor = 1;
+        for (const a of this.list) factor = Math.min(factor, a.reliefFactor(x, z));
+        return factor;
+    }
+
+    terrainLimit(x, z) {
+        let limit = Infinity;
+        for (const a of this.list) limit = Math.min(limit, a.terrainLimit(x, z));
+        return limit;
+    }
+
+    contains(x, z, margin = 0) { return this.list.some((a) => a.contains(x, z, margin)); }
+    surfaceAt(x, z) { return this.at(x, z)?.surfaceAt(x, z) ?? 'grass'; }
+    zoneAt(x, z) { return this.at(x, z)?.zoneAt(x, z) ?? 'grass'; }
+    standAt(x, z) { return this.at(x, z)?.standAt(x, z) ?? null; }
+    nearHolding(x, z) { return this.at(x, z)?.nearHolding(x, z) ?? false; }
+
+    // Dans l'axe d'une piste, jusqu'à 3 km de son milieu (pas d'arbres ni de maisons : approche dégagée)
+    inCorridor(x, z) {
+        for (const rw of this.allRunways) {
+            const mx = rw.threshold.x + rw.direction.x * rw.length / 2, mz = rw.threshold.z + rw.direction.z * rw.length / 2;
+            const dx = x - mx, dz = z - mz;
+            if (Math.abs(dx * rw.left.x + dz * rw.left.z) < 150 && Math.abs(dx * rw.direction.x + dz * rw.direction.z) < 3000) return true;
+        }
+        return false;
+    }
+
+    build(renderer) {
+        for (const a of this.list) this.group.add(a.build(renderer));
+        for (const a of this.list) a.setLightsEnabled(a === this.current);
+        return this.group;
+    }
+
+    addParkedPlanes(model, wheelHeight, paint) { for (const a of this.list) a.addParkedPlanes(model, wheelHeight, paint); }
+    addFloodlights() { for (const a of this.list) a.addFloodlights(); }
+    setNight(night) { for (const a of this.list) a.setNight(night); }
+
+    // Chaque image : aérodromes hors de vue cachés (range : distance de dessin), animations des autres
+    update(delta, windStrength, camera, windDirection, pilotEye, range = Infinity) {
+        for (const a of this.list) {
+            if (a.setVisibleFrom(camera.position, range)) a.update(delta, windStrength, camera, windDirection, pilotEye);
+        }
+    }
+
+    updateHangars(delta, position) { for (const a of this.list) a.updateHangars(delta, position); }
+}
+
+export { Airport, AirportNetwork, AIRPORTS };

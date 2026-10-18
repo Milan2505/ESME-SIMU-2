@@ -52,7 +52,9 @@ const STREET = [36, 40];         // m : pas de la grille des rues (entre maisons
 const TREE_SLOPE = 0.08;         // 1 - normale.y
 const HOUSE_SLOPE = 0.035;
 const GRASS_TOP = 65;            // m
-const TREE_COUNT = 8000;         // arbres à 100 % du réglage « Arbres et décor » (massifs denses)
+const TREE_COUNT = 8000;         // arbres par région à 100 % du réglage « Arbres et décor » (massifs denses)
+const MAP_EDGE = 7800;           // m : rien au-delà (le terrain s'arrête à 8000 m du centre)
+const REGION = 2800;             // m : demi-côté de la zone décorée autour de chaque aérodrome
 const NEAR = 100;                // m : arbres complets en deçà, imposteurs au-delà
 const NEAR_MAX = 12;             // arbres complets au plus, par espèce (les plus proches)
 const SHADOW_RANGE = 140;        // m : arbres qui projettent une ombre (au-delà de la zone d'ombres du soleil)
@@ -141,8 +143,9 @@ function random(seed) {
 
 class Scenery {
     // terrain : { heightAt(x, z) } ; airport : { contains(x, z, marge) } ; corridor(x, z) : vrai dans l'axe d'approche
-    constructor(scene, { renderer, terrain, airport, corridor }) {
-        Object.assign(this, { scene, renderer, terrain, airport, corridor });
+    // regions : centres des zones décorées (une par aérodrome), carrés de REGION m de demi-côté
+    constructor(scene, { renderer, terrain, airport, corridor, regions = [{ x: 0, z: 0 }] }) {
+        Object.assign(this, { scene, renderer, terrain, airport, corridor, regions });
         this.group = new Group();
         this.group.name = 'decor-realiste';
         this.group.visible = false;
@@ -227,7 +230,8 @@ class Scenery {
 
     // --- Placement --------------------------------------------------------------------------------------------
     _free(x, z, villages, margin = 0) {
-        if (Math.abs(x) > 2800 || Math.abs(z) > 2800) return false;
+        if (!this.regions.some((r) => Math.abs(x - r.x) <= REGION && Math.abs(z - r.z) <= REGION)) return false;
+        if (Math.abs(x) > MAP_EDGE || Math.abs(z) > MAP_EDGE) return false;   // (bord du terrain)
         if (this.airport.contains(x, z, 60)) return false;
         if (this.corridor(x, z)) return false;
         return !villages.some((v) => Math.hypot(x - v.x, z - v.z) < v.radius + margin);
@@ -246,10 +250,13 @@ class Scenery {
     // Villages : en plaine (fond de vallée, autour de l'aérodrome), là où presque tout le disque est plat
     _placeVillages(rnd) {
         const villages = [];
-        for (let tries = 0; villages.length < 4 && tries < 3000; tries++) {
-            const x = (rnd() * 2 - 1) * 2600, z = (rnd() * 2 - 1) * 2600;
+        // 4 villages par région, tirés à tour de rôle dans chacune
+        const wanted = 4 * this.regions.length;
+        for (let tries = 0; villages.length < wanted && tries < 3000 * this.regions.length; tries++) {
+            const region = this.regions[villages.length % this.regions.length];
+            const x = region.x + (rnd() * 2 - 1) * 2600, z = region.z + (rnd() * 2 - 1) * 2600;
             const radius = 130 + rnd() * 70;
-            if (!this._free(x, z, villages, radius + 250) || Math.hypot(x - 220, z) < 500) continue;
+            if (!this._free(x, z, villages, radius + 250) || this.airport.contains(x, z, radius + 200)) continue;
             let flat = 0, total = 0;
             for (let r = 0; r <= radius; r += radius / 3) {
                 for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
@@ -265,8 +272,11 @@ class Scenery {
     _placeTrees(rnd, villages) {
         // Massifs : centres et rayons tirés, puis arbres dans chaque massif (plus serrés au centre)
         const patches = [];
-        for (let tries = 0; patches.length < 30 && tries < 2000; tries++) {
-            const x = (rnd() * 2 - 1) * 2600, z = (rnd() * 2 - 1) * 2600;
+        // 30 massifs par région
+        const wanted = 30 * this.regions.length;
+        for (let tries = 0; patches.length < wanted && tries < 2000 * this.regions.length; tries++) {
+            const region = this.regions[patches.length % this.regions.length];
+            const x = region.x + (rnd() * 2 - 1) * 2600, z = region.z + (rnd() * 2 - 1) * 2600;
             if (!this._free(x, z, villages, 40) || !this._grass(x, z, TREE_SLOPE)) continue;
             patches.push({ x, z, radius: 80 + rnd() * 160, pine: rnd() < 0.4 });
         }
@@ -280,7 +290,7 @@ class Scenery {
         const area = patches.reduce((sum, p) => sum + p.radius * p.radius, 0);
         const trees = [];
         for (const p of patches) {
-            const count = Math.round(TREE_COUNT * p.radius * p.radius / area);
+            const count = Math.round(TREE_COUNT * this.regions.length * p.radius * p.radius / area);
             for (let k = 0, tries = 0; k < count && tries < count * 4; tries++) {
                 const r = p.radius * Math.sqrt(rnd()) * (0.6 + 0.4 * rnd()), a = rnd() * Math.PI * 2;
                 const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
