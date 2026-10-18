@@ -18,7 +18,8 @@ const CESSNA_172 = {
 	groundEffectPitch: deg( 5 ),      // moins de déflexion sur l'empennage : le nez pique un peu (~0,35° au sol), il faut tirer plus
 	cl0: 0.4,                         // coefficient de portance à incidence nulle (calage de l'aile compris)
 	clAlpha: 4.6,                     // pente de portance (par radian d'incidence)
-	alphaStall: deg( 15 ),            // incidence de décrochage : ~51 kt en lisse, ~44 kt volets sortis (manuel : 48 / 40 KIAS à masse réduite)
+	alphaStall: deg( 13 ),            // incidence de décrochage : ~53 kt en lisse, ~45 kt volets sortis (manuel : 53 / 47 KCAS à pleine
+	                                  // charge) ; alarme ~8 kt avant (vers 61 kt)
 	cd0: 0.032,                       // traînée de forme (train caréné)
 	inducedDrag: 0.06,                // traînée induite : k·CL² (aile d'allongement 7,5)
 	stallDrag: 0.15,                  // aile décrochée : traînée en plus
