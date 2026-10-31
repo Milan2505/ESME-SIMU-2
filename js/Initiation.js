@@ -284,7 +284,7 @@ class Initiation {
         this.active = true;
         this._radioLang = this.atc.lang;
         this.setRadioLanguage?.(this.lang);
-        this.voices.preloadInstructor?.(this.lang);
+        this.voices.preloadInstructor?.(this.lang, this.level === 2);
         this._labels();
         this.steps = buildSteps(this.level, this.lang);
         this.index = -1;
@@ -300,6 +300,7 @@ class Initiation {
         if (!this.active) return;
         this.active = false;
         this.voices.stopInstructor();
+        this.voices.student = false;   // hors leçon : voix de pilote habituelle
         // Radio rendue dans sa langue d'avant la leçon
         if (this._radioLang && this._radioLang !== this.atc.lang) this.setRadioLanguage?.(this._radioLang);
         this.highlighter.set([]);
