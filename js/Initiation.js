@@ -7,6 +7,9 @@ import {
     Group,
     Mesh,
     MeshBasicMaterial,
+    Path,
+    Shape,
+    ShapeGeometry,
     Sprite,
     SpriteMaterial,
     TorusGeometry,
@@ -155,6 +158,106 @@ class GroundGuide {
     }
 }
 
+// --- Cadres du tour de piste : couloir en l'air à suivre, du décollage à la courte finale (main gauche) ----------------
+// Sommets du circuit, par rapport au seuil de la piste en service : [le long de l'axe (m), à gauche (m), hauteur (ft)]
+const CIRCUIT = [
+    [450, 0, 80],          // après l'envol
+    [2100, 0, 600],        // virage vent traversier
+    [2100, 1000, 1000],    // virage vent arrière
+    [0, 1000, 1000],       // travers du seuil : on réduit
+    [-1800, 1000, 750],    // virage en étape de base
+    [-1800, 0, 450],       // dernier virage
+    [-200, 0, 60],         // courte finale (pente ~4°, vers le point d'aboutissement)
+];
+const CIRCUIT_TURN = 400;      // m : rayon des virages (20° d'inclinaison à 75 kt)
+const FRAME_SPACING = 160;     // m entre deux cadres
+const FRAMES_AHEAD = 10;       // cadres affichés devant l'avion
+
+class FlightPath {
+    constructor(scene, groundHeight) {
+        this.groundHeight = groundHeight;
+        this.group = new Group();
+        scene.add(this.group);
+        this.material = new MeshBasicMaterial({ color: 0xffd23c, transparent: true, opacity: 0.75, toneMapped: false, depthWrite: false, side: DoubleSide });
+        // Cadre de 60 × 36 m, montant de 1,2 m
+        const shape = new Shape().moveTo(-30, -18).lineTo(30, -18).lineTo(30, 18).lineTo(-30, 18).closePath();
+        shape.holes.push(new Path().moveTo(-28.8, -16.8).lineTo(-28.8, 16.8).lineTo(28.8, 16.8).lineTo(28.8, -16.8).closePath());
+        this.geometry = new ShapeGeometry(shape);
+        this.frames = [];
+        this.next = 0;
+    }
+
+    get shown() {
+        return this.frames.length > 0;
+    }
+
+    // Pose les cadres le long du circuit de la piste rw (coins arrondis)
+    set(rw) {
+        this.clear();
+        const field = this.groundHeight(rw.threshold.x, rw.threshold.z);
+        const point = ([along, lateral, ft]) => new Vector3(
+            rw.threshold.x + rw.direction.x * along + rw.left.x * lateral,
+            field + ft * 0.3048,
+            rw.threshold.z + rw.direction.z * along + rw.left.z * lateral);
+        const corners = CIRCUIT.map(point);
+        // Tracé fin : lignes droites, virages en arc (courbe de Bézier entre l'entrée et la sortie du virage)
+        const path = [corners[0]];
+        for (let i = 1; i < corners.length - 1; i++) {
+            const c = corners[i];
+            const a = c.clone().sub(corners[i - 1]), b = corners[i + 1].clone().sub(c);
+            const r = Math.min(CIRCUIT_TURN, a.length() / 2, b.length() / 2);
+            const enter = c.clone().addScaledVector(a.normalize(), -r), exit = c.clone().addScaledVector(b.normalize(), r);
+            for (let k = 0; k <= 8; k++) {
+                const t = k / 8;
+                path.push(enter.clone().multiplyScalar((1 - t) ** 2).addScaledVector(c, 2 * t * (1 - t)).addScaledVector(exit, t * t));
+            }
+        }
+        path.push(corners[corners.length - 1]);
+        // Cadres à intervalle régulier, chacun face à la trajectoire
+        let carry = 0;
+        for (let i = 0; i < path.length - 1; i++) {
+            const from = path[i], seg = path[i + 1].clone().sub(from), length = seg.length();
+            const dir = seg.clone().divideScalar(length);
+            for (let d = carry; d < length; d += FRAME_SPACING) {
+                const frame = new Mesh(this.geometry, this.material);
+                frame.position.copy(from).addScaledVector(dir, d);
+                frame.lookAt(frame.position.clone().add(dir));
+                frame.userData.dir = dir;
+                frame.visible = false;
+                this.group.add(frame);
+                this.frames.push(frame);
+            }
+            carry = (carry - length) % FRAME_SPACING;
+            if (carry < 0) carry += FRAME_SPACING;
+        }
+        this.next = 0;
+    }
+
+    clear() {
+        this.group.clear();
+        this.frames = [];
+        this.next = 0;
+    }
+
+    // Cadre franchi (dépassé, ou coupé dans un virage) : il disparaît ; les suivants restent affichés
+    update(position, time) {
+        if (!this.frames.length) return;
+        let best = this.next, bestDistance = Infinity;
+        for (let i = this.next; i < Math.min(this.frames.length, this.next + 20); i++) {
+            const d = this.frames[i].position.distanceTo(position);
+            if (d < bestDistance) { bestDistance = d; best = i; }
+        }
+        const nearest = this.frames[best];
+        const passed = _offset.copy(position).sub(nearest.position).dot(nearest.userData.dir) > 0;
+        this.next = Math.min(this.frames.length, best + (passed ? 1 : 0));
+        this.frames.forEach((frame, i) => {
+            frame.visible = i >= this.next && i < this.next + FRAMES_AHEAD;
+        });
+        this.material.opacity = 0.6 + 0.15 * Math.sin(time * 4);
+    }
+}
+const _offset = new Vector3();
+
 // --- Le moniteur -----------------------------------------------------------------------------------------------------
 class Initiation {
     // deps : { systems, controls, avionics, atc, cockpit, airport, scene, aircraft, voices, ui, startCold, focusCabin,
@@ -166,6 +269,7 @@ class Initiation {
         this.cameraGuide = true;
         this.highlighter = new Highlighter(this.cockpit);
         this.guide = new GroundGuide(this.scene, this.groundHeight);
+        this.path = new FlightPath(this.scene, this.groundHeight);
         this._time = 0;
         this._htmlTargets = [];
         this._advice = new Map();
@@ -200,6 +304,7 @@ class Initiation {
         if (this._radioLang && this._radioLang !== this.atc.lang) this.setRadioLanguage?.(this._radioLang);
         this.highlighter.set([]);
         this.guide.clear();
+        this.path.clear();
         this._setHtml([]);
         this.ui.panel.hidden = true;
         this.onChange?.();
@@ -349,6 +454,10 @@ class Initiation {
         const step = this.step;
         if (!step) return;
         const c = this._context();
+        // En vol (décollage -> atterrissage) : les cadres du tour de piste de la piste en service
+        if (step.flight && !this.path.shown && c.runway) this.path.set(c.runway);
+        else if (!step.flight && this.path.shown) this.path.clear();
+        this.path.update(this.aircraft.position, this._time);
         // Conditions des étapes : une situation incomplète (avion crashé, hors de l'aérodrome…) vaut « pas encore »
         const safe = (fn) => { try { return fn(); } catch { return false; } };
         // En vol, la leçon ne s'arrête jamais : l'avion arrive au moment d'une étape suivante (virage, travers du
@@ -754,7 +863,8 @@ function buildSteps(level, lang = 'fr') {
             'Full power: hold the space bar. Keep the centre line with A and E. At 55 knots on the airspeed indicator, gently pull back on the yoke, S key, to take off.') });
     add(P, { title: T('Montée', 'Climb'), camera: 'none', urgent: true, target: 'inst:asi',
         done: (c) => c.agl > 300,
-        say: T("Vous volez ! Gardez 75 nœuds en montée : nez plus haut si l'on va trop vite, plus bas si l'on ralentit.", "You're flying! Hold 75 knots in the climb: nose up if we're too fast, nose down if we slow down.") });
+        say: T("Vous volez ! Gardez 75 nœuds en montée : nez plus haut si l'on va trop vite, plus bas si l'on ralentit. Passez dans les cadres jaunes : ils dessinent tout le tour de piste.",
+            "You're flying! Hold 75 knots in the climb: nose up if we're too fast, nose down if we slow down. Fly through the yellow frames: they trace the whole circuit.") });
     P = 'circuit';
     add(P, { title: T('Trim de montée', 'Climb trim'), target: 'trimWheel', camera: 'none', urgent: true, auto: 14,
         done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 ? dt : 0)) > 4,
@@ -763,20 +873,20 @@ function buildSteps(level, lang = 'fr') {
         why: T("Le trim annule l'effort sur le manche : l'avion garde sa vitesse tout seul, vous pilotez plus finement et sans fatigue.",
             'The trim removes the force on the yoke: the aeroplane keeps its speed by itself, so you fly more precisely and without tiring.') });
     add(P, { title: T('Virage vent traversier', 'Crosswind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 35,
-        wait: (c) => c.agl > 550, waiting: T("Continuez la montée droit devant jusqu'à 600 pieds.", 'Keep climbing straight ahead to 600 feet.'),
+        wait: (c) => c.along > 1650 && c.agl > 300, waiting: T("Continuez la montée droit devant, dans les cadres, vers 600 pieds.", 'Keep climbing straight ahead, through the frames, to 600 feet.'),
         done: (c) => headingDiff(c.heading, c.runway.heading - 90) < 20,
         say: (c) => T(`Virage à gauche, cap ${capSay(c.runway.heading - 90)}, avec 20 degrés d'inclinaison : touche Q pour incliner, et un peu de S pour tenir le nez. Continuez de monter vers 1000 pieds.`,
             `Turn left, heading ${capSay(c.runway.heading - 90)}, with 20 degrees of bank: Q key to bank, and a little S to hold the nose up. Keep climbing to 1000 feet.`) });
     add(P, { title: T('900 pieds : volets, phare, pompe', '900 feet: flaps, light, pump'), camera: 'none', urgent: true, auto: 25,
         parts: [['flaps:lever', (c) => c.flaps === 0], ['switch:land', (c) => !c.sys.switches.land], ['switch:fuelPump', (c) => !c.sys.switches.fuelPump]],
-        wait: (c) => c.agl > 880, waiting: T('Continuez la montée à 75 nœuds.', 'Keep climbing at 75 knots.'),
+        wait: (c) => c.agl > 880 && c.lateral > 100, waiting: T('Continuez la montée à 75 nœuds.', 'Keep climbing at 75 knots.'),
         done: (c) => c.flaps === 0 && !c.sys.switches.land && !c.sys.switches.fuelPump,
         say: T("900 pieds : rentrez les volets, touche T. Puis éteignez le phare d'atterrissage, LAND, et la pompe électrique, FUEL PUMP.",
             '900 feet: retract the flaps, T key. Then switch off the LAND light and the electric FUEL PUMP.'),
         why: T("Loin du sol, la pompe de secours et le phare ne servent plus ; volets rentrés, l'avion traîne moins et monte mieux.",
             'Away from the ground, the backup pump and the landing light are no longer needed; with the flaps up, the aeroplane has less drag and climbs better.') });
     add(P, { title: T('Virage vent arrière', 'Downwind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 40,
-        wait: (c) => c.lateral > 650 && c.along > 200, waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
+        wait: (c) => c.lateral > 600 && c.along > 200, waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
         done: (c) => c.s?.downwind || headingDiff(c.heading, c.runway.heading + 180) < 20,
         say: (c) => T(`Encore à gauche : cap ${capSay(c.runway.heading + 180)}, la branche vent arrière. La piste doit défiler à gauche, parallèle.`,
             `Left again: heading ${capSay(c.runway.heading + 180)}, the downwind leg. The runway should slide by on our left, parallel.`) });
@@ -806,7 +916,7 @@ function buildSteps(level, lang = 'fr') {
         say: T('Nous passons le bout de la piste : réduisez les gaz vers 1500 tours pour commencer la descente. Laissez la vitesse descendre vers 70 nœuds, puis trimez pour la garder : touche X.',
             'We are passing the end of the runway: reduce power to about 1500 RPM to start the descent. Let the speed come back to 70 knots, then trim to hold it: X key.') });
     add(P, { title: T('Virage en étape de base', 'Base turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 35,
-        wait: (c) => c.along < -650 && c.lateral > 250, waiting: T('Continuez en descente douce, 70 nœuds.', 'Continue a gentle descent at 70 knots.'),
+        wait: (c) => c.along < -1400 && c.lateral > 250, waiting: T('Continuez en descente douce, 70 nœuds.', 'Continue a gentle descent at 70 knots.'),
         done: (c) => headingDiff(c.heading, c.runway.heading + 90) < 25,
         say: (c) => T(`Virage à gauche en étape de base, cap ${capSay(c.runway.heading + 90)}.`,
             `Turn left onto base leg, heading ${capSay(c.runway.heading + 90)}.`) });
@@ -814,7 +924,7 @@ function buildSteps(level, lang = 'fr') {
         say: T('Sortez un deuxième cran de volets, 20 degrés : touche G.', 'Set a second stage of flap, 20 degrees: G key.'),
         why: T("Plus de volets : l'avion vole plus lentement et descend plus fort, sans prendre de vitesse.", 'More flap: the aeroplane flies slower and descends more steeply without picking up speed.') });
     add(P, { title: T('Dernier virage', 'Final turn'), camera: 'none', urgent: true, auto: 40,
-        wait: (c) => c.lateral < 520 && c.along < -300, waiting: T('Étape de base : descente vers 600 pieds, 70 nœuds.', 'Base leg: descend to 600 feet, 70 knots.'),
+        wait: (c) => c.lateral < 450 && c.along < -1000, waiting: T('Étape de base : descente vers 500 pieds, 70 nœuds, dans les cadres.', 'Base leg: descend to 500 feet, 70 knots, through the frames.'),
         done: (c) => Boolean(c.s?.final),
         say: T("Dernier virage à gauche : alignez-vous sur l'axe de la piste.", 'Final turn to the left: line up with the runway centre line.') });
     add(P, { title: T('Volets pleins', 'Full flaps'), target: 'flaps:lever', camera: 'none', urgent: true, auto: 12, done: (c) => c.flaps >= 3,
