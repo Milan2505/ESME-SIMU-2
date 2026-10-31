@@ -930,8 +930,18 @@ fullscreenButton.addEventListener('click', (event) => {
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyF' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleFullscreen();
 });
+const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
+settingsFullscreenButton.addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', () => {
-    fullscreenButton.textContent = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    const label = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    fullscreenButton.textContent = label;
+    settingsFullscreenButton.textContent = label;
+    // La fenêtre Paramètres passerait sous l'écran plein : on la rouvre par-dessus
+    const dialog = document.getElementById('reglages-dialog');
+    if (dialog.open) {
+        dialog.close();
+        dialog.showModal();
+    }
 });
 
 // Volets : le bouton sort un cran (rentre tout après le dernier), touches G / T
@@ -2275,6 +2285,7 @@ document.getElementById('masse-bouton').addEventListener('click', (event) => {
 // Informations de vol en vue extérieure (vitesse, moteur, carburant, incidence, volets, trim, altitude, vario, cap),
 // comme dans les simulateurs grand public ; cachées en cabine, au menu, au choix du départ et après un crash
 const flightHud = new FlightHud(document.getElementById('hud'));
+flightHud.avoid = document.getElementById('moniteur');
 function updateHud(delta) {
     const visible = chaseView && !choosingSpawn && !controls.isCrashed() && settings.values.hud !== false;
     simulatorElement.classList.toggle('sans-hud', !visible);   // panneaux ILS : remis en bas sans les infos de vol

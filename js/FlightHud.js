@@ -31,6 +31,7 @@ class FlightHud {
         this.ctx = canvas.getContext('2d');
         this._timer = 0;
         this._shown = false;
+        this.avoid = null;   // élément posé sur le HUD (panneau du moniteur) : la rose des caps se pousse à côté
     }
 
     // data : { speed (m/s, anémomètre), tas (m/s), altitude (m), verticalSpeed (m/s), heading (deg), rpm, fuel (0 -> 1),
@@ -76,7 +77,16 @@ class FlightHud {
         const W = canvas.width / u, H = canvas.height / u;
         const m = 14, bottom = H - m;
 
-        this._compass(m + 78, m + 78, 70, d.heading, d.windDirection, d.windSpeed);
+        // Rose des caps (haut gauche) : sous le panneau du moniteur s'il est affiché, sinon à sa droite
+        let cx = m + 78, cy = m + 78;
+        const panel = this.avoid && !this.avoid.hidden ? this.avoid.getBoundingClientRect() : null;
+        if (panel?.width) {
+            const view = this.canvas.getBoundingClientRect(), k = this.ratio / u;
+            const below = (panel.bottom - view.top) * k + 8;
+            if (below + 192 <= bottom - 218) cy = below + 70;
+            else cx = Math.max(cx, (panel.right - view.left) * k + 8 + 70);
+        }
+        this._compass(cx, cy, 70, d.heading, d.windDirection, d.windSpeed);
 
         // Bas gauche
         let x = m;

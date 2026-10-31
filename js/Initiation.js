@@ -180,6 +180,7 @@ class Initiation {
         this.active = true;
         this._radioLang = this.atc.lang;
         this.setRadioLanguage?.(this.lang);
+        this.voices.preloadInstructor?.(this.lang);
         this._labels();
         this.steps = buildSteps(this.level, this.lang);
         this.index = -1;
