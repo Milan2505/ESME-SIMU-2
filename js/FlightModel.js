@@ -443,7 +443,9 @@ class FlightModel extends EventDispatcher {
 		this._groundNormal( object.position.x, object.position.z, _normal );
 		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
 		const slope = _forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize().y;
-		speed += ( ( this._thrust( air ) - this._dragCoefficient( lift ) * pressure ) / A.mass - GRAVITY * slope ) * dt;
+		// Manche tiré au sol : la profondeur braquée vers le haut freine un peu l'avion (aérofrein léger)
+		const elevatorDrag = A.elevatorGroundDrag * Math.max( 0, input.pitch );
+		speed += ( ( this._thrust( air ) - ( this._dragCoefficient( lift ) + elevatorDrag ) * pressure ) / A.mass - GRAVITY * slope ) * dt;
 		speed -= ( A.rolling[ this.surface ] + input.brake * A.brakes ) * wheelLoad * dt;
 		this.airspeed = speed = Math.max( 0, speed );
 		this.indicatedSpeed = air = Math.max( 0, speed + headwind );

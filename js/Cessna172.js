@@ -73,6 +73,7 @@ const CESSNA_172 = {
 	flapRate: 0.25,                   // vitesse de sortie (course complète en 4 s)
 	flapLift: 0.7,                    // volets à fond : portance en plus (décrochage vers 80 km/h au lieu de 90)
 	flapDrag: 0.05,                   // volets à fond : traînée en plus
+	elevatorGroundDrag: 0.025,        // au sol, manche tiré à fond : traînée de la profondeur braquée (très légère)
 	flapStallAlpha: deg( 2 ),         // volets à fond : l'aile décroche 2° plus tôt
 
 	// Trim : tab de la gouverne de profondeur, en degrés (+ = à cabrer). Manche lâché, l'avion revient à l'incidence
