@@ -10,7 +10,6 @@ const MODELS = {
     'fr_FR-tom-medium': 'fr/fr_FR/tom/medium/fr_FR-tom-medium',
     'fr_FR-siwis-medium': 'fr/fr_FR/siwis/medium/fr_FR-siwis-medium',
     'fr_FR-upmc-medium': 'fr/fr_FR/upmc/medium/fr_FR-upmc-medium',
-    'fr_FR-gilles-low': 'fr/fr_FR/gilles/low/fr_FR-gilles-low',
     'en_GB-alan-medium': 'en/en_GB/alan/medium/en_GB-alan-medium',
     'en_GB-jenny_dioco-medium': 'en/en_GB/jenny_dioco/medium/en_GB-jenny_dioco-medium',
     'en_GB-northern_english_male-medium': 'en/en_GB/northern_english_male/medium/en_GB-northern_english_male-medium',
@@ -24,10 +23,11 @@ const CAST = {
         pilot:    { model: 'fr_FR-tom-medium', lengthScale: 0.9 },
         tower:    { model: 'fr_FR-siwis-medium', lengthScale: 0.85 },
         info:     { model: 'fr_FR-siwis-medium', lengthScale: 0.9, rate: 0.92 },    // Siwis, voix plus grave
-        ground:   { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },     // Pierre
-        approach: { model: 'fr_FR-upmc-medium', speaker: 0, lengthScale: 0.85 },     // Jessica
+        ground:   { model: 'fr_FR-upmc-medium', speaker: 0, lengthScale: 0.85 },     // Jessica
+        approach: { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },     // Pierre (pas d'approche en Initiation)
         atis:     { model: 'fr_FR-siwis-medium', lengthScale: 1 },
-        instructor: { model: 'fr_FR-gilles-low', lengthScale: 1.02 },   // moniteur (mode Initiation), à côté de l'élève : pas la voix de l'élève
+        // Moniteur (mode Initiation), à côté de l'élève : Pierre, ni la voix de l'élève ni celle d'un contrôleur du tour de piste
+        instructor: { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 1.05 },
     },
     en: {
         pilot:    { model: 'en_GB-alan-medium', lengthScale: 0.9 },
