@@ -241,7 +241,7 @@ class FlightPath {
 
     // Cadre franchi (dépassé, ou coupé dans un virage) : il disparaît ; les suivants restent affichés
     update(position, time) {
-        if (!this.frames.length) return;
+        if (this.next >= this.frames.length) return;   // tous franchis (ou aucun)
         let best = this.next, bestDistance = Infinity;
         for (let i = this.next; i < Math.min(this.frames.length, this.next + 20); i++) {
             const d = this.frames[i].position.distanceTo(position);

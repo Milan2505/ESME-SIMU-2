@@ -2730,6 +2730,7 @@ window.addEventListener('keyup', (event) => {
     if (event.code === 'KeyL') panelLightsKey = 0;
 });
 
+let initiationErrorShown = false;
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
     if (fpsLimit > 0) {
@@ -2759,7 +2760,9 @@ renderer.setAnimationLoop((time)=>{
         shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
     }
     updateHeadTarget( delta );
-    initiation.update( delta );
+    // Une erreur de la leçon ne doit jamais figer le simulateur (radio, caméra et rendu viennent après)
+    try { initiation.update( delta ); }
+    catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
     updateSpawnMarkers();
     updateAtc( delta );
     updateCamera( delta );
