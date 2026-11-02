@@ -2635,6 +2635,10 @@ function useControl(control, step, wheel = false, fine = false) {
         if (wheel && /swap|ident|power|audio|davtron|dme/.test(id)) return false;
         avionics.use(id, step, fine);
     }
+    else if (id.startsWith('visor:')) {
+        if (wheel) return false;
+        cockpit.toggleVisor(+id.split(':')[1]);
+    }
     else if (id === 'mags') systems.turnMagnetos(step);
     else if (id.startsWith('switch:') || id.startsWith('breaker:')) {
         if (wheel) return false;

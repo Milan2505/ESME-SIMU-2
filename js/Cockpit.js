@@ -34,7 +34,7 @@ import { Controls3D } from './Controls3D.js';
 import { Panel172, PANEL_LAYOUT, panelPoint, panelLength, PANEL_FACE_Z } from './Panel172.js';
 import { PEDESTAL_LAYOUT, Hotspots, drawPedestal, drawFuelSelector } from './PanelControls.js';
 import { TANK_CAPACITY } from './Systems.js';
-import { buildCabin, ambient, CABIN_ORIGIN } from './C172Model.js';
+import { buildCabin, ambient, CABIN_ORIGIN, SUN_VISOR_UP, SUN_VISOR_DOWN } from './C172Model.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
@@ -502,7 +502,9 @@ class Cockpit {
         const brakeStem = new Mesh(new CylinderGeometry(0.005, 0.005, 0.08, 8), rodMaterial);
         brakeStem.rotation.x = Math.PI / 2;
         brakeStem.position.z = -0.03;
-        const brakeHandle = new Mesh(new BoxGeometry(0.12, 0.024, 0.016), new MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.5 }));
+        // Poignée gainée de cuir beige : bien visible dans l'ombre sous le tableau (un peu auto-éclairée de jour)
+        const brakeHandle = new Mesh(new RoundedBoxGeometry(0.12, 0.026, 0.02, 3, 0.008),
+            ambient(new MeshStandardMaterial({ color: 0xc8aa7c, roughness: 0.65, emissive: 0x4a3c28 })));
         brakeHandle.position.z = 0.012;
         brakeHandle.geometry.translate(0.02, 0, 0);
         this._brakeLever.add(brakeStem, brakeHandle);
@@ -659,6 +661,20 @@ class Cockpit {
     addCabinShell(shell) {
         shell.position.copy(this._interior.position);
         this.group.add(shell);
+        // Pare-soleil : charnières cliquables (voir toggleVisor)
+        this._visors = [];
+        shell.traverse((node) => {
+            if (!node.userData.control?.startsWith('visor:')) return;
+            this._visors[+node.userData.control.split(':')[1]] = { hinge: node, down: false };
+            node.traverse((child) => { if (child.isMesh) this._baseClickables.push(child); });
+        });
+        this.setYokesVisible(this.yokesVisible);   // liste des surfaces cliquables refaite avec les pare-soleil
+    }
+
+    // Pare-soleil i : rabattu / relevé (pivote en douceur, voir update)
+    toggleVisor(i) {
+        const visor = this._visors?.[i];
+        if (visor) visor.down = !visor.down;
     }
 
     // Film d'eau et gouttes posés sur la vraie vitre du pare-brise (pièce « glas » du modèle, la partie devant le pilote ;
@@ -890,6 +906,9 @@ class Cockpit {
         this._controls3D.update({ systems: sys, flapLevel: state.flapLevel, flaps: state.flaps, trim: state.trim }, k);
         // Frein de parking : poignée tirée quand il est serré
         this._brakeLever.position.z += ((state.parkingBrake ? 0.05 : 0) + PANEL_FACE_Z - this._brakeLever.position.z) * k;
+        for (const { hinge, down } of this._visors ?? []) {
+            hinge.rotation.x += ((down ? SUN_VISOR_DOWN : SUN_VISOR_UP) - hinge.rotation.x) * (1 - Math.exp(-6 * delta));
+        }
         // Éclairage des instruments : rhéostat, alimentation électrique ; ambré la nuit
         const intensity = 0.12 + (0.38 + 0.4 * this._night) * sys.panelLighting;
         const emissive = WHITE.clone().lerp(PANEL_NIGHT_LIGHT, Math.min(1, this._night * 2));

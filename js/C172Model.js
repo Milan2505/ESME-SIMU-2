@@ -4,6 +4,7 @@ import {
     BoxGeometry,
     BufferGeometry,
     CanvasTexture,
+    CircleGeometry,
     Color,
     CylinderGeometry,
     DoubleSide,
@@ -13,6 +14,7 @@ import {
     InstancedMesh,
     Matrix4,
     Mesh,
+    MeshBasicMaterial,
     MeshStandardMaterial,
     PlaneGeometry,
     Quaternion,
@@ -547,6 +549,7 @@ function buildCabinShell(model) {
         group.add(inner);
     }
     group.add(sunVisors(roofLine));
+    group.add(wingRootVents(model, inverse));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
         group.add(windshieldSeal({ mesh: glass, toCabin: inverse.clone().multiply(glass.matrixWorld) },
@@ -678,11 +681,12 @@ function boundaryEdges(mesh, toCabin) {
         .map(({ p, q, r }) => ({ a: points[p], b: points[q], third: points[r] }));
 }
 
-// Moulure du pare-brise : bourrelet de plastique gris (comme les garnitures) le long du contour visible du pare-brise,
-// aérateurs en haut des montants. Montants et bas : bord de la vitre (la même pièce contient la lunette arrière : seulement devant
+// Moulure du pare-brise : bourrelet de plastique gris (comme les garnitures) le long du contour visible du pare-brise. Montants et bas : bord de la vitre (la même pièce contient la lunette arrière : seulement devant
 // WINDSHIELD_MAX_Z). Haut : bord avant du toit de la carlingue (le haut de la vitre est caché derrière). Arêtes
 // raccordées en un seul cordon, angles arrondis, section bombée. glass, roof : { mesh, toCabin }
 const SEAL_WIDTH = 0.04, SEAL_BULGE = 0.012, WINDSHIELD_MAX_Z = -1.2, GLASS_TOP = 1.12;
+// Dessus du tableau (prolongement de la casquette jusqu'au pied du pare-brise) : devant DASH_FRONT_Z, sous DASH_TOP
+const DASH_FRONT_Z = -2.5, DASH_TOP = 0.92;
 const SEAL_JOIN = 0.08;   // écart max entre deux bouts d'arête raccordés (montant de la vitre -> bord du toit)
 function windshieldSeal(glass, roof) {
     // Arêtes : { a, b, normal (vers la cabine), inward (vers la vitre) }
@@ -701,6 +705,8 @@ function windshieldSeal(glass, roof) {
     for (let edge of boundaryEdges(glass.mesh, glass.toCabin)) {
         const { a, b } = edge;
         if (a.z > WINDSHIELD_MAX_Z || b.z > WINDSHIELD_MAX_Z || Math.min(a.y, b.y) > GLASS_TOP) continue;
+        // Bas de la vitre : sous le dessus du tableau, qui glisse jusqu'au pied du pare-brise (pas de moulure)
+        if (Math.max(a.y, b.y) < DASH_TOP && Math.min(a.z, b.z) < DASH_FRONT_Z) continue;
         // Haut des montants : coupé au bord du toit (au-dessus, caché), pour se raccorder au coin du toit
         const [low, high] = a.y < b.y ? [a, b] : [b, a];
         const roofY = GLASS_TOP - 0.02;
@@ -716,53 +722,75 @@ function windshieldSeal(glass, roof) {
     const group = new Group();
     const paths = chainSegments(segments).map(({ points, closed }) => ({ path: roundPath(roundPath(points, closed), closed), closed }));
     for (const { path, closed } of paths) group.add(sealCord(path, closed));
-    // Aérateurs : sur la moulure en haut de chaque montant, tournés vers les sièges
-    for (const side of [-1, 1]) {
-        let top = null;
-        for (const { path } of paths) {
-            for (const point of path) {
-                if (Math.sign(point.p.x) !== side || point.p.y > GLASS_TOP - 0.06 || point.p.y < GLASS_TOP - 0.2) continue;
-                if (!top || Math.abs(point.p.x) > Math.abs(top.p.x)) top = point;
-            }
+    return group;
+}
+
+// Aérateurs d'emplanture : en haut de chaque flanc, juste derrière le montant du pare-brise (là où l'aile rejoint la
+// cabine), sur un renflement moulé de la garniture ; buse orientable tournée vers les sièges. Hauteur du flanc à cet
+// endroit : relevée sur la peau de l'avion (repère de la cabine)
+const VENT_AT = { y: 1.0, z: -2.1 };
+const VENT_BULGE_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xaeb2b8, roughness: 0.85, emissive: 0x2a2c2f }));
+function wingRootVents(model, inverse) {
+    const group = new Group();
+    const wall = { '-1': 0, '1': 0 }, v = new Vector3();
+    for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext']) {
+        const mesh = model.getObjectByName(name);
+        if (!mesh?.isMesh) continue;
+        const toCabin = inverse.clone().multiply(mesh.matrixWorld), position = mesh.geometry.attributes.position;
+        for (let i = 0; i < position.count; i++) {
+            v.fromBufferAttribute(position, i).applyMatrix4(toCabin);
+            if (Math.abs(v.x) > 0.62 || Math.abs(v.y - VENT_AT.y) > 0.06 || Math.abs(v.z - VENT_AT.z) > 0.08) continue;
+            const side = v.x < 0 ? -1 : 1;
+            wall[side] = Math.max(wall[side], Math.abs(v.x));
         }
-        if (!top) continue;
-        const at = top.p.clone().addScaledVector(top.inward, -SEAL_WIDTH * 0.2).addScaledVector(top.normal, 0.012);
-        group.add(airVent(at, new Vector3(-side * 0.35, -0.25, 1).normalize()));
+    }
+    const dark = new MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.55 });
+    const black = new MeshBasicMaterial({ color: 0x050505 });
+    for (const side of [-1, 1]) {
+        const x = side * ((wall[side] || CABIN_HALF_WIDTH) - 0.01);
+        // Renflement : demi-ovoïde aplati contre le flanc, plastique des garnitures
+        const bulge = new Mesh(new SphereGeometry(1, 24, 16), VENT_BULGE_MATERIAL);
+        bulge.scale.set(0.022, 0.065, 0.085);
+        bulge.position.set(x, VENT_AT.y, VENT_AT.z);
+        // Aérateur : collerette, rotule, buse et son trou, axe vers les sièges (vers l'intérieur, un peu vers l'arrière)
+        const vent = new Group();
+        const collar = new Mesh(new TorusGeometry(0.026, 0.006, 10, 28), dark);
+        const ball = new Mesh(new SphereGeometry(0.02, 20, 14), dark);
+        const nozzle = new Mesh(new CylinderGeometry(0.011, 0.012, 0.022, 20, 1, true), dark);
+        nozzle.rotation.x = Math.PI / 2;
+        nozzle.position.z = 0.018;
+        const hole = new Mesh(new CircleGeometry(0.009, 20), black);
+        hole.position.z = 0.026;
+        vent.add(collar, ball, nozzle, hole);
+        vent.position.set(x - side * 0.02, VENT_AT.y, VENT_AT.z);
+        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.1, 0.35).normalize());
+        group.add(bulge, vent);
     }
     return group;
 }
 
-// Aérateur orientable : collerette noire, rotule et buse (repère de la cabine), axe vers facing
-const VENT_MATERIAL = new MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.55 });
-function airVent(at, facing) {
-    const vent = new Group();
-    const collar = new Mesh(new TorusGeometry(0.03, 0.009, 10, 24), VENT_MATERIAL);
-    const ball = new Mesh(new SphereGeometry(0.024, 18, 12), VENT_MATERIAL);
-    const nozzle = new Mesh(new CylinderGeometry(0.012, 0.014, 0.03, 16, 1, true), VENT_MATERIAL);
-    nozzle.rotation.x = Math.PI / 2;
-    nozzle.position.z = 0.022;
-    vent.add(collar, ball, nozzle);
-    vent.position.copy(at);
-    vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), facing);
-    return vent;
-}
-
 // Pare-soleil : volet sombre sous le toit devant chaque siège, sur son rail (repère de la cabine)
+const SUN_VISOR_UP = 0.12, SUN_VISOR_DOWN = 1.35;   // rotation de la charnière (rad) : relevé contre le toit, rabattu
 function sunVisors(roofLine) {
     const group = new Group();
     const material = new MeshStandardMaterial({ color: 0x45484e, roughness: 0.7 });
     const rail = new MeshStandardMaterial({ color: 0x17181b, roughness: 0.5 });
     const z = -2.0, roofY = roofLine[Math.round((z - ROOF_Z0) / ROOF_STEP)] + ROOF_DROP;
-    for (const x of [-0.24, 0.24]) {
+    [-0.24, 0.24].forEach((x, i) => {
+        // Volet sur sa charnière (bord avant, le long du rail) : rabattu vers le bas d'un clic (voir Cockpit)
+        const hinge = new Group();
+        hinge.position.set(x, roofY - 0.024, z - 0.03);
+        hinge.rotation.x = SUN_VISOR_UP;
+        hinge.userData.control = `visor:${i}`;
         const visor = new Mesh(new RoundedBoxGeometry(0.34, 0.01, 0.11, 3, 0.004), material);
-        visor.position.set(x, roofY - 0.025, z + 0.03);
-        visor.rotation.x = -0.12;
+        visor.position.z = 0.058;
+        hinge.add(visor);
         const track = new Mesh(new RoundedBoxGeometry(0.4, 0.012, 0.025, 2, 0.004), rail);
         track.position.set(x, roofY - 0.018, z - 0.04);
         const knob = new Mesh(new CylinderGeometry(0.007, 0.007, 0.012, 12), new MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 }));
         knob.position.set(x - 0.12, roofY - 0.028, z - 0.04);
-        group.add(visor, track, knob);
-    }
+        group.add(hinge, track, knob);
+    });
     return group;
 }
 
@@ -878,6 +906,7 @@ function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).f
             .replace('#include <common>', `#include <common>
                 uniform vec3 uHeadliner, uSeam, uPanel, uKick;
                 uniform float uBeltY;
+                const float DASH_FRONT_Z = ${DASH_FRONT_Z.toFixed(2)}, DASH_TOP = ${DASH_TOP.toFixed(2)};
                 varying vec3 vSmoothNormal;
                 uniform float uRoofLine[${ROOF_SLICES}];
                 float roofLineAt(float z) {
@@ -919,6 +948,10 @@ function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).f
                 float roof = smoothstep(-roofPx, roofPx, roofSide);
                 vec3 trimColor = mix(panel, head, roof);
                 trimColor = mix(trimColor, uSeam * 0.8, 1.0 - smoothstep(roofPx * 1.5, roofPx * 3.0, abs(roofSide)));
+                // Dessus du tableau, devant la casquette jusqu'au pied du pare-brise : noir mat comme la casquette
+                float dash = (1.0 - smoothstep(DASH_FRONT_Z - 0.01, DASH_FRONT_Z + 0.01, cp.z))
+                    * (1.0 - smoothstep(DASH_TOP - 0.01, DASH_TOP + 0.01, cp.y)) * smoothstep(0.3, 0.5, cn.y);
+                trimColor = mix(trimColor, vec3(0.06), dash);
                 diffuseColor.rgb = trimColor;
                 totalEmissiveRadiance *= trimColor;`);
     };
@@ -1069,4 +1102,4 @@ function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) 
     return g;
 }
 
-export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE };
+export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE, SUN_VISOR_UP, SUN_VISOR_DOWN };
