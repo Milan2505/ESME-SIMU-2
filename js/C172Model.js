@@ -549,7 +549,7 @@ function buildCabinShell(model) {
         group.add(inner);
     }
     group.add(sunVisors(roofLine));
-    group.add(wingRootVents(model, inverse));
+    group.add(wingRootVents(model, inverse, roofLine));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
         group.add(windshieldSeal({ mesh: glass, toCabin: inverse.clone().multiply(glass.matrixWorld) },
@@ -561,13 +561,13 @@ function buildCabinShell(model) {
 // Aile et volets traversent la cabine (une seule pièce d'un bout à l'autre, en grands triangles) et ressortaient à
 // travers les garnitures (ligne claire le long des flancs). Leur face inférieure entre les flancs, sous le dessus du
 // toit, cachée dans le fuselage vu de dehors, n'est pas dessinée (le dessus de l'aile, lui, sert de toit vu de dehors).
-// Profils de l'emplanture (contre les flancs, devant le haut des montants) : vus de la cabine, des formes d'aile dans
-// les coins du pare-brise ; pas dessinés quand la caméra est dans la cabine. Matière propre à chaque pièce (comptée
+// Prise d'air de l'aile : pas dessinée quand la caméra est dans la cabine (l'emplanture y est habillée, voir
+// wingRootVents). Matière propre à chaque pièce (comptée
 // comme déjà copiée : la livrée ne change que son image, voir repaint)
 const CABIN_HALF_WIDTH = 0.53, ROOF_TOP = 1.14;
 const WING_CUTS = {
     wing_center: 'belowAndTop', flaps: 'below',
-    wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin', wingventhole: 'fromCabin',
+    wingventhole: 'fromCabin',
     wing_leading_edge_center: 'rootFromCabin',
 };
 function hideWingInCabin(model, inverse) {
@@ -725,46 +725,40 @@ function windshieldSeal(glass, roof) {
     return group;
 }
 
-// Aérateurs d'emplanture : dans l'angle du toit et du flanc, juste derrière le montant du pare-brise (là où l'aile
-// rejoint la cabine), sur un renflement moulé de la garniture ; buse orientable tournée vers les sièges. Hauteur du flanc à cet
-// endroit : relevée sur la peau de l'avion (repère de la cabine)
-const VENT_AT = { y: 1.09, z: -2.02 };
-const VENT_BULGE_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xaeb2b8, roughness: 0.85, emissive: 0x2a2c2f }));
-function wingRootVents(model, inverse) {
+// Emplanture de l'aile dans les coins hauts du pare-brise (profil d'aile contre le flanc, ses bords) : habillée du
+// plastique des garnitures, comme une pièce moulée, et un aérateur orientable posé dessus, tourné vers les sièges
+const WING_ROOT_PARTS = ['wingroot', 'wing_1Ledge', 'wing_1Redge'];
+function wingRootVents(model, inverse, roofLine) {
     const group = new Group();
-    const wall = { '-1': 0, '1': 0 }, v = new Vector3();
-    for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext']) {
-        const mesh = model.getObjectByName(name);
-        if (!mesh?.isMesh) continue;
-        const toCabin = inverse.clone().multiply(mesh.matrixWorld), position = mesh.geometry.attributes.position;
-        for (let i = 0; i < position.count; i++) {
-            v.fromBufferAttribute(position, i).applyMatrix4(toCabin);
-            if (Math.abs(v.x) > 0.62 || Math.abs(v.y - VENT_AT.y) > 0.06 || Math.abs(v.z - VENT_AT.z) > 0.08) continue;
-            const side = v.x < 0 ? -1 : 1;
-            wall[side] = Math.max(wall[side], Math.abs(v.x));
+    const roots = [];
+    model.traverse((source) => {
+        if (!source.isMesh || !WING_ROOT_PARTS.includes(source.name)) return;
+        const inner = new Mesh(source.geometry);
+        inner.applyMatrix4(inverse.clone().multiply(source.matrixWorld));
+        inner.material = cabinTrim(inner.matrix, DoubleSide, roofLine);
+        Object.assign(inner.material, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+        group.add(inner);
+        if (source.name === 'wingroot') {
+            roots.push(new Box3().setFromBufferAttribute(source.geometry.attributes.position).applyMatrix4(inner.matrix));
         }
-    }
+    });
     const dark = new MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.55 });
     const black = new MeshBasicMaterial({ color: 0x050505 });
-    for (const side of [-1, 1]) {
-        const x = side * ((wall[side] || CABIN_HALF_WIDTH) - 0.01);
-        // Renflement : demi-ovoïde aplati contre le flanc, plastique des garnitures
-        const bulge = new Mesh(new SphereGeometry(1, 24, 16), VENT_BULGE_MATERIAL);
-        bulge.scale.set(0.035, 0.07, 0.11);
-        bulge.position.set(x, VENT_AT.y, VENT_AT.z);
-        // Aérateur : collerette, rotule, buse et son trou, axe vers les sièges (vers l'intérieur, un peu vers l'arrière)
+    for (const box of roots) {
+        const center = box.getCenter(new Vector3()), side = Math.sign(center.x);
+        // Collerette, rotule, buse et son trou ; axe vers les sièges (vers l'intérieur, vers l'arrière, un peu vers le bas)
         const vent = new Group();
-        const collar = new Mesh(new TorusGeometry(0.026, 0.006, 10, 28), dark);
-        const ball = new Mesh(new SphereGeometry(0.02, 20, 14), dark);
-        const nozzle = new Mesh(new CylinderGeometry(0.011, 0.012, 0.022, 20, 1, true), dark);
+        const collar = new Mesh(new TorusGeometry(0.022, 0.005, 10, 28), dark);
+        const ball = new Mesh(new SphereGeometry(0.017, 20, 14), dark);
+        const nozzle = new Mesh(new CylinderGeometry(0.009, 0.01, 0.02, 20, 1, true), dark);
         nozzle.rotation.x = Math.PI / 2;
-        nozzle.position.z = 0.018;
-        const hole = new Mesh(new CircleGeometry(0.009, 20), black);
-        hole.position.z = 0.026;
+        nozzle.position.z = 0.015;
+        const hole = new Mesh(new CircleGeometry(0.0075, 20), black);
+        hole.position.z = 0.0225;
         vent.add(collar, ball, nozzle, hole);
-        vent.position.set(x - side * 0.033, VENT_AT.y - 0.01, VENT_AT.z);
-        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.45, 0.5).normalize());
-        group.add(bulge, vent);
+        vent.position.set(center.x - side * 0.012, center.y - 0.01, center.z + 0.02);
+        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.3, 0.6).normalize());
+        group.add(vent);
     }
     return group;
 }
