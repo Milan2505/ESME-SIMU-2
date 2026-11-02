@@ -725,10 +725,10 @@ function windshieldSeal(glass, roof) {
     return group;
 }
 
-// Aérateurs d'emplanture : en haut de chaque flanc, juste derrière le montant du pare-brise (là où l'aile rejoint la
-// cabine), sur un renflement moulé de la garniture ; buse orientable tournée vers les sièges. Hauteur du flanc à cet
+// Aérateurs d'emplanture : dans l'angle du toit et du flanc, juste derrière le montant du pare-brise (là où l'aile
+// rejoint la cabine), sur un renflement moulé de la garniture ; buse orientable tournée vers les sièges. Hauteur du flanc à cet
 // endroit : relevée sur la peau de l'avion (repère de la cabine)
-const VENT_AT = { y: 1.0, z: -2.1 };
+const VENT_AT = { y: 1.09, z: -2.02 };
 const VENT_BULGE_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xaeb2b8, roughness: 0.85, emissive: 0x2a2c2f }));
 function wingRootVents(model, inverse) {
     const group = new Group();
@@ -750,7 +750,7 @@ function wingRootVents(model, inverse) {
         const x = side * ((wall[side] || CABIN_HALF_WIDTH) - 0.01);
         // Renflement : demi-ovoïde aplati contre le flanc, plastique des garnitures
         const bulge = new Mesh(new SphereGeometry(1, 24, 16), VENT_BULGE_MATERIAL);
-        bulge.scale.set(0.022, 0.065, 0.085);
+        bulge.scale.set(0.035, 0.07, 0.11);
         bulge.position.set(x, VENT_AT.y, VENT_AT.z);
         // Aérateur : collerette, rotule, buse et son trou, axe vers les sièges (vers l'intérieur, un peu vers l'arrière)
         const vent = new Group();
@@ -762,8 +762,8 @@ function wingRootVents(model, inverse) {
         const hole = new Mesh(new CircleGeometry(0.009, 20), black);
         hole.position.z = 0.026;
         vent.add(collar, ball, nozzle, hole);
-        vent.position.set(x - side * 0.02, VENT_AT.y, VENT_AT.z);
-        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.1, 0.35).normalize());
+        vent.position.set(x - side * 0.033, VENT_AT.y - 0.01, VENT_AT.z);
+        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.45, 0.5).normalize());
         group.add(bulge, vent);
     }
     return group;
