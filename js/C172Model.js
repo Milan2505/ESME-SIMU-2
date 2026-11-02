@@ -697,7 +697,7 @@ function boundaryEdges(mesh, toCabin) {
 // Moulure du pare-brise : bourrelet de plastique gris (comme les garnitures) le long du contour visible du pare-brise. Montants et bas : bord de la vitre (la même pièce contient la lunette arrière : seulement devant
 // WINDSHIELD_MAX_Z). Haut : bord avant du toit de la carlingue (le haut de la vitre est caché derrière). Arêtes
 // raccordées en un seul cordon, angles arrondis, section bombée. glass, roof : { mesh, toCabin }
-const SEAL_WIDTH = 0.04, SEAL_BULGE = 0.012, WINDSHIELD_MAX_Z = -1.2, GLASS_TOP = 1.12;
+const SEAL_WIDTH = 0.018, SEAL_BULGE = 0.004, WINDSHIELD_MAX_Z = -1.2, GLASS_TOP = 1.12;
 // Dessus du tableau (prolongement de la casquette jusqu'au pied du pare-brise) : devant DASH_FRONT_Z, sous DASH_TOP
 const DASH_FRONT_Z = -2.5, DASH_TOP = 0.92;
 const SEAL_JOIN = 0.08;   // écart max entre deux bouts d'arête raccordés (montant de la vitre -> bord du toit)
