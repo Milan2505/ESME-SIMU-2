@@ -192,9 +192,13 @@ function waterLake(x, z) {
     const lake = terrain.lakeAt(x, z);
     return lake && terrain.groundAt(x, z, lake) < lake.level - WATER_SINK ? lake : null;
 }
+// Sous l'eau, sol des roues : le fond, ou waterSink sous la surface si le fond est plus bas. Continu à la rive (avant :
+// marche de 45 cm entre la surface de l'eau et le sol enfoncé, la normale du sol basculait et l'avion tremblait)
 controls.groundHeight = (x, z) => {
-    const lake = waterLake(x, z);
-    return lake ? Math.max(terrain.groundAt(x, z, lake), lake.level - waterSink) : terrain.heightAt(x, z);
+    const lake = terrain.lakeAt(x, z);
+    if (!lake) return terrain.heightAt(x, z);
+    const ground = terrain.groundAt(x, z, lake);
+    return ground < lake.level ? Math.max(ground, lake.level - waterSink) : ground;
 };
 function updateWaterSink(delta) {
     const onWater = controls.isOnGround() && !controls.isCrashed() && controls.getSurface() === 'water';

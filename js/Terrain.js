@@ -399,19 +399,33 @@ class Terrain {
             amp *= 0.5; freq *= 2;
         }
 
-        // Montagnes : bruit "en crêtes" pour des sommets marqués (pas calculées au fond des vallées)
+        // Montagnes (pas calculées au fond des vallées). Massifs : bruit doux élevé au carré, sommets isolés et vallées
+        // ouvertes entre eux ; crêtes et ravines (bruit "en crêtes") seulement sur les hauteurs. Avant, le bruit en
+        // crêtes seul donnait un plateau en nid d'abeille, criblé de cuvettes fermées
         const valley = this._clearingFactor(x, z) * smoothstep(this.mountainStart, this.mountainFull, r);
         let mountains = 0;
         if (valley > 0) {
-            let total = 0;
-            amp = 1; freq = 1 / 700;
-            for (let o = 0; o < 5; o++) {
-                const ridge = 1 - Math.abs(this.noise.noise(x * freq, z * freq, 7.3));
-                mountains += ridge * ridge * amp;
+            let massif = 0, total = 0;
+            amp = 1; freq = 1 / 1800;
+            for (let o = 0; o < 3; o++) {
+                massif += this.noise.noise(x * freq, z * freq, 7.3) * amp;
                 total += amp;
                 amp *= 0.5; freq *= 2;
             }
-            mountains /= total;
+            massif = smoothstep(-0.5, 0.42, massif / total);   // rarement saturé : pas de sommet plat
+            let ridges = 0;
+            total = 0;
+            amp = 1; freq = 1 / 450;
+            for (let o = 0; o < 4; o++) {
+                const ridge = 1 - Math.abs(this.noise.noise(x * freq, z * freq, 3.9));
+                ridges += ridge * ridge * amp;
+                total += amp;
+                amp *= 0.5; freq *= 2;
+            }
+            ridges /= total;
+            // Contreforts : bosses arrondies entre les massifs (pas de fond de vallée parfaitement plat)
+            const foothills = Math.max(0, this.noise.noise(x / 380, z / 380, 5.2) + 0.5 * this.noise.noise(x / 170, z / 170, 6.4) + 0.15);
+            mountains = Math.pow(massif, 1.6) * (0.55 + 0.9 * ridges * massif) + 0.22 * foothills * (1 - massif);
         }
 
         // Ondulations : grandes collines arrondies (pentes douces, herbe), effacées aux abords des aérodromes
