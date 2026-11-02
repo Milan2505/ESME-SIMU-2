@@ -23,25 +23,29 @@ class ILS {
         this.state = { available: false };
     }
 
-    // Calcule l'état ILS pour la position de l'avion ; coupe l'ILS s'il n'est plus disponible
-    update(position) {
+    // Calcule l'état ILS pour la position de l'avion ; coupe l'ILS s'il n'est plus disponible. frequency : seules les
+    // pistes de cet ILS (runway.ilsFrequency, chaque aérodrome a le sien) ; absente : toutes
+    update(position, frequency = null) {
         let best = null;
         for (const runway of this.runways) {
+            if (frequency && runway.ilsFrequency !== frequency) continue;
+            const runwayLength = runway.length ?? this.runwayLength;
             _offset.subVectors(position, runway.threshold);
             const before = -_offset.dot(runway.direction);       // distance avant le seuil (m)
             const lateral = _offset.dot(runway.left);           // > 0 : avion à gauche de l'axe
             const height = position.y - runway.threshold.y;
             // Antenne du localizer au bout de piste opposé ; antenne glide au niveau du point visé
-            const locAngle = Math.atan2(lateral, before + this.runwayLength);
+            const locAngle = Math.atan2(lateral, before + runwayLength);
             const gsDistance = before + runway.aimPoint.distanceTo(runway.threshold);
             // Disponible en approche (avant le seuil) ; une fois actif, reste allumé sur la piste (localizer seul)
-            const minBefore = this.active ? -this.runwayLength : 0;
+            const minBefore = this.active ? -runwayLength : 0;
             if (before < minBefore || before > RANGE || Math.abs(locAngle) > SECTOR || height > MAX_HEIGHT) continue;
             if (best && Math.abs(locAngle) >= Math.abs(best.locAngle)) continue;
             const gsAngle = Math.atan2(height, Math.max(1, gsDistance));
             best = {
                 available: true,
                 runway: runway.name,
+                frequency: runway.ilsFrequency,
                 course: runway.heading,
                 distance: Math.max(0, before),
                 locAngle,

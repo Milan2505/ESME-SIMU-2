@@ -79,7 +79,8 @@ class RemoteEngine {
     }
 
     // position : Vector3 (monde) ; volume : 0 -> 1 ; delta : temps depuis la dernière image (s)
-    update(position, throttle, volume, delta) {
+    // rpm : régime réel (tr/min) s'il est connu (sinon déduit des gaz) ; moteur arrêté ou presque : silence
+    update(position, throttle, volume, delta, rpm = null) {
         const now = this._audio.currentTime;
         const listener = this._listener;
         this._panner.positionX.setTargetAtTime(position.x, now, 0.05);
@@ -94,7 +95,8 @@ class RemoteEngine {
             doppler = Math.min(1.3, Math.max(0.75, SOUND_SPEED / (SOUND_SPEED - Math.max(-150, Math.min(150, closing)))));
         }
         this._distance = distance;
-        mixLayers(this._loops, rpmFromThrottle(throttle), volume, now, doppler);
+        const running = rpm === null ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 450));
+        mixLayers(this._loops, rpm === null ? rpmFromThrottle(throttle) : rpm, volume * running, now, doppler);
     }
 
     dispose() {
@@ -102,6 +104,9 @@ class RemoteEngine {
         this._panner.disconnect();
     }
 }
+
+const CABIN_CUTOFF = 1800;     // Hz : passe-bas en cabine
+const OUTSIDE_CUTOFF = 20000;
 
 class EngineSound {
     constructor({ volume = 1.4 } = {}) {
@@ -123,8 +128,10 @@ class EngineSound {
         // puis un limiteur évite la saturation à plein gaz et au démarrage
         const body = new BiquadFilterNode(this._audio, { type: 'peaking', frequency: 350, Q: 0.8, gain: 7 });
         const presence = new BiquadFilterNode(this._audio, { type: 'highshelf', frequency: 1200, gain: 5 });
+        // En cabine : passe-bas qui étouffe le moteur (aigus coupés par la carlingue, voir setCabin)
+        this._muffle = new BiquadFilterNode(this._audio, { type: 'lowpass', frequency: this._cabin ? CABIN_CUTOFF : OUTSIDE_CUTOFF, Q: 0.5 });
         const limiter = new DynamicsCompressorNode(this._audio, { threshold: -10, knee: 6, ratio: 12, attack: 0.003, release: 0.15 });
-        this._master.connect(body).connect(presence).connect(limiter).connect(this._audio.destination);
+        this._master.connect(this._muffle).connect(body).connect(presence).connect(limiter).connect(this._audio.destination);
 
         const urls = [...LAYERS.map(({ name, url }) => [name, url]), ...Object.entries(ONE_SHOTS)];
         const entries = await Promise.all(urls.map(async ([name, url]) => [name, await loadBuffer(this._audio, url)]));
@@ -139,6 +146,13 @@ class EngineSound {
         crank.loop = true;
         crank.connect(this._crank);
         crank.start();
+    }
+
+    // Caméra en cabine (moteur étouffé) ou à l'extérieur ; transition douce
+    setCabin(inside) {
+        if (inside === this._cabin) return;
+        this._cabin = inside;
+        if (this._muffle) this._muffle.frequency.setTargetAtTime(inside ? CABIN_CUTOFF : OUTSIDE_CUTOFF, this._audio.currentTime, 0.1);
     }
 
     // Moteur d'un autre joueur (null tant que le son n'est pas débloqué par une action du joueur)
@@ -190,9 +204,15 @@ class EngineSound {
     update(rpm, volume = 1, { running = true, cranking = false } = {}) {
         if (!this._loops) return;
         const now = this._audio.currentTime;
-        // Moteur arrêté : les boucles s'éteignent avec le régime (hélice qui ralentit), pas de son de combustion
-        const combustion = running ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 500)) * 0.35;
-        mixLayers(this._loops, rpm, volume * combustion, now);
+        // Moteur arrêté : les boucles s'éteignent avec le régime (hélice qui ralentit), pas de son de combustion.
+        // Le niveau y glisse en douceur (~2 s à l'arrêt, plus vite à la mise en route) plutôt que de chuter d'un coup
+        const target = running ? 1 : Math.min(1, Math.max(0, (rpm - 150) / 500)) * 0.35;
+        const delta = this._lastUpdate === undefined ? 0 : Math.min(0.1, now - this._lastUpdate);
+        this._lastUpdate = now;
+        // Son coupé (choix du départ, crash) : pas de fondu, sinon un départ moteur éteint ferait entendre la fin de l'ancien
+        const current = volume <= 0 ? target : this._combustion ?? target;
+        this._combustion = current + (target - current) * (1 - Math.exp(-delta / (target < current ? 0.7 : 0.15)));
+        mixLayers(this._loops, rpm, volume * this._combustion, now);
         this._crank.gain.setTargetAtTime(cranking && !running ? 0.9 * Math.min(1, volume * 1.4) : 0, now, 0.03);
     }
 }

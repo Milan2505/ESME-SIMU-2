@@ -79,9 +79,8 @@ function strobeFixture(group, position, side) {
     return lens.material;
 }
 
-// Feu anticollision (beacon) sur le sommet de la dérive : embase métallique, dôme rouge transparent, ampoule, et
-// réflecteur demi-cylindrique qui tourne dedans (le faisceau balaie l'horizon un tour par seconde). Remplace le petit
-// dôme du modèle. Rend { reflector, glows }
+// Feu anticollision (beacon) sur le sommet de la dérive : embase métallique, dôme rouge transparent, ampoule et
+// réflecteur fixe derrière elle (feu à double éclat, voir beaconOn). Remplace le petit dôme du modèle. Rend { reflector, glows }
 function beaconFixture(group, position) {
     const fixture = new Group();
     fixture.position.set(position[0], 1.668, position[2]);
@@ -98,7 +97,7 @@ function beaconFixture(group, position) {
     const bulbMaterial = new MeshStandardMaterial({ color: 0xffd8c8, emissive: 0xff3a20, emissiveIntensity: 0.1 });
     const bulb = new Mesh(new SphereGeometry(0.006, 12, 8), bulbMaterial);
     bulb.position.y = 0.03;
-    // Réflecteur : coque derrière l'ampoule, ouverture vers +z (orientée par update)
+    // Réflecteur : coque derrière l'ampoule, ouverture vers +z (vers l'arrière)
     const reflector = new Group();
     reflector.position.y = 0.03;
     const shell = new Mesh(new CylinderGeometry(0.017, 0.017, 0.024, 16, 1, true, Math.PI / 2, Math.PI),
@@ -107,6 +106,13 @@ function beaconFixture(group, position) {
     fixture.add(base, reflector, bulb, wall, cap);
     group.add(fixture);
     return { reflector, glows: [domeMaterial, bulbMaterial] };
+}
+
+// Feu anticollision : double éclat bref toutes les 1,1 s (décalé des strobes). Partagé avec le bruitage (simulator.js)
+const BEACON_PERIOD = 1.1;
+function beaconOn(time) {
+    const t = (time + 0.5) % BEACON_PERIOD;
+    return t < 0.06 || (t > 0.17 && t < 0.23);
 }
 
 const _eye = new Vector3();
@@ -310,16 +316,13 @@ class AircraftLights {
         this.group.updateWorldMatrix(true, false);
         this.group.worldToLocal(_eye);                      // repère des feux (agrandi avec l'avion)
         const occluder = this._cabin ? null : this.occluder; // pas de test en cabine (modèle caché, sauf l'hélice)
-        const beaconPhase = (time % 1) * Math.PI * 2;      // anticollision : un tour par seconde
+        const beacon = beaconOn(time);
         const strobe = time % 1.4;                          // strobes : double éclat toutes les 1,4 s
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
         const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight, taxi: this.landingLight };
         this._followRudder();
-        // Réflecteur du beacon : ouverture tournée vers l'azimut du faisceau (0 = avant, + = droite)
-        if (this.beaconFixture && sw.beacon) this.beaconFixture.reflector.rotation.y = Math.PI - beaconPhase;
         if (this.beaconLight?.visible) {
-            // Deux éclats par tour vus de partout (le faisceau balaie tout autour) : lumière pulsée
-            this.beaconLight.intensity = 6 * Math.pow(Math.max(0, Math.cos(beaconPhase * 2)), 8);
+            this.beaconLight.intensity = beacon ? 6 : 0;
         }
         for (const light of this.tipLights) {
             const flash = strobeOn && sw.strobe;
@@ -345,9 +348,7 @@ class AircraftLights {
                 const facing = -toEye.z / Math.max(distance, 0.01);
                 intensity = Math.pow(Math.max(0, facing), light.kind === 'taxi' ? 2 : 4);
             } else if (light.kind === 'beacon') {
-                // Faisceau tournant : éclat bref quand il balaie vers l'observateur
-                const azimuth = Math.atan2(toEye.x, -toEye.z);
-                intensity = Math.pow(Math.max(0, Math.cos(beaconPhase - azimuth)), 6);
+                intensity = beacon ? 1 : 0;
             } else {
                 intensity = strobeOn ? 1 : 0;
             }
@@ -386,4 +387,4 @@ class AircraftLights {
     }
 }
 
-export { AircraftLights };
+export { AircraftLights, beaconOn };

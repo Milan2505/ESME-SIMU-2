@@ -15,7 +15,7 @@ const _resetEvent = { type: 'reset' };
 const _EPS = 0.000001;
 const _MAX_DELTA = 0.1;            // évite les sauts après un onglet en arrière-plan
 const _CONTROL_SMOOTHING = 0.5;    // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
-const _TRIM_RATE = MathUtils.degToRad( 5 ); // vitesse du tab de trim, touche enfoncée (d'une butée à l'autre en ~7 s)
+const _TRIM_RATE = MathUtils.degToRad( 8 ); // vitesse du tab de trim, touche enfoncée (d'une butée à l'autre en ~9 s)
 const _up = new Vector3( 0, 1, 0 );
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)

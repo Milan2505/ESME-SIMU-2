@@ -1,8 +1,11 @@
 import {
     Box3,
+    BoxGeometry,
     BufferAttribute,
     BufferGeometry,
     Color,
+    ConeGeometry,
+    CylinderGeometry,
     DoubleSide,
     DirectionalLight,
     Group,
@@ -49,7 +52,11 @@ const STREET = [36, 40];         // m : pas de la grille des rues (entre maisons
 const TREE_SLOPE = 0.08;         // 1 - normale.y
 const HOUSE_SLOPE = 0.035;
 const GRASS_TOP = 65;            // m
-const TREE_COUNT = 8000;         // arbres à 100 % du réglage « Arbres et décor » (massifs denses)
+const TREE_COUNT = 9000;         // arbres des massifs par région à 100 % du réglage « Arbres et décor » (massifs denses)
+const HEDGES = 30;               // haies par région (rangées d'arbres le long des champs, en plaine)
+const LONE_TREES = 350;          // arbres isolés par région (en plaine)
+const MAP_EDGE = 7800;           // m : rien au-delà (le terrain s'arrête à 8000 m du centre)
+const REGION = 2800;             // m : demi-côté de la zone décorée autour de chaque aérodrome
 const NEAR = 100;                // m : arbres complets en deçà, imposteurs au-delà
 const NEAR_MAX = 12;             // arbres complets au plus, par espèce (les plus proches)
 const SHADOW_RANGE = 140;        // m : arbres qui projettent une ombre (au-delà de la zone d'ombres du soleil)
@@ -59,6 +66,55 @@ const FAR = 2600;                // m : au-delà, plus rien (le brouillard les c
 const RELAYOUT = 35;             // m de déplacement de la caméra avant de refaire la répartition
 const IMPOSTOR_SIZE = 256;
 const UP = new Vector3(0, 1, 0);
+// Palette Kenney (Textures/colormap.png) : 16 colonnes x 4 rangées de cases [colonne, rangée], rangée 0 en haut.
+// Les toits d'origine (bleus, roses, violets) sont repeints en tuiles et en ardoise, tirés selon leur poids
+const ROOFS = [
+    { cell: [10, 2], weight: 0.3 },    // tuile brun-rouge
+    { cell: [4, 3], weight: 0.25 },    // tuile terre cuite
+    { cell: [5, 3], weight: 0.15 },    // tuile terre cuite foncée
+    { cell: [11, 2], weight: 0.1 },    // tuile vieillie
+    { cell: [8, 3], weight: 0.12 },    // ardoise
+    { cell: [2, 2], weight: 0.08 },    // ardoise foncée
+];
+const WALL_CELL = [14, 2];           // crépi crème (église)
+const SLATE_CELL = [8, 3];
+
+function paletteCell(uv, i) {
+    return Math.min(15, Math.floor(uv.getX(i) * 16)) + 16 * Math.min(3, Math.floor(uv.getY(i) * 4));
+}
+
+// Cases de la palette qui servent de toit dans un modèle : surtout peintes sur des faces en pente
+function roofCells(geometry) {
+    const pos = geometry.attributes.position, normal = geometry.attributes.normal, uv = geometry.attributes.uv;
+    const index = geometry.index, count = index ? index.count : pos.count;
+    const sloped = new Map(), total = new Map();
+    const a = new Vector3(), b = new Vector3(), c = new Vector3();
+    for (let t = 0; t < count; t += 3) {
+        const [i, j, k] = index ? [index.getX(t), index.getX(t + 1), index.getX(t + 2)] : [t, t + 1, t + 2];
+        a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, j); c.fromBufferAttribute(pos, k);
+        const area = b.sub(a).cross(c.sub(a)).length() / 2;
+        const cell = paletteCell(uv, i);
+        total.set(cell, (total.get(cell) ?? 0) + area);
+        const ny = normal.getY(i);
+        if (ny > 0.25 && ny < 0.97) sloped.set(cell, (sloped.get(cell) ?? 0) + area);
+    }
+    return new Set([...sloped].filter(([cell, area]) => area > 0.35 * total.get(cell)).map(([cell]) => cell));
+}
+
+// Repeint les cases de toit vers une autre case (même position dans la case : le dégradé est conservé)
+function repaint(uv, cells, [col, row]) {
+    for (let i = 0; i < uv.count; i++) {
+        const cell = paletteCell(uv, i);
+        if (!cells.has(cell)) continue;
+        uv.setXY(i, uv.getX(i) + (col - cell % 16) / 16, uv.getY(i) + (row - Math.floor(cell / 16)) / 4);
+    }
+}
+
+function pickRoof(rnd) {
+    let r = rnd() * ROOFS.reduce((sum, roof) => sum + roof.weight, 0);
+    for (const roof of ROOFS) if ((r -= roof.weight) <= 0) return roof.cell;
+    return ROOFS[0].cell;
+}
 
 // Matériau des maillages qui ne servent qu'à projeter une ombre : rien à l'écran (sommets envoyés hors du champ, aucun
 // pixel calculé) ; la passe d'ombre utilise leur customDepthMaterial
@@ -89,8 +145,9 @@ function random(seed) {
 
 class Scenery {
     // terrain : { heightAt(x, z) } ; airport : { contains(x, z, marge) } ; corridor(x, z) : vrai dans l'axe d'approche
-    constructor(scene, { renderer, terrain, airport, corridor }) {
-        Object.assign(this, { scene, renderer, terrain, airport, corridor });
+    // regions : centres des zones décorées (une par aérodrome), carrés de REGION m de demi-côté
+    constructor(scene, { renderer, terrain, airport, corridor, regions = [{ x: 0, z: 0 }] }) {
+        Object.assign(this, { scene, renderer, terrain, airport, corridor, regions });
         this.group = new Group();
         this.group.name = 'decor-realiste';
         this.group.visible = false;
@@ -175,9 +232,11 @@ class Scenery {
 
     // --- Placement --------------------------------------------------------------------------------------------
     _free(x, z, villages, margin = 0) {
-        if (Math.abs(x) > 2800 || Math.abs(z) > 2800) return false;
+        if (!this.regions.some((r) => Math.abs(x - r.x) <= REGION && Math.abs(z - r.z) <= REGION)) return false;
+        if (Math.abs(x) > MAP_EDGE || Math.abs(z) > MAP_EDGE) return false;   // (bord du terrain)
         if (this.airport.contains(x, z, 60)) return false;
         if (this.corridor(x, z)) return false;
+        if (this.terrain.lakeAt?.(x, z, 8)) return false;
         return !villages.some((v) => Math.hypot(x - v.x, z - v.z) < v.radius + margin);
     }
 
@@ -194,10 +253,13 @@ class Scenery {
     // Villages : en plaine (fond de vallée, autour de l'aérodrome), là où presque tout le disque est plat
     _placeVillages(rnd) {
         const villages = [];
-        for (let tries = 0; villages.length < 4 && tries < 3000; tries++) {
-            const x = (rnd() * 2 - 1) * 2600, z = (rnd() * 2 - 1) * 2600;
+        // 4 villages par région, tirés à tour de rôle dans chacune
+        const wanted = 4 * this.regions.length;
+        for (let tries = 0; villages.length < wanted && tries < 3000 * this.regions.length; tries++) {
+            const region = this.regions[villages.length % this.regions.length];
+            const x = region.x + (rnd() * 2 - 1) * 2600, z = region.z + (rnd() * 2 - 1) * 2600;
             const radius = 130 + rnd() * 70;
-            if (!this._free(x, z, villages, radius + 250) || Math.hypot(x - 220, z) < 500) continue;
+            if (!this._free(x, z, villages, radius + 250) || this.airport.contains(x, z, radius + 200)) continue;
             let flat = 0, total = 0;
             for (let r = 0; r <= radius; r += radius / 3) {
                 for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
@@ -213,8 +275,14 @@ class Scenery {
     _placeTrees(rnd, villages) {
         // Massifs : centres et rayons tirés, puis arbres dans chaque massif (plus serrés au centre)
         const patches = [];
-        for (let tries = 0; patches.length < 30 && tries < 2000; tries++) {
-            const x = (rnd() * 2 - 1) * 2600, z = (rnd() * 2 - 1) * 2600;
+        // 30 massifs par région, plus 20 dans la plaine autour de l'aérodrome (entre 250 et 1500 m de son centre)
+        const wanted = 50 * this.regions.length;
+        for (let tries = 0; patches.length < wanted && tries < 2000 * this.regions.length; tries++) {
+            const region = this.regions[patches.length % this.regions.length];
+            const plain = patches.length >= 30 * this.regions.length;
+            const a = rnd() * Math.PI * 2, d = 250 + rnd() * 1250;
+            const x = plain ? region.x + Math.cos(a) * d : region.x + (rnd() * 2 - 1) * 2600;
+            const z = plain ? region.z + Math.sin(a) * d : region.z + (rnd() * 2 - 1) * 2600;
             if (!this._free(x, z, villages, 40) || !this._grass(x, z, TREE_SLOPE)) continue;
             patches.push({ x, z, radius: 80 + rnd() * 160, pine: rnd() < 0.4 });
         }
@@ -228,7 +296,7 @@ class Scenery {
         const area = patches.reduce((sum, p) => sum + p.radius * p.radius, 0);
         const trees = [];
         for (const p of patches) {
-            const count = Math.round(TREE_COUNT * p.radius * p.radius / area);
+            const count = Math.round(TREE_COUNT * this.regions.length * p.radius * p.radius / area);
             for (let k = 0, tries = 0; k < count && tries < count * 4; tries++) {
                 const r = p.radius * Math.sqrt(rnd()) * (0.6 + 0.4 * rnd()), a = rnd() * Math.PI * 2;
                 const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
@@ -237,6 +305,32 @@ class Scenery {
                 const [h0, h1] = SPECIES[species].height;
                 trees.push({ x, z, species, height: h0 + (h1 - h0) * rnd(), angle: rnd() * Math.PI * 2, order: rnd() });
                 k++;
+            }
+        }
+        // Haies (rangées irrégulières d'arbres, légèrement courbes) et arbres isolés : la plaine autour des aérodromes
+        const tree = (x, z, pine) => {
+            if (!this._free(x, z, villages, 15) || !this._grass(x, z, TREE_SLOPE)) return;
+            const species = pick(pine);
+            const [h0, h1] = SPECIES[species].height;
+            trees.push({ x, z, species, height: (h0 + (h1 - h0) * rnd()) * (0.75 + 0.25 * rnd()), angle: rnd() * Math.PI * 2, order: rnd() });
+        };
+        for (const region of this.regions) {
+            for (let h = 0; h < HEDGES; h++) {
+                const a = rnd() * Math.PI * 2, d = 220 + rnd() * 1800;
+                let x = region.x + Math.cos(a) * d, z = region.z + Math.sin(a) * d;
+                let heading = rnd() * Math.PI;
+                const length = 150 + rnd() * 350, bend = (rnd() - 0.5) * 0.004;
+                for (let s = 0; s < length;) {
+                    tree(x + (rnd() - 0.5) * 3, z + (rnd() - 0.5) * 3, rnd() < 0.15);
+                    const step = 7 + rnd() * 4;
+                    x += Math.cos(heading) * step; z += Math.sin(heading) * step;
+                    heading += bend * step;
+                    s += step;
+                }
+            }
+            for (let k = 0; k < LONE_TREES; k++) {
+                const a = rnd() * Math.PI * 2, d = 180 + rnd() * 2200;
+                tree(region.x + Math.cos(a) * d, region.z + Math.sin(a) * d, rnd() < 0.3);
             }
         }
         // Ordre aléatoire : le réglage de densité garde les premiers, répartis partout
@@ -267,7 +361,12 @@ class Scenery {
         // Ombres de tous les arbres proches (feuillage compris) : deux panneaux croisés avec l'image de l'imposteur,
         // invisibles à l'écran. Bien moins cher que les milliers de feuilles, et les imposteurs n'ont plus à s'en charger
         const crossed = mergeGeometries([0, Math.PI / 2].map((angle) => impostor.geometry.clone().rotateY(angle)));
-        const shadow = new InstancedMesh(crossed, SHADOW_ONLY, Math.min(SHADOW_MAX, trees.length) || 1);
+        // La passe d'ombre recopie map et alphaTest du matériau du maillage dans son customDepthMaterial : le matériau
+        // invisible les porte aussi (sans eux, chaque arbre projetait l'ombre pleine de ses panneaux, des rectangles)
+        const shadowMaterial = SHADOW_ONLY.clone();
+        shadowMaterial.map = impostor.material.map;
+        shadowMaterial.alphaTest = 0.45;
+        const shadow = new InstancedMesh(crossed, shadowMaterial, Math.min(SHADOW_MAX, trees.length) || 1);
         shadow.customDepthMaterial = new MeshDepthMaterial({ depthPacking: RGBADepthPacking, map: impostor.material.map, alphaTest: 0.45 });
         shadow.castShadow = true;
         shadow.frustumCulled = false;
@@ -336,6 +435,11 @@ class Scenery {
     _buildHouses(villages, models, rnd) {
         if (!models.length) return;
         const boxes = models.map((model) => { model.updateMatrixWorld(true); return new Box3().setFromObject(model); });
+        const roofs = models.map((model) => {
+            const cells = new Set();
+            model.traverse((child) => { if (child.isMesh) for (const cell of roofCells(child.geometry)) cells.add(cell); });
+            return cells;
+        });
         let material = null;
         for (const v of villages) {
             // Un seul maillage par village (toutes les maisons partagent la même texture) : 5 appels de dessin en tout,
@@ -346,19 +450,21 @@ class Scenery {
             const cos = Math.cos(angle), sin = Math.sin(angle);
             for (let i = -6; i <= 6; i++) {
                 for (let j = -6; j <= 6; j++) {
-                    const u = i * STREET[0] + (rnd() - 0.5) * 4, w = j * STREET[1];
-                    // Plus clairsemé vers le bord du village
+                    // Alignement imparfait : maisons plus ou moins en retrait de la rue
+                    const u = i * STREET[0] + (rnd() - 0.5) * 6, w = j * STREET[1] + (rnd() - 0.5) * 5;
+                    // Place de l'église au centre ; plus clairsemé vers le bord du village
                     const edge = Math.hypot(u, w) / v.radius;
-                    if (edge > 1 || rnd() < 0.15 + 0.45 * edge * edge) continue;
+                    if (edge > 1 || Math.hypot(u, w) < 34 || rnd() < 0.15 + 0.45 * edge * edge) continue;
                     const x = v.x + u * cos - w * sin, z = v.z + u * sin + w * cos;
                     if (this.airport.contains(x, z, 60) || this.corridor(x, z) || !this._grass(x, z, HOUSE_SLOPE)) continue;
                     const facing = angle + (j % 2 ? 0 : Math.PI) + (rnd() - 0.5) * 0.08;
-                    const k = Math.floor(rnd() * models.length), box = boxes[k];
-                    // Posée au plus bas des quatre coins (pas de maison qui flotte sur une pente)
-                    const r = (box.max.x - box.min.x) * HOUSE_SCALE / 2;
+                    const k = Math.floor(rnd() * models.length), box = boxes[k], roof = pickRoof(rnd);
+                    // Tailles un peu variées ; posée au plus bas des quatre coins (pas de maison qui flotte sur une pente)
+                    const scale = HOUSE_SCALE * (0.88 + rnd() * 0.24);
+                    const r = (box.max.x - box.min.x) * scale / 2;
                     const y = Math.min(...[[r, r], [-r, r], [r, -r], [-r, -r], [0, 0]].map(([dx, dz]) => this.terrain.heightAt(x + dx, z + dz)));
                     const m = new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromAxisAngle(UP, facing),
-                        new Vector3(HOUSE_SCALE, HOUSE_SCALE, HOUSE_SCALE));
+                        new Vector3(scale, scale, scale));
                     models[k].traverse((child) => {
                         if (!child.isMesh) return;
                         // Éclairage Lambert : les maisons Kenney n'ont qu'une texture de couleurs, le PBR n'apporte rien
@@ -366,12 +472,14 @@ class Scenery {
                         const g = new BufferGeometry();
                         for (const name of ['position', 'normal', 'uv']) g.setAttribute(name, floats(child.geometry.attributes[name]));
                         if (child.geometry.index) g.setIndex(child.geometry.index);
+                        repaint(g.attributes.uv, roofs[k], roof);
                         parts.push(g.applyMatrix4(new Matrix4().multiplyMatrices(m, child.matrixWorld)));
                     });
                     this.obstacles.push(box.clone().applyMatrix4(m));
                 }
             }
             if (!parts.length) continue;
+            this._church(v, angle, parts);
             const mesh = new Mesh(mergeGeometries(parts), material);
             mesh.receiveShadow = true;
             mesh.geometry.computeBoundingSphere();
@@ -379,6 +487,31 @@ class Scenery {
             this.villages.push(mesh);
         }
         this._houseObstacles = this.obstacles.slice();
+    }
+
+    // Église au centre du village : nef crépie, toit de tuiles à deux pans, clocher carré et flèche d'ardoise.
+    // Formes simples peintes avec la palette des maisons (même matériau, même maillage que le village)
+    _church(v, angle, parts) {
+        const ground = Math.min(...[[0, 0], [15, 15], [-15, 15], [15, -15], [-15, -15]]
+            .map(([dx, dz]) => this.terrain.heightAt(v.x + dx, v.z + dz)));
+        const place = new Matrix4().compose(new Vector3(v.x, ground, v.z), new Quaternion().setFromAxisAngle(UP, angle),
+            new Vector3(1, 1, 1));
+        const box = new Box3();
+        const add = (geometry, [col, row]) => {
+            const uv = geometry.attributes.uv;
+            for (let i = 0; i < uv.count; i++) uv.setXY(i, (col + 0.5) / 16, (row + 0.3) / 4);
+            geometry.applyMatrix4(place);
+            geometry.computeBoundingBox();
+            box.union(geometry.boundingBox);
+            parts.push(geometry);
+        };
+        // Nef (12 x 26 m, murs de 10 m) et son toit : prisme à section triangulaire, axe le long de la nef
+        add(new BoxGeometry(12, 10, 26).translate(0, 5, -4), WALL_CELL);
+        add(new CylinderGeometry(7.6, 7.6, 27.5, 3).rotateX(-Math.PI / 2).scale(1, 0.7, 1).translate(0, 12.7, -4), ROOFS[0].cell);
+        // Clocher devant la nef, flèche pyramidale
+        add(new BoxGeometry(7, 24, 7).translate(0, 12, 11), WALL_CELL);
+        add(new ConeGeometry(5.2, 13, 4).rotateY(Math.PI / 4).translate(0, 30.5, 11), SLATE_CELL);
+        this.obstacles.push(box);
     }
 
     // --- Réglages et image ------------------------------------------------------------------------------------
@@ -400,19 +533,22 @@ class Scenery {
         if (visible) this.build();
     }
 
-    // camera : position (monde) ; time : s (vent dans les feuillages)
-    update(cameraPosition, time) {
+    // camera : position (monde) ; time : s (vent dans les feuillages) ; shadowCenter : centre de la zone d'ombres du
+    // décor (au sol, sous l'avion : voir Graphics.update), la caméra si absent
+    update(cameraPosition, time, shadowCenter = cameraPosition) {
         if (!this.ready || !this.group.visible) return;
         for (const sp of this.species) sp.source.update(time);
-        // Ombres des maisons seulement près de la caméra (ailleurs, hors de la zone d'ombres : passe d'ombre inutile)
+        // Ombres des maisons seulement dans la zone d'ombres (ailleurs : passe d'ombre inutile)
         for (const village of this.villages) {
             const sphere = village.geometry.boundingSphere;
-            village.castShadow = sphere.center.distanceTo(cameraPosition) < sphere.radius + SHADOW_RANGE;
+            village.castShadow = sphere.center.distanceTo(shadowCenter) < sphere.radius + SHADOW_RANGE;
         }
         // Rien au-delà de la fin du brouillard (par paliers de 200 m : à refaire quand la météo ou un nuage le change)
         const farthest = Math.min(FAR, Math.ceil((this.scene.fog?.far ?? FAR) / 200) * 200);
-        if (this._lastLayout && this._lastLayout.distanceTo(cameraPosition) < RELAYOUT && farthest === this._layoutFar) return;
+        if (this._lastLayout && this._lastLayout.distanceTo(cameraPosition) < RELAYOUT && this._lastShadow.distanceTo(shadowCenter) < RELAYOUT
+            && farthest === this._layoutFar) return;
         this._lastLayout = cameraPosition.clone();
+        this._lastShadow = shadowCenter.clone();
         this._layoutFar = farthest;
         const near = this.near ?? NEAR, near2 = near * near, far2 = farthest * farthest, shadow2 = SHADOW_RANGE * SHADOW_RANGE;
         const p = new Vector3(), scale = new Vector3(), yaw = new Quaternion(), tilt = new Quaternion(), billboard = new Matrix4();
@@ -427,7 +563,9 @@ class Scenery {
                 p.setFromMatrixPosition(m);
                 const d2 = p.distanceToSquared(cameraPosition);
                 if (d2 > far2) continue;
-                if (d2 < shadow2 && shadowCount < shadow.instanceMatrix.count) shadow.setMatrixAt(shadowCount++, m);
+                // Ombre portée : arbres proches du centre de la zone d'ombres (distance au sol)
+                const s2 = (p.x - shadowCenter.x) ** 2 + (p.z - shadowCenter.z) ** 2;
+                if (s2 < shadow2 && shadowCount < shadow.instanceMatrix.count) shadow.setMatrixAt(shadowCount++, m);
                 (d2 < near2 ? close : far).push({ i, d2 });
             }
             // Arbres complets : les plus proches ; le surplus passe en imposteurs

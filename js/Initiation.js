@@ -7,6 +7,9 @@ import {
     Group,
     Mesh,
     MeshBasicMaterial,
+    Path,
+    Shape,
+    ShapeGeometry,
     Sprite,
     SpriteMaterial,
     TorusGeometry,
@@ -155,6 +158,106 @@ class GroundGuide {
     }
 }
 
+// --- Cadres du tour de piste : couloir en l'air à suivre, du décollage à la courte finale (main gauche) ----------------
+// Sommets du circuit, par rapport au seuil de la piste en service : [le long de l'axe (m), à gauche (m), hauteur (ft)]
+const CIRCUIT = [
+    [450, 0, 80],          // après l'envol
+    [2100, 0, 600],        // virage vent traversier
+    [2100, 1000, 1000],    // virage vent arrière
+    [0, 1000, 1000],       // travers du seuil : on réduit
+    [-1800, 1000, 750],    // virage en étape de base
+    [-1800, 0, 450],       // dernier virage
+    [-200, 0, 60],         // courte finale (pente ~4°, vers le point d'aboutissement)
+];
+const CIRCUIT_TURN = 400;      // m : rayon des virages (20° d'inclinaison à 75 kt)
+const FRAME_SPACING = 160;     // m entre deux cadres
+const FRAMES_AHEAD = 10;       // cadres affichés devant l'avion
+
+class FlightPath {
+    constructor(scene, groundHeight) {
+        this.groundHeight = groundHeight;
+        this.group = new Group();
+        scene.add(this.group);
+        this.material = new MeshBasicMaterial({ color: 0xffd23c, transparent: true, opacity: 0.75, toneMapped: false, depthWrite: false, side: DoubleSide });
+        // Cadre de 60 × 36 m, montant de 1,2 m
+        const shape = new Shape().moveTo(-30, -18).lineTo(30, -18).lineTo(30, 18).lineTo(-30, 18).closePath();
+        shape.holes.push(new Path().moveTo(-28.8, -16.8).lineTo(-28.8, 16.8).lineTo(28.8, 16.8).lineTo(28.8, -16.8).closePath());
+        this.geometry = new ShapeGeometry(shape);
+        this.frames = [];
+        this.next = 0;
+    }
+
+    get shown() {
+        return this.frames.length > 0;
+    }
+
+    // Pose les cadres le long du circuit de la piste rw (coins arrondis)
+    set(rw) {
+        this.clear();
+        const field = this.groundHeight(rw.threshold.x, rw.threshold.z);
+        const point = ([along, lateral, ft]) => new Vector3(
+            rw.threshold.x + rw.direction.x * along + rw.left.x * lateral,
+            field + ft * 0.3048,
+            rw.threshold.z + rw.direction.z * along + rw.left.z * lateral);
+        const corners = CIRCUIT.map(point);
+        // Tracé fin : lignes droites, virages en arc (courbe de Bézier entre l'entrée et la sortie du virage)
+        const path = [corners[0]];
+        for (let i = 1; i < corners.length - 1; i++) {
+            const c = corners[i];
+            const a = c.clone().sub(corners[i - 1]), b = corners[i + 1].clone().sub(c);
+            const r = Math.min(CIRCUIT_TURN, a.length() / 2, b.length() / 2);
+            const enter = c.clone().addScaledVector(a.normalize(), -r), exit = c.clone().addScaledVector(b.normalize(), r);
+            for (let k = 0; k <= 8; k++) {
+                const t = k / 8;
+                path.push(enter.clone().multiplyScalar((1 - t) ** 2).addScaledVector(c, 2 * t * (1 - t)).addScaledVector(exit, t * t));
+            }
+        }
+        path.push(corners[corners.length - 1]);
+        // Cadres à intervalle régulier, chacun face à la trajectoire
+        let carry = 0;
+        for (let i = 0; i < path.length - 1; i++) {
+            const from = path[i], seg = path[i + 1].clone().sub(from), length = seg.length();
+            const dir = seg.clone().divideScalar(length);
+            for (let d = carry; d < length; d += FRAME_SPACING) {
+                const frame = new Mesh(this.geometry, this.material);
+                frame.position.copy(from).addScaledVector(dir, d);
+                frame.lookAt(frame.position.clone().add(dir));
+                frame.userData.dir = dir;
+                frame.visible = false;
+                this.group.add(frame);
+                this.frames.push(frame);
+            }
+            carry = (carry - length) % FRAME_SPACING;
+            if (carry < 0) carry += FRAME_SPACING;
+        }
+        this.next = 0;
+    }
+
+    clear() {
+        this.group.clear();
+        this.frames = [];
+        this.next = 0;
+    }
+
+    // Cadre franchi (dépassé, ou coupé dans un virage) : il disparaît ; les suivants restent affichés
+    update(position, time) {
+        if (this.next >= this.frames.length) return;   // tous franchis (ou aucun)
+        let best = this.next, bestDistance = Infinity;
+        for (let i = this.next; i < Math.min(this.frames.length, this.next + 20); i++) {
+            const d = this.frames[i].position.distanceTo(position);
+            if (d < bestDistance) { bestDistance = d; best = i; }
+        }
+        const nearest = this.frames[best];
+        const passed = _offset.copy(position).sub(nearest.position).dot(nearest.userData.dir) > 0;
+        this.next = Math.min(this.frames.length, best + (passed ? 1 : 0));
+        this.frames.forEach((frame, i) => {
+            frame.visible = i >= this.next && i < this.next + FRAMES_AHEAD;
+        });
+        this.material.opacity = 0.6 + 0.15 * Math.sin(time * 4);
+    }
+}
+const _offset = new Vector3();
+
 // --- Le moniteur -----------------------------------------------------------------------------------------------------
 class Initiation {
     // deps : { systems, controls, avionics, atc, cockpit, airport, scene, aircraft, voices, ui, startCold, focusCabin,
@@ -166,6 +269,7 @@ class Initiation {
         this.cameraGuide = true;
         this.highlighter = new Highlighter(this.cockpit);
         this.guide = new GroundGuide(this.scene, this.groundHeight);
+        this.path = new FlightPath(this.scene, this.groundHeight);
         this._time = 0;
         this._htmlTargets = [];
         this._advice = new Map();
@@ -180,6 +284,7 @@ class Initiation {
         this.active = true;
         this._radioLang = this.atc.lang;
         this.setRadioLanguage?.(this.lang);
+        this.voices.preloadInstructor?.(this.lang, this.level === 2);
         this._labels();
         this.steps = buildSteps(this.level, this.lang);
         this.index = -1;
@@ -195,10 +300,12 @@ class Initiation {
         if (!this.active) return;
         this.active = false;
         this.voices.stopInstructor();
+        this.voices.student = false;   // hors leçon : voix de pilote habituelle
         // Radio rendue dans sa langue d'avant la leçon
         if (this._radioLang && this._radioLang !== this.atc.lang) this.setRadioLanguage?.(this._radioLang);
         this.highlighter.set([]);
         this.guide.clear();
+        this.path.clear();
         this._setHtml([]);
         this.ui.panel.hidden = true;
         this.onChange?.();
@@ -225,7 +332,10 @@ class Initiation {
     }
 
     _next() {
+        // Étape de roulage finie : ses anneaux restants disparaissent (sauf si la suivante en pose d'autres)
+        const previous = this.step;
         this.index++;
+        if (previous?.guide && !this.step?.guide) this.guide.clear();
         const step = this.step;
         if (!step) return this.stop();
         this._state = { entered: this._time, spoken: false, speaking: false, sent: 0, flags: {} };
@@ -248,7 +358,7 @@ class Initiation {
         this._htmlFromStep = list.filter((t) => t.startsWith('html:') || t.startsWith('radio:'));
         // Caméra : vers la commande à utiliser (vue cabine), ou place du pilote
         if (this.cameraGuide) {
-            const where = this.highlighter.targets[0];
+            const where = this._where();
             if (step.camera === 'pilot' || (!where && step.camera !== 'none')) this.pilotView();
             else if (where && step.camera !== 'none') this.focusCabin(where.center, where.radius);
         }
@@ -289,13 +399,24 @@ class Initiation {
         if (!step || !this._state.spoken) return;
         const c = this._context();
         this._say(typeof step.say === 'function' ? step.say(c, this) : step.say);
-        const where = this.highlighter.targets[0];
+        const where = this._where();
         if (where && step.camera !== 'pilot') this.focusCabin(where.center, where.radius);
+    }
+
+    // Où regarder : la première commande, ou (frame) toutes les cibles dans la même vue (clé et compte-tours)
+    _where() {
+        const targets = this.highlighter.targets;
+        if (!this.step?.frame || targets.length < 2) return targets[0];
+        const center = new Vector3();
+        for (const t of targets) center.add(t.center);
+        center.divideScalar(targets.length);
+        const radius = Math.max(...targets.map((t) => t.center.distanceTo(center) + t.radius));
+        return { center, radius };
     }
 
     // Recentrer la caméra sur la commande à utiliser
     show() {
-        const where = this.highlighter.targets[0];
+        const where = this._where();
         if (where) this.focusCabin(where.center, where.radius);
         else this.pilotView();
     }
@@ -313,6 +434,7 @@ class Initiation {
             agl: s?.agl ?? 0, heading: this.controls.getHeading(), flaps: this.controls.getFlapLevel(),
             throttle: this.controls.getThrottle(), rpm: this.systems.rpm, roll: this.controls.getRoll(),
             airborne: Boolean(s?.airborne), position: this.aircraft.position,
+            atcOpen: !document.getElementById('atc').hidden,
         };
         const rw = s?.active;
         if (rw) {
@@ -333,6 +455,10 @@ class Initiation {
         const step = this.step;
         if (!step) return;
         const c = this._context();
+        // En vol (décollage -> atterrissage) : les cadres du tour de piste de la piste en service
+        if (step.flight && !this.path.shown && c.runway) this.path.set(c.runway);
+        else if (!step.flight && this.path.shown) this.path.clear();
+        this.path.update(this.aircraft.position, this._time);
         // Conditions des étapes : une situation incomplète (avion crashé, hors de l'aérodrome…) vaut « pas encore »
         const safe = (fn) => { try { return fn(); } catch { return false; } };
         // En vol, la leçon ne s'arrête jamais : l'avion arrive au moment d'une étape suivante (virage, travers du
@@ -358,6 +484,12 @@ class Initiation {
             else return;
         }
         if (step.parts) this._refreshParts(step, c);
+        // Commande manœuvrée, la suite se passe dehors : la cible s'éteint, retour à la vue du pilote
+        if (step.lookOutWhen && !this._state.lookedOut && safe(() => step.lookOutWhen(c))) {
+            this._state.lookedOut = true;
+            this.highlighter.set([]);
+            if (this.cameraGuide) this.pilotView();
+        }
         // Action à faire une fois la consigne dite (ATIS : il ne démarre pas pendant que le moniteur parle)
         if (step.afterSay && !this._state.afterDone && !this._state.speaking) {
             this._state.afterDone = true;
@@ -545,7 +677,8 @@ class Initiation {
 // Étape : { phase, title, say (texte ou fonction), why, target (commande(s), 'inst:…', 'html:…', 'radio:…'),
 //   camera ('pilot' | 'none'), done (c, flags, delta), wait (c) : moment où le moniteur parle, next (bouton Continuer),
 //   radio { ids, until } : message radio à faire passer (niveau 1 : par le moniteur), guide (balises de roulage),
-//   urgent (en vol : on n'attend pas la fin de la phrase), praise }
+//   urgent (en vol : on n'attend pas la fin de la phrase), praise, frame (toutes les cibles dans la même vue),
+//   lookOutWhen (c) : commande faite, la caméra revient à la vue du pilote }
 function buildSteps(level, lang = 'fr') {
     const L1 = level === 1;
     const EN = lang === 'en';
@@ -601,6 +734,10 @@ function buildSteps(level, lang = 'fr') {
     add(P, { title: T('Avionique', 'Avionics'), target: 'switch:avionics', done: (c) => c.sys.switches.avionics,
         say: T("Allumez l'avionique : la moitié gauche de l'interrupteur blanc AVIONICS, marquée BUS 1. Elle alimente la radio et le transpondeur.",
             'Switch on the avionics: the left half of the white AVIONICS switch, marked BUS 1. It powers the radio and the transponder.') });
+    add(P, { title: T('Afficher la radio', 'Show the radio'), target: 'html:#atc-bouton', camera: 'none', done: (c) => c.atcOpen,
+        say: T("Affichez le panneau radio : appuyez sur Échap pour faire apparaître la barre de menus en haut, puis cliquez sur Tour, encadré en jaune. Les messages échangés avec le contrôleur s'y affichent.",
+            'Show the radio panel: press Escape to bring up the menu bar at the top, then click Tour, framed in yellow. The messages exchanged with the controller appear there.'),
+        why: T('Le panneau radio garde la trace écrite de chaque message : utile si on a mal entendu.', 'The radio panel keeps a written record of every message: useful if you missed something.') });
     if (L1) {
         add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), next: true, camera: 'pilot', afterSay: (c) => c.atc.playAtis(),
             say: T("Avant d'appeler, on écoute l'ATIS : le bulletin météo enregistré de l'aérodrome. Il donne la piste en service, le vent et le calage altimétrique. Écoutez, puis cliquez sur Continuer.",
@@ -674,17 +811,26 @@ function buildSteps(level, lang = 'fr') {
         say: T('Serrez le frein de parking pour les essais moteur.', 'Set the parking brake for the engine run-up.') });
     add(P, { title: T('Essai moteur : 1700 tours', 'Run-up: 1700 RPM'), target: ['throttle', 'inst:tach'], done: (c) => c.rpm > 1600,
         say: T("Mettez les gaz jusqu'à environ 1700 tours par minute, lus au compte-tours qui clignote.", 'Open the throttle to about 1700 RPM, read on the flashing tachometer.') });
-    add(P, { title: T('Essai des magnétos', 'Magneto check'), target: ['mags', 'inst:tach'],
+    // Chutes de régime mesurées pendant l'essai (redites par le moniteur à l'étape suivante)
+    const mag = { base: 0, l: 0, r: 0 };
+    add(P, { title: T('Essai des magnétos', 'Magneto check'), target: ['inst:tach', 'mags'], frame: true,
         done: (c, f) => {
-            if (c.sys.magnetos === 1) f.r = true;
-            if (c.sys.magnetos === 2) f.l = true;
-            return f.r && f.l && c.sys.magnetos === 3;
+            const m = c.sys.magnetos;
+            if (m === 3 && !f.r && !f.l) { mag.base = c.rpm; mag.l = mag.r = 0; }
+            if (m === 1) { f.r = true; mag.r = Math.max(mag.r, mag.base - c.rpm); }
+            if (m === 2) { f.l = true; mag.l = Math.max(mag.l, mag.base - c.rpm); }
+            return f.r && f.l && m === 3;
         },
-        say: T('Essai des magnétos : tournez la clé sur R, regardez le régime baisser un peu, puis sur L, puis revenez sur BOTH. Clic à gauche de la clé pour revenir en arrière.',
-            'Magneto check: turn the key to R and watch the RPM drop a little, then to L, then back to BOTH. Click the left side of the key to turn it back.'),
-        why: T("Chaque magnéto allume les bougies seule : si le régime chute trop sur l'une, elle est défaillante.", 'Each magneto fires the spark plugs on its own: if the RPM drops too much on one of them, it is faulty.') });
+        say: T("Essai des magnétos. Gardez l'œil sur le compte-tours. Tournez la clé d'un cran vers la gauche, sur L, d'un clic à gauche de la clé : le régime doit baisser, de 150 tours par minute au plus. Attendez qu'il se stabilise, puis un cran de plus, sur R : même chose, et pas plus de 50 tours d'écart avec L. Revenez enfin sur BOTH : le régime remonte. Clic à droite de la clé pour revenir.",
+            'Magneto check. Keep your eye on the tachometer. Turn the key one notch left, to L, by clicking its left side: the RPM should drop, by 150 RPM at most. Let it settle, then one more notch, to R: same again, and no more than 50 RPM difference from L. Finally go back to BOTH: the RPM comes back up. Click the right side of the key to turn it back.'),
+        why: T("Chaque cylindre a deux bougies, chacune allumée par sa propre magnéto. Sur une seule magnéto, une seule étincelle par cylindre : le mélange brûle moins vite, le moteur perd un peu de puissance, d'où une petite chute. Chute trop forte ou moteur qui tousse : bougie encrassée ou magnéto défaillante, on ne part pas. Aucune chute du tout : la magnéto ne se coupe plus, elle pourrait démarrer le moteur toute seule si on tourne l'hélice à la main.",
+            "Each cylinder has two spark plugs, each fired by its own magneto. On a single magneto there is only one spark per cylinder: the mixture burns more slowly, the engine loses a little power, hence a small drop. Too big a drop or a rough engine: fouled plug or faulty magneto, we don't go. No drop at all: the magneto no longer switches off, and it could start the engine by itself if someone turns the propeller by hand.") });
     add(P, { title: T('Gaz réduits', 'Throttle idle'), target: 'throttle', done: (c) => c.throttle < 0.12,
-        say: T('Les deux magnétos sont bonnes. Réduisez les gaz : touche Ctrl ou bas de la manette.', 'Both magnetos are good. Throttle back to idle: Ctrl key or the bottom of the knob.') });
+        say: () => {
+            const l = Math.round(mag.l / 10) * 10, r = Math.round(mag.r / 10) * 10, gap = Math.abs(l - r);
+            return T(`Chute de ${l} tours sur L, ${r} sur R, ${gap} d'écart : moins de 150 et moins de 50, les deux magnétos sont bonnes. Réduisez les gaz : touche Ctrl ou bas de la manette.`,
+                `A drop of ${l} RPM on L, ${r} on R, ${gap} apart: under 150 and under 50, both magnetos are good. Throttle back to idle: Ctrl key or the bottom of the knob.`);
+        } });
     add(P, { title: T('Volets 10°', 'Flaps 10°'), target: 'flaps:lever', done: (c) => c.flaps === 1,
         say: T('Sortez un cran de volets, 10 degrés : touche G, ou cliquez sur le bas du levier des volets.', 'Set one stage of flap, 10 degrees: G key, or click the bottom of the flap lever.'),
         why: T("Les volets donnent plus de portance : l'avion décolle plus tôt.", 'Flaps give more lift: the aeroplane gets airborne sooner.') });
@@ -694,13 +840,17 @@ function buildSteps(level, lang = 'fr') {
             'Check the trim: the small wheel on the pedestal, between the seats. Its pointer must be on the TAKE OFF mark. W and X keys to adjust it, or the mouse wheel on the trim wheel.'),
         why: T("Le trim règle la vitesse que l'avion garde manche lâché. Au repère décollage, il monte tout seul vers la bonne vitesse après l'envol.",
             'The trim sets the speed the aeroplane holds hands-off. On the take-off mark, it climbs at the right speed on its own after lift-off.') });
-    add(P, { title: T('Phare et strobes', 'Landing light and strobes'), parts: [['switch:land', (c) => c.sys.switches.land], ['switch:strobe', (c) => c.sys.switches.strobe]], done: (c) => c.sys.switches.land && c.sys.switches.strobe,
-        say: T("Allumez le phare d'atterrissage, LAND, et les feux à éclats, STROBE : on doit nous voir de loin.", 'Switch on the LAND light and the STROBE lights: we must be seen from far away.') });
+    add(P, { title: T('Phare, strobes et pompe', 'Lights and fuel pump'), parts: [['switch:land', (c) => c.sys.switches.land], ['switch:strobe', (c) => c.sys.switches.strobe], ['switch:fuelPump', (c) => c.sys.switches.fuelPump]],
+        done: (c) => c.sys.switches.land && c.sys.switches.strobe && c.sys.switches.fuelPump,
+        say: T("Allumez le phare d'atterrissage, LAND, et les feux à éclats, STROBE : on doit nous voir de loin. Puis la pompe électrique, FUEL PUMP.",
+            'Switch on the LAND light and the STROBE lights: we must be seen from far away. Then the electric FUEL PUMP.'),
+        why: T("La pompe électrique double la pompe du moteur : si celle-ci lâchait au décollage, près du sol, le moteur resterait alimenté.",
+            'The electric pump backs up the engine-driven pump: if that one failed during take-off, close to the ground, the engine would still get fuel.') });
     radio(P, { title: T('Prêt au départ', 'Ready for departure'), ids: ['readyHold', 'readyFirst'], until: (c) => ['takeoff', 'lineup'].includes(c.atc.state),
         why: T("Au point d'attente, on appelle la Tour : elle gère la piste et le tour de piste.", 'At the holding point, we call the Tower: it controls the runway and the circuit.'),
         say1: T("J'annonce à la Tour que nous sommes prêts au départ. Attendons son autorisation.", "I'm telling the Tower we are ready for departure. Let's wait for the clearance."),
         say2: T('Annoncez à la Tour que vous êtes prêt au départ, puis attendez son autorisation et collationnez-la.', 'Tell the Tower you are ready for departure, then wait for the clearance and read it back.') });
-    add(P, { title: T('Frein desserré, alignement', 'Line up'), target: 'brake', camera: 'pilot',
+    add(P, { title: T('Frein desserré, alignement', 'Line up'), target: 'brake', lookOutWhen: (c) => !c.controls.parkingBrake,
         done: (c) => !c.controls.parkingBrake && c.s?.zone === 'runway' && headingDiff(c.heading, c.s.active.heading) < 15,
         say: (c) => T(`Nous sommes autorisés. Desserrez le frein, entrez sur la piste et alignez-vous face au cap ${capSay(c.s?.active?.heading ?? 0)}, sur l'axe.`,
             `We are cleared. Release the brake, enter the runway and line up on the centre line, heading ${capSay(c.s?.active?.heading ?? 0)}.`),
@@ -714,9 +864,8 @@ function buildSteps(level, lang = 'fr') {
             'Full power: hold the space bar. Keep the centre line with A and E. At 55 knots on the airspeed indicator, gently pull back on the yoke, S key, to take off.') });
     add(P, { title: T('Montée', 'Climb'), camera: 'none', urgent: true, target: 'inst:asi',
         done: (c) => c.agl > 300,
-        say: T("Vous volez ! Gardez 75 nœuds en montée : nez plus haut si l'on va trop vite, plus bas si l'on ralentit.", "You're flying! Hold 75 knots in the climb: nose up if we're too fast, nose down if we slow down.") });
-    add(P, { title: T('Volets rentrés', 'Flaps up'), target: 'flaps:lever', camera: 'none', urgent: true, auto: 15, done: (c) => c.flaps === 0,
-        say: T('Rentrez les volets : touche T.', 'Retract the flaps: T key.') });
+        say: T("Vous volez ! Gardez 75 nœuds en montée : nez plus haut si l'on va trop vite, plus bas si l'on ralentit. Passez dans les cadres jaunes : ils dessinent tout le tour de piste.",
+            "You're flying! Hold 75 knots in the climb: nose up if we're too fast, nose down if we slow down. Fly through the yellow frames: they trace the whole circuit.") });
     P = 'circuit';
     add(P, { title: T('Trim de montée', 'Climb trim'), target: 'trimWheel', camera: 'none', urgent: true, auto: 14,
         done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 ? dt : 0)) > 4,
@@ -725,51 +874,69 @@ function buildSteps(level, lang = 'fr') {
         why: T("Le trim annule l'effort sur le manche : l'avion garde sa vitesse tout seul, vous pilotez plus finement et sans fatigue.",
             'The trim removes the force on the yoke: the aeroplane keeps its speed by itself, so you fly more precisely and without tiring.') });
     add(P, { title: T('Virage vent traversier', 'Crosswind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 35,
-        wait: (c) => c.agl > 550, waiting: T("Continuez la montée droit devant jusqu'à 600 pieds.", 'Keep climbing straight ahead to 600 feet.'),
+        wait: (c) => c.along > 1650 && c.agl > 300, waiting: T("Continuez la montée droit devant, dans les cadres, vers 600 pieds.", 'Keep climbing straight ahead, through the frames, to 600 feet.'),
         done: (c) => headingDiff(c.heading, c.runway.heading - 90) < 20,
         say: (c) => T(`Virage à gauche, cap ${capSay(c.runway.heading - 90)}, avec 20 degrés d'inclinaison : touche Q pour incliner, et un peu de S pour tenir le nez. Continuez de monter vers 1000 pieds.`,
             `Turn left, heading ${capSay(c.runway.heading - 90)}, with 20 degrees of bank: Q key to bank, and a little S to hold the nose up. Keep climbing to 1000 feet.`) });
+    add(P, { title: T('900 pieds : volets, phare, pompe', '900 feet: flaps, light, pump'), camera: 'none', urgent: true, auto: 25,
+        parts: [['flaps:lever', (c) => c.flaps === 0], ['switch:land', (c) => !c.sys.switches.land], ['switch:fuelPump', (c) => !c.sys.switches.fuelPump]],
+        wait: (c) => c.agl > 880 && c.lateral > 100, waiting: T('Continuez la montée à 75 nœuds.', 'Keep climbing at 75 knots.'),
+        done: (c) => c.flaps === 0 && !c.sys.switches.land && !c.sys.switches.fuelPump,
+        say: T("900 pieds : rentrez les volets, touche T. Puis éteignez le phare d'atterrissage, LAND, et la pompe électrique, FUEL PUMP.",
+            '900 feet: retract the flaps, T key. Then switch off the LAND light and the electric FUEL PUMP.'),
+        why: T("Loin du sol, la pompe de secours et le phare ne servent plus ; volets rentrés, l'avion traîne moins et monte mieux.",
+            'Away from the ground, the backup pump and the landing light are no longer needed; with the flaps up, the aeroplane has less drag and climbs better.') });
     add(P, { title: T('Virage vent arrière', 'Downwind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 40,
-        wait: (c) => c.lateral > 650 && c.along > 200, waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
+        wait: (c) => c.lateral > 600 && c.along > 200, waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
         done: (c) => c.s?.downwind || headingDiff(c.heading, c.runway.heading + 180) < 20,
         say: (c) => T(`Encore à gauche : cap ${capSay(c.runway.heading + 180)}, la branche vent arrière. La piste doit défiler à gauche, parallèle.`,
             `Left again: heading ${capSay(c.runway.heading + 180)}, the downwind leg. The runway should slide by on our left, parallel.`) });
     radio(P, { title: T('Report vent arrière', 'Downwind report'), ids: ['downwind'], until: (c) => ['downwind', 'continue', 'landing', 'touchgo'].includes(c.atc.state), camera: 'none', auto: 25,
         say1: T("J'annonce notre position à la Tour : vent arrière.", "I'm reporting our position to the Tower: downwind."),
         say2: T('Annoncez votre position à la Tour : vent arrière. Le message clignote dans le panneau radio.', 'Report your position to the Tower: downwind. The message is flashing in the radio panel.') });
-    add(P, { title: T('Palier à 1000 pieds', 'Level off at 1000 feet'), camera: 'none', target: ['inst:alt', 'throttle'], urgent: true, auto: 20,
-        done: (c) => c.agl > 800 && c.rpm < 2450,
-        say: T("À 1000 pieds, mettez l'avion en palier : nez un peu plus bas et réduisez à environ 2300 tours. Le variomètre doit revenir vers zéro.",
-            'At 1000 feet, level off: lower the nose a little and reduce to about 2300 RPM. The vertical speed should come back to zero.'),
-        why: T('Le tour de piste se fait à hauteur constante, 1000 pieds au-dessus du terrain.', 'The circuit is flown at a constant height, 1000 feet above the airfield.') });
+    add(P, { title: T("Palier : assiette d'attente", 'Level off: holding attitude'), camera: 'none', target: ['inst:alt', 'throttle'], urgent: true, auto: 20,
+        done: (c) => c.agl > 800 && c.rpm < 2250,
+        say: T("À 1000 pieds, passez en palier, en assiette d'attente : réduisez la puissance vers 2100 tours et gardez le nez juste au-dessus de l'horizon. La vitesse se stabilise vers 85 nœuds, le variomètre revient à zéro.",
+            'At 1000 feet, level off in the holding attitude: reduce power to about 2100 RPM and keep the nose just above the horizon. The speed settles around 85 knots, the vertical speed back to zero.'),
+        why: T("L'assiette d'attente : un palier à vitesse réduite, qui laisse le temps de préparer l'atterrissage sans arriver trop vite. Le tour de piste se fait à 1000 pieds au-dessus du terrain.",
+            'The holding attitude: level flight at reduced speed, which leaves time to prepare the landing without arriving too fast. The circuit is flown 1000 feet above the airfield.') });
     add(P, { title: T('Trim en palier', 'Level trim'), target: 'trimWheel', camera: 'none', urgent: true, auto: 15,
         done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 && Math.abs(c.s?.agl - 1000) < 250 ? dt : 0)) > 4,
         say: T("Retrimez pour le palier : W ou X jusqu'à ce que l'avion reste à 1000 pieds manche lâché. Le variomètre doit rester sur zéro.",
             'Re-trim for level flight: W or X until the aeroplane stays at 1000 feet hands off. The vertical speed should stay at zero.') });
-    add(P, { title: T('Vérifications avant atterrissage', 'Before landing checks'), parts: [['switch:fuelPump', (c) => c.sys.switches.fuelPump], ['mixture', (c) => c.sys.mixture >= 0.95]], camera: 'none', auto: 20,
-        done: (c) => c.sys.switches.fuelPump && c.sys.mixture >= 0.95,
-        say: T("Vérifications avant l'atterrissage : pompe électrique allumée, mixture plein riche.", 'Before landing checks: fuel pump on, mixture full rich.') });
-    add(P, { title: T('Travers du seuil : réduire', 'Abeam the threshold: reduce'), camera: 'none', urgent: true, target: ['throttle', 'flaps:lever'], auto: 20,
+    add(P, { title: T('Vent arrière : phare, pompe, volets', 'Downwind: light, pump, flaps'), camera: 'none', auto: 30,
+        parts: [['switch:land', (c) => c.sys.switches.land], ['switch:fuelPump', (c) => c.sys.switches.fuelPump], ['mixture', (c) => c.sys.mixture >= 0.95], ['flaps:lever', (c) => c.flaps >= 1]],
+        done: (c) => c.sys.switches.land && c.sys.switches.fuelPump && c.sys.mixture >= 0.95 && c.flaps >= 1,
+        say: T("Vérifications vent arrière : allumez le phare d'atterrissage et la pompe électrique, mixture plein riche, puis sortez un cran de volets, 10 degrés : touche G.",
+            'Downwind checks: switch on the landing light and the fuel pump, mixture full rich, then set one stage of flap, 10 degrees: G key.'),
+        why: T("On prépare l'atterrissage : phare pour être vu, pompe de secours près du sol, premier cran de volets pour ralentir avant l'approche.",
+            'We prepare for landing: light to be seen, backup pump close to the ground, first stage of flap to slow down before the approach.') });
+    add(P, { title: T('Travers du seuil : réduire', 'Abeam the threshold: reduce'), camera: 'none', urgent: true, target: 'throttle', auto: 20,
         wait: (c) => c.along < 50 && c.lateral > 250, waiting: T('Continuez en vent arrière, à 1000 pieds.', 'Continue downwind at 1000 feet.'),
-        done: (c) => c.flaps >= 1 && c.throttle < 0.4,
-        say: T('Nous passons le bout de la piste : réduisez les gaz vers 1500 tours et sortez un cran de volets, touche G. Laissez la vitesse descendre vers 70 nœuds, puis trimez pour la garder : touche X.',
-            'We are passing the end of the runway: reduce power to about 1500 RPM and set one stage of flap, G key. Let the speed come back to 70 knots, then trim to hold it: X key.') });
+        done: (c) => c.throttle < 0.4,
+        say: T('Nous passons le bout de la piste : réduisez les gaz vers 1500 tours pour commencer la descente. Laissez la vitesse descendre vers 70 nœuds, puis trimez pour la garder : touche X.',
+            'We are passing the end of the runway: reduce power to about 1500 RPM to start the descent. Let the speed come back to 70 knots, then trim to hold it: X key.') });
     add(P, { title: T('Virage en étape de base', 'Base turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 35,
-        wait: (c) => c.along < -650 && c.lateral > 250, waiting: T('Continuez en descente douce, 70 nœuds.', 'Continue a gentle descent at 70 knots.'),
+        wait: (c) => c.along < -1400 && c.lateral > 250, waiting: T('Continuez en descente douce, 70 nœuds.', 'Continue a gentle descent at 70 knots.'),
         done: (c) => headingDiff(c.heading, c.runway.heading + 90) < 25,
-        say: (c) => T(`Virage à gauche en étape de base, cap ${capSay(c.runway.heading + 90)}. Sortez un deuxième cran de volets.`,
-            `Turn left onto base leg, heading ${capSay(c.runway.heading + 90)}. Set a second stage of flap.`) });
+        say: (c) => T(`Virage à gauche en étape de base, cap ${capSay(c.runway.heading + 90)}.`,
+            `Turn left onto base leg, heading ${capSay(c.runway.heading + 90)}.`) });
+    add(P, { title: T('Volets 20°', 'Flaps 20°'), target: 'flaps:lever', camera: 'none', urgent: true, auto: 15, done: (c) => c.flaps >= 2,
+        say: T('Sortez un deuxième cran de volets, 20 degrés : touche G.', 'Set a second stage of flap, 20 degrees: G key.'),
+        why: T("Plus de volets : l'avion vole plus lentement et descend plus fort, sans prendre de vitesse.", 'More flap: the aeroplane flies slower and descends more steeply without picking up speed.') });
     add(P, { title: T('Dernier virage', 'Final turn'), camera: 'none', urgent: true, auto: 40,
-        wait: (c) => c.lateral < 520 && c.along < -300, waiting: T('Étape de base : descente vers 600 pieds, 70 nœuds.', 'Base leg: descend to 600 feet, 70 knots.'),
+        wait: (c) => c.lateral < 450 && c.along < -1000, waiting: T('Étape de base : descente vers 500 pieds, 70 nœuds, dans les cadres.', 'Base leg: descend to 500 feet, 70 knots, through the frames.'),
         done: (c) => Boolean(c.s?.final),
         say: T("Dernier virage à gauche : alignez-vous sur l'axe de la piste.", 'Final turn to the left: line up with the runway centre line.') });
+    add(P, { title: T('Volets pleins', 'Full flaps'), target: 'flaps:lever', camera: 'none', urgent: true, auto: 12, done: (c) => c.flaps >= 3,
+        say: T('Volets pleins, 30 degrés : touche G. Puis retrimez pour 65 nœuds, touche X.', 'Full flaps, 30 degrees: G key. Then re-trim for 65 knots, X key.') });
     radio(P, { title: T('Report finale', 'Final report'), ids: ['finalFull'], until: (c) => ['landing', 'continue'].includes(c.atc.state), camera: 'none', auto: 25,
         say1: T("J'annonce que nous sommes en finale pour un atterrissage complet.", "I'm reporting final for a full stop landing."),
         say2: T("Annoncez la finale pour un atterrissage complet, puis collationnez l'autorisation d'atterrir.", 'Report final for a full stop, then read back the landing clearance.') });
-    add(P, { title: T('Finale', 'Final approach'), camera: 'none', urgent: true, target: ['inst:asi', 'flaps:lever'],
+    add(P, { title: T('Finale', 'Final approach'), camera: 'none', urgent: true, target: 'inst:asi',
         done: (c) => c.agl < 60,
-        say: T('Volets pleins, touche G, et retrimez pour 65 nœuds. Visez le début de la piste : il doit rester fixe dans le pare-brise. Les gaz règlent la pente.',
-            'Full flaps, G key, and re-trim for 65 knots. Aim at the start of the runway: it should stay fixed in the windscreen. Power controls the glide path.'),
+        say: T('Gardez 65 nœuds. Visez le début de la piste : il doit rester fixe dans le pare-brise. Les gaz règlent la pente.',
+            'Hold 65 knots. Aim at the start of the runway: it should stay fixed in the windscreen. Power controls the glide path.'),
         why: T('Les lampes du PAPI, à gauche de la piste : deux blanches et deux rouges, vous êtes sur la bonne pente.', 'The PAPI lights, left of the runway: two white and two red means you are on the glide path.') });
     P = 'landing';
     add(P, { title: T('Arrondi', 'Flare'), camera: 'none', urgent: true, done: (c) => c.onGround,

@@ -143,12 +143,18 @@ function prepare(scene) {
         let a, axis;
         if (fixedAxis) {
             const middle = (lo + hi) / 2, half = (hi - lo) / 2;
-            a = frontmost((p) => Math.abs(p[span] - middle) < 0.15 * half);
+            a = frontmost((p) => Math.abs(p[span] - middle) < 0.15 * half).clone();
+            // Charnière à mi-épaisseur du bord d'attaque (la gouverne braque autour de son milieu, sans déborder d'un côté)
+            const edge = points.filter((p) => Math.abs(p[span] - a[span]) < 0.05 && p.z < a.z + 0.05).map((p) => p.y);
+            a.y = (Math.min(...edge) + Math.max(...edge)) / 2;
             axis = fixedAxis.clone();
         } else {
             const end = 0.1 * (hi - lo);
             a = frontmost((p) => p[span] < lo + end);
             const b = frontmost((p) => p[span] > hi - end);
+            // Gouverne de direction (symétrique) : charnière dans le plan de symétrie, pour qu'elle braque autant des deux côtés
+            // sans sortir de la dérive
+            if (span === 'y') a.x = b.x = 0;
             axis = b.clone().sub(a).normalize();
         }
         if (span === 'x' ? axis.x < 0 : axis.y > 0) axis.negate();   // angle positif : bord de fuite vers le bas / la gauche
@@ -168,6 +174,14 @@ function prepare(scene) {
     pivot('flapLeft', ['flaps'], 'x');
     pivot('elevator', ['elevatorleft', 'elevatorright', 'elevatortrim'], 'x', new Vector3(1, 0, 0));
     pivot('rudder', ['rudder_1'], 'y');
+    const fin = meshes.vstab001 ?? meshes['vstab.001'];   // (GLTFLoader retire les points des noms)
+    if (pivots.rudder && fin) paintJunction(fin, [{ mesh: meshes.rudder_1, offset: pivots.rudder.position }], 'x');
+    // Bas de la gouverne de direction, sous la dérive (derrière le cône de queue, sans pièce voisine) : chant repeint aussi
+    if (pivots.rudder) paintEdges(meshes.rudder_1, (p) => p.y < -0.385 && p.z < 5, pivots.rudder.position, 'x');
+    if (pivots.elevator && meshes.hstab) {
+        const offset = pivots.elevator.position;
+        paintJunction(meshes.hstab, ['elevatorleft', 'elevatorright'].filter((n) => meshes[n]).map((n) => ({ mesh: meshes[n], offset })), 'y');
+    }
     // Compensateur (tab de trim) : dans la découpe du bord de fuite de la gouverne de profondeur droite ; il la suit et
     // braque en plus selon le trim. Charnière le long de son bord d'attaque, qui est en biais (plus en arrière côté
     // fuselage) : un axe transversal le faisait sortir de sa découpe dès qu'il braquait
@@ -194,6 +208,12 @@ function prepare(scene) {
         group.add(tab);
         pivots.elevator.add(group);
         pivots.trimTab = group;
+        // Jonction compensateur / gouverne de profondeur droite repeinte comme les autres (sommets du compensateur
+        // relatifs à sa charnière, elle-même dans le repère de la gouverne)
+        if (meshes.elevatorright) {
+            const elevator = pivots.elevator.position;
+            paintJunction(meshes.elevatorright, [{ mesh: tab, offset: elevator.clone().add(hinge) }], 'y', elevator);
+        }
     }
     // Feu de queue : sur le bord de fuite de la gouverne de direction, il la suit (l'anticollision, lui, est sur la
     // partie fixe de la dérive)
@@ -207,6 +227,53 @@ function prepare(scene) {
     root.scale.setScalar(AIRCRAFT_SCALE);   // après les pivots (calculés dans le repère du modèle)
     root.userData = { registration: 'F-HESM', liveryColor: null, textureSize: 2048 };
     return root;
+}
+
+// Jonctions entre une partie fixe et sa gouverne (dérive / direction, plan fixe / profondeur, compensateur) : dans le
+// modèle, les chants des pièces (bord d'attaque de la gouverne, bord de fuite du plan fixe, découpes des cornes
+// d'équilibrage) sont peints en gris foncé, bien visibles dès que la gouverne braque. Ils sont repeints comme la peau
+// voisine (même blanc, mêmes bandes), sans toucher à la forme. (Un arrondi calculé, essayé avant, déformait les pièces :
+// le modèle n'a pas assez de sommets pour être courbé proprement.) thickness : axe de l'épaisseur ('x' pour la dérive,
+// 'y' pour le plan horizontal). moving : [{ mesh, offset }] (offset : position du pivot, les sommets d'une gouverne
+// sont relatifs à sa charnière) ; fixedOffset : idem pour la partie fixe
+function paintJunction(fixed, moving, thickness, fixedOffset = new Vector3()) {
+    const points = (mesh, shift) => {
+        const p = mesh.geometry.attributes.position, list = [];
+        for (let i = 0; i < p.count; i++) list.push(new Vector3(p.getX(i), p.getY(i), p.getZ(i)).add(shift));
+        return list;
+    };
+    const near = (list) => (p) => list.some((q) => q.distanceToSquared(p) < 2.25e-4);
+    const fixedPoints = points(fixed, fixedOffset);
+    const movingPoints = moving.flatMap(({ mesh, offset }) => points(mesh, offset));
+    for (const { mesh, offset } of moving) paintEdges(mesh, near(fixedPoints), offset, thickness);
+    paintEdges(fixed, near(movingPoints), fixedOffset, thickness);
+}
+
+// Chants (faces qui traversent l'épaisseur : normale presque perpendiculaire à l'axe thickness) dont tous les sommets
+// vérifient near : chaque triangle prend la peinture (coordonnées de texture) du sommet de peau le plus proche
+function paintEdges(mesh, near, shift, thickness) {
+    const geometry = mesh.geometry, position = geometry.attributes.position, normal = geometry.attributes.normal;
+    const uv = geometry.attributes.uv;
+    if (geometry.index || !normal || !uv) return;
+    const axis = ['x', 'y', 'z'].indexOf(thickness);
+    const skin = [];
+    for (let i = 0; i < position.count; i++) if (Math.abs(normal.getComponent(i, axis)) > 0.7) skin.push(i);
+    if (!skin.length) return;
+    const p = new Vector3(), q = new Vector3(), r = new Vector3(), v = new Vector3();
+    for (let t = 0; t < position.count; t += 3) {
+        p.fromBufferAttribute(position, t); q.fromBufferAttribute(position, t + 1); r.fromBufferAttribute(position, t + 2);
+        const face = q.clone().sub(p).cross(r.clone().sub(p)).normalize();
+        if (Math.abs(face.getComponent(axis)) > 0.3) continue;
+        if (![p, q, r].every((point) => near(point.clone().add(shift)))) continue;
+        const middle = p.clone().add(q).add(r).divideScalar(3);
+        let nearest = skin[0], best = Infinity;
+        for (const i of skin) {
+            const d = v.fromBufferAttribute(position, i).distanceToSquared(middle);
+            if (d < best) { best = d; nearest = i; }
+        }
+        for (let i = t; i < t + 3; i++) uv.setXY(i, uv.getX(nearest), uv.getY(nearest));
+    }
+    uv.needsUpdate = true;
 }
 
 // Nervures d'emplanture : coupe de l'aile (partie centrale et bord d'attaque) au ras du fuselage, de chaque côté,

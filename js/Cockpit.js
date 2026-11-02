@@ -545,6 +545,74 @@ class Cockpit {
     }
 
     // Garnitures intérieures (envers de la carrosserie de l'avion chargé : voir C172Model.buildCabinShell)
+    // Pièces de la cabine ramenées dans la carrosserie, sur les côtés : la casquette, le tableau et son dos, plus larges
+    // que l'habitacle là où il se resserre (haut des portes, pied du pare-brise), traversaient les flancs et se
+    // voyaient de l'extérieur en bandes noires. Largeur intérieure : relevée sur la peau du modèle (grille de 3 cm en
+    // hauteur et en longueur) ; tout sommet plus à l'extérieur, moins 1,5 cm, y est ramené
+    fitInsideHull(model) {
+        const skinNames = ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top'];
+        const reference = model.getObjectByName('fuselage');
+        if (!reference) return;
+        model.updateWorldMatrix(true, true);
+        this.group.updateWorldMatrix(true, true);
+        const toHull = reference.matrixWorld.clone().invert();
+        const CELL = 0.03, MARGIN = 0.015;
+        const cellKey = (y, z) => `${Math.round(y / CELL)} ${Math.round(z / CELL)}`;
+        const half = new Map();
+        const v = new Vector3();
+        for (const name of skinNames) {
+            const mesh = model.getObjectByName(name);
+            if (!mesh?.isMesh) continue;
+            const toReference = toHull.clone().multiply(mesh.matrixWorld), p = mesh.geometry.attributes.position;
+            for (let i = 0; i < p.count; i++) {
+                v.fromBufferAttribute(p, i).applyMatrix4(toReference);
+                if (Math.abs(v.x) > 0.62) continue;   // aile (dans la même pièce que le fuselage)
+                const key = cellKey(v.y, v.z);
+                half.set(key, Math.max(half.get(key) ?? 0, Math.abs(v.x)));
+            }
+        }
+        // Largeur en (y, z) : la case, sinon la plus proche autour (trous des fenêtres) ; null hors de la carrosserie
+        const limitAt = (y, z) => {
+            const cy = Math.round(y / CELL), cz = Math.round(z / CELL);
+            for (let r = 0; r <= 4; r++) {
+                let best = null;
+                for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dy), Math.abs(dz)) !== r) continue;
+                    const w = half.get(`${cy + dy} ${cz + dz}`);
+                    if (w !== undefined) best = best === null ? w : Math.min(best, w);
+                }
+                if (best !== null) return best - MARGIN;
+            }
+            return null;
+        };
+        // Géométries de l'avion (l'envers de la carrosserie les partage) et déjà ramenées : on n'y touche pas
+        const done = new Set();
+        model.traverse((child) => { if (child.isMesh) done.add(child.geometry); });
+        this.group.traverse((child) => {
+            if (!child.isMesh || child.isInstancedMesh || child.userData.cabinOnly) return;
+            if (done.has(child.geometry)) return;
+            done.add(child.geometry);
+            const position = child.geometry.attributes.position;
+            if (!position) return;
+            const toReference = toHull.clone().multiply(child.matrixWorld), back = toReference.clone().invert();
+            let changed = false;
+            for (let i = 0; i < position.count; i++) {
+                v.fromBufferAttribute(position, i).applyMatrix4(toReference);
+                const limit = limitAt(v.y, v.z);
+                if (limit === null || Math.abs(v.x) <= limit) continue;
+                v.x = Math.sign(v.x) * limit;
+                v.applyMatrix4(back);
+                position.setXYZ(i, v.x, v.y, v.z);
+                changed = true;
+            }
+            if (changed) {
+                position.needsUpdate = true;
+                child.geometry.computeBoundingBox();
+                child.geometry.computeBoundingSphere();
+            }
+        });
+    }
+
     addCabinShell(shell) {
         shell.position.copy(this._interior.position);
         this.group.add(shell);

@@ -9,25 +9,27 @@ import { StallWarning } from './js/StallWarning.js';
 import { EngineSound } from './js/EngineSound.js';
 import { SoundEffects } from './js/SoundEffects.js';
 import { Graphics } from './js/Graphics.js';
-import { Multiplayer } from './js/Multiplayer.js';
+import { Multiplayer, cleanRegistration } from './js/Multiplayer.js';
 import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
-import { Airport } from './js/Airport.js';
+import { AirportNetwork } from './js/Airport.js';
 import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
 import { VOR } from './js/VOR.js';
-import { Systems } from './js/Systems.js';
+import { Systems, TANK_CAPACITY } from './js/Systems.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces, Gear } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
-import { AircraftLights } from './js/AircraftLights.js';
+import { AircraftLights, beaconOn } from './js/AircraftLights.js';
 import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
-import { ATC } from './js/ATC.js';
+import { ATC, METARS } from './js/ATC.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
+import { FlightHud } from './js/FlightHud.js';
+import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
@@ -114,10 +116,17 @@ view.addEventListener('webglcontextlost', (event) => {
 });
 view.addEventListener('webglcontextrestored', () => { document.getElementById('contexte-perdu').hidden = true; });
 document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
-const airport = new Airport();
-// Vallée dégagée dans l'axe de la piste (x 220, nord-sud) : ~2,3 km de chaque côté, ~0,7 km de large
+// Aérodromes (ESME, MONTVAL) : airport répond comme un aérodrome seul, celui choisi au départ (airport.current)
+const airport = new AirportNetwork();
+// Vallée dégagée dans l'axe de chaque piste : ~2,5 km de chaque côté, ~1 km de large (plaine ondulée, lacs)
+// Terrain de 16 km : une vallée par aérodrome, allongée dans l'axe de sa piste, et des couloirs d'approche dégagés
 const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z),
-    clearing: { x: 220, z: 0, rx: 750, rz: 2300 } });
+    clearings: airport.allRunways.filter((rw, i) => i % 2 === 0).map((rw) => {
+        const mx = rw.threshold.x + rw.direction.x * rw.length / 2, mz = rw.threshold.z + rw.direction.z * rw.length / 2;
+        const along = Math.abs(rw.direction.z) > 0.5;   // piste nord-sud
+        return { x: mx, z: mz, rx: along ? 1050 : 2500, rz: along ? 2500 : 1050 };
+    }),
+    limit: (x, z) => airport.terrainLimit(x, z), dips: (x, z) => airport.dipFactor(x, z), lakes: airport.lakes });
 const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
@@ -129,6 +138,7 @@ const cockpit = new Cockpit();
 try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false); } catch { /* stockage indisponible */ }
 const crashEffect = new CrashEffect();
 let weather = null;
+let weatherName = 'jour';   // nom de la météo choisie (envoyé aux autres joueurs : celle du créateur donne le vent)
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
@@ -160,7 +170,9 @@ let decorDensity = 1;
 let decorStyle = 'realiste';   // 'classique' (arbres stylisés), 'realiste' (forêts et villages), 'mixte' (les deux)
 const CLASSIC_TREES = new Set(['TREE', 'TREE_F']);
 // Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
-const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => Math.abs(x - 220) < 150 && Math.abs(z) < 3000 });
+// Forêts et villages réalistes autour de chaque aérodrome (régions : centres), rien dans l'axe des pistes
+const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => airport.inCorridor(x, z),
+    regions: airport.list.map((a) => ({ x: a.center.x, z: a.center.z })) });
 let aircraftModel = null;
 let propeller = null;
 let propellerParts = new Set();   // pièces de l'hélice (estompées quand elle tourne vite)
@@ -229,8 +241,8 @@ function applyLights() {
 }
 systems.addEventListener('change', applyLights);
 // Démarrage raté : message à l'écran (raison et marche à suivre)
-systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.7));
-systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.7); });
+systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.45));
+systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
 systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
 
 // Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs
@@ -241,6 +253,7 @@ loadAircraft().then(({ model, template, parts }) => {
     gear = parts.gear ? new Gear(parts.gear, AIRCRAFT_SCALE) : null;
     setupPropellerBlur(propeller);
     airframe.add(model);
+    cockpit.fitInsideHull(model);                    // rien de la cabine ne traverse les flancs
     cockpit.addCabinShell(buildCabinShell(model));   // garnitures intérieures : l'envers de la carrosserie
     cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
     setRegistration(model, atc.registration);
@@ -310,6 +323,7 @@ function updateView() {
 }
 
 function toggleView() {
+    if (inHangar || inMenu) return;   // au hangar et au menu : toujours en vue extérieure
     chaseView = !chaseView;
     updateView();
     updateCamera(0, true);
@@ -437,10 +451,17 @@ function recenterCamera() {
     updateCamera(0, true);
 }
 
+// Manettes des gaz et de la mixture : clic gauche maintenu, glisser vers le haut pour pousser, vers le bas pour tirer
+// (la tête ne tourne pas pendant ce temps)
+const LEVERS = new Set(['throttle', 'mixture']);
+const LEVER_TRAVEL = 220;   // px de glissement pour toute la course
+let leverDrag = null;
 let dragDistance = 0;
 view.addEventListener('pointerdown', (event) => {
     drag = { x: event.clientX, y: event.clientY };
     dragDistance = 0;
+    const lever = event.button === 0 ? controlAt(event) : null;
+    leverDrag = lever && LEVERS.has(lever.id) ? { id: lever.id, y: event.clientY, notch: null } : null;
     view.setPointerCapture(event.pointerId);
     view.focus();
 });
@@ -449,7 +470,26 @@ view.addEventListener('pointermove', (event) => {
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     drag = { x: event.clientX, y: event.clientY };
     dragDistance += Math.abs(dx) + Math.abs(dy);
+    if (leverDrag) {
+        moveLever(leverDrag, -(event.clientY - leverDrag.y) / LEVER_TRAVEL);
+        leverDrag.y = event.clientY;
+        return;
+    }
     if (dx || dy) headTarget = null;   // la souris reprend la main sur une vue préréglée
+    if (choosingSpawn && !inHangar && !inMenu) {
+        const goal = spawnCam.goal;
+        if (event.buttons & 2) {
+            // Bouton droit : déplace le point visé, dans le plan du sol (vitesse selon la distance)
+            const s = goal.distance * 0.0016, cos = Math.cos(goal.yaw), sin = Math.sin(goal.yaw);
+            goal.target.x -= (dx * cos + dy * sin) * s;
+            goal.target.z -= (-dx * sin + dy * cos) * s;
+        } else {
+            goal.yaw -= dx * 0.005;
+            goal.pitch = THREE.MathUtils.clamp(goal.pitch + dy * 0.004, 0.12, 1.5);
+        }
+        markSpawnView(null);
+        return;
+    }
     if (chaseView) {
         orbit.yaw -= dx * ORBIT_SPEED;
         orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + dy * ORBIT_SPEED, -0.35, 1.45);
@@ -458,7 +498,20 @@ view.addEventListener('pointermove', (event) => {
         head.pitch = THREE.MathUtils.clamp(head.pitch - dy * ORBIT_SPEED * 0.7, -1.0, 1.1);
     }
 });
-for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, () => { drag = null; });
+for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, () => { drag = null; leverDrag = null; });
+// Manette glissée de amount (part de la course, + = pousser) ; un petit clic tous les dixièmes de course
+function moveLever(lever, amount) {
+    if (!amount) return;
+    let value;
+    if (lever.id === 'throttle') value = controls.throttle = THREE.MathUtils.clamp(controls.throttle + amount, 0, 1);
+    else {
+        systems.setMixture(systems.mixture + amount);
+        value = systems.mixture;
+    }
+    const notch = Math.round(value * 10);
+    if (lever.notch !== null && notch !== lever.notch) sounds.click();
+    lever.notch = notch;
+}
 view.addEventListener('dblclick', (event) => {
     if (!controlAt(event)) recenterCamera(); // double-clic sur une commande : pas de recentrage
 });
@@ -471,6 +524,11 @@ view.addEventListener('wheel', (event) => {
         if (useControl(control, control.id === 'trimWheel' ? -up : up, true, event.shiftKey)) return;
     }
     const zoom = Math.sign(event.deltaY) * 0.1;
+    if (choosingSpawn && !inHangar && !inMenu) {
+        spawnCam.goal.distance = THREE.MathUtils.clamp(spawnCam.goal.distance * (1 + zoom * 1.5), 40, 1100);
+        markSpawnView(null);
+        return;
+    }
     if (chaseView) {
         orbit.distance = THREE.MathUtils.clamp(orbit.distance * (1 + zoom), 7, 90);
     } else {
@@ -505,13 +563,72 @@ const crashCamera = { position: new THREE.Vector3(), target: new THREE.Vector3()
 
 // Choix du départ en cours : pas encore d'avion dans le monde ; la caméra survole lentement l'aérodrome
 let choosingSpawn = false;
+// Au lancement, avant le choix du départ : l'avion présenté au hangar (voir openHangar)
+let inHangar = false;
+// Menu principal affiché (voir openMainMenu)
+let inMenu = false;
+// Caméra du choix du départ : point visé, cap (0 : caméra au sud, regard vers le nord), hauteur angulaire, distance.
+// goal : vers où elle glisse (vues préréglées, souris)
+const SPAWN_VIEWS = {
+    ensemble: { label: 'Vue d\'ensemble', target: [250, 0, 20], yaw: 0.35, pitch: 1.05, distance: 720 },
+    rwy36:    { label: 'Piste 36 (sud)', target: [220, 0, 300], yaw: 0.5, pitch: 0.42, distance: 170 },
+    rwy18:    { label: 'Piste 18 (nord)', target: [220, 0, -300], yaw: Math.PI - 0.5, pitch: 0.42, distance: 170 },
+    parking:  { label: 'Parking et hangars', target: [360, 0, 35], yaw: -Math.PI / 2 - 0.4, pitch: 0.55, distance: 190 },
+};
+// Vues données dans le repère de l'aérodrome (piste nord-sud) : placées et tournées comme l'aérodrome choisi
+const spawnViewState = (view, field = airport.current) => {
+    const p = field.toWorld(view.target[0], view.target[2]);
+    return { target: new THREE.Vector3(p.x, view.target[1], p.z), yaw: view.yaw + field.rotation, pitch: view.pitch, distance: view.distance };
+};
+const spawnCam = { ...spawnViewState(SPAWN_VIEWS.ensemble), goal: spawnViewState(SPAWN_VIEWS.ensemble) };
+// Vue préréglée choisie (null : caméra déplacée à la souris) ; snap : sans glissement
+function setSpawnView(name, snap = false) {
+    spawnCam.goal = spawnViewState(SPAWN_VIEWS[name]);
+    if (snap) Object.assign(spawnCam, spawnViewState(SPAWN_VIEWS[name]));
+    markSpawnView(name);
+}
+function markSpawnView(name) {
+    for (const button of document.querySelectorAll('#depart-vues button')) button.classList.toggle('actif', button.dataset.vue === name);
+}
 
 function updateCamera(delta, snap = false) {
-    if (choosingSpawn) {
-        // Vue en temps réel au-dessus de l'aérodrome (nord en haut), légèrement inclinée
-        camera.position.set(200, 430, 520);
-        camera.up.set(0, 0, -1);
-        camera.lookAt(215, 0, 20);
+    if (inHangar) {
+        // Hangar : la caméra tourne lentement autour de l'avion, à hauteur d'homme (cercle de 11 m, dans les murs)
+        const angle = 2.2 + clock.elapsedTime * 0.06;
+        const p = aircraft.position;
+        camera.position.set(p.x + Math.cos(angle) * 11, p.y + 3, p.z + Math.sin(angle) * 11);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(p.x, p.y + 1, p.z);
+        if (camera.fov !== CAM_FOV) {
+            camera.fov = CAM_FOV;
+            camera.updateProjectionMatrix();
+        }
+        return;
+    }
+    if (inMenu) {
+        // Menu principal : survol lent autour de l'aérodrome (un tour en ~4 min)
+        const a = clock.elapsedTime * 0.026;
+        camera.position.set(215 + Math.cos(a) * 520, 140, 20 + Math.sin(a) * 520);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(260, 10, 20);
+        if (camera.fov !== CAM_FOV) {
+            camera.fov = CAM_FOV;
+            camera.updateProjectionMatrix();
+        }
+        return;
+    }
+    if (choosingSpawn && !inHangar) {
+        // Choix du départ : caméra libre autour d'un point de l'aérodrome (vues préréglées, souris), glisse vers sa cible
+        const k = snap ? 1 : 1 - Math.exp(-4 * delta);
+        const c = spawnCam, goal = spawnCam.goal;
+        c.target.lerp(goal.target, k);
+        c.yaw += (goal.yaw - c.yaw) * k;
+        c.pitch += (goal.pitch - c.pitch) * k;
+        c.distance += (goal.distance - c.distance) * k;
+        camera.position.set(Math.sin(c.yaw) * Math.cos(c.pitch), Math.sin(c.pitch), Math.cos(c.yaw) * Math.cos(c.pitch))
+            .multiplyScalar(c.distance).add(c.target);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(c.target);
         if (camera.fov !== CAM_FOV) {
             camera.fov = CAM_FOV;
             camera.updateProjectionMatrix();
@@ -629,8 +746,12 @@ async function buildWorld() {
             // Position, orientation et taille de chaque exemplaire
             const placement = new THREE.Object3D();
             const matrices = [];
-            for (let i = 0; i < nombre; i++) {
+            // Autant d'exemplaires tirés au hasard autour de chaque autre aérodrome (même place relative)
+            const random = Math.max(0, nombre - placed.length), total = nombre + random * (airport.list.length - 1);
+            for (let i = 0; i < total; i++) {
                 const o = placed[i];
+                const field = i < nombre ? airport.main : airport.list[1 + Math.floor((i - nombre) / random)];
+                const origin = field.toWorld(0, 0);
                 placement.rotation.set(0, 0, 0);
                 if (o) {
                     placement.scale.set(Number(o.scalex), Number(o.scaley), Number(o.scalez));
@@ -641,9 +762,9 @@ async function buildWorld() {
                     // Rien sur l'aérodrome (piste, parking, bâtiments)
                     let x, z;
                     do {
-                        x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-                        z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-                    } while (airport.contains(x, z, 30));
+                        x = origin.x + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
+                        z = origin.z + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
+                    } while (airport.contains(x, z, 30) || terrain.lakeAt(x, z, 10));
                     // Légèrement enfoncé pour ne pas flotter sur les pentes
                     placement.position.set(x, terrain.heightAt(x, z) - 0.5, z);
                     placement.rotation.y = Math.random() * Math.PI * 2;
@@ -687,6 +808,7 @@ rebuildObstacles();
 // Panneau Météo
 function setWeather(name) {
     const w = weather = WEATHERS[name];
+    weatherName = name;
     scene.background = new THREE.Color(w.sky); // caché par le ciel atmosphérique s'il est actif
     graphics.setAtmosphere(w.atmosphere ?? null, w.moon);
     hemiLight.color.set(w.sky).lerp(new THREE.Color(COLOR_LIGHT), 0.5);
@@ -713,7 +835,9 @@ function setWeather(name) {
     landingLight.intensity = LANDING_LIGHT;
     taxiLight.intensity = TAXI_LIGHT;
 
-    for (const button of meteoButtons.children) button.classList.toggle('actif', button.dataset.meteo === name);
+    for (const button of [...meteoButtons.children, ...(document.getElementById('mp-meteo')?.children ?? [])]) {
+        button.classList.toggle('actif', button.dataset.meteo === name);
+    }
     document.getElementById('météo-actuelle').textContent = w.label;
     // Quantité de nuages réglable seulement en météo Jour
     cloudCover.hidden = name !== 'jour';
@@ -806,8 +930,18 @@ fullscreenButton.addEventListener('click', (event) => {
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyF' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleFullscreen();
 });
+const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
+settingsFullscreenButton.addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', () => {
-    fullscreenButton.textContent = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    const label = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    fullscreenButton.textContent = label;
+    settingsFullscreenButton.textContent = label;
+    // La fenêtre Paramètres passerait sous l'écran plein : on la rouvre par-dessus
+    const dialog = document.getElementById('reglages-dialog');
+    if (dialog.open) {
+        dialog.close();
+        dialog.showModal();
+    }
 });
 
 // Volets : le bouton sort un cran (rentre tout après le dernier), touches G / T
@@ -855,7 +989,10 @@ let crashTimer = 0;
 
 controls.addEventListener('touchdown', ({ impact }) => {
     shake = Math.max(shake, Math.min(0.5, impact * 0.08));
-    if (controls.getSpeed() > 8) sounds.play('screech', { volume: THREE.MathUtils.clamp(impact / 3, 0.25, 1) });
+    // Bref "couic" des roues qui se mettent à tourner : extrait court du son de dérapage (7 s en boucle à l'origine),
+    // plus long et plus fort si le toucher est dur
+    const hard = THREE.MathUtils.clamp(impact / 3, 0, 1);
+    if (controls.getSpeed() > 8) sounds.play('screech', { volume: 0.25 + 0.75 * hard, offset: 0.3, duration: 0.25 + 0.35 * hard });
 });
 let crashCount = 0;   // envoyé aux autres joueurs : chaque nouveau crash fait exploser notre avion chez eux
 controls.addEventListener('crash', ({ reason }) => {
@@ -883,6 +1020,8 @@ controls.addEventListener('crash', ({ reason }) => {
 const cloudFogColor = new THREE.Color();
 const flashColor = new THREE.Color(0xc8d0ff);
 const shadowCenter = new THREE.Vector3();
+// Centre des ombres du décor (arbres, maisons) : au sol, sous l'avion (voir Graphics.update)
+const decorShadowCenter = new THREE.Vector3();
 const pilotEyeWorld = new THREE.Vector3();
 
 const ABOVE_CLOUDS_BLEND = 8;    // m de part et d'autre du dessus de la nappe : ciel bleu, plein soleil, air calme (presque
@@ -957,13 +1096,39 @@ document.getElementById('multi-fermer').addEventListener('click', () => multiDia
 const multiPartage = document.getElementById('multi-partage');
 const multiLien = document.getElementById('multi-lien');
 
+// Vent de la partie : tiré au hasard à chaque vol en solo ; en multijoueur, tiré du code de la partie (le même pour
+// tous ses joueurs, voir Wind.setSeed)
+function newWind(seed) {
+    wind.setSeed(seed);
+    atc.resetRunwayInUse();
+}
+const codeSeed = (code) => [...code].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
+let windCode = null;
 multiplayer.addEventListener('status', ({ detail }) => {
+    if (multiplayer.code !== windCode) {
+        windCode = multiplayer.code;
+        if (windCode) newWind(codeSeed(windCode));
+    }
     if (multiplayer.code && initiation?.active) initiation.stop();
     multiStatut.textContent = detail.text;
     multiStatut.classList.toggle('erreur', detail.error);
     updateMultiResume();
     multiPartage.hidden = !multiplayer.code;
     multiLien.value = multiplayer.link;
+    closeGameButton.hidden = !(multiplayer.code && multiplayer.isHost);
+});
+// Créateur de la partie : « Fermer la partie » la termine pour tous (les autres joueurs repassent en solo)
+const closeGameButton = document.getElementById('multi-fermer-partie');
+closeGameButton.addEventListener('click', () => {
+    const others = multiplayer.players.size;
+    if (others && !confirm(`Fermer la partie ${multiplayer.code} ? ${others} autre${others > 1 ? 's' : ''} joueur${others > 1 ? 's' : ''} ${others > 1 ? 'seront renvoyés' : 'sera renvoyé'} en solo.`)) return;
+    multiplayer.close();
+    updateModes();
+});
+// Partie fermée par son créateur : on continue en solo, avec un message à l'écran
+multiplayer.addEventListener('closed', ({ detail }) => {
+    updateModes();
+    showRadioMessage(`La partie ${detail.code} a été fermée par son créateur : vous volez maintenant en solo`);
 });
 
 document.getElementById('multi-copier').addEventListener('click', async (event) => {
@@ -1015,7 +1180,8 @@ function numberSprite(text) {
     sprite.renderOrder = 12;
     return sprite;
 }
-airport.spawns.forEach((spawn, i) => {
+// Une case par départ de chaque aérodrome ; seules celles de l'aérodrome choisi sont montrées (voir openSpawnDialog)
+for (const field of airport.list) field.spawns.forEach((spawn, i) => {
     const size = 24, height = 8;
     const marker = new THREE.Group();
     marker.position.set(spawn.x, 0.1, spawn.z);
@@ -1055,16 +1221,17 @@ function updateSpawnMarkers() {
 // Case jaune sous le pointeur, dans la vue 3D
 const spawnRaycaster = new THREE.Raycaster();
 function spawnUnderPointer(event) {
-    if (!choosingSpawn) return null;
+    if (!choosingSpawn || inHangar) return null;
     const rect = view.getBoundingClientRect();
     const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     spawnRaycaster.setFromCamera(ndc, camera);
-    const boxes = spawnMarkers.children.map((marker) => marker.children[0]);
+    const shown = spawnMarkers.children.filter((marker) => marker.visible);   // (cases de l'aérodrome choisi)
+    const boxes = shown.map((marker) => marker.children[0]);
     const hit = spawnRaycaster.intersectObjects(boxes, false)[0];
     if (hit) return hit.object.userData.spawn;
     // Au loin, les cases sont petites à l'écran : tolérance autour de leur centre
     let best = null, bestDistance = 40;
-    for (const marker of spawnMarkers.children) {
+    for (const marker of shown) {
         const p = marker.position.clone().project(camera);
         const d = Math.hypot((p.x - ndc.x) * rect.width / 2, (p.y - ndc.y) * rect.height / 2);
         if (d < bestDistance) [best, bestDistance] = [marker.userData.spawn, d];
@@ -1072,13 +1239,24 @@ function spawnUnderPointer(event) {
     return best;
 }
 
+// Régime du gyroscope de l'indicateur de virage (0 -> 1) et état de la pompe, pour les bruits (voir updateSounds)
+let gyroSpin = 0, lastGyroTime = performance.now(), fuelPumpOn = false, beaconWasOn = false;
+let spawnFade = 0;   // montée du son du moteur après un départ (0 -> 1)
+
 // État de l'avion au point de départ : prêt à voler sur la piste, éteint au parking (frein serré, gaz réduits)
 function applySpawnState() {
     systems.reset();
+    // Toupie déjà lancée sur la piste, arrêtée au parking (pas de ralentissement entendu au départ)
+    gyroSpin = currentSpawn.cold ? 0 : 1;
+    spawnFade = 0;
     atc.reset(currentSpawn);
     avionics.reset(Boolean(currentSpawn.cold));
     gloveboxOpen = false;
     avionics.com1.active = parseFrequency(airport.aerodrome.frequencies[atc.freq]);
+    // Radios réglées sur l'aérodrome de départ : COM 2 sur son Info, NAV 1 et 2 sur son VOR, ILS en attente sur la NAV 1
+    avionics.com2.active = parseFrequency(airport.aerodrome.frequencies.info);
+    avionics.nav1.active = avionics.nav2.active = parseFrequency(airport.vor.frequency);
+    avionics.nav1.standby = parseFrequency(airport.current.ilsFrequency);
     radioSync.freq = atc.freq;
     radioSync.code = avionics.xpdr.code = atc.transponder;
     if (currentSpawn.cold) {
@@ -1139,9 +1317,44 @@ function openSpawnDialog() {
     choosingSpawn = true;
     aircraft.visible = false;
     spawnMarkers.visible = true;
+    for (const marker of spawnMarkers.children) marker.visible = marker.userData.spawn.airport === airport.current;
+    renderAirportTabs();
+    setSpawnView('ensemble', true);
+}
+// Onglets des aérodromes, en haut du choix du départ : changer d'aérodrome refait la liste et la vue
+const airportTabs = document.getElementById('depart-aerodromes');
+function renderAirportTabs() {
+    // Vues préréglées : numéros des pistes de l'aérodrome choisi
+    const [first, second] = airport.current.runways;
+    for (const button of spawnViewButtons.children) {
+        if (button.dataset.vue === 'rwy36') button.textContent = `Piste ${first.name}`;
+        if (button.dataset.vue === 'rwy18') button.textContent = `Piste ${second.name}`;
+    }
+    airportTabs.replaceChildren(...airport.list.map((field) => {
+        const button = document.createElement('button');
+        button.textContent = `${field.label} · ${field.runways.map((rw) => rw.name).join('/')}`;
+        button.title = field.description;
+        button.classList.toggle('actif', field === airport.current);
+        button.addEventListener('click', () => {
+            selectAirport(field);
+            openSpawnDialog();
+            button.blur();
+        });
+        return button;
+    }));
+}
+// Boutons des vues préréglées (au-dessus de la liste des départs) ; survoler un départ de la liste n'y bouge pas
+const spawnViewButtons = document.getElementById('depart-vues');
+for (const [name, v] of Object.entries(SPAWN_VIEWS)) {
+    const button = document.createElement('button');
+    button.textContent = v.label;
+    button.dataset.vue = name;
+    button.addEventListener('click', () => { setSpawnView(name); button.blur(); });
+    spawnViewButtons.append(button);
 }
 
 function closeSpawnDialog() {
+    leaveHangar();
     spawnDialog.hidden = true;
     choosingSpawn = false;
     spawnHover = null;
@@ -1154,7 +1367,31 @@ function chooseSpawn(spawn) {
     closeSpawnDialog();
     spawnAt(spawn);
     view.focus();
+    showEscapeHint();
 }
+
+// Barre de menus (Commandes, Météo, Carte, Tour, En ligne, Profil, Paramètres) : cachée pendant le vol, Échap l'affiche
+// ou la cache. Pas pendant le menu principal, au hangar, au choix du départ, ni quand une fenêtre est ouverte (Échap
+// la ferme) ; un menu déroulé est d'abord refermé (voir closeMenus)
+const escapeHint = document.getElementById('astuce-echap');
+let escapeHintTimer = 0;
+function showEscapeHint() {
+    if (simulatorElement.classList.contains('barre')) return;
+    escapeHint.classList.remove('cache');
+    clearTimeout(escapeHintTimer);
+    escapeHintTimer = setTimeout(() => escapeHint.classList.add('cache'), 5000);
+}
+function setMenuBar(visible) {
+    simulatorElement.classList.toggle('barre', visible);
+    if (!visible) closeMenus();
+    else escapeHint.classList.add('cache');
+}
+window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || event.repeat) return;
+    if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
+    if (menus.some((menu) => !menu.querySelector('.menu-contenu').hidden)) return;   // Échap referme d'abord le menu
+    setMenuBar(!simulatorElement.classList.contains('barre'));
+}, true);
 
 view.addEventListener('pointermove', (event) => {
     if (!choosingSpawn) return;
@@ -1162,6 +1399,7 @@ view.addEventListener('pointermove', (event) => {
     view.style.cursor = spawnHover ? 'pointer' : '';
 });
 view.addEventListener('click', (event) => {
+    if (dragDistance > 6) return;   // fin d'un glisser de la caméra, pas un clic
     const spawn = spawnUnderPointer(event);
     if (spawn) chooseSpawn(spawn);
 });
@@ -1178,7 +1416,193 @@ document.getElementById('depart').addEventListener('click', (event) => {
     openSpawnDialog();
     event.currentTarget.blur();
 });
-openSpawnDialog();
+// Hangar : au lancement, l'avion est présenté dans le hangar de l'aéro-club, éteint, portes ouvertes et plafonniers
+// allumés (l'avion est tout près des portes, voir Airport.updateHangars). À côté : livrée et immatriculation ; le
+// bouton passe au choix du départ. Comme pendant le choix du départ, rien ne bouge (ni physique, ni son, ni réseau)
+// Aérodrome choisi : départs, hangar, tour de contrôle, radios ; le départ par défaut devient sa première piste
+function selectAirport(field) {
+    airport.setCurrent(field);
+    if (currentSpawn.airport !== airport.current) currentSpawn = airport.current.spawns[0];
+}
+
+// Choix de l'aérodrome (après Vol libre / Multijoueur, avant le hangar) : une case par terrain (pistes, fréquences,
+// balises) ; la survoler y amène la caméra, la cliquer ouvre son hangar
+const airportPanel = document.getElementById('aerodrome-panneau');
+const airportList = document.getElementById('aerodrome-liste');
+function openAirportChoice() {
+    inHangar = false;
+    hangarPanel.hidden = true;
+    spawnDialog.hidden = true;
+    choosingSpawn = true;
+    aircraft.visible = false;
+    spawnMarkers.visible = false;
+    airportPanel.hidden = false;
+    setSpawnView('ensemble', true);
+    airportList.replaceChildren(...airport.list.map((field, i) => {
+        const button = document.createElement('button');
+        const number = document.createElement('span');
+        number.className = 'depart-numero';
+        number.textContent = String(i + 1);
+        const text = document.createElement('span');
+        text.textContent = `${field.aerodrome.name} (${field.aerodrome.icao})`;
+        const detail = document.createElement('small');
+        detail.textContent = `${field.description} · pistes ${field.runways.map((rw) => rw.name).join(' / ')} · `
+            + `Tour ${field.aerodrome.frequencies.tower} · VOR ${field.vor.ident} ${field.vor.frequency} · ILS ${field.ilsFrequency}`;
+        text.append(detail);
+        button.append(number, text);
+        button.classList.toggle('survol', field === airport.current);
+        button.addEventListener('pointerenter', () => {
+            // Saut direct (sans survol de la carte entre les deux : le relief n'aurait pas le temps d'être construit)
+            spawnCam.goal = spawnViewState(SPAWN_VIEWS.ensemble, field);
+            Object.assign(spawnCam, spawnViewState(SPAWN_VIEWS.ensemble, field));
+            markSpawnView(null);
+        });
+        button.addEventListener('click', () => {
+            selectAirport(field);
+            openHangar();
+        });
+        return button;
+    }));
+}
+document.getElementById('aerodrome-menu').addEventListener('click', () => {
+    airportPanel.hidden = true;
+    openMainMenu();
+});
+
+const hangarPanel = document.getElementById('hangar-panneau');
+let viewBeforeHangar = null;
+function openHangar() {
+    const hangar = airport.hangars[0];   // (aérodrome choisi)
+    inHangar = choosingSpawn = true;
+    airportPanel.hidden = true;
+    hangarPanel.hidden = false;
+    systems.reset();
+    systems.coldAndDark();
+    controls.throttle = 0;
+    applyLights();
+    // Au milieu du hangar, nez vers les portes
+    aircraft.position.set(hangar.spot.x, 0, hangar.spot.z);
+    aircraft.rotation.set(0, hangar.spot.heading, 0);
+    controls.placeOnGround();
+    aircraft.position.y += 0.05;   // sol du hangar, un peu au-dessus du terrain
+    aircraft.visible = true;
+    // Vue extérieure (en vue cabine, la carrosserie est masquée)
+    viewBeforeHangar = chaseView;
+    if (!chaseView) {
+        chaseView = true;
+        updateView();
+    }
+}
+function leaveHangar() {
+    if (!inHangar) return;
+    inHangar = false;
+    hangarPanel.hidden = true;
+    if (viewBeforeHangar === false) {
+        chaseView = false;
+        updateView();
+    }
+}
+document.getElementById('hangar-partir').addEventListener('click', () => {
+    leaveHangar();
+    openSpawnDialog();
+});
+
+// Menu principal : au lancement (et depuis le menu Commandes), par-dessus la page ; derrière, l'aérodrome en direct,
+// survolé lentement. Vol libre et Multijoueur mènent au hangar, puis au choix du départ ; Initiation part directement
+const mainMenu = document.getElementById('menu-principal');
+function openMainMenu() {
+    if (initiation?.active) initiation.stop();
+    inHangar = false;
+    hangarPanel.hidden = true;
+    airportPanel.hidden = true;
+    spawnDialog.hidden = true;
+    spawnMarkers.visible = false;
+    choosingSpawn = inMenu = true;
+    aircraft.visible = false;
+    mainMenu.hidden = false;
+    setMenuBar(false);
+    setPhotoMode(false);
+    document.getElementById('mp-multi-detail').textContent = multiplayer.code
+        ? `Partie ${multiplayer.code} en cours` : 'Partie privée entre amis';
+    document.getElementById('mp-vol-libre').focus();
+}
+function closeMainMenu() {
+    if (!inMenu) return;
+    inMenu = false;
+    mainMenu.hidden = true;
+}
+document.getElementById('mp-vol-libre').addEventListener('click', () => {
+    if (multiplayer.code) {
+        if (!confirm(`Quitter la partie ${multiplayer.code} et voler en solo ?`)) return;
+        multiplayer.leave();
+        updateModes();
+    }
+    newWind(Math.floor(Math.random() * 2 ** 32));   // nouvelle partie solo : nouveau vent
+    closeMainMenu();
+    openAirportChoice();
+});
+document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
+// Partie créée ou rejointe depuis le menu : fenêtre fermée -> au hangar
+multiDialog.addEventListener('close', () => {
+    if (!inMenu || !multiplayer.code) return;
+    closeMainMenu();
+    openAirportChoice();
+});
+document.getElementById('mp-initiation').addEventListener('click', () => openInitiation());
+document.getElementById('mp-parametres').addEventListener('click', () => openSettings());
+const menuWeather = document.getElementById('mp-meteo');
+for (const [name, w] of Object.entries(WEATHERS)) {
+    const button = document.createElement('button');
+    button.textContent = w.label;
+    button.dataset.meteo = name;
+    button.classList.toggle('actif', w === weather);
+    button.addEventListener('click', () => setWeather(name));
+    menuWeather.appendChild(button);
+}
+document.getElementById('hangar-menu').addEventListener('click', openMainMenu);
+// Petit clic au survol d'une case du menu (et des boutons de météo) ; muet tant que le navigateur n'a pas autorisé
+// le son (premier clic ou première touche)
+for (const button of mainMenu.querySelectorAll('.mp-bouton, .mp-choix button')) {
+    button.addEventListener('pointerenter', () => sounds.click(0.12, 2600));
+    button.addEventListener('focus', () => { if (button.matches(':focus-visible')) sounds.click(0.12, 2600); });
+    button.addEventListener('click', () => sounds.click(0.25, 1800));
+}
+document.getElementById('menu-principal-bouton').addEventListener('click', (event) => {
+    closeMenus();
+    if (!confirm('Revenir au menu principal ? Le vol en cours sera interrompu.')) return;
+    openMainMenu();
+    event.currentTarget.blur();
+});
+// Barre de menus (Échap) : « Mode photo » masque les infos de vol et les panneaux superposés ; le même bouton les
+// remet. La barre se referme pour dégager la vue (Échap la rouvre pour sortir du mode photo)
+const photoButton = document.getElementById('mode-photo');
+function setPhotoMode(on) {
+    simulatorElement.classList.toggle('photo', on);
+    photoButton.classList.toggle('actif', on);
+    photoButton.textContent = on ? 'Quitter le mode photo' : 'Mode photo';
+}
+photoButton.addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    const on = !simulatorElement.classList.contains('photo');
+    setPhotoMode(on);
+    if (on) setMenuBar(false);
+});
+
+// Barre de menus (Échap) : « Quitter la partie » arrête le vol (et quitte la partie multijoueur en cours), puis
+// revient au menu principal
+document.getElementById('quitter-partie').addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    const question = multiplayer.code
+        ? `Quitter la partie ${multiplayer.code} et revenir au menu principal ?`
+        : 'Quitter le vol et revenir au menu principal ?';
+    if (!confirm(question)) return;
+    if (multiplayer.code) {
+        multiplayer.leave();
+        updateModes();
+    }
+    openMainMenu();
+});
+openMainMenu();
 multiplayer.addEventListener('players', () => {
     const names = multiplayer.code ? [`${multiplayer.name} (vous)`, ...[...multiplayer.players.values()].map((p) => p.name)] : [];
     multiJoueurs.replaceChildren(...names.map((name) => {
@@ -1227,7 +1651,7 @@ updateModes();
 
 // Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs. Choisie dans le menu Profil
 // (solo et multijoueur) ou dans le panneau Multijoueur : les deux listes restent d'accord
-const liverySelects = ['profil-livree', 'multi-livree'].map((id) => document.getElementById(id)).filter(Boolean);
+const liverySelects = ['profil-livree', 'multi-livree', 'hangar-livree'].map((id) => document.getElementById(id)).filter(Boolean);
 for (const select of liverySelects) {
     for (const [id, livery] of Object.entries(LIVERIES)) select.add(new Option(livery.label, id));
 }
@@ -1386,10 +1810,11 @@ const mapPanel = document.getElementById('carte');
 const mapButton = document.getElementById('carte-bouton');
 const mapView = new MapView(document.getElementById('carte-canvas'), {
     heightAt: (x, z) => terrain.heightAt(x, z),
+    waterAt: (x, z) => { const lake = terrain.lakeAt(x, z); return Boolean(lake) && terrain.groundAt(x, z, lake) < lake.level; },
     worldSize: terrain.size,
     shapes: airport.mapShapes,
-    runways: airport.runways,
-    navaids: [airport.vor],
+    runways: airport.allRunways,
+    navaids: airport.vors,
 });
 
 function toggleMap(open = mapPanel.hidden) {
@@ -1499,7 +1924,9 @@ function renderVoiceStatus() {
 }
 radioVoices.addEventListener('status', renderVoiceStatus);
 
-// Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée
+// Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée (refaites quand on change
+// d'aérodrome : fréquences différentes)
+function renderAtcStations() {
 atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
     const button = document.createElement('button');
     button.dataset.station = id;
@@ -1512,6 +1939,25 @@ atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
     button.addEventListener('click', () => { atc.setFrequency(id); view.focus(); });
     return button;
 }));
+}
+// Aérodrome contacté (fenêtre Tour) : ses fréquences remplacent celles de l'autre, et la même station (Sol, Tour…)
+// s'affiche sur la COM au micro
+const atcFields = document.getElementById('atc-aerodromes');
+atcFields.replaceChildren(...airport.list.map((field) => {
+    const button = document.createElement('button');
+    button.textContent = `${field.aerodrome.name} (${field.aerodrome.icao})`;
+    button.title = `Contacter ${field.aerodrome.name}`;
+    button.addEventListener('click', () => {
+        airport.setCurrent(field);
+        avionics.showOnCom(avionics.audio.mic, parseFrequency(field.aerodrome.frequencies[atc.freq]));
+        view.focus();
+    });
+    return button;
+}));
+const renderAtcFields = () => airport.list.forEach((field, i) => atcFields.children[i].classList.toggle('actif', field === airport.current));
+renderAtcStations();
+airport.addEventListener('change', () => { renderAtcStations(); renderAtcFields(); renderAtc(); });
+renderAtcFields();
 
 // Personnes à bord (annoncées au premier contact)
 atcPersons.addEventListener('change', () => {
@@ -1628,7 +2074,11 @@ atc.addEventListener('broadcast', ({ message }) => multiplayer.sendAtc(message))
 multiplayer.addEventListener('atc', ({ detail }) => {
     atc.receiveRemote({ ...detail, name: multiplayer.players.get(detail.id)?.name ?? 'Pilote' });
 });
+const registrationInputs = ['hangar-immat', 'profil-immat'].map((id) => document.getElementById(id)).filter(Boolean);
+// Immatriculation choisie par le joueur (hangar, menu Profil), sinon celle tirée de son identifiant
 function registrationFor(id) {
+    const chosen = multiplayer.players.get(id)?.registration;
+    if (chosen) return chosen;
     let h = 7;
     for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -1637,12 +2087,40 @@ function registrationFor(id) {
 function updateRegistration() {
     // Voix de pilote attitrée : celle que les autres joueurs entendent (calculée d'après l'identifiant), la même toute la partie
     radioVoices.setPlayerId(multiplayer.code ? multiplayer.id : '');
-    atc.setRegistration(multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM');
+    const fallback = multiplayer.code ? registrationFor(multiplayer.id) : 'F-HESM';
+    atc.setRegistration(multiplayer.registration || fallback);
+    for (const input of registrationInputs) input.placeholder = fallback;
     if (aircraftModel) setRegistration(aircraftModel, atc.registration);   // peinte sur le fuselage
     document.getElementById('atc-indicatif').textContent = atc.registration;
 }
 multiplayer.addEventListener('status', updateRegistration);
-updateRegistration();
+// Champs d'immatriculation (hangar, menu Profil) : gardés d'accord, enregistrée dans le navigateur. Vide : celle par
+// défaut (F-HESM en solo, tirée de l'identifiant en multijoueur) ; invalide : refusée (champ en rouge)
+function setCustomRegistration(text, save = true) {
+    multiplayer.registration = cleanRegistration(text);
+    for (const input of registrationInputs) {
+        input.value = multiplayer.registration;
+        input.classList.remove('invalide');
+    }
+    updateRegistration();
+    if (save) try { localStorage.setItem('immatriculation', multiplayer.registration); } catch { /* stockage indisponible */ }
+}
+for (const input of registrationInputs) {
+    input.addEventListener('input', () => {
+        const text = input.value.toUpperCase();
+        if (input.value !== text) input.value = text;
+        input.classList.toggle('invalide', text !== '' && !cleanRegistration(text));
+    });
+    input.addEventListener('change', () => {
+        if (input.value.trim() === '' || cleanRegistration(input.value)) setCustomRegistration(input.value);
+    });
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') input.blur();
+    });
+}
+let savedRegistration = '';
+try { savedRegistration = localStorage.getItem('immatriculation') ?? ''; } catch { /* stockage indisponible */ }
+setCustomRegistration(savedRegistration, false);
 
 // Sous-titre de l'émission en cours ; la fenêtre s'ouvre d'elle-même quand un contrôleur attend un collationnement
 let atcSubtitleTimer = 0;
@@ -1663,11 +2141,19 @@ const _atcForward = new THREE.Vector3();
 // Radio de bord <-> contrôle aérien : la COM choisie au micro (boîte audio) règle la station écoutée ; un changement
 // fait dans la fenêtre Tour (ou par le contrôleur) s'affiche sur cette COM. Transpondeur : même code des deux côtés
 const stationOn = (khz) => Object.keys(airport.aerodrome.frequencies).find((id) => parseFrequency(airport.aerodrome.frequencies[id]) === khz) ?? null;
+// Fréquence d'un autre aérodrome affichée sur la COM (en route vers lui) : c'est désormais lui qui répond (tour,
+// ILS conseillé, places de parking) ; le point de départ (touche R) ne change pas
+function followTunedAirport(khz) {
+    if (stationOn(khz)) return;
+    const other = airport.list.find((field) => Object.values(field.aerodrome.frequencies).some((f) => parseFrequency(f) === khz));
+    if (other) airport.setCurrent(other);
+}
 function syncRadios() {
     const micCom = avionics.audio.mic, com = avionics[micCom];
     if (atc.freq !== radioSync.freq) avionics.showOnCom(micCom, parseFrequency(airport.aerodrome.frequencies[atc.freq]));
     if (atc.transponder !== radioSync.code) avionics.xpdr.code = atc.transponder;
     else if (avionics.xpdr.code !== atc.transponder) atc.setTransponder(avionics.xpdr.code);
+    if (!choosingSpawn) followTunedAirport(com.active);
     const station = stationOn(com.active);
     if (station && station !== atc.freq) atc.setFrequency(station);
     atc.setRadio(Boolean(avionics.powered(systems)[micCom === 'com1' ? 'navcom1' : 'navcom2']), Boolean(station), (com.active / 1000).toFixed(3));
@@ -1707,7 +2193,11 @@ var initiation = new Initiation({
     // Départ : avion éteint au parking N4, en solo, vue cabine
     startCold: () => {
         multiplayer.leave();
+        selectAirport(airport.main);   // les leçons ont lieu à ESME
+        airportPanel.hidden = true;
         const spawn = airport.spawns.find((sp) => sp.id === 'stand4') ?? airport.spawns.find((sp) => sp.cold);
+        closeMainMenu();
+        leaveHangar();
         if (choosingSpawn) closeSpawnDialog();
         spawnAt(spawn);
         setCabinViewPreset(1);
@@ -1769,6 +2259,61 @@ if (invitation) {
 }
 updateOnlineList();
 
+// Masse et centrage (menu principal) : à la fermeture de la fenêtre, le chargement est appliqué à l'avion. Le carburant
+// choisi remplit les réservoirs (et sert à chaque remise au départ) ; masse et centrage suivent ensuite le carburant
+// restant, à chaque image : l'avion s'allège et son centrage avance en vol
+const CG_REFERENCE = 1.0;   // m : centrage pour lequel le modèle de vol est réglé (cgOffset = 0)
+const weightBalance = new WeightBalance(document.getElementById('masse-dialog'), (load) => applyLoad(load), { runwayLength: airport.runwayLength });
+let currentLoad = { ...weightBalance.load };
+function applyLoad(load) {
+    currentLoad = { ...load };
+    systems.fuelLoad = [load.fuelLeft / WB_GALLON, load.fuelRight / WB_GALLON];
+    systems.fuel = [...systems.fuelLoad];
+    systems.dispatchEvent(new Event('change'));
+    updateLoad();
+}
+function updateLoad() {
+    const loaded = computeLoad({ ...currentLoad, fuelLeft: systems.fuel[0] * WB_GALLON, fuelRight: systems.fuel[1] * WB_GALLON });
+    controls.model.aircraft.mass = loaded.mass;
+    controls.model.cgOffset = loaded.cg - CG_REFERENCE;
+}
+applyLoad(weightBalance.load);
+document.getElementById('mp-masse').addEventListener('click', () => weightBalance.open());
+// Aussi dans la barre de menus (Échap), pendant le vol
+document.getElementById('masse-bouton').addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    closeMenus();
+    weightBalance.open();
+});
+
+// Informations de vol en vue extérieure (vitesse, moteur, carburant, incidence, volets, trim, altitude, vario, cap),
+// comme dans les simulateurs grand public ; cachées en cabine, au menu, au choix du départ et après un crash
+const flightHud = new FlightHud(document.getElementById('hud'));
+flightHud.avoid = document.getElementById('moniteur');
+function updateHud(delta) {
+    const visible = chaseView && !choosingSpawn && !controls.isCrashed() && settings.values.hud !== false;
+    simulatorElement.classList.toggle('sans-hud', !visible);   // panneaux ILS : remis en bas sans les infos de vol
+    const levels = controls.model.aircraft.flapLevels, flapMax = levels[levels.length - 1];
+    const [trimMin, trimMax] = controls.getTrimLimits();
+    flightHud.update(delta, visible, visible ? {
+        speed: controls.getIndicatedSpeed(),
+        tas: controls.getSpeed(),
+        altitude: controls.getAltitude() - WHEEL_HEIGHT,
+        verticalSpeed: controls.getVerticalSpeed(),
+        heading: controls.getHeading(),
+        rpm: systems.rpm,
+        fuel: (systems.fuel[0] + systems.fuel[1]) / (2 * TANK_CAPACITY),
+        alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
+        stallAlpha: THREE.MathUtils.radToDeg(controls.model.stallAlpha()),
+        flaps: controls.getFlaps() * flapMax,
+        flapTarget: controls.getFlapSetting(),
+        flapMax,
+        trim: controls.getTrim(), trimMin, trimMax, takeoffTrim: controls.getTakeoffTrim(),
+        baro: avionics.baro,
+        windDirection: wind.direction, windSpeed: wind.speed,
+    } : null);
+}
+
 // Instruments de la cabine : valeurs lues sur les commandes
 function cockpitState() {
     return {
@@ -1811,16 +2356,20 @@ atc.addEventListener('transmit', ({ from, on }) => {
 
 // Radionavigation : NAV 1 / NAV 2 (VOR ou ILS selon la fréquence affichée), DME (sur la NAV 1), ADF (balise NDB
 // fixe au milieu des pistes, rose réglée au bouton HDG)
-const VOR_FREQ = parseFrequency(airport.vor.frequency), ILS_FREQ = 110300;
-const NDB = airport.runways[0].threshold.clone().add(airport.runways[1].threshold).multiplyScalar(0.5);
+// Chaque aérodrome a son VOR et son ILS (fréquences : voir AIRPORTS dans Airport.js) ; l'ADF pointe la balise NDB
+// de l'aérodrome le plus proche
+const vorByKhz = new Map(airport.vors.map((station) => [parseFrequency(station.frequency), station]));
+const ilsByKhz = new Map(airport.list.map((a) => [parseFrequency(a.ilsFrequency), a.ilsFrequency]));
+const nearestAirport = () => airport.nearest(aircraft.position.x, aircraft.position.z);
+const nearestIlsKhz = () => parseFrequency(nearestAirport().ilsFrequency);
 const dmeTrack = { distance: null, kt: 0 };
 function navReceiver(khz, powered, receiver, glide) {
     if (!powered) return { available: false };
-    if (khz === VOR_FREQ) {
+    if (vorByKhz.has(khz) && receiver.station === vorByKhz.get(khz)) {
         const s = receiver.state;
         return { available: s.available && !s.overhead, deviation: s.deviation, to: s.to, glide: false, distance: s.distance };
     }
-    if (khz === ILS_FREQ && ils.state.available) {
+    if (ilsByKhz.has(khz) && ils.state.available && ils.state.frequency === ilsByKhz.get(khz)) {
         const s = ils.state;
         return { available: true, deviation: s.localizer, to: null, glide: glide && s.distance > 0, glideslope: s.glideslope, distance: s.distance };
     }
@@ -1837,7 +2386,8 @@ function navInstruments() {
     }
     let adf = 90;   // aiguille au repos (pas de signal)
     if (powered.adf) {
-        const bearing = Math.atan2(NDB.x - aircraft.position.x, -(NDB.z - aircraft.position.z)) * 180 / Math.PI;
+        const ndb = nearestAirport().ndb;
+        const bearing = Math.atan2(ndb.x - aircraft.position.x, -(ndb.z - aircraft.position.z)) * 180 / Math.PI;
         adf = ((bearing - controls.getHeading()) % 360 + 360) % 360;
     }
     return {
@@ -1861,7 +2411,7 @@ function updateDme(delta) {
 
 // ILS : disponible près de la piste, dans l'axe d'approche. Bouton sur le tableau de bord en cabine,
 // bouton à l'écran en vue extérieure, touche I dans les deux cas.
-const ils = new ILS(airport.runways, airport.runwayLength);
+const ils = new ILS(airport.allRunways, airport.runwayLength);
 
 // VOR (NAV1) : balise de l'aérodrome. Indicateur au tableau de bord ; en vue extérieure, touche O.
 // OBS : J / K (Maj : 10° par appui), H : centrer l'aiguille sur la route directe vers la balise
@@ -1887,6 +2437,9 @@ for (const [id, action] of [['vor-moins', () => vor.turnCourse(-1)], ['vor-plus'
 }
 
 function updateVor(delta) {
+    // Balise reçue : celle de la fréquence affichée sur chaque NAV (sinon la dernière)
+    vor.station = vorByKhz.get(avionics.nav1.active) ?? vor.station;
+    vor2.station = vorByKhz.get(avionics.nav2.active) ?? vor2.station;
     vor.update(aircraft.position);
     vor2.setCourse(avionics.obs2);
     vor2.update(aircraft.position);
@@ -1909,13 +2462,15 @@ const ilsText = document.getElementById('ils-texte');
 
 // ILS : affiché sur la NAV 1 (fréquence 110.30) ; touche I et bouton en vue extérieure : y passer ou en revenir
 function toggleIls() {
-    avionics.toggleNav1(ILS_FREQ);
+    avionics.toggleNav1(nearestIlsKhz());
     updateIls();
 }
 
 function updateIls() {
-    const state = ils.update(aircraft.position);
-    ils.active = state.available && avionics.nav1.active === ILS_FREQ && avionics.powered(systems).navcom1;
+    // ILS affiché sur la NAV 1, sinon celui de l'aérodrome le plus proche (bouton « ILS disponible »)
+    const tuned = ilsByKhz.get(avionics.nav1.active);
+    const state = ils.update(aircraft.position, tuned ?? nearestAirport().ilsFrequency);
+    ils.active = state.available && Boolean(tuned) && avionics.powered(systems).navcom1;
     const showButton = chaseView && state.available && !controls.isCrashed();
     ilsButton.hidden = !showButton;
     ilsButton.classList.toggle('actif', ils.active);
@@ -1997,16 +2552,21 @@ function useControl(control, step, wheel = false, fine = false) {
         controls.parkingBrake = !controls.parkingBrake;
         systems.brake = controls.parkingBrake;
     } else return false;
+    cockpit.panel.turnKnob(id, step);   // bouton rotatif : il pivote d'un cran
     if (id !== 'trimWheel') sounds.click(); // la molette de trim fait ses crans d'elle-même (voir la boucle)
     return true;
 }
 
-// En cabine : clic (sans glisser) sur une commande. Boutons rotatifs : côté gauche = moins, côté droit = plus ;
+// Boutons rotatifs (fréquences, transpondeur, calage, cap, OBS, ADF, gyro, éclairages) : réglés à la molette seulement,
+// comme un vrai bouton qu'on tourne (Maj : plus vite) ; le clic ne les change plus
+const WHEEL_ONLY = /^((com|nav)[12]:(outer|inner)|xpdr:(mode|d\d)|baro|hdgBug|dg|ai|obs2?|adf|panelLights|domeLight)$/;
+// En cabine : clic (sans glisser) sur une commande : interrupteurs, boutons, sélecteurs ;
 // manettes (gaz, mixture) et molette de trim : moitié haute = pousser / piquer, moitié basse = tirer / cabrer
 view.addEventListener('click', (event) => {
     if (dragDistance > 6) return;
     const control = controlAt(event);
     if (!control) return;
+    if (WHEEL_ONLY.test(control.id)) return;   // bouton rotatif : à la molette
     const vertical = ['throttle', 'mixture'].includes(control.id) ? -control.vertical
         : ['trimWheel', 'flaps:lever'].includes(control.id) ? control.vertical : control.side;
     useControl(control, vertical || 1, false, event.shiftKey);
@@ -2017,7 +2577,9 @@ view.addEventListener('pointermove', (event) => {
         if (!drag) view.style.cursor = '';
         return;
     }
-    view.style.cursor = controlAt(event) ? 'pointer' : '';
+    // (manettes : flèches haut / bas, elles se glissent)
+    const control = controlAt(event);
+    view.style.cursor = !control ? '' : LEVERS.has(control.id) ? 'ns-resize' : 'pointer';
 });
 
 // Bruits de l'environnement : pluie (étouffée en cabine), roulement des pneus selon le revêtement
@@ -2036,13 +2598,43 @@ function updateSounds() {
     // (il est dans l'aile, au-dessus)
     const flaps = controls.getFlaps();
     const moving = Math.abs(flaps - lastFlaps) > 1e-5 && !choosingSpawn;
-    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.6 : 1.4 });
+    if (flapsMoving && !moving) sounds.play('flapsStop', { volume: chaseView ? 0.06 : 0.15 });
     flapsMoving = moving;
     lastFlaps = flaps;
-    // (fichier enregistré bas, -25 dBFS : gain > 1 pour passer au-dessus du moteur)
-    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.8 : 2.2) : 0, 1);
-    // Pompe à carburant électrique : bourdonnement tant qu'elle tourne (sous le plancher, à peine audible dehors)
-    sounds.setLoop('fuelPump', systems.fuelPumpRunning && !choosingSpawn ? (chaseView ? 0.008 : 0.045) : 0, 1.7);
+    // (fichier enregistré bas, -25 dBFS ; volontairement discret)
+    sounds.setLoop('flapMotor', moving ? (chaseView ? 0.08 : 0.2) : 0, 1);
+    // Pompe à carburant électrique (pompe auxiliaire du c182s) : bourdonnement tant qu'elle tourne, bruit de
+    // ralentissement à l'arrêt (sous le plancher, à peine audible dehors ; fichiers enregistrés bas, -34 dBFS)
+    const pumpOn = systems.fuelPumpRunning && !choosingSpawn;
+    if (fuelPumpOn && !pumpOn && !choosingSpawn) sounds.play('fuelPumpStop', { volume: chaseView ? 0.04 : 0.25 });
+    fuelPumpOn = pumpOn;
+    sounds.setLoop('fuelPump', pumpOn ? (chaseView ? 0.04 : 0.25) : 0, 1);
+    // Gyroscope électrique de l'indicateur de virage (gyro.wav du c172p) : sous tension, la toupie monte en régime
+    // en ~3 s ; coupée, elle ralentit en roue libre (~45 s). Hauteur du son = régime ; volume en racine du régime
+    // pour que le sifflement reste audible pendant toute la décélération
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - lastGyroTime) / 1000);
+    lastGyroTime = now;
+    if (choosingSpawn) gyroSpin = 0;
+    else gyroSpin = systems.turnCoordinatorPowered
+        ? Math.min(1, gyroSpin + dt / 3)
+        : Math.max(0, gyroSpin - dt / 45);
+    const gyroLevel = choosingSpawn ? 0 : Math.sqrt(gyroSpin) * (chaseView ? 0.02 : 0.13);
+    sounds.setLoop('gyro', gyroLevel, Math.max(0.05, gyroSpin));
+    // Ambiance extérieure : léger souffle d'air et oiseaux, avion au sol seulement, très étouffée en cabine. Couverte
+    // par le moteur : presque plus rien dès le ralenti (~800 tr/min). Pas d'oiseaux la nuit ni sous la pluie ; le
+    // souffle suit le vent de la météo
+    const onGround = controls.isOnGround() && !controls.isCrashed() && !choosingSpawn;
+    const engineMask = THREE.MathUtils.clamp(1 - systems.rpm / 700, 0.06, 1);
+    const ambience = onGround ? engineMask : 0;
+    const day = 1 - (weather?.night ?? 0);
+    sounds.setLoop('birds', ambience * day * (1 - rain) * (chaseView ? 0.05 : 0.01));
+    sounds.setLoop('breeze', ambience * (0.4 + 0.6 * (weather?.wind ?? 0.3)) * (chaseView ? 0.15 : 0.03));
+    // Feu anticollision : petit tic à chaque allumage (double éclat, en phase avec AircraftLights), rien à l'extinction.
+    // Entendu de l'extérieur seulement
+    const beaconLit = systems.lights.beacon && !choosingSpawn && beaconOn(clock.elapsedTime);
+    if (beaconLit && !beaconWasOn && chaseView) sounds.click(0.1, 1300 + Math.random() * 200);
+    beaconWasOn = beaconLit;
 }
 
 const aircraftVelocity = new THREE.Vector3();
@@ -2081,6 +2673,7 @@ function applySettings(values) {
         rotation: values.rotationAuto,
         stallProtection: values.stallProtection,
         smoothLiftoff: values.smoothLiftoff,
+        crosswindCorrection: values.crosswind ?? false,
     });
 }
 
@@ -2141,6 +2734,7 @@ window.addEventListener('keyup', (event) => {
     if (event.code === 'KeyL') panelLightsKey = 0;
 });
 
+let initiationErrorShown = false;
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
     if (fpsLimit > 0) {
@@ -2170,7 +2764,9 @@ renderer.setAnimationLoop((time)=>{
         shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
     }
     updateHeadTarget( delta );
-    initiation.update( delta );
+    // Une erreur de la leçon ne doit jamais figer le simulateur (radio, caméra et rendu viennent après)
+    try { initiation.update( delta ); }
+    catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
     updateSpawnMarkers();
     updateAtc( delta );
     updateCamera( delta );
@@ -2199,10 +2795,20 @@ renderer.setAnimationLoop((time)=>{
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
-    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7);
+    // Au départ (choix du spawn, touche R), le moteur qui tourne déjà monte en ~1 s au lieu d'arriver d'un coup :
+    // ses graves, relevés, faisaient un "boum" comme un coup de tonnerre
+    spawnFade = choosingSpawn ? 0 : Math.min(1, spawnFade + delta / 1.2);
+    // En cabine : plus faible et étouffé (passe-bas)
+    engineSound.setCabin(!chaseView);
+    const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
     engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
-    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights } );
+    updateLoad();
+    updateHud(delta);
+    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName } );
+    // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
+    const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
+    wind.setShared(host?.weather ? METARS[host.weather] ?? null : null);
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
@@ -2223,9 +2829,14 @@ renderer.setAnimationLoop((time)=>{
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
     // PAPI : couleur vue de l'œil du pilote, même en vue extérieure
     pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
-    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld );
+    // Dessin limité à ce qui est visible : dalles du terrain et aérodromes au-delà du brouillard cachés
+    const drawRange = Math.max(scene.fog?.far ?? 3000, 2400) + 600;
+    terrain.update( camera.position, drawRange );
+    airport.update( delta, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld, drawRange + 1500 );
     airport.updateHangars( delta, aircraft.position );
-    scenery.update( camera.position, clock.elapsedTime );
+    decorShadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
+    scenery.update( camera.position, clock.elapsedTime, decorShadowCenter );
+    terrain.animate( clock.elapsedTime );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls();
@@ -2243,7 +2854,7 @@ renderer.setAnimationLoop((time)=>{
     // Ombres : zone centrée sur l'avion (elle s'étend dans l'axe du soleil : l'ombre de l'avion au sol y reste, même en
     // vol) ; en cabine, zone resserrée (ombres fines dans l'habitacle)
     shadowCenter.copy(aircraft.position);
-    graphics.update( shadowCenter, !chaseView );
+    graphics.update( shadowCenter, !chaseView, decorShadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     graphics.render();
     updatePerf(performance.now() - frameStart);

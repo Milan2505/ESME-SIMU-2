@@ -302,13 +302,22 @@ class CloudLayer {
         };
     }
 
+<<<<<<< HEAD
     // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur) : brouillard épais dans le nuage, jusqu'à ~8 m de
     // ses surfaces, dissipé en ~10 m quand on en sort (nuage épais : bord net)
+=======
+    // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur) : brouillard dans le nuage, qui s'épaissit sur
+    // ~25 m en y entrant (entre les deux surfaces : on est dans le nuage partout où on le voit de dehors)
+>>>>>>> 81fb764f67f2070258037eff6a750dfa815bfc5b
     densityAt(position) {
         if (!this.mesh.visible) return 0;
         const s = this.surfacesAt(position.x, position.z);
         if (s.c < 0.02) return 0;
+<<<<<<< HEAD
         return smoothstep(-3, 8, Math.min(position.y - s.lower, s.upper - position.y));
+=======
+        return smoothstep(-5, 20, Math.min(position.y - s.lower, s.upper - position.y));
+>>>>>>> 81fb764f67f2070258037eff6a750dfa815bfc5b
     }
 
     // Hauteur au-dessus du dessus réel de la nappe à la verticale (m ; négatif : dans ou sous le nuage). Même sans

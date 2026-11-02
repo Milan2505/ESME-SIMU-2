@@ -78,6 +78,8 @@
 	<link rel="modulepreload" href="js/RadioVoices.js">
 	<link rel="modulepreload" href="js/Initiation.js">
 	<link rel="modulepreload" href="js/Scenery.js">
+	<link rel="modulepreload" href="js/FlightHud.js">
+	<link rel="modulepreload" href="js/WeightBalance.js">
 </head>
 	
 <body>
@@ -92,7 +94,7 @@
 	</div>
 	</nav>
 	
-	<main id="simulator">
+	<main id="simulator" class="jeu">
 	<div id="titre">
 	<h3>ESME flight simulator</h3>
 	</div>
@@ -102,13 +104,19 @@
 		<button class="menu-titre" aria-expanded="false">Profil <span class="menu-fleche">▾</span></button>
 		<div class="menu-contenu" hidden>
 			<label class="profil-livree">Livrée de l'avion <select id="profil-livree"></select></label>
-			<p class="menu-note">En multijoueur, les autres joueurs voient votre avion à ces couleurs.</p>
+			<label class="profil-livree">Immatriculation <input id="profil-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
+			<p class="menu-note">En multijoueur, les autres joueurs voient votre avion à ces couleurs. Les contrôleurs vous appellent par votre immatriculation.</p>
 		</div>
 	</div>
 	
 	<div id="paramètre" role="button" tabindex="0" title="Qualité graphique et aides au pilotage">
 	<h4>Paramètre</h4>
 	</div>
+	
+	<!-- Barre de menus (Échap) : quitter le vol et revenir au menu principal -->
+	<button id="masse-bouton" title="Pilote, passagers, bagages et carburant">Masse et centrage</button>
+	<button id="mode-photo" title="Masquer les infos de vol et les panneaux, pour les captures">Mode photo</button>
+	<button id="quitter-partie" title="Quitter le vol et revenir au menu principal">Quitter la partie</button>
 	
 	<!-- Joueurs en ligne (partie multijoueur) et radio -->
 	<div id="online" class="menu">
@@ -133,6 +141,7 @@
 				<button id="volets" title="Sortir un cran de volets (touches G / T)">Volets : 0°</button>
 				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
 				<button id="depart" title="Choisir un autre point de départ">Changer de départ</button>
+				<button id="menu-principal-bouton" title="Revenir au menu principal">Menu principal</button>
 				<button id="plein-ecran" title="Plein écran (touche F)">Plein écran</button>
 				<button id="qualite" title="Qualité graphique et aides au pilotage">Paramètres</button>
 			</div>
@@ -205,6 +214,8 @@
 	</div>
 	
 	<canvas id="ecran" tabindex="0"></canvas>
+	<canvas id="hud" hidden></canvas>
+	<div id="astuce-echap" class="cache">Échap : afficher les menus</div>
 	<div id="alarme">DÉCROCHAGE</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
@@ -227,10 +238,61 @@
 		<span>Fermez les autres onglets 3D ou lourds, puis rechargez la page.</span>
 		<button id="contexte-perdu-recharger">Recharger</button>
 	</div>
+	<!-- Menu principal (au lancement, et menu Commandes) : mode de jeu, météo, réglages ; l'aérodrome en direct derrière -->
+	<div id="menu-principal" hidden>
+		<div class="mp-gauche">
+			<img class="mp-logo" src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="ESME">
+			<h1 class="mp-titre">ESME <span>flight simulator</span></h1>
+			<p class="mp-sous-titre">Cessna 172 · Aérodrome ESME</p>
+			<nav class="mp-boutons">
+				<button id="mp-vol-libre" class="mp-bouton mp-principal"><strong>Vol libre</strong><small>Seul, choisissez votre avion et votre départ</small></button>
+				<button id="mp-multi" class="mp-bouton"><strong>Multijoueur</strong><small id="mp-multi-detail">Partie privée entre amis</small></button>
+				<button id="mp-initiation" class="mp-bouton"><strong>Initiation</strong><small>Apprendre à piloter avec un moniteur</small></button>
+				<button id="mp-masse" class="mp-bouton"><strong>Masse et centrage</strong><small>Pilote, passagers, bagages et carburant</small></button>
+				<button id="mp-parametres" class="mp-bouton"><strong>Paramètres</strong><small>Graphismes et aides au pilotage</small></button>
+				<a class="mp-bouton" href="manuel.html"><strong>Manuel</strong><small>Commandes et procédures</small></a>
+			</nav>
+		</div>
+		<div class="mp-droite">
+			<section class="mp-carte">
+				<h2>Météo</h2>
+				<div id="mp-meteo" class="mp-choix"></div>
+			</section>
+			<section class="mp-carte">
+				<h2>Pilote</h2>
+				<p class="mp-info">Livrée et immatriculation : au hangar, avant le départ.</p>
+				<p class="mp-info">Clavier AZERTY · Z/S profondeur · Q/D ailerons · Espace/Ctrl gaz · V vue</p>
+			</section>
+		</div>
+		<p class="mp-pied">Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
+	</div>
+
+	<!-- Choix de l'aérodrome (Vol libre, Multijoueur), avant le hangar : survoler un terrain le montre -->
+	<div id="aerodrome-panneau" hidden>
+		<h3>Choisissez votre aérodrome</h3>
+		<p class="depart-aide">Survolez un terrain pour le voir. Vous pourrez en changer au choix du départ.</p>
+		<div id="aerodrome-liste"></div>
+		<button id="aerodrome-menu" class="mp-retour">← Menu principal</button>
+	</div>
+
+	<!-- Hangar (au lancement, avant le choix du départ) : l'avion présenté au hangar, sa livrée et son immatriculation -->
+	<div id="hangar-panneau" hidden>
+		<h3>Votre avion</h3>
+		<p class="depart-aide">Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.</p>
+		<label class="profil-livree">Livrée <select id="hangar-livree"></select></label>
+		<label class="profil-livree">Immatriculation <input id="hangar-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
+		<p class="depart-aide">4 à 8 lettres ou chiffres, tiret possible (F-GABC, N172SP). Peinte sur l'avion ; les contrôleurs l'utilisent pour vous appeler.</p>
+		<button id="hangar-partir">Choisir le départ →</button>
+		<button id="hangar-menu" class="mp-retour">← Menu principal</button>
+	</div>
+
 	<!-- Choix du point de départ (au lancement, et menu Commandes) -->
 	<div id="depart-dialog" hidden>
 		<h3>Où voulez-vous commencer ?</h3>
+		<div id="depart-aerodromes" class="depart-vues" aria-label="Aérodrome"></div>
 		<p class="depart-aide">Cliquez sur une case jaune, ou choisissez ci-dessous.</p>
+		<div id="depart-vues" class="depart-vues" aria-label="Vue de l'aérodrome"></div>
+		<p class="depart-aide">Glisser : tourner · clic droit glissé : déplacer · molette : zoom</p>
 		<div id="depart-liste"></div>
 		<p id="depart-voix" class="depart-aide" hidden></p>
 		<p class="depart-aide">Piste : prêt à décoller. Parking : avion éteint, à mettre en route (vue cabine, touche Tab ou 3 à 9).</p>
@@ -295,6 +357,7 @@
 				<select id="atc-bord"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
 			</label>
 		</div>
+		<div id="atc-aerodromes" title="Aérodrome contacté : ses fréquences s'affichent ci-dessous"></div>
 		<div id="atc-com" title="Radio COM : fréquence écoutée"></div>
 		<div class="atc-infos">
 			<label title="Code à 4 chiffres (0 à 7) donné par le contrôleur ; Entrée pour valider">Transpondeur
@@ -327,11 +390,112 @@
 		
 	</main>
 
+	<!-- Masse et centrage (menu principal) : chargement de l'avion, appliqué à la fermeture (WeightBalance.js) -->
+	<dialog id="masse-dialog">
+		<h3>Masse et centrage</h3>
+		<p class="mc-intro">Cessna 172S · valeurs du manuel de vol. Le graphique se met à jour en direct ; le chargement est appliqué à l'avion à la fermeture de la fenêtre.</p>
+		<div class="mc-corps">
+			<div class="mc-charges">
+				<h4>Occupants et bagages</h4>
+				<label class="mc-ligne"><span>Pilote</span><input type="range" data-charge="pilot" min="40" max="140" step="1"><input type="number" data-charge-valeur="pilot" min="40" max="140"><em>kg</em></label>
+				<label class="mc-ligne"><span>Passager avant</span><input type="range" data-charge="copilot" min="0" max="140" step="1"><input type="number" data-charge-valeur="copilot" min="0" max="140"><em>kg</em></label>
+				<label class="mc-ligne"><span>Passagers arrière</span><input type="range" data-charge="rear" min="0" max="250" step="1"><input type="number" data-charge-valeur="rear" min="0" max="250"><em>kg</em></label>
+				<label class="mc-ligne"><span>Bagages <small>(54 kg max)</small></span><input type="range" data-charge="baggage" min="0" max="54" step="1"><input type="number" data-charge-valeur="baggage" min="0" max="54"><em>kg</em></label>
+				<h4>Carburant <small>(100 L utilisables par aile)</small></h4>
+				<label class="mc-ligne"><span>Aile gauche <small id="mc-gal-gauche"></small></span><input type="range" data-charge="fuelLeft" min="0" max="100.3" step="0.5"><input type="number" data-charge-valeur="fuelLeft" min="0" max="100.3" step="0.5"><em>L</em></label>
+				<label class="mc-ligne"><span>Aile droite <small id="mc-gal-droite"></small></span><input type="range" data-charge="fuelRight" min="0" max="100.3" step="0.5"><input type="number" data-charge-valeur="fuelRight" min="0" max="100.3" step="0.5"><em>L</em></label>
+				<div class="mc-carbu">
+					<label class="mc-sync"><input type="checkbox" id="mc-sync"> Synchroniser les deux ailes</label>
+					<button id="mc-moitie" type="button">Moitié</button>
+					<button id="mc-plein" type="button">Pleins</button>
+				</div>
+				<dl class="mc-resume">
+					<div><dt>Masse au décollage</dt><dd id="mc-masse"></dd></div>
+					<div><dt>Marge (MTOW 1157 kg)</dt><dd id="mc-marge"></dd></div>
+					<div><dt>Centrage</dt><dd id="mc-centrage"></dd></div>
+					<div><dt>Carburant</dt><dd id="mc-carburant"></dd></div>
+					<div class="mc-large"><dt id="mc-conso">Autonomie</dt><dd id="mc-autonomie"></dd></div>
+				</dl>
+				<p id="mc-statut"></p>
+			</div>
+			<div class="mc-graphique">
+				<h4>Domaine de centrage</h4>
+				<canvas></canvas>
+				<p class="mc-legende"><span class="mc-pt-deco"></span> Décollage <span class="mc-pt-atte"></span> Atterrissage (réserve) · trait plein : normale · pointillés : utilitaire</p>
+			</div>
+		</div>
+		<button id="mc-plus-bouton" type="button" class="mc-plus-bouton">Afficher plus ▾</button>
+		<div class="mc-plus" hidden>
+			<section class="mc-bloc">
+				<h4>Bilan carburant</h4>
+				<div class="mc-reglages">
+					<label>Consommation croisière <span><input type="number" data-plan="burn" min="10" max="80" step="1"> L/h</span></label>
+					<label>Consommation au roulage <span><input type="number" data-plan="taxiBurn" min="0" max="40" step="1"> L/h</span></label>
+					<label>Vitesse de croisière (TAS) <span><input type="number" data-plan="tas" min="50" max="160" step="1"> kt</span></label>
+					<label>Réserve de route <span><input type="number" data-plan="contingency" min="0" max="50" step="1"> % du délestage</span></label>
+				</div>
+				<div class="mc-durees">
+					<div class="mc-duree" data-duree="taxi"><span>Roulage <small>départ + arrivée</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="trip"><span>Délestage <small>temps de l'étape</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="procedures"><span>Procédures <small>départ, intégration, attente</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="alternate"><span>Dégagement <small>vers l'aérodrome de secours</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="finalReserve"><span>Réserve finale <small>VFR jour 30 min · nuit 45 min</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+					<div class="mc-duree" data-duree="extra"><span>Supplément pilote <small>marge personnelle du CDB</small></span><input type="number" min="0" max="24"> h <input type="number" min="0" max="59" step="5"> min</div>
+				</div>
+				<div class="mc-carbu">
+					<span class="mc-sync">Réserve finale : <strong id="mc-reserve-valeur"></strong></span>
+					<button id="mc-reserve-jour" type="button">VFR jour</button>
+					<button id="mc-reserve-nuit" type="button">VFR nuit</button>
+				</div>
+				<label class="mc-sync mc-auto"><input type="checkbox" id="mc-auto-carbu"> Carburant à bord = carburant nécessaire <small>(suit les durées, réparti à parts égales sur les deux ailes)</small></label>
+				<table class="mc-tableau">
+					<thead><tr><th>Poste</th><th>Durée</th><th>Carburant</th></tr></thead>
+					<tbody id="mc-bilan"></tbody>
+				</table>
+				<dl class="mc-resume">
+					<div><dt>Autonomie totale</dt><dd id="mc-autonomie-totale"></dd></div>
+					<div><dt>Étape prévue</dt><dd id="mc-etape"></dd></div>
+					<div><dt>Distance franchissable</dt><dd id="mc-distance"></dd></div>
+					<div><dt>Rayon d'action (aller-retour)</dt><dd id="mc-rayon"></dd></div>
+				</dl>
+				<p class="mc-note">Distances en air calme, réserves finale et de route déduites. Règles NCO.OP.125 : vérifiez toujours avec le manuel d'exploitation de votre aéroclub.</p>
+			</section>
+			<section class="mc-bloc">
+				<h4>Performances décollage et atterrissage</h4>
+				<div class="mc-reglages">
+					<label>Altitude du terrain <span><input type="number" data-perf="elevation" min="-1000" max="12000" step="50"> ft</span></label>
+					<label>QNH <span><input type="number" data-perf="qnh" min="940" max="1060" step="1"> hPa</span></label>
+					<label>Température <span><input type="number" data-perf="temperature" min="-40" max="50" step="1"> °C</span></label>
+					<label>Vent (+ de face, − arrière) <span><input type="number" data-perf="wind" min="-15" max="40" step="1"> kt</span></label>
+					<label>Surface de la piste <span><select data-perf="surface"><option value="dur">Dur (sec)</option><option value="herbe">Herbe sèche</option><option value="mouille">Herbe mouillée (estim.)</option></select></span></label>
+					<label>Pente (+ montante au décollage) <span><input type="number" data-perf="slope" min="-5" max="5" step="0.5"> %</span></label>
+					<label>Coefficient de sécurité <span><select data-perf="margin"><option value="1">1,00 (manuel)</option><option value="1.15">1,15</option><option value="1.25">1,25</option><option value="1.43">1,43</option></select></span></label>
+					<label>Piste disponible <span><input type="number" data-perf="runway" min="100" max="5000" step="10"> m <button id="mc-piste-esme" type="button" title="Longueur de la piste de l'aérodrome ESME">ESME</button></span></label>
+				</div>
+				<table class="mc-tableau mc-perf">
+					<thead><tr><th></th><th>Roulement</th><th>Passage / depuis 15 m</th></tr></thead>
+					<tbody>
+						<tr><td>Décollage <small>volets 10°</small></td><td id="mc-deco-roul"></td><td id="mc-deco-15"></td></tr>
+						<tr><td>Atterrissage <small>volets 30°</small></td><td id="mc-atte-roul"></td><td id="mc-atte-15"></td></tr>
+					</tbody>
+				</table>
+				<p id="mc-piste"></p>
+				<p class="mc-note" id="mc-masses"></p>
+				<p class="mc-note">Manuel du Cessna 172S (technique piste courte) ; corrections : altitude-pression, température, vent (−10 % par 9 kt de face, +10 % par 2 kt arrière), herbe (+15 % du roulement au décollage, +45 % à l'atterrissage), pente (±10 % par %).</p>
+			</section>
+		</div>
+		<div class="mc-boutons">
+			<button id="mc-defaut" type="button">Chargement par défaut</button>
+			<button id="mc-fermer" type="button" class="mc-valider">Appliquer et fermer</button>
+		</div>
+	</dialog>
+
 	<dialog id="reglages-dialog">
 		<h3>Paramètres</h3>
 		<p class="reglages-intro">Ordinateur qui rame ? Choisissez « Bas » ou « Moyen ». En bas : les aides au pilotage. Les changements s'appliquent tout de suite.</p>
 		<div id="reglages-liste"></div>
 		<div class="multi-ligne">
+			<button id="reglages-plein-ecran" title="Plein écran (touche F)">Plein écran</button>
 			<button id="reglages-fermer">Fermer</button>
 		</div>
 	</dialog>
@@ -354,11 +518,16 @@
 		</div>
 		<ul id="multi-joueurs"></ul>
 		<div class="multi-ligne">
+			<button id="multi-fermer-partie" hidden title="Termine la partie pour tous les joueurs">Fermer la partie</button>
 			<button id="multi-quitter">Quitter la partie</button>
 			<button id="multi-fermer">Fermer</button>
 		</div>
 	</dialog>
-	
+
+	<script>
+		// Désactive le menu contextuel du navigateur (clic droit) partout dans le simulateur
+		document.addEventListener('contextmenu', (e) => e.preventDefault());
+	</script>
 	<script type="module" src="simulator.js"></script>
 </body>
 </html>

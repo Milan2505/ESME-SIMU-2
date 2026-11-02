@@ -14,6 +14,7 @@ const MODELS = {
     'en_GB-jenny_dioco-medium': 'en/en_GB/jenny_dioco/medium/en_GB-jenny_dioco-medium',
     'en_GB-northern_english_male-medium': 'en/en_GB/northern_english_male/medium/en_GB-northern_english_male-medium',
     'en_GB-alba-medium': 'en/en_GB/alba/medium/en_GB-alba-medium',
+    'en_GB-semaine-medium': 'en/en_GB/semaine/medium/en_GB-semaine-medium',
 };
 // Distribution des voix : le pilote (toujours la même), un contrôleur différent par fréquence, l'ATIS lu plus lentement.
 // lengthScale < 1 : débit plus rapide (phraséologie radio)
@@ -22,10 +23,13 @@ const CAST = {
         pilot:    { model: 'fr_FR-tom-medium', lengthScale: 0.9 },
         tower:    { model: 'fr_FR-siwis-medium', lengthScale: 0.85 },
         info:     { model: 'fr_FR-siwis-medium', lengthScale: 0.9, rate: 0.92 },    // Siwis, voix plus grave
-        ground:   { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },     // Pierre
-        approach: { model: 'fr_FR-upmc-medium', speaker: 0, lengthScale: 0.85 },     // Jessica
+        ground:   { model: 'fr_FR-upmc-medium', speaker: 0, lengthScale: 0.85 },     // Jessica
+        approach: { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.85 },     // Pierre (pas d'approche en Initiation)
         atis:     { model: 'fr_FR-siwis-medium', lengthScale: 1 },
-        instructor: { model: 'fr_FR-tom-medium', lengthScale: 1.02 },   // moniteur (mode Initiation), à côté de l'élève
+        // Mode Initiation : le moniteur garde la voix du pilote (niveau 1, c'est lui qui fait la radio) ; niveau 2, l'élève
+        // fait la radio avec une autre voix (Pierre)
+        instructor: { model: 'fr_FR-tom-medium', lengthScale: 1.02 },
+        student:  { model: 'fr_FR-upmc-medium', speaker: 1, lengthScale: 0.9 },
     },
     en: {
         pilot:    { model: 'en_GB-alan-medium', lengthScale: 0.9 },
@@ -35,6 +39,7 @@ const CAST = {
         approach: { model: 'en_GB-alba-medium', lengthScale: 0.85 },
         atis:     { model: 'en_GB-jenny_dioco-medium', lengthScale: 1 },
         instructor: { model: 'en_GB-alan-medium', lengthScale: 1.02 },
+        student:  { model: 'en_GB-semaine-medium', speaker: 2, lengthScale: 0.9 },   // Obadiah
     },
 };
 const ROLE_ORDER = ['pilot', 'ground', 'tower', 'approach', 'atis'];
@@ -121,7 +126,7 @@ class RadioVoices extends EventTarget {
         const spoken = language === 'fr' ? text.replace(/\b(Alpha|Charlie|Echo|Foxtrot|Hotel|India|Juliett|Mike|November|Quebec|Romeo|Sierra|Uniform|Whiskey|X-ray|Yankee|Zulu)\b/g, (w) => PHONETIC_FR[w]) : text;
         if (this.mode === 'neural' && this.status.state !== 'error') {
             const pilot = role === 'pilot' || role === 'otherPilot';
-            const cast = pilot ? CAST[language].pilot : CAST[language][role] ?? CAST[language].tower;
+            const cast = pilot ? CAST[language][role === 'pilot' && this.student ? 'student' : 'pilot'] : CAST[language][role] ?? CAST[language].tower;
             const rate = pilot ? this._pilotRate(role === 'pilot' ? this.playerId : seed) : cast.rate ?? 1;
             // Pilote : message découpé aux virgules, la suite se calcule pendant qu'il parle (il commence tout de
             // suite) ; ATIS : phrase par phrase ; contrôleurs : message entier (calculé pendant leur temps de réaction)
@@ -309,6 +314,16 @@ class RadioVoices extends EventTarget {
     }
 
     // --- Moniteur (mode Initiation) ---------------------------------------------------------------
+    // Sa voix n'est téléchargée qu'en Initiation : dès le début de la leçon, pendant que le premier texte s'affiche
+    // student : l'élève fait lui-même la radio (niveau 2) -> sa voix de pilote n'est pas celle du moniteur
+    preloadInstructor(lang = this.lang, student = false) {
+        this.student = student;
+        if (this.mode !== 'neural' || this.status.state === 'error') return;
+        const cast = CAST[CAST[lang] ? lang : this.lang];
+        this._load(cast.instructor.model).catch(() => {});
+        if (student) this._load(cast.student.model).catch(() => {});
+    }
+
     // Dit un texte avec la voix du moniteur ; renvoie une promesse résolue à la fin (ou à l'interruption). Toujours la
     // même voix : la voix réaliste (au premier lancement, il parle quand elle est téléchargée ; son texte est affiché)
     async speakInstructor(text) {

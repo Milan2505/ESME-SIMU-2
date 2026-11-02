@@ -32,6 +32,7 @@ import {
 // roses et aiguilles en relief), pile radio (audio, deux NAV/COM, DME, transpondeur), compas magnétique,
 // boutons et interrupteurs. Les positions sont celles du schéma, en px de l'image (2394 x 1765) : 2 030 px par mètre.
 
+const KNOB_NOTCH = Math.PI / 10;   // un cran de bouton rotatif : 18°
 const S = 2030;                 // px du schéma par mètre (tableau de 0,92 m, celui du Cessna 172 FlightGear)
 const X0 = 1344, Y0 = 195;      // milieu du tableau, haut du tableau (px)
 const TOP = -0.1;               // haut du tableau (repère cabine)
@@ -275,6 +276,7 @@ class Panel172 {
         this.group = group;
         this.clickables = [];
         this.dynamic = [];          // pièces qui bougent ou se cliquent (pas de fusion, voir MergeStatic)
+        this._spin = new Map();     // boutons rotatifs animés quand on les tourne (voir turnKnob)
         this._p = {};               // pièces animées
         this._compassHeading = 0;
         this._displayKey = '';
@@ -319,6 +321,8 @@ class Panel172 {
         this._black = new MeshStandardMaterial({ color: 0x0e0e0f, roughness: 0.6 });
         this._knurled = new MeshStandardMaterial({ map: knurlTexture(), color: 0x6a6d72, metalness: 0.4, roughness: 0.4 });
         this._knobBlack = new MeshStandardMaterial({ color: 0x3e3f45, roughness: 0.3, metalness: 0.4 });
+        // Boutons des radios : noirs, moletés (on voit qu'ils tournent)
+        this._knobKnurl = new MeshStandardMaterial({ map: this._knurled.map, color: 0x4a4b52, roughness: 0.35, metalness: 0.4 });
         this._knobCap = new MeshStandardMaterial({ color: 0x141416, roughness: 0.35, metalness: 0.3 });
         this._white = new MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.4, emissive: 0xffffff, emissiveIntensity: 0.05 });
         this._lamp = new MeshStandardMaterial({ color: 0x3a2400, emissive: 0xffa000, emissiveIntensity: 0 });
@@ -490,7 +494,19 @@ class Panel172 {
         root.add(turn);
         this.group.add(root);
         this._control(root, control);
+        if (!/^obs2?$/.test(control)) this._spinner(control, turn);   // (OBS : tourné selon la route affichée)
         return turn;
+    }
+
+    // Bouton rotatif (obj tourne autour de son axe z) : animé par turnKnob
+    _spinner(control, obj) {
+        this._spin.set(control, { obj, angle: 0, target: 0 });
+    }
+
+    // Bouton tourné d'un cran (step : +1 sens horaire, -1 l'autre) : il pivote en douceur jusqu'au cran suivant
+    turnKnob(control, step) {
+        const s = this._spin.get(control);
+        if (s) s.target += step * KNOB_NOTCH;
     }
 
     // Pièce cliquable : la commande est portée par la racine (voir Cockpit.controlAt)
@@ -681,16 +697,26 @@ class Panel172 {
         const dual = (u, prefix, ux, uy) => {
             const outer = new Group();
             outer.position.copy(u.local(ux, uy));
-            const ring = zCylinder(m(13), 0.008, this._knobBlack, 28);
+            const turnOuter = new Group();
+            const ring = zCylinder(m(13), 0.008, this._knobKnurl, 28);
             ring.position.z = 0.004;
-            outer.add(ring);
+            const ringMark = new Mesh(new BoxGeometry(m(1.6), m(4), 0.0006), this._white);
+            ringMark.position.set(0, m(10.5), 0.0083);
+            turnOuter.add(ring, ringMark);
+            outer.add(turnOuter);
             this._control(outer, `${prefix}:outer`);
+            this._spinner(`${prefix}:outer`, turnOuter);
             const inner = new Group();
             inner.position.copy(u.local(ux, uy));
-            const knob = zCylinder(m(7.5), 0.015, this._knobBlack, 20);
+            const turnInner = new Group();
+            const knob = zCylinder(m(7.5), 0.015, this._knobKnurl, 20);
             knob.position.z = 0.0075;
-            inner.add(knob);
+            const knobMark = new Mesh(new BoxGeometry(m(1.4), m(4.5), 0.0006), this._white);
+            knobMark.position.set(0, m(4), 0.0153);
+            turnInner.add(knob, knobMark);
+            inner.add(turnInner);
             this._control(inner, `${prefix}:inner`);
+            this._spinner(`${prefix}:inner`, turnInner);
         };
         const small = (u, control, ux, uy, r = 6) => {
             const root = new Group();
@@ -753,7 +779,15 @@ class Panel172 {
         p.reply = new Mesh(new BoxGeometry(m(8), m(6), 0.002), this._lamp.clone());
         p.reply.position.copy(xpdr.local(84, 20, 0.001));
         this.group.add(p.reply);
-        for (let k = 0; k < 4; k++) small(xpdr, `xpdr:d${k}`, 124.5 + k * 49, 44, 8);
+        // Boutons du code : moletés, repère blanc, tournent d'un cran par chiffre
+        for (let k = 0; k < 4; k++) {
+            const digit = small(xpdr, `xpdr:d${k}`, 124.5 + k * 49, 44, 8);
+            digit.children[0].material = this._knobKnurl;
+            const mark = new Mesh(new BoxGeometry(m(1.4), m(4), 0.0006), this._white);
+            mark.position.set(0, m(5), 0.0083);
+            digit.add(mark);
+            this._spinner(`xpdr:d${k}`, digit);
+        }
     }
 
     // --- Panneau d'alarmes, Hobbs, cache des passages de manche ---------------------------------------------------
@@ -855,6 +889,11 @@ class Panel172 {
     // state : voir Cockpit.update ; delta (s)
     update(delta, s) {
         const p = this._p, sys = s.systems, av = s.avionics;
+        // Boutons rotatifs tournés (molette) : rejoignent leur cran en douceur
+        for (const k of this._spin.values()) {
+            k.angle += (k.target - k.angle) * Math.min(1, delta * 14);
+            k.obj.rotation.z = -k.angle;
+        }
         const z = (mesh, angle) => { mesh.rotation.z = -angle; };
         z(p.asiNeedle, asiAngle(s.speedKt));
         // Horizon : carte décalée de r/30 par degré, groupe tourné de l'inclinaison

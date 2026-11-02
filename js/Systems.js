@@ -73,7 +73,7 @@ class Systems extends EventTarget {
         this.mixture = 1;               // 1 = plein riche, 0 = étouffoir
         this.panelLights = 0.8;         // rhéostat d'éclairage des instruments (0 -> 1)
         this.domeLight = 0.7;           // plafonnier de cabine (0 = éteint -> 1), réglé à la lampe
-        this.fuel = [20, 20];           // gallons gauche / droite
+        this.fuel = [...(this.fuelLoad ?? [20, 20])];   // gallons gauche / droite (chargement : voir Masse et centrage)
         this.battery = 1;
         this.running = true;
         this.rpm = 800;
@@ -330,7 +330,13 @@ class Systems extends EventTarget {
         // Régime : moteur (gaz, mixture) ou hélice entraînée par le vent relatif / le démarreur
         const target = this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
             : starting && this.switches.masterBat && this.battery > 0.05 ? 280 : airspeed * 18;
-        this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
+        if (!this.running && !starting && this.rpm > target) {
+            // Moteur coupé : l'hélice ralentit sur sa lancée (frottements, compressions) et s'arrête en ~3,8 s depuis le
+            // ralenti, en même temps que le son d'arrêt (engine-cut.wav) ; en vol, elle reste entraînée par le vent
+            this.rpm = Math.max(target, this.rpm - (75 + 0.45 * this.rpm) * delta);
+        } else {
+            this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
+        }
     }
 
     // Pourquoi le moteur n'a pas démarré (message pour le pilote)

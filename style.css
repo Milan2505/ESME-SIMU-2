@@ -749,9 +749,9 @@ img{margin: 0px;
   }
 
   /* Plein écran : l'écran de vol occupe tout l'écran, sous une barre avec les menus Commandes et Météo */
-  #simulator:fullscreen {
+  #simulator:is(:fullscreen, .jeu) {
     display: grid;
-    grid-template-columns: auto auto auto auto 1fr auto;
+    grid-template-columns: auto auto auto auto 1fr auto auto auto auto auto auto;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
     padding: 0;
@@ -759,77 +759,96 @@ img{margin: 0px;
     box-sizing: border-box;
     background: white;
   }
-  #simulator:fullscreen > #titre,
-  #simulator:fullscreen > #profil,
-  #simulator:fullscreen > #paramètre,
-  #simulator:fullscreen > #initiation,
-  #simulator:fullscreen > #solo,
-  #simulator:fullscreen > #multi {
+  #simulator:is(:fullscreen, .jeu) > #titre,
+  #simulator:is(:fullscreen, .jeu) > #initiation,
+  #simulator:is(:fullscreen, .jeu) > #solo,
+  #simulator:is(:fullscreen, .jeu) > #multi {
     display: none;
   }
-  #simulator:fullscreen > #commandes,
-  #simulator:fullscreen > #météo,
-  #simulator:fullscreen > #carte-case,
-  #simulator:fullscreen > #atc-case,
-  #simulator:fullscreen > #online {
+  #simulator:is(:fullscreen, .jeu) > #commandes,
+  #simulator:is(:fullscreen, .jeu) > #météo,
+  #simulator:is(:fullscreen, .jeu) > #carte-case,
+  #simulator:is(:fullscreen, .jeu) > #atc-case,
+  #simulator:is(:fullscreen, .jeu) > #profil,
+  #simulator:is(:fullscreen, .jeu) > #paramètre,
+  #simulator:is(:fullscreen, .jeu) > #online {
     grid-row: 1;
     border: none;
     border-bottom: 2px solid black;
   }
-  #simulator:fullscreen > #carte-case {
+  #simulator:is(:fullscreen, .jeu) > #carte-case {
     grid-column: 3;
     border-right: 2px solid black;
   }
   /* "En ligne" à droite de la barre */
-  #simulator:fullscreen > #atc-case {
+  #simulator:is(:fullscreen, .jeu) > #atc-case {
     grid-column: 4;
     border-right: 2px solid black;
   }
-  #simulator:fullscreen > #online {
+  #simulator:is(:fullscreen, .jeu) > #online {
     grid-column: 6;
     border-left: 2px solid black;
   }
-  #simulator:fullscreen #online .menu-contenu {
+  #simulator:is(:fullscreen, .jeu) > #profil {
+    grid-column: 7;
+    border-left: 2px solid black;
+  }
+  #simulator:is(:fullscreen, .jeu) > #paramètre {
+    grid-column: 8;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    border-left: 2px solid black;
+    cursor: pointer;
+  }
+  #simulator:is(:fullscreen, .jeu) > #paramètre h4 {
+    margin: 0;
+  }
+  #simulator:is(:fullscreen, .jeu) #profil .menu-contenu {
+    left: auto;
     right: 0;
   }
-  #simulator:fullscreen > #commandes {
+  #simulator:is(:fullscreen, .jeu) #online .menu-contenu {
+    right: 0;
+  }
+  #simulator:is(:fullscreen, .jeu) > #commandes {
     grid-column: 1;
     border-right: 2px solid black;
   }
-  #simulator:fullscreen > #météo {
+  #simulator:is(:fullscreen, .jeu) > #météo {
     grid-column: 2;
     border-right: 2px solid black;
   }
-  #simulator:fullscreen .menu-titre {
+  #simulator:is(:fullscreen, .jeu) .menu-titre {
     padding: 8px 18px;
   }
-  #simulator:fullscreen #météo .menu-contenu {
+  #simulator:is(:fullscreen, .jeu) #météo .menu-contenu {
     left: -2px;
     right: auto;
   }
   /* Écran de vol et éléments superposés : toute la largeur, sous la barre */
-  #simulator:fullscreen > #ecran,
-  #simulator:fullscreen > #alarme,
-  #simulator:fullscreen > #nom-vue,
-  #simulator:fullscreen > #crash,
-  #simulator:fullscreen > #perf,
-  #simulator:fullscreen > #ils-bouton,
-  #simulator:fullscreen > #ils-panneau,
-  #simulator:fullscreen > #carte,
-  #simulator:fullscreen > #radio-indicateur,
-  #simulator:fullscreen > #atc,
-  #simulator:fullscreen > #atc-sous-titre {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #ecran,
+  #simulator:is(:fullscreen, .jeu) > #alarme,
+  #simulator:is(:fullscreen, .jeu) > #nom-vue,
+  #simulator:is(:fullscreen, .jeu) > #crash,
+  #simulator:is(:fullscreen, .jeu) > #perf,
+  #simulator:is(:fullscreen, .jeu) > #ils-bouton,
+  #simulator:is(:fullscreen, .jeu) > #ils-panneau,
+  #simulator:is(:fullscreen, .jeu) > #carte,
+  #simulator:is(:fullscreen, .jeu) > #radio-indicateur,
+  #simulator:is(:fullscreen, .jeu) > #atc,
+  #simulator:is(:fullscreen, .jeu) > #atc-sous-titre {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
   /* Barre du haut en plein écran : fond blanc derrière toute la largeur */
-  #simulator:fullscreen::before {
+  #simulator:is(:fullscreen, .jeu)::before {
     content: "";
-    grid-column: 1 / 7;
+    grid-column: 1 / -1;
     grid-row: 1;
     border-bottom: 2px solid black;
   }
-  #simulator:fullscreen > #ecran {
+  #simulator:is(:fullscreen, .jeu) > #ecran {
     border-radius: 0;
   }
 
@@ -966,14 +985,14 @@ img{margin: 0px;
     width: 180px;
     height: 177px;
   }
-  #simulator:fullscreen > #vor-panneau {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #vor-panneau {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
 
   /* Choix du point de départ */
   /* Colonne intégrée à l'écran de vol, à gauche : la vue 3D de l'aérodrome reste visible */
-  #depart-dialog {
+  #depart-dialog, #hangar-panneau, #aerodrome-panneau {
     grid-column: 4/15;
     grid-row: 10/17;
     align-self: start;
@@ -991,14 +1010,14 @@ img{margin: 0px;
     border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   }
-  #depart-dialog[hidden] {
+  #depart-dialog[hidden], #hangar-panneau[hidden], #aerodrome-panneau[hidden] {
     display: none;
   }
-  #simulator:fullscreen > #depart-dialog {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau, #simulator:is(:fullscreen, .jeu) > #aerodrome-panneau {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
-  #depart-dialog h3 {
+  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
     margin-top: 0;
     color: black;
   }
@@ -1064,7 +1083,7 @@ img{margin: 0px;
     font-size: 11px;
     text-align: left;
   }
-  #depart-dialog h3 {
+  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
     margin: 0 0 4px;
     font-size: 15px;
   }
@@ -1162,6 +1181,28 @@ img{margin: 0px;
   #atc-code-demande {
     flex: 1;
     color: #ffb000;
+  }
+  #atc-aerodromes {
+    display: flex;
+    gap: 6px;
+    padding: 6px 10px 0;
+  }
+  #atc-aerodromes button {
+    flex: 1;
+    padding: 3px 4px;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: #9aa3ab;
+    background: #111;
+    border: 1px solid #444;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #atc-aerodromes button.actif {
+    color: #9fe3ff;
+    border-color: #9fe3ff;
   }
   #atc-com {
     display: flex;
@@ -1379,8 +1420,8 @@ img{margin: 0px;
     font-weight: bold;
     cursor: pointer;
   }
-  #simulator:fullscreen > #contexte-perdu {
-    grid-column: 1 / 7;
+  #simulator:is(:fullscreen, .jeu) > #contexte-perdu {
+    grid-column: 1 / -1;
     grid-row: 2;
   }
 
@@ -1474,9 +1515,9 @@ img{margin: 0px;
 #moniteur[hidden] {
   display: none;
 }
-#simulator:fullscreen > #moniteur,
-#simulator:fullscreen > #initiation-dialog {
-  grid-column: 1 / 7;
+#simulator:is(:fullscreen, .jeu) > #moniteur,
+#simulator:is(:fullscreen, .jeu) > #initiation-dialog {
+  grid-column: 1 / -1;
   grid-row: 2;
 }
 #moniteur header {
@@ -1589,4 +1630,1262 @@ img{margin: 0px;
 @keyframes tuto-clignote {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 210, 60, 0.9); }
   50% { box-shadow: 0 0 14px 4px rgba(255, 210, 60, 0.9); }
+}
+
+/* Hangar : réglages de l'avion avant le choix du départ */
+#hangar-panneau .profil-livree {
+  margin: 8px 0 4px;
+}
+.immat {
+  font: inherit;
+  font-weight: normal;
+  padding: 3px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+#hangar-partir {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  color: #fff;
+  background: #1c2c3c;
+  border: 2px solid black;
+  border-radius: 6px;
+}
+#hangar-partir:hover {
+  background: #2d4a66;
+}
+
+.immat.invalide {
+  color: #b00020;
+  outline: 2px solid #b00020;
+}
+
+/* Menu principal : plein écran par-dessus la page, l'aérodrome en direct visible derrière (flou) */
+#menu-principal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(320px, 520px) 1fr;
+  gap: 40px;
+  box-sizing: border-box;
+  padding: 6vh 5vw 8vh;
+  overflow: auto;
+  color: #fff;
+  font-family: Noto Sans, sans-serif;
+  background:
+    linear-gradient(90deg, rgba(8, 18, 32, 0.94) 0%, rgba(8, 18, 32, 0.78) 38%, rgba(8, 18, 32, 0.25) 100%),
+    linear-gradient(0deg, rgba(8, 18, 32, 0.6) 0%, rgba(8, 18, 32, 0) 40%);
+  animation: mp-entree 0.5s ease-out;
+}
+#menu-principal[hidden] {
+  display: none;
+}
+@keyframes mp-entree {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.mp-gauche {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.mp-logo {
+  width: 72px;
+  margin-bottom: 18px;
+  border-radius: 6px;
+}
+.mp-titre {
+  margin: 0;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: clamp(32px, 4.4vw, 58px);
+  font-weight: bold;
+  letter-spacing: 3px;
+  line-height: 1;
+  color: #fff;
+}
+.mp-titre span {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.42em;
+  font-weight: normal;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+.mp-sous-titre {
+  margin: 14px 0 34px;
+  text-indent: 0;
+  font-size: 14px;
+  color: #b8c6d4;
+}
+.mp-boutons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mp-bouton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 20px;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 4px solid transparent;
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.mp-bouton strong {
+  font-size: 19px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.mp-bouton small {
+  font-size: 12px;
+  color: #b8c6d4;
+}
+.mp-bouton:hover,
+.mp-bouton:focus-visible {
+  background: rgba(143, 211, 255, 0.18);
+  border-left-color: #8fd3ff;
+  transform: translateX(6px);
+  outline: none;
+}
+.mp-principal {
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border-color: #3d8fd6;
+}
+.mp-principal:hover,
+.mp-principal:focus-visible {
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+  border-left-color: #fff;
+}
+.mp-droite {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 14px;
+}
+.mp-carte {
+  width: min(340px, 100%);
+  box-sizing: border-box;
+  padding: 14px 16px;
+  background: rgba(8, 18, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+}
+.mp-carte h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+.mp-choix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mp-choix button {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+.mp-choix button:hover {
+  background: rgba(143, 211, 255, 0.2);
+}
+.mp-choix button.actif {
+  color: #08121f;
+  background: #8fd3ff;
+  border-color: #8fd3ff;
+}
+.mp-info {
+  margin: 4px 0;
+  text-indent: 0;
+  font-size: 12px;
+  text-align: left;
+  color: #b8c6d4;
+}
+.mp-pied {
+  position: absolute;
+  left: 5vw;
+  bottom: 2vh;
+  margin: 0;
+  text-indent: 0;
+  font-size: 11px;
+  color: #7f8fa0;
+}
+@media (max-width: 760px) {
+  #menu-principal {
+    grid-template-columns: 1fr;
+    padding: 24px 16px 48px;
+  }
+  .mp-droite {
+    align-items: stretch;
+  }
+  .mp-carte {
+    width: 100%;
+  }
+}
+.mp-retour {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 6px;
+}
+
+/* Mode jeu : l'écran de vol occupe toute la fenêtre (la page du site reste dessous, cachée). La barre de menus
+   (Commandes, Météo, Carte, Tour, En ligne, Profil, Paramètres) n'apparaît qu'avec Échap (classe barre) */
+#simulator.jeu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  width: 100vw;
+  height: 100vh;
+}
+#simulator.jeu:not(.barre) > #commandes,
+#simulator.jeu:not(.barre) > #météo,
+#simulator.jeu:not(.barre) > #carte-case,
+#simulator.jeu:not(.barre) > #atc-case,
+#simulator.jeu:not(.barre) > #online,
+#simulator.jeu:not(.barre) > #profil,
+#simulator.jeu:not(.barre) > #paramètre,
+#simulator.jeu:not(.barre)::before {
+  display: none;
+}
+body:has(#simulator.jeu) {
+  overflow: hidden;
+}
+/* Rappel « Échap : menus » en bas de l'écran, quelques secondes au début du vol */
+#astuce-echap {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  align-self: end;
+  justify-self: center;
+  z-index: 5;
+  margin-bottom: 18px;
+  padding: 6px 14px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(8, 18, 32, 0.75);
+  border-radius: 4px;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+#astuce-echap.cache {
+  opacity: 0;
+}
+
+/* Fenêtre Paramètres : grande, deux colonnes, au thème du menu principal (bleu nuit) */
+#reglages-dialog {
+  box-sizing: border-box;
+  width: min(980px, 94vw);
+  min-width: 0;
+  max-width: none;
+  max-height: 88vh;
+  padding: 26px 32px 20px;
+  overflow: auto;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#reglages-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#reglages-dialog h3 {
+  margin: 0 0 6px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 24px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#reglages-dialog .reglages-intro {
+  margin: 0 0 18px;
+  font-size: 13px;
+  text-align: left;
+  color: #9fb2c4;
+}
+#reglages-liste {
+  columns: 2 380px;
+  column-gap: 36px;
+}
+#reglages-dialog .reglage {
+  break-inside: avoid;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+}
+#reglages-dialog .reglage:hover {
+  background: rgba(143, 211, 255, 0.06);
+}
+#reglages-dialog .reglage-principal {
+  column-span: all;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  font-size: 16px;
+  background: linear-gradient(90deg, rgba(29, 111, 184, 0.45), rgba(29, 111, 184, 0.1));
+  border: 1px solid rgba(61, 143, 214, 0.6);
+  border-radius: 4px;
+}
+#reglages-dialog .reglages-groupe {
+  break-after: avoid;
+  margin: 18px 0 4px;
+  padding-bottom: 6px;
+  font-family: Noto Sans, sans-serif;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.4);
+}
+#reglages-dialog .reglage-nom small {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #8a9db0;
+}
+#reglages-dialog .reglage select {
+  min-width: 130px;
+  padding: 5px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+  cursor: pointer;
+}
+#reglages-dialog .reglage select:hover,
+#reglages-dialog .reglage select:focus {
+  border-color: #8fd3ff;
+  outline: none;
+}
+#reglages-dialog .multi-ligne {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+#reglages-dialog button {
+  padding: 8px 26px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border: 1px solid #3d8fd6;
+  border-radius: 4px;
+}
+#reglages-dialog button:hover {
+  color: #fff;
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+}
+
+/* Fenêtres Multijoueur et Initiation : même thème que le menu principal et les Paramètres (bleu nuit) */
+#multi-dialog,
+#initiation-dialog {
+  box-sizing: border-box;
+  padding: 26px 30px 22px;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  font-size: 14px;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#multi-dialog { width: min(480px, 94vw); }
+#initiation-dialog { width: min(620px, 94vw); max-width: none; }
+#multi-dialog::backdrop,
+#initiation-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#multi-dialog h3,
+#initiation-dialog h3 {
+  margin: 0 0 16px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#multi-dialog h3::after,
+#initiation-dialog h3::after {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 3px;
+  margin-top: 10px;
+  background: #8fd3ff;
+  border-radius: 2px;
+}
+#initiation-dialog .reglages-intro,
+#multi-dialog p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: left;
+  text-indent: 0;
+  color: #9fb2c4;
+}
+/* Champs : libellé au-dessus, champ sombre sur toute la largeur */
+#multi-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+#multi-dialog input,
+#multi-dialog select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+#multi-dialog input::placeholder {
+  color: #6f86a0;
+}
+#multi-dialog input:focus,
+#multi-dialog select:focus {
+  border-color: #8fd3ff;
+  outline: none;
+}
+#multi-dialog #multi-code {
+  width: auto;
+  flex: 1;
+  font-family: DejaVu Sans Mono, monospace;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+#multi-dialog .multi-ligne {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+#multi-dialog .multi-ligne > input {
+  flex: 1;
+  width: auto;
+}
+/* Boutons : secondaires sombres, action principale en bleu */
+#multi-dialog button,
+#initiation-dialog #initiation-annuler {
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s;
+}
+#multi-dialog button:hover,
+#initiation-dialog #initiation-annuler:hover {
+  color: #fff;
+  background: rgba(143, 211, 255, 0.18);
+  border-color: #8fd3ff;
+}
+#multi-dialog #multi-creer {
+  width: 100%;
+  padding: 11px;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border-color: #3d8fd6;
+}
+#multi-dialog #multi-creer:hover {
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+}
+#multi-dialog #multi-quitter:hover {
+  background: rgba(220, 70, 70, 0.25);
+  border-color: #e06666;
+}
+#multi-dialog .multi-ligne:last-child {
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#multi-dialog #multi-statut {
+  margin: 14px 0 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #cfe9ff;
+  background: rgba(143, 211, 255, 0.08);
+  border-left: 3px solid #8fd3ff;
+  border-radius: 2px;
+}
+#multi-dialog #multi-statut.erreur {
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.12);
+  border-left-color: #e06666;
+}
+#multi-dialog #multi-joueurs {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: #dfe7ef;
+}
+#multi-dialog #multi-joueurs li {
+  color: #dfe7ef;
+}
+/* Initiation : niveaux en grandes cases, comme le menu principal */
+#initiation-dialog .initiation-niveaux {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+#initiation-dialog .initiation-niveaux button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 14px 18px;
+  font-family: inherit;
+  text-align: left;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 4px solid transparent;
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+#initiation-dialog .initiation-niveaux button strong {
+  font-size: 16px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+#initiation-dialog .initiation-niveaux button span {
+  font-size: 12px;
+  color: #b8c6d4;
+}
+#initiation-dialog .initiation-niveaux button:hover {
+  background: rgba(143, 211, 255, 0.18);
+  border-left-color: #8fd3ff;
+  transform: translateX(4px);
+}
+#initiation-dialog .initiation-langues {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+#initiation-dialog .initiation-langues button {
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+#initiation-dialog .initiation-langues button.actif {
+  color: #08121f;
+  background: #8fd3ff;
+  border-color: #8fd3ff;
+}
+#initiation-dialog .initiation-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 14px;
+  color: #dfe7ef;
+  cursor: pointer;
+}
+#initiation-dialog .initiation-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: #3d8fd6;
+}
+#initiation-dialog .multi-ligne {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+/* Ligne du lien d'invitation : cachée hors partie (display: flex ne doit pas l'emporter sur hidden) */
+#multi-dialog .multi-ligne[hidden] {
+  display: none;
+}
+
+/* Choix du départ : vues préréglées de l'aérodrome */
+.depart-vues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+.depart-vues button {
+  flex: 1 1 45%;
+  padding: 5px 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 11px;
+  cursor: pointer;
+  color: #114E69;
+  background: #e6f4fb;
+  border: 2px solid #114E69;
+  border-radius: 5px;
+}
+.depart-vues button:hover {
+  background: #C3E6F5;
+}
+.depart-vues button.actif {
+  color: #fff;
+  background: #114E69;
+}
+
+/* Barre de menus (Échap) : « Quitter la partie », à droite */
+#quitter-partie {
+  display: none;
+}
+#simulator.jeu.barre > #quitter-partie {
+  display: block;
+  grid-column: 11;
+  grid-row: 1;
+  padding: 0 20px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  background: #b03030;
+  border: none;
+  border-bottom: 2px solid black;
+  border-left: 2px solid black;
+}
+#simulator.jeu.barre > #quitter-partie:hover {
+  background: #d04040;
+}
+
+/* Informations de vol en vue extérieure (FlightHud.js) : calque transparent sur tout l'écran de vol */
+#hud {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#hud[hidden] {
+  display: none;
+}
+
+/* Barre de menus (Échap) : « Mode photo » (masque les infos de vol et les panneaux superposés) */
+#mode-photo {
+  display: none;
+}
+#simulator.jeu.barre > #mode-photo {
+  display: block;
+  grid-column: 10;
+  grid-row: 1;
+  padding: 0 18px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #114E69;
+  cursor: pointer;
+  background: #fff;
+  border: none;
+  border-bottom: 2px solid black;
+  border-left: 2px solid black;
+}
+#simulator.jeu.barre > #mode-photo:hover {
+  background: #C3E6F5;
+}
+#simulator.jeu.barre > #mode-photo.actif {
+  color: #fff;
+  background: #114E69;
+}
+/* Mode photo : rien par-dessus la vue (sauf la barre, si on l'ouvre pour en sortir) */
+#simulator.photo > #hud,
+#simulator.photo > #nom-vue,
+#simulator.photo > #ils-bouton,
+#simulator.photo > #ils-panneau,
+#simulator.photo > #vor-panneau,
+#simulator.photo > #astuce-echap,
+#simulator.photo > #perf,
+#simulator.photo > #radio-indicateur,
+#simulator.photo > #atc-sous-titre {
+  display: none !important;
+}
+
+/* Mode jeu : panneaux superposés placés hors des infos de vol (FlightHud.js : rose des caps en haut à gauche, groupes
+   de jauges en bas à gauche et en bas à droite, ~250 px de haut à l'échelle de l'écran 1280 × 720) */
+#simulator.jeu {
+  --hud-u: min(100vw / 1280, 100vh / 720);   /* longueur : 1 px de l'écran 1280 × 720 */
+}
+/* Fluidité (touche P) : en haut à droite */
+#simulator.jeu > #perf {
+  justify-self: end;
+}
+/* Indicateur VOR (touche O) : en bas, au centre, entre les deux groupes de jauges */
+#simulator.jeu > #vor-panneau {
+  justify-self: center;
+  margin: 12px;
+}
+/* ILS : bouton au-dessus des jauges de gauche, panneau au-dessus de celles de droite */
+#simulator.jeu > #ils-bouton {
+  margin-bottom: calc(var(--hud-u) * 250);
+}
+#simulator.jeu > #ils-panneau {
+  margin-bottom: calc(var(--hud-u) * 250);
+}
+/* Infos de vol masquées (réglage, vue cabine) : panneaux à leur place habituelle */
+#simulator.jeu.sans-hud > #ils-bouton,
+#simulator.jeu.sans-hud > #ils-panneau {
+  margin-bottom: 12px;
+}
+
+/* Masse et centrage (WeightBalance.js) : chargement à gauche, graphique à droite, thème du menu principal */
+#masse-dialog {
+  box-sizing: border-box;
+  width: min(1180px, 96vw);
+  max-width: none;
+  max-height: 92vh;
+  padding: 24px 30px 20px;
+  overflow: auto;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  font-size: 14px;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#masse-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#masse-dialog h3 {
+  margin: 0 0 4px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+.mc-intro {
+  margin: 0 0 16px;
+  text-indent: 0;
+  text-align: left;
+  font-size: 13px;
+  color: #9fb2c4;
+}
+.mc-corps {
+  display: grid;
+  grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
+  gap: 28px;
+}
+#masse-dialog h4 {
+  margin: 14px 0 6px;
+  padding-bottom: 5px;
+  font-family: Noto Sans, sans-serif;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.3);
+}
+#masse-dialog h4:first-child {
+  margin-top: 0;
+}
+#masse-dialog h4 small {
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb2c4;
+}
+.mc-ligne {
+  display: grid;
+  grid-template-columns: 140px 1fr 62px 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+.mc-ligne span small {
+  display: block;
+  font-size: 11px;
+  color: #8a9db0;
+}
+.mc-ligne em {
+  font-style: normal;
+  font-size: 12px;
+  color: #9fb2c4;
+}
+.mc-ligne input[type="range"] {
+  width: 100%;
+  accent-color: #3d8fd6;
+}
+.mc-ligne input[type="number"] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  text-align: right;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+.mc-carbu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+.mc-sync {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.mc-sync input {
+  width: 16px;
+  height: 16px;
+  accent-color: #3d8fd6;
+}
+#masse-dialog button {
+  padding: 7px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+#masse-dialog button:hover {
+  background: rgba(143, 211, 255, 0.18);
+  border-color: #8fd3ff;
+}
+#masse-dialog .mc-valider {
+  padding: 9px 22px;
+  font-size: 13px;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border-color: #3d8fd6;
+}
+#masse-dialog .mc-valider:hover {
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+}
+.mc-resume {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+.mc-resume div {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+.mc-resume .mc-large {
+  grid-column: 1 / -1;
+}
+.mc-resume dt {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8a9db0;
+}
+.mc-resume dd {
+  margin: 2px 0 0;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+}
+.mc-resume dd.erreur {
+  color: #ff8a80;
+}
+#mc-statut {
+  margin: 0;
+  padding: 9px 12px;
+  text-indent: 0;
+  text-align: left;
+  font-size: 13px;
+  font-weight: bold;
+  color: #b9f5c9;
+  background: rgba(58, 208, 106, 0.1);
+  border-left: 3px solid #3ad06a;
+  border-radius: 2px;
+}
+#mc-statut.erreur {
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.12);
+  border-left-color: #e06666;
+}
+.mc-graphique {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mc-graphique canvas {
+  flex: 1;
+  width: 100%;
+  min-height: 380px;
+  background: rgba(4, 10, 18, 0.6);
+  border: 1px solid rgba(143, 211, 255, 0.2);
+  border-radius: 4px;
+}
+.mc-legende {
+  margin: 8px 0 0;
+  text-indent: 0;
+  text-align: left;
+  font-size: 12px;
+  color: #9fb2c4;
+}
+.mc-pt-deco, .mc-pt-atte {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin: 0 2px 0 8px;
+  vertical-align: -1px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+.mc-pt-deco {
+  background: #ffd23c;
+}
+.mc-pt-atte {
+  background: #0a1626;
+}
+.mc-boutons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+@media (max-width: 860px) {
+  .mc-corps {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Multijoueur : « Fermer la partie » (créateur), en rouge : termine la partie pour tous */
+#multi-dialog #multi-fermer-partie {
+  margin-right: auto;
+  color: #ffd6d6;
+  background: rgba(176, 48, 48, 0.35);
+  border-color: #c04848;
+}
+#multi-dialog #multi-fermer-partie:hover {
+  color: #fff;
+  background: #b03030;
+  border-color: #e06666;
+}
+#multi-dialog #multi-fermer-partie[hidden] {
+  display: none;
+}
+
+/* Barre de menus (Échap) : « Masse et centrage » (même fenêtre que dans le menu principal) */
+#masse-bouton {
+  display: none;
+}
+#simulator.jeu.barre > #masse-bouton {
+  display: block;
+  grid-column: 9;
+  grid-row: 1;
+  padding: 0 18px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #114E69;
+  cursor: pointer;
+  background: #fff;
+  border: none;
+  border-bottom: 2px solid black;
+  border-left: 2px solid black;
+}
+#simulator.jeu.barre > #masse-bouton:hover {
+  background: #C3E6F5;
+}
+
+/* Masse et centrage : « Afficher plus » (bilan carburant, performances) */
+#masse-dialog .mc-plus-bouton {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 9px;
+  letter-spacing: 2px;
+  color: #8fd3ff;
+  background: rgba(143, 211, 255, 0.06);
+  border: 1px dashed rgba(143, 211, 255, 0.4);
+}
+.mc-plus {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  margin-top: 16px;
+}
+.mc-plus[hidden] {
+  display: none;
+}
+.mc-bloc {
+  min-width: 0;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+.mc-reglages {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin-bottom: 10px;
+}
+.mc-reglages label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8a9db0;
+}
+.mc-reglages span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb2c4;
+}
+.mc-reglages input,
+.mc-reglages select,
+.mc-duree input {
+  box-sizing: border-box;
+  padding: 4px 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  color: #fff;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+.mc-reglages input {
+  width: 76px;
+  text-align: right;
+}
+.mc-reglages select {
+  flex: 1;
+  font-family: inherit;
+}
+.mc-durees {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0;
+}
+.mc-duree {
+  display: grid;
+  grid-template-columns: 1fr 52px auto 52px auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #9fb2c4;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mc-duree span {
+  font-size: 14px;
+  color: #e8eef4;
+}
+.mc-duree span small {
+  display: block;
+  font-size: 11px;
+  color: #8a9db0;
+}
+.mc-duree input {
+  width: 100%;
+  text-align: right;
+}
+.mc-tableau {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.mc-tableau th {
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: normal;
+  letter-spacing: 1px;
+  text-align: left;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.3);
+}
+.mc-tableau td {
+  padding: 5px 8px;
+  color: #dfe7ef;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mc-tableau td:not(:first-child),
+.mc-tableau th:not(:first-child) {
+  text-align: right;
+  font-family: DejaVu Sans Mono, monospace;
+  white-space: nowrap;
+}
+.mc-tableau td small {
+  display: block;
+  font-size: 11px;
+  color: #8a9db0;
+}
+.mc-tableau .mc-total td {
+  font-weight: bold;
+  color: #fff;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.mc-tableau .mc-ok td {
+  font-weight: bold;
+  color: #b9f5c9;
+  background: rgba(58, 208, 106, 0.1);
+}
+.mc-tableau .mc-ko td {
+  font-weight: bold;
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.15);
+}
+.mc-perf td {
+  font-size: 15px;
+  font-weight: bold;
+}
+.mc-perf td.erreur {
+  color: #ff8a80;
+}
+#mc-piste {
+  margin: 0 0 8px;
+  padding: 9px 12px;
+  text-indent: 0;
+  text-align: left;
+  font-size: 13px;
+  font-weight: bold;
+  color: #b9f5c9;
+  background: rgba(58, 208, 106, 0.1);
+  border-left: 3px solid #3ad06a;
+}
+#mc-piste.erreur {
+  color: #ffb3b3;
+  background: rgba(220, 70, 70, 0.12);
+  border-left-color: #e06666;
+}
+.mc-note {
+  margin: 6px 0 0;
+  text-indent: 0;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8a9db0;
+}
+@media (max-width: 960px) {
+  .mc-plus {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Masse et centrage : carburant qui suit le bilan (curseurs bloqués) */
+.mc-auto {
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #e8eef4;
+  background: rgba(143, 211, 255, 0.07);
+  border: 1px solid rgba(143, 211, 255, 0.25);
+  border-radius: 4px;
+}
+.mc-auto small {
+  font-size: 11px;
+  color: #8a9db0;
+}
+#masse-dialog input:disabled,
+#masse-dialog button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Choix de l'aérodrome : mêmes cases que la liste des départs */
+#aerodrome-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+#aerodrome-liste button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: white;
+  border: 2px solid #114E69;
+  border-radius: 6px;
+}
+#aerodrome-liste button:hover,
+#aerodrome-liste button.survol {
+  background: #C3E6F5;
+}
+#aerodrome-liste button small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: #46697A;
 }

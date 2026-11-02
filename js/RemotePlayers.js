@@ -198,13 +198,19 @@ class RemotePlayers extends EventTarget {
                 group.position.addScaledVector(this._velocity, delta).lerp(this._targetPosition, positionAlpha);
                 group.quaternion.slerp(this._targetQuaternion, rotationAlpha);
             }
-            if (plane.propeller) plane.propeller.rotation.z += (20 + 80 * state.t) * delta;
+            // Hélice : au régime de son moteur (lissé entre deux messages), arrêtée moteur coupé. Joueur sur une ancienne
+            // version (sans régime) : déduit des gaz, comme avant
+            const rpm = state.rpm ?? 800 + 2000 * state.t;
+            plane.rpm = plane.rpm === undefined ? rpm : plane.rpm + (rpm - plane.rpm) * Math.min(1, delta * 3);
+            if (plane.propeller && !state.crashed) plane.propeller.rotation.z += plane.rpm / 2700 * 100 * delta;
 
             // Livrée changée en cours de partie
             if (state.livery !== plane.livery) {
                 plane.livery = state.livery;
                 paintAircraft(plane.model, state.livery);
             }
+            // Immatriculation choisie ou changée en cours de partie
+            if (this.registrationFor) setRegistration(plane.model, this.registrationFor(id));
 
             // Crash : explosion à l'endroit de l'impact, l'avion disparaît jusqu'à ce que le joueur reparte
             if (state.crashes > plane.crashes) this.dispatchEvent(new CustomEvent('crash', {
@@ -221,7 +227,7 @@ class RemotePlayers extends EventTarget {
 
             // Moteur (créé dès que le son est débloqué par une action du joueur)
             plane.engine ??= this.engineSound?.createRemote() ?? null;
-            plane.engine?.update(group.position, state.t, state.crashed ? 0 : this.engineVolume, delta);
+            plane.engine?.update(group.position, state.t, state.crashed ? 0 : this.engineVolume, delta, state.rpm === null ? null : plane.rpm);
 
             // Étiquette
             const label = plane.label;

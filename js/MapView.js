@@ -2,8 +2,8 @@
 // Nord en haut. Le relief est calculé une seule fois, à la première ouverture.
 
 const NM = 1852;
-const RELIEF_PIXELS = 320;               // finesse de l'image du relief (pour tout le terrain)
-const ZOOMS = [6000, 3000, 1500, 700];   // largeur montrée par la carte (m)
+const RELIEF_PIXELS = 480;               // finesse de l'image du relief (pour tout le terrain : ~33 m par pixel)
+const ZOOMS = [14000, 6000, 3000, 1500, 700];   // largeur montrée par la carte (m) ; la plus large montre les deux aérodromes
 const REDRAW = 1 / 12;                   // carte redessinée 12 fois par seconde au plus (s)
 
 // Couleur du relief selon l'altitude (m), ombrée selon la pente (lumière venant du nord-ouest)
@@ -21,9 +21,10 @@ function reliefColor(height, shade) {
 class MapView {
     // heightAt(x, z) : hauteur du sol ; worldSize : côté du terrain (m) ; shapes : pistes et parkings [{ minX, maxX, minZ, maxZ, kind }]
     // runways : [{ name, threshold }]
-    constructor(canvas, { heightAt, worldSize, shapes = [], runways = [], navaids = [], zooms = ZOOMS }) {
+    constructor(canvas, { heightAt, waterAt = () => false, worldSize, shapes = [], runways = [], navaids = [], zooms = ZOOMS }) {
         this.canvas = canvas;
         this.heightAt = heightAt;
+        this.waterAt = waterAt;   // vrai sur un lac
         this.worldSize = worldSize;
         this.shapes = shapes;
         this.runways = runways;
@@ -223,7 +224,8 @@ class MapView {
                 // Ombrage : pente vers le nord-ouest éclairée, vers le sud-est dans l'ombre
                 const dx = heights[j * n + Math.min(n - 1, i + 1)] - heights[j * n + Math.max(0, i - 1)];
                 const dz = heights[Math.min(n - 1, j + 1) * n + i] - heights[Math.max(0, j - 1) * n + i];
-                const [r, g, b] = reliefColor(h, -(dx + dz) / (pixel * 2) * 1.2);
+                const [r, g, b] = this.waterAt(-half + (i + 0.5) * pixel, -half + (j + 0.5) * pixel)
+                    ? [64, 120, 160] : reliefColor(h, -(dx + dz) / (pixel * 2) * 1.2);
                 const k = (j * n + i) * 4;
                 image.data[k] = r;
                 image.data[k + 1] = g;
