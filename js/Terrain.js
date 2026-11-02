@@ -16,7 +16,7 @@ import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
 // Textures CC0 de Poly Haven (https://polyhaven.com), voir asset/textures/
 const TEXTURES = {
     grass: 'asset/textures/aerial_grass_rock_diff_1k.jpg',
-    rock:  'asset/textures/aerial_rocks_02_diff_1k.jpg',
+    rock:  'asset/textures/rock_face_03_diff_1k.jpg',   // paroi photographiée de face : plaquée en triplanaire
     snow:  'asset/textures/snow_02_diff_1k.jpg',
 };
 
@@ -498,12 +498,30 @@ class Terrain {
                     // Dérivées explicites (textureGrad) : la lecture peut se faire dans un "if"
                     vec3 terrainSample(sampler2D tex, vec2 uv, vec2 dx, vec2 dy) {
                         return mix(textureGrad(tex, uv, dx, dy).rgb, textureGrad(tex, uv * 0.13, dx * 0.13, dy * 0.13).rgb, 0.5);
+                    }
+
+                    // Roche en projection triplanaire : plaquée vue de dessus, la texture s'étirait en traînées sur les
+                    // pentes raides. Poids très contrastés : un seul plan lu sur la plupart des pixels, deux dans les
+                    // transitions (les plans de poids négligeable ne sont pas lus)
+                    vec3 rockSample(sampler2D tex, vec3 pos, vec3 n, vec3 dx, vec3 dy) {
+                        vec3 w = pow(abs(n), vec3(8.0));
+                        w = max(w / (w.x + w.y + w.z) - 0.05, 0.0);
+                        w /= w.x + w.y + w.z;
+                        vec3 color = vec3(0.0);
+                        if (w.x > 0.0) color += w.x * terrainSample(tex, pos.zy, dx.zy, dy.zy);
+                        if (w.y > 0.0) color += w.y * terrainSample(tex, pos.xz, dx.xz, dy.xz);
+                        if (w.z > 0.0) color += w.z * terrainSample(tex, pos.xy, dx.xy, dy.xy);
+                        // Un peu désaturée et grisée : roche de montagne, raccord avec la neige
+                        return mix(color, vec3(dot(color, vec3(0.3, 0.55, 0.15))), 0.45) * 1.1;
                     }`)
                 .replace('#include <map_fragment>', `
                     vec2 terrainUv = vTerrainPos.xz / uTile;
                     vec2 uvDx = dFdx(terrainUv), uvDy = dFdy(terrainUv);
+                    vec3 rockPos = vTerrainPos / uTile;
+                    vec3 rockDx = dFdx(rockPos), rockDy = dFdy(rockPos);   // hors des "if" (dérivées)
+                    vec3 terrainNormal = normalize(vTerrainNormal);
 
-                    float slope = 1.0 - normalize(vTerrainNormal).y;
+                    float slope = 1.0 - terrainNormal.y;
                     float rockAmount = clamp(smoothstep(0.12, 0.3, slope)
                         + smoothstep(uSnowHeight * 0.4, uSnowHeight * 0.8, vTerrainPos.y), 0.0, 1.0);
                     float snowAmount = smoothstep(uSnowHeight, uSnowHeight + 40.0, vTerrainPos.y)
@@ -518,7 +536,7 @@ class Terrain {
                         vec3 grass = terrainSample(tGrass, terrainUv, uvDx, uvDy);
                         terrainColor += grassWeight * mix(grass, grass * uGrassTint * 2.5, 0.6);
                     }
-                    if (rockWeight > 0.0) terrainColor += rockWeight * terrainSample(tRock, terrainUv, uvDx, uvDy);
+                    if (rockWeight > 0.0) terrainColor += rockWeight * rockSample(tRock, rockPos, terrainNormal, rockDx, rockDy);
                     if (snowAmount > 0.0) terrainColor += snowAmount * terrainSample(tSnow, terrainUv, uvDx, uvDy);
 
                     // Fond des lacs : sable et vase, taches d'algues, reflets ondulants de la lumière à travers les vagues ;
