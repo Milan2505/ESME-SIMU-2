@@ -438,7 +438,17 @@ class Terrain {
         // Couloirs d'approche : le relief ne dépasse pas le plafond (raccord adouci sur 30 m), sans jamais creuser
         // sous le niveau de la piste (sinon talus le long de la piste et au bout des seuils)
         const cap = this.limit(x, z);
-        return cap === Infinity ? height : Math.max(softMin(height, cap, 30), Math.min(height, 0));
+        if (cap === Infinity) return height;
+        // Sous le plafond : creux et bosses, plus marqués loin du seuil où le plafond est haut (avant : relief rabattu
+        // en un plan incliné parfaitement lisse). Les bosses ne font que creuser : le couloir reste dégagé
+        let bumps = 0.5;
+        amp = 0.7; freq = 1 / 300;
+        for (let o = 0; o < 4; o++) {
+            bumps += this.noise.noise(x * freq, z * freq, 8.8 + o) * amp;
+            amp *= 0.55; freq *= 2.3;
+        }
+        const rough = Math.min(60, Math.max(0, cap + 15) * 0.5) * Math.min(1, Math.max(0, bumps));
+        return Math.max(softMin(height, cap - rough, 30), Math.min(height, 0));
     }
 
     // 0 au fond des vallées des pistes, 1 hors des vallées (montagnes normales), fondu sur leurs bords

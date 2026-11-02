@@ -597,8 +597,11 @@ function cabinTrim(toCabin) {
                 head *= 1.0 - 0.12 * holes;
                 head = mix(head, uSeam, 1.0 - smoothstep(0.002, 0.005, edge));
                 head *= 0.97 + 0.06 * grain;
-                float roof = smoothstep(0.45, 0.75, cn.y);
+                // Bord du ciel de toit : limite nette (lissée sur un pixel), soulignée d'un jonc foncé
+                float roofSide = cn.y - 0.6, roofPx = max(fwidth(roofSide), 1e-4);
+                float roof = smoothstep(-roofPx, roofPx, roofSide);
                 vec3 trimColor = mix(panel, head, roof);
+                trimColor = mix(trimColor, uSeam * 0.8, 1.0 - smoothstep(roofPx * 1.5, roofPx * 3.0, abs(roofSide)));
                 diffuseColor.rgb = trimColor;
                 totalEmissiveRadiance *= trimColor;`);
     };
