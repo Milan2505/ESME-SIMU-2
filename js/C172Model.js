@@ -770,7 +770,7 @@ function wingRootVents(model, inverse) {
 }
 
 // Pare-soleil : volet sombre sous le toit devant chaque siège, sur son rail (repère de la cabine)
-const SUN_VISOR_UP = 0.12, SUN_VISOR_DOWN = 1.35;   // rotation de la charnière (rad) : relevé contre le toit, rabattu
+const SUN_VISOR_UP = 0.12, SUN_VISOR_DOWN = 1.62;   // rotation de la charnière (rad) : relevé contre le toit, rabattu
 function sunVisors(roofLine) {
     const group = new Group();
     const material = new MeshStandardMaterial({ color: 0x45484e, roughness: 0.7 });
@@ -782,8 +782,8 @@ function sunVisors(roofLine) {
         hinge.position.set(x, roofY - 0.024, z - 0.03);
         hinge.rotation.x = SUN_VISOR_UP;
         hinge.userData.control = `visor:${i}`;
-        const visor = new Mesh(new RoundedBoxGeometry(0.34, 0.01, 0.11, 3, 0.004), material);
-        visor.position.z = 0.058;
+        const visor = new Mesh(new RoundedBoxGeometry(0.34, 0.01, 0.15, 3, 0.004), material);
+        visor.position.z = 0.078;
         hinge.add(visor);
         const track = new Mesh(new RoundedBoxGeometry(0.4, 0.012, 0.025, 2, 0.004), rail);
         track.position.set(x, roofY - 0.018, z - 0.04);
