@@ -8,7 +8,8 @@ import {
     SRGBColorSpace,
     Sphere,
     TextureLoader,
-    Vector3
+    Vector3,
+    Vector4
 } from 'three';
 import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
 
@@ -78,6 +79,7 @@ class Terrain {
         }
 
         this.size = size;
+        this._waterTime = { value: 0 };   // vagues de l'eau et reflets ondulants sur le fond des lacs (voir animate)
         this.material = this._createMaterial(renderer, { snowHeight, tile, grassTint });
         // Groupe des dalles (scene.add(terrain.mesh) ; receiveShadow transmis aux dalles)
         this.mesh = new Group();
@@ -267,25 +269,38 @@ class Terrain {
         return bank + (dry - bank) * smoothstep(0, 0.35 * radius, s);
     }
 
-    // Plans d'eau de tous les lacs (un seul maillage) : bord sous la berge relevée (1,3 × le rayon)
+    // Plans d'eau de tous les lacs (un seul maillage) : grille polaire jusqu'à 1,3 × le rayon (sous la berge relevée).
+    // Chaque sommet porte la profondeur réelle de l'eau (niveau - fond, négative sur la berge) : l'eau s'efface exactement
+    // là où le fond affleure (avant : fondu à un rayon fixe, un voile bleuté restait posé sur la pente de la rive)
     _createWater() {
         if (!this.lakes.length) return null;
-        // aShore : 0 au centre, 1 au bord du disque (la rive est à 1 / 1,3 : voir _waterMaterial, fondu avant la rive)
-        const SIDES = 64, positions = [], shore = [], indices = [];
+        const SIDES = 72, RINGS = 28, positions = [], depth = [], indices = [];
         for (const lake of this.lakes) {
             const center = positions.length / 3;
             positions.push(lake.x, lake.level, lake.z);
-            shore.push(0);
+            depth.push(lake.level - this.groundAt(lake.x, lake.z, lake));
+            for (let r = 1; r <= RINGS; r++) {
+                // Anneaux resserrés vers la rive (là où la profondeur varie vite)
+                const t = Math.sqrt(r / RINGS);
+                for (let a = 0; a < SIDES; a++) {
+                    const angle = a / SIDES * Math.PI * 2, rim = t * 1.3 * lake.radius * this._lakeWobble(lake, angle);
+                    const x = lake.x + Math.cos(angle) * rim, z = lake.z + Math.sin(angle) * rim;
+                    positions.push(x, lake.level, z);
+                    depth.push(lake.level - this.groundAt(x, z, this.lakeAt(x, z) ?? lake));
+                }
+            }
+            const ring = (r, a) => center + 1 + (r - 1) * SIDES + (a % SIDES);
             for (let a = 0; a < SIDES; a++) {
-                const angle = a / SIDES * Math.PI * 2, rim = 1.3 * lake.radius * this._lakeWobble(lake, angle);
-                positions.push(lake.x + Math.cos(angle) * rim, lake.level, lake.z + Math.sin(angle) * rim);
-                shore.push(1);
-                indices.push(center, center + 1 + (a + 1) % SIDES, center + 1 + a);
+                indices.push(center, ring(1, a + 1), ring(1, a));
+                for (let r = 1; r < RINGS; r++) {
+                    indices.push(ring(r, a), ring(r, a + 1), ring(r + 1, a));
+                    indices.push(ring(r, a + 1), ring(r + 1, a + 1), ring(r + 1, a));
+                }
             }
         }
         const geometry = new BufferGeometry();
         geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-        geometry.setAttribute('aShore', new BufferAttribute(new Float32Array(shore), 1));
+        geometry.setAttribute('aDepth', new BufferAttribute(new Float32Array(depth), 1));
         geometry.setAttribute('normal', new BufferAttribute(new Float32Array(positions.length).map((v, i) => (i % 3 === 1 ? 1 : 0)), 3));
         geometry.setIndex(indices);
         geometry.computeBoundingSphere();
@@ -305,22 +320,21 @@ class Terrain {
         const material = new MeshStandardMaterial({ color: 0x173f4d, roughness: 0.06, metalness: 0, transparent: true,
             polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 4 });
         // (pas de « factor » : il grandit avec l'angle de vue ; de loin, l'eau passait derrière le fond du lac et disparaissait)
-        const time = { value: 0 };
-        this._waterTime = time;
+        const time = this._waterTime;
         material.onBeforeCompile = (shader) => {
             shader.uniforms.uWaterTime = time;
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', `#include <common>
-                    attribute float aShore;
-                    varying float vShore;
+                    attribute float aDepth;
+                    varying float vDepth;
                     varying vec3 vWaterPos;`)
                 .replace('#include <begin_vertex>', `#include <begin_vertex>
-                    vShore = aShore;
+                    vDepth = aDepth;
                     vWaterPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
             shader.fragmentShader = shader.fragmentShader
                 .replace('#include <common>', `#include <common>
                     uniform float uWaterTime;
-                    varying float vShore;
+                    varying float vDepth;
                     varying vec3 vWaterPos;
                     // Pente d'une vague : direction, longueur d'onde (m), vitesse, amplitude de pente
                     // Taille d'un pixel sur l'eau (m) : une vague plus courte que ~3 pixels est effacée (sinon, de loin, elle
@@ -351,7 +365,11 @@ class Terrain {
                         vec3 waterSky = vec3(0.62, 0.72, 0.8);
                     #endif
                     outgoingLight = mix(outgoingLight, waterSky * 0.9, clamp(fresnel, 0.0, 0.9));
-                    diffuseColor.a *= 1.0 - smoothstep(0.7, 0.765, vShore);
+                    // Hauts-fonds clairs et transparents (on voit le fond), eau profonde sombre et presque opaque ; rien
+                    // là où le fond affleure (ligne d'eau sur la berge)
+                    float waterDeep = smoothstep(0.4, 6.0, vDepth);
+                    outgoingLight = mix(outgoingLight * vec3(0.9, 1.25, 1.15), outgoingLight, waterDeep);
+                    diffuseColor.a *= smoothstep(0.02, 0.6, vDepth) * mix(0.42, 0.95, waterDeep);
                     #include <opaque_fragment>`);
         };
         return material;
@@ -438,6 +456,9 @@ class Terrain {
 
         const material = new MeshStandardMaterial({ roughness: 1 });
         const tint = new Vector3(...[16, 8, 0].map((shift) => ((grassTint >> shift) & 0xff) / 255));
+        // Fond des lacs : (x, z, niveau de l'eau, portée) ; sous l'eau, le sol devient sable et vase (voir plus bas)
+        const lakes = this.lakes.map((lake) => new Vector4(lake.x, lake.z, lake.level, lake.radius * LAKE_RIM * 1.35));
+        if (!lakes.length) lakes.push(new Vector4(0, 0, -1e4, 0));
 
         // Mélange herbe / roche / neige selon la pente et l'altitude
         material.onBeforeCompile = (shader) => {
@@ -448,6 +469,8 @@ class Terrain {
                 uGrassTint: { value: tint },
                 uTile: { value: tile },
                 uSnowHeight: { value: snowHeight },
+                uLakes: { value: lakes },
+                uWaterTime: this._waterTime,
             });
 
             shader.vertexShader = shader.vertexShader
@@ -466,6 +489,8 @@ class Terrain {
                     uniform vec3 uGrassTint;
                     uniform float uTile;
                     uniform float uSnowHeight;
+                    uniform vec4 uLakes[${lakes.length}];
+                    uniform float uWaterTime;
                     varying vec3 vTerrainPos;
                     varying vec3 vTerrainNormal;
 
@@ -495,6 +520,27 @@ class Terrain {
                     }
                     if (rockWeight > 0.0) terrainColor += rockWeight * terrainSample(tRock, terrainUv, uvDx, uvDy);
                     if (snowAmount > 0.0) terrainColor += snowAmount * terrainSample(tSnow, terrainUv, uvDx, uvDy);
+
+                    // Fond des lacs : sable et vase, taches d'algues, reflets ondulants de la lumière à travers les vagues ;
+                    // plus sombre et bleu-vert avec la profondeur
+                    float lakeDepth = -1.0;
+                    for (int i = 0; i < ${lakes.length}; i++) {
+                        vec2 d = vTerrainPos.xz - uLakes[i].xy;
+                        if (dot(d, d) < uLakes[i].w * uLakes[i].w) lakeDepth = max(lakeDepth, uLakes[i].z - vTerrainPos.y);
+                    }
+                    float underwater = smoothstep(-0.3, 0.5, lakeDepth);
+                    if (underwater > 0.0) {
+                        float grain = dot(terrainSample(tGrass, terrainUv * 0.7, uvDx * 0.7, uvDy * 0.7), vec3(0.33));
+                        vec3 sand = vec3(0.62, 0.56, 0.42) * (0.75 + 0.6 * grain);
+                        float algae = smoothstep(0.45, 0.62, dot(terrainSample(tGrass, terrainUv * 0.09, uvDx * 0.09, uvDy * 0.09), vec3(0.33)) + 0.15 * grain);
+                        vec3 bed = mix(sand, vec3(0.2, 0.3, 0.16), algae * smoothstep(0.8, 3.0, lakeDepth));
+                        vec2 cp = vTerrainPos.xz * 0.55;
+                        float caustic = pow(abs(sin(cp.x + uWaterTime * 0.9 + sin(cp.y * 0.8 - uWaterTime * 0.6) * 1.4)
+                            * sin(cp.y * 1.1 - uWaterTime * 0.7 + sin(cp.x * 0.7 + uWaterTime * 0.8) * 1.2)), 8.0);
+                        bed += vec3(0.5, 0.55, 0.45) * caustic * (1.0 - smoothstep(0.5, 5.0, lakeDepth)) * (1.0 - smoothstep(0.02, 0.4, length(uvDx)));
+                        bed *= mix(vec3(1.0), vec3(0.45, 0.62, 0.66), smoothstep(0.0, ${LAKE_DEPTH}.0, lakeDepth));
+                        terrainColor = mix(terrainColor, bed, underwater);
+                    }
                     diffuseColor.rgb *= terrainColor;`);
         };
         return material;
