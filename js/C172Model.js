@@ -8,6 +8,7 @@ import {
     Color,
     CylinderGeometry,
     DoubleSide,
+    ExtrudeGeometry,
     Float32BufferAttribute,
     FrontSide,
     Group,
@@ -16,6 +17,7 @@ import {
     Mesh,
     MeshBasicMaterial,
     MeshStandardMaterial,
+    Path,
     PlaneGeometry,
     Raycaster,
     Quaternion,
@@ -577,6 +579,8 @@ const CABIN_HALF_WIDTH = 0.53, ROOF_TOP = 1.14;
 const WING_CUTS = {
     wing_center: 'belowAndTop', flaps: 'below',
     wingventhole: 'fromCabin',
+    // Emplanture d'origine (peinte) : de la cabine, seul son habillage est dessiné (voir wingRootVents)
+    wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin',
     wing_leading_edge_center: 'rootFromCabin',
 };
 function hideWingInCabin(model, inverse) {
@@ -736,7 +740,7 @@ function windshieldSeal(glass, roof) {
 
 // Emplanture de l'aile dans les coins hauts du pare-brise (profil d'aile contre le flanc, ses bords) : habillée du
 // plastique des garnitures, comme une pièce moulée, et un aérateur orientable posé dessus, tourné vers les sièges
-const WING_ROOT_PARTS = ['wingroot', 'wing_1Ledge', 'wing_1Redge'];
+const WING_ROOT_PARTS = ['wingroot'];   // (ses bords, fines bandes autrement éclairées, faisaient un liseré clair)
 function wingRootVents(model, inverse, roofLine) {
     const group = new Group();
     const roots = [];
@@ -772,35 +776,63 @@ function wingRootVents(model, inverse, roofLine) {
     return group;
 }
 
-// Pare-soleil : volet fin sous le toit devant chaque siège, sur son rail (repère de la cabine). Rabattu, il pivote
+// Pare-soleil : volet de plastique teinté sous le toit devant chaque siège, sur son bras à fente et son bloc de pivot,
+// tenu par une patte plaquée au plafond (repère de la cabine). Rabattu, il pivote
 // vers l'avant jusqu'à presque se plaquer sous le pare-brise : angle cherché sur la vraie vitre (et le toit), le
 // volet reste partout à SUN_VISOR_GAP sous elle, sans la traverser. surfaces : pièces de l'avion en repère cabine
 const SUN_VISOR_UP = 0.12;                   // rotation de la charnière relevée contre le toit (rad)
-const SUN_VISOR = { width: 0.34, length: 0.15, thickness: 0.005 }, SUN_VISOR_GAP = 0.012;
+const SUN_VISOR_MAX = 2.25;                 // rabattu au plus (rad) : incliné vers la vitre (~130°), pas à plat
+const SUN_VISOR = { width: 0.34, length: 0.17, thickness: 0.004 }, SUN_VISOR_GAP = 0.012;
 function sunVisors(roofLine, surfaces) {
     const group = new Group();
-    const material = new MeshStandardMaterial({ color: 0x45484e, roughness: 0.7 });
-    const rail = new MeshStandardMaterial({ color: 0x17181b, roughness: 0.5 });
+    // Plastique teinté translucide (on devine le ciel au travers), bras et pattes noirs, curseur rouge
+    const tinted = new MeshStandardMaterial({ color: 0x6a7079, roughness: 0.35, transparent: true, opacity: 0.72, side: DoubleSide });
+    const black = new MeshStandardMaterial({ color: 0x1d1f23, roughness: 0.5 });
+    const slot = new MeshStandardMaterial({ color: 0x55595f, roughness: 0.6 });
+    const red = new MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 });
     const z = -2.0, roofY = roofLine[Math.round((z - ROOF_Z0) / ROOF_STEP)] + ROOF_DROP;
     const raycaster = new Raycaster(), up = new Vector3(0, 1, 0), point = new Vector3();
+    const { width: W, length: L, thickness: T } = SUN_VISOR;
+    // Plaque : vue de dessous (x en travers, y = distance à la charnière), coin extérieur coupé en biais, encoche
+    // côté charnière pour le bloc de pivot (out : côté porte, en x)
+    const plate = (out) => {
+        const shape = new Shape(), o = out, k = 0.05, notch = 0.045, rail = 0.02;
+        const pts = [[-o * W / 2 + o * notch, 0], [o * W / 2, 0], [o * W / 2, L - k], [o * W / 2 - o * k, L],
+            [-o * W / 2, L], [-o * W / 2, rail], [-o * W / 2 + o * notch, rail]];
+        shape.moveTo(...pts[0]);
+        for (const pt of pts.slice(1)) shape.lineTo(...pt);
+        const geometry = new ExtrudeGeometry(shape, { depth: T, bevelEnabled: false });
+        geometry.rotateX(Math.PI / 2);   // plan (x, z), épaisseur vers le bas ; y de la forme -> z (s'éloigne de la charnière)
+        return new Mesh(geometry, tinted);
+    };
     [-0.24, 0.24].forEach((x, i) => {
-        // Volet sur sa charnière (bord avant, le long du rail) : rabattu d'un clic (voir Cockpit)
+        const out = Math.sign(x);   // côté porte
+        // Hauteur du plafond au-dessus de la charnière
+        const hingeZ = z - 0.065;
+        raycaster.set(point.set(x, roofY - 0.06, hingeZ), up);
+        const ceiling = roofY - 0.06 + (raycaster.intersectObjects(surfaces, false)[0]?.distance ?? 0.04);
+        // Volet et son bras à fente : pivotent autour de l'axe du bloc (le long de x), rabattus d'un clic (voir Cockpit)
         const hinge = new Group();
-        hinge.position.set(x, roofY - 0.024, z - 0.065);   // au bord avant du toit, contre la moulure du pare-brise
+        hinge.position.set(x, ceiling - 0.016, hingeZ);
         hinge.rotation.x = SUN_VISOR_UP;
         hinge.userData.control = `visor:${i}`;
-        const visor = new Mesh(new RoundedBoxGeometry(SUN_VISOR.width, SUN_VISOR.thickness, SUN_VISOR.length, 2, 0.002), material);
-        visor.position.z = SUN_VISOR.length / 2 + 0.003;
-        hinge.add(visor);
-        // Angle rabattu : de la verticale vers l'avant (et au-delà de l'horizontale si la vitre remonte), tant que
-        // tout le volet reste SUN_VISOR_GAP sous la vitre
+        const visor = plate(out);
+        visor.position.y = -0.004;
+        const arm = new Mesh(new RoundedBoxGeometry(W * 0.78, 0.007, 0.016, 2, 0.003), black);
+        arm.position.set(-out * W * 0.1, -0.002, 0.009);
+        const groove = new Mesh(new RoundedBoxGeometry(W * 0.7, 0.002, 0.004, 1, 0.001), slot);
+        groove.position.set(-out * W * 0.1, -0.006, 0.009);
+        const knob = new Mesh(new CylinderGeometry(0.005, 0.005, 0.006, 14), red);
+        knob.position.set(out * (W * 0.26), -0.008, 0.009);
+        hinge.add(visor, arm, groove, knob);
+        // Angle rabattu : de la verticale vers l'avant, jusqu'à SUN_VISOR_MAX au plus, tant que tout le volet reste
+        // SUN_VISOR_GAP sous la vitre
         let down = Math.PI / 2;
-        for (let angle = Math.PI / 2; angle < Math.PI * 1.15; angle += 0.01) {   // jusqu'au-delà de l'horizontale
+        for (let angle = Math.PI / 2; angle <= SUN_VISOR_MAX; angle += 0.01) {
             let clear = true;
             for (const u of [-0.48, 0, 0.48]) {
-                for (const d of [0.04, 0.09, SUN_VISOR.length + 0.003]) {
-                    point.set(x + u * SUN_VISOR.width, hinge.position.y - d * Math.sin(angle) + SUN_VISOR.thickness,
-                        hinge.position.z + d * Math.cos(angle));
+                for (const d of [0.04, 0.09, L]) {
+                    point.set(x + u * W, hinge.position.y - d * Math.sin(angle) + T, hinge.position.z + d * Math.cos(angle));
                     raycaster.set(point, up);
                     const hit = raycaster.intersectObjects(surfaces, false)[0];
                     if (hit && hit.distance < SUN_VISOR_GAP) clear = false;
@@ -810,11 +842,33 @@ function sunVisors(roofLine, surfaces) {
             down = angle;
         }
         hinge.userData.downAngle = down;
-        const track = new Mesh(new RoundedBoxGeometry(0.4, 0.012, 0.025, 2, 0.004), rail);
-        track.position.set(x, roofY - 0.018, z - 0.04);
-        const knob = new Mesh(new CylinderGeometry(0.007, 0.007, 0.012, 12), new MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 }));
-        knob.position.set(x - 0.12, roofY - 0.028, z - 0.04);
-        group.add(hinge, track, knob);
+        group.add(hinge);
+        // Bloc de pivot (fixe) au bout côté porte, dans l'encoche du volet
+        const bx = x + out * (W / 2 - 0.022);
+        const block = new Mesh(new RoundedBoxGeometry(0.04, 0.018, 0.022, 3, 0.004), black);
+        block.position.set(bx, hinge.position.y, hingeZ);
+        // Patte plaquée au plafond, devant la charnière : gousset percé et longue barre vers l'intérieur
+        const bracket = new Shape();
+        const foot = W * 0.62, deep = 0.045;
+        bracket.moveTo(0, 0);
+        bracket.lineTo(0, deep);
+        bracket.lineTo(0.022, deep);
+        bracket.lineTo(0.05, 0.008);
+        bracket.lineTo(foot, 0.008);
+        bracket.lineTo(foot, 0);
+        bracket.lineTo(0, 0);
+        const hole = new Path();
+        hole.absarc(0.011, 0.03, 0.0065, 0, Math.PI * 2, true);
+        bracket.holes.push(hole);
+        const bracketGeometry = new ExtrudeGeometry(bracket, { depth: 0.003, bevelEnabled: false, curveSegments: 16 });
+        bracketGeometry.rotateX(Math.PI / 2);                 // à plat ; y de la forme -> vers l'avant (z négatif) après retournement
+        bracketGeometry.scale(-out, 1, -1);                   // barre vers l'intérieur de la cabine, gousset vers le pare-brise
+        const plateMesh = new Mesh(bracketGeometry, black);
+        plateMesh.position.set(bx + out * 0.012, ceiling - 0.001, hingeZ - 0.008);
+        // Montant du bloc au plafond
+        const post = new Mesh(new RoundedBoxGeometry(0.014, ceiling - hinge.position.y, 0.014, 2, 0.003), black);
+        post.position.set(bx + out * 0.008, (ceiling + hinge.position.y) / 2, hingeZ);
+        group.add(block, plateMesh, post);
     });
     return group;
 }
