@@ -34,7 +34,7 @@ import { Controls3D } from './Controls3D.js';
 import { Panel172, PANEL_LAYOUT, panelPoint, panelLength, PANEL_FACE_Z } from './Panel172.js';
 import { PEDESTAL_LAYOUT, Hotspots, drawPedestal, drawFuelSelector } from './PanelControls.js';
 import { TANK_CAPACITY } from './Systems.js';
-import { buildCabin, ambient, CABIN_ORIGIN, SUN_VISOR_UP, SUN_VISOR_DOWN } from './C172Model.js';
+import { buildCabin, ambient, CABIN_ORIGIN, SUN_VISOR_UP } from './C172Model.js';
 
 // Cabine de Cessna 172 modélisée ici, vue depuis la place gauche (pilote). Le tableau de bord est dans Panel172.js.
 // Repère : origine à hauteur des yeux sur l'axe de l'avion, -z vers l'avant.
@@ -907,7 +907,7 @@ class Cockpit {
         // Frein de parking : poignée tirée quand il est serré
         this._brakeLever.position.z += ((state.parkingBrake ? 0.05 : 0) + PANEL_FACE_Z - this._brakeLever.position.z) * k;
         for (const { hinge, down } of this._visors ?? []) {
-            hinge.rotation.x += ((down ? SUN_VISOR_DOWN : SUN_VISOR_UP) - hinge.rotation.x) * (1 - Math.exp(-6 * delta));
+            hinge.rotation.x += ((down ? hinge.userData.downAngle : SUN_VISOR_UP) - hinge.rotation.x) * (1 - Math.exp(-6 * delta));
         }
         // Éclairage des instruments : rhéostat, alimentation électrique ; ambré la nuit
         const intensity = 0.12 + (0.38 + 0.4 * this._night) * sys.panelLighting;

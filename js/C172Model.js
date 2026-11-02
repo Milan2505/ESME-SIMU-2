@@ -17,6 +17,7 @@ import {
     MeshBasicMaterial,
     MeshStandardMaterial,
     PlaneGeometry,
+    Raycaster,
     Quaternion,
     RepeatWrapping,
     Shape,
@@ -548,7 +549,15 @@ function buildCabinShell(model) {
         inner.receiveShadow = true;
         group.add(inner);
     }
-    group.add(sunVisors(roofLine));
+    // Vitre et carlingue en repère cabine : le pare-soleil rabattu ne doit pas les traverser
+    const surfaces = ['glas', 'fuselage'].map((name) => model.getObjectByName(name)).filter((mesh) => mesh?.isMesh).map((mesh) => {
+        const copy = new Mesh(mesh.geometry, new MeshBasicMaterial({ side: DoubleSide }));
+        copy.matrixAutoUpdate = false;
+        copy.matrix.copy(inverse.clone().multiply(mesh.matrixWorld));
+        copy.matrixWorld.copy(copy.matrix);
+        return copy;
+    });
+    group.add(sunVisors(roofLine, surfaces));
     group.add(wingRootVents(model, inverse, roofLine));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
@@ -763,22 +772,44 @@ function wingRootVents(model, inverse, roofLine) {
     return group;
 }
 
-// Pare-soleil : volet sombre sous le toit devant chaque siège, sur son rail (repère de la cabine)
-const SUN_VISOR_UP = 0.12, SUN_VISOR_DOWN = 1.62;   // rotation de la charnière (rad) : relevé contre le toit, rabattu
-function sunVisors(roofLine) {
+// Pare-soleil : volet fin sous le toit devant chaque siège, sur son rail (repère de la cabine). Rabattu, il pivote
+// vers l'avant jusqu'à presque se plaquer sous le pare-brise : angle cherché sur la vraie vitre (et le toit), le
+// volet reste partout à SUN_VISOR_GAP sous elle, sans la traverser. surfaces : pièces de l'avion en repère cabine
+const SUN_VISOR_UP = 0.12;                   // rotation de la charnière relevée contre le toit (rad)
+const SUN_VISOR = { width: 0.34, length: 0.15, thickness: 0.005 }, SUN_VISOR_GAP = 0.012;
+function sunVisors(roofLine, surfaces) {
     const group = new Group();
     const material = new MeshStandardMaterial({ color: 0x45484e, roughness: 0.7 });
     const rail = new MeshStandardMaterial({ color: 0x17181b, roughness: 0.5 });
     const z = -2.0, roofY = roofLine[Math.round((z - ROOF_Z0) / ROOF_STEP)] + ROOF_DROP;
+    const raycaster = new Raycaster(), up = new Vector3(0, 1, 0), point = new Vector3();
     [-0.24, 0.24].forEach((x, i) => {
-        // Volet sur sa charnière (bord avant, le long du rail) : rabattu vers le bas d'un clic (voir Cockpit)
+        // Volet sur sa charnière (bord avant, le long du rail) : rabattu d'un clic (voir Cockpit)
         const hinge = new Group();
-        hinge.position.set(x, roofY - 0.024, z - 0.03);
+        hinge.position.set(x, roofY - 0.024, z - 0.065);   // au bord avant du toit, contre la moulure du pare-brise
         hinge.rotation.x = SUN_VISOR_UP;
         hinge.userData.control = `visor:${i}`;
-        const visor = new Mesh(new RoundedBoxGeometry(0.34, 0.01, 0.15, 3, 0.004), material);
-        visor.position.z = 0.078;
+        const visor = new Mesh(new RoundedBoxGeometry(SUN_VISOR.width, SUN_VISOR.thickness, SUN_VISOR.length, 2, 0.002), material);
+        visor.position.z = SUN_VISOR.length / 2 + 0.003;
         hinge.add(visor);
+        // Angle rabattu : de la verticale vers l'avant (et au-delà de l'horizontale si la vitre remonte), tant que
+        // tout le volet reste SUN_VISOR_GAP sous la vitre
+        let down = Math.PI / 2;
+        for (let angle = Math.PI / 2; angle < Math.PI * 1.15; angle += 0.01) {   // jusqu'au-delà de l'horizontale
+            let clear = true;
+            for (const u of [-0.48, 0, 0.48]) {
+                for (const d of [0.04, 0.09, SUN_VISOR.length + 0.003]) {
+                    point.set(x + u * SUN_VISOR.width, hinge.position.y - d * Math.sin(angle) + SUN_VISOR.thickness,
+                        hinge.position.z + d * Math.cos(angle));
+                    raycaster.set(point, up);
+                    const hit = raycaster.intersectObjects(surfaces, false)[0];
+                    if (hit && hit.distance < SUN_VISOR_GAP) clear = false;
+                }
+            }
+            if (!clear) break;
+            down = angle;
+        }
+        hinge.userData.downAngle = down;
         const track = new Mesh(new RoundedBoxGeometry(0.4, 0.012, 0.025, 2, 0.004), rail);
         track.position.set(x, roofY - 0.018, z - 0.04);
         const knob = new Mesh(new CylinderGeometry(0.007, 0.007, 0.012, 12), new MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 }));
@@ -1096,4 +1127,4 @@ function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) 
     return g;
 }
 
-export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE, SUN_VISOR_UP, SUN_VISOR_DOWN };
+export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE, SUN_VISOR_UP };
