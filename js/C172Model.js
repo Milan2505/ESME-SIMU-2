@@ -740,7 +740,8 @@ function windshieldSeal(glass, roof) {
 
 // Emplanture de l'aile dans les coins hauts du pare-brise (profil d'aile contre le flanc, ses bords) : habillée du
 // plastique des garnitures, comme une pièce moulée, et un aérateur orientable posé dessus, tourné vers les sièges
-const WING_ROOT_PARTS = ['wingroot'];   // (ses bords, fines bandes autrement éclairées, faisaient un liseré clair)
+const WING_ROOT_PARTS = ['wingroot', 'wing_1Ledge', 'wing_1Redge'];
+const WING_ROOT_EDGE_MATERIAL = ambient(new MeshStandardMaterial({ color: 0x55585c, roughness: 0.9, side: DoubleSide, emissive: 0x1c1d1f }));
 function wingRootVents(model, inverse, roofLine) {
     const group = new Group();
     const roots = [];
@@ -748,7 +749,9 @@ function wingRootVents(model, inverse, roofLine) {
         if (!source.isMesh || !WING_ROOT_PARTS.includes(source.name)) return;
         const inner = new Mesh(source.geometry);
         inner.applyMatrix4(inverse.clone().multiply(source.matrixWorld));
-        inner.material = cabinTrim(inner.matrix, DoubleSide, roofLine);
+        // Profil : garniture ; bords arrondis (nez de l'aile, comme vu de dehors) : même gris, uni (la garniture y
+        // tombait sur la limite du ciel de toit et faisait un liseré clair)
+        inner.material = source.name === 'wingroot' ? cabinTrim(inner.matrix, DoubleSide, roofLine) : WING_ROOT_EDGE_MATERIAL;
         Object.assign(inner.material, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
         group.add(inner);
         if (source.name === 'wingroot') {
