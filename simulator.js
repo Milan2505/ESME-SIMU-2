@@ -182,13 +182,41 @@ let gear = null;                  // roulette de nez orientable, roues qui roule
 let chaseView = true;
 const clock = new THREE.Clock();
 
-// Sur un lac, les roues s'enfoncent dans l'eau (sol posé 45 cm sous la surface) ; voir aussi surfaceAt
-const WATER_SINK = 0.45;
+// Sur un lac, l'avion s'enfonce à mesure qu'il ralentit : roues 45 cm sous la surface à la vitesse d'amerrissage,
+// ventre dans l'eau au pas ; presque arrêté, il coule lentement (un C172 sur roues ne flotte pas), le nez (moteur)
+// d'abord. Quand l'eau atteint l'aile, il a coulé. Le fond du lac l'arrête (eau peu profonde près des rives)
+const WATER_SINK = 0.45, WATER_SINK_SLOW = 1.3, WATER_SINK_RATE = 0.15;   // m, m, m/s
+let waterSink = WATER_SINK;   // enfoncement actuel des roues sous la surface
+let sunk = false;             // crash en cours : avion coulé (pas d'explosion)
 function waterLake(x, z) {
     const lake = terrain.lakeAt(x, z);
     return lake && terrain.groundAt(x, z, lake) < lake.level - WATER_SINK ? lake : null;
 }
-controls.groundHeight = (x, z) => (waterLake(x, z) ? waterLake(x, z).level - WATER_SINK : terrain.heightAt(x, z));
+controls.groundHeight = (x, z) => {
+    const lake = waterLake(x, z);
+    return lake ? Math.max(terrain.groundAt(x, z, lake), lake.level - waterSink) : terrain.heightAt(x, z);
+};
+function updateWaterSink(delta) {
+    const onWater = controls.isOnGround() && !controls.isCrashed() && controls.getSurface() === 'water';
+    const lake = onWater ? waterLake(aircraft.position.x, aircraft.position.z) : null;
+    if (!lake) {
+        waterSink = WATER_SINK;
+        return;
+    }
+    const wingHeight = controls.model.aircraft.wingHeight;
+    const speed = controls.getSpeed();
+    const target = speed < 2 ? wingHeight + 1
+        : THREE.MathUtils.lerp(WATER_SINK_SLOW, WATER_SINK, THREE.MathUtils.smoothstep(speed, 2, 18));
+    waterSink += THREE.MathUtils.clamp(target - waterSink, -0.6 * delta, (speed < 2 ? WATER_SINK_RATE : 0.4) * delta);
+    // Nez qui plonge (moteur lourd) à mesure que l'avion coule ; l'assiette est recalculée à chaque image au sol
+    aircraft.rotateX(-THREE.MathUtils.degToRad(10) * THREE.MathUtils.smoothstep(waterSink, WATER_SINK_SLOW, wingHeight));
+    // Eau au-dessus du bas des roues (le fond peut retenir l'avion avant)
+    const depth = lake.level - (aircraft.position.y - WHEEL_HEIGHT);
+    if (depth > wingHeight - 0.2) {
+        sunk = true;
+        controls.model.crash("L'avion a coulé");
+    }
+}
 controls.surfaceAt = (x, z) => (waterLake(x, z) ? 'water' : airport.surfaceAt(x, z));
 
 // Gerbes d'écume quand l'avion roule (ou glisse) sur un lac : gouttes lancées par les roues, retombant dans l'eau
@@ -1065,8 +1093,13 @@ controls.addEventListener('crash', ({ reason }) => {
     crashReason.textContent = `${reason} — retour au point de départ…`;
     crashBanner.classList.add('actif');
     const wreck = aircraft.position.clone().setY(terrain.heightAt(aircraft.position.x, aircraft.position.z));
-    crashEffect.start(wreck);
-    aircraft.visible = false; // l'avion détruit disparaît dans la boule de feu
+    // Avion coulé : il reste visible, l'aile au ras de l'eau ; sinon il disparaît dans la boule de feu
+    const sinking = sunk;
+    sunk = false;
+    if (!sinking) {
+        crashEffect.start(wreck);
+        aircraft.visible = false;
+    }
     // Caméra de crash : en retrait derrière le point d'impact, au-dessus du sol
     const back = new THREE.Vector3(0, 0, 1).applyQuaternion(aircraft.quaternion).setY(0);
     if (back.lengthSq() < 0.01) back.set(0, 0, 1);
@@ -1075,8 +1108,10 @@ controls.addEventListener('crash', ({ reason }) => {
     crashCamera.target.copy(wreck).setY(wreck.y + 4);
     camera.fov = CAM_FOV;
     camera.updateProjectionMatrix();
-    sounds.play('crash');
-    shake = 1.2;
+    if (!sinking) {
+        sounds.play('crash');
+        shake = 1.2;
+    }
     clearTimeout(crashTimer);
     crashTimer = setTimeout(() => controls.reset(), CRASH_RESET_DELAY);
 });
@@ -2817,6 +2852,7 @@ renderer.setAnimationLoop((time)=>{
     wind.update();
     controls.model.wind.copy(wind.vector);
     if (!choosingSpawn) controls.update( delta );
+    if (!choosingSpawn) updateWaterSink( delta );
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
     lastAircraftPosition.copy(aircraft.position);

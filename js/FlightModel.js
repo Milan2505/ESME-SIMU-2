@@ -561,6 +561,11 @@ class FlightModel extends EventDispatcher {
 		}
 	}
 
+	// Fin du vol décidée hors du modèle (avion coulé dans un lac)
+	crash( reason ) {
+		if ( ! this.crashed ) this._crash( reason );
+	}
+
 	_crash( reason ) {
 		this.crashed = true;
 		this.stalled = false;
