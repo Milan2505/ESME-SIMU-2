@@ -3,6 +3,7 @@ import {
     Box3,
     BoxGeometry,
     CanvasTexture,
+    Color,
     CylinderGeometry,
     DoubleSide,
     FrontSide,
@@ -525,18 +526,83 @@ function runJobs() {
 // Garnitures : l'envers de la carrosserie de l'avion chargé (repère avion)
 function buildCabinShell(model) {
     const group = new Group();
-    const trim = ambient(new MeshStandardMaterial({ color: 0xbca684, roughness: 0.85, side: BackSide, emissive: 0x3a342a }));
     model.updateMatrixWorld(true);
     const inverse = model.matrixWorld.clone().invert();
     for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top']) {
         const source = model.getObjectByName(name);
         if (!source) continue;
-        const inner = new Mesh(source.geometry, trim);
+        const inner = new Mesh(source.geometry);
         inner.applyMatrix4(inverse.clone().multiply(source.matrixWorld));
+        inner.material = cabinTrim(inner.matrix);
         inner.receiveShadow = true;
         group.add(inner);
     }
     return group;
+}
+
+// Garnitures dessinées dans le shader, en coordonnées de la cabine (la peau de l'avion n'a pas de coordonnées de
+// texture pour l'intérieur) : ciel de toit en vinyle perforé, bombé entre les arceaux, coutures en travers ; flancs,
+// montants et portes en vinyle grainé, bas de porte plus foncé sous un liseré à hauteur d'accoudoir.
+// toCabin : repère de la pièce -> repère de la cabine (une matière par pièce, un seul programme pour toutes)
+const TRIM_COLORS = {
+    headliner: new Color(0xd3cbbb), seam: new Color(0x8f8676), panel: new Color(0xb8a889), kick: new Color(0x5e5549),
+};
+function cabinTrim(toCabin) {
+    const material = ambient(new MeshStandardMaterial({ roughness: 0.85, side: BackSide, emissive: 0x4f4f4f }));
+    material.customProgramCacheKey = () => 'cabinTrim';
+    material.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, {
+            uToCabin: { value: toCabin },
+            uHeadliner: { value: TRIM_COLORS.headliner }, uSeam: { value: TRIM_COLORS.seam },
+            uPanel: { value: TRIM_COLORS.panel }, uKick: { value: TRIM_COLORS.kick },
+            uBeltY: { value: FLOOR_Y + 0.5 },
+        });
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', `#include <common>
+                uniform mat4 uToCabin;
+                varying vec3 vCabinPos;
+                varying vec3 vCabinNormal;`)
+            .replace('#include <begin_vertex>', `#include <begin_vertex>
+                vCabinPos = (uToCabin * vec4(transformed, 1.0)).xyz;
+                vCabinNormal = mat3(uToCabin) * objectNormal;`);
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', `#include <common>
+                uniform vec3 uHeadliner, uSeam, uPanel, uKick;
+                uniform float uBeltY;
+                varying vec3 vCabinPos;
+                varying vec3 vCabinNormal;
+                float trimHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+                float trimNoise(vec2 p) {
+                    vec2 i = floor(p), f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(trimHash(i), trimHash(i + vec2(1.0, 0.0)), f.x),
+                        mix(trimHash(i + vec2(0.0, 1.0)), trimHash(i + vec2(1.0, 1.0)), f.x), f.y);
+                }`)
+            .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+                vec3 cp = vCabinPos;
+                vec3 cn = normalize(vCabinNormal);   // normale de la peau, vers l'extérieur
+                // Flancs : grain du vinyle (plan de projection selon l'orientation), bas de porte foncé, liseré
+                vec2 gp = abs(cn.x) > 0.5 ? cp.zy : cp.xz;
+                float grain = 0.6 * trimNoise(gp * 140.0) + 0.4 * trimNoise(gp * 30.0);
+                vec3 panel = mix(uKick, uPanel, smoothstep(uBeltY - 0.01, uBeltY + 0.01, cp.y));
+                float belt = 1.0 - smoothstep(0.004, 0.009, abs(cp.y - uBeltY - 0.015));
+                panel = mix(panel, uSeam, belt * 0.8) * (0.88 + 0.2 * grain);
+                // Ciel de toit : arceaux tous les 30 cm (coutures, tissu bombé entre deux), perforations fines
+                // effacées de loin (moiré)
+                float bow = fract(cp.z / 0.3);
+                float edge = min(bow, 1.0 - bow) * 0.3;
+                vec3 head = uHeadliner * (0.84 + 0.16 * sin(3.14159 * bow));
+                vec2 cell = fract(cp.xz / 0.0055) - 0.5;
+                float holes = (1.0 - smoothstep(0.16, 0.26, length(cell))) * (1.0 - smoothstep(0.0015, 0.003, length(fwidth(cp.xz))));
+                head *= 1.0 - 0.12 * holes;
+                head = mix(head, uSeam, 1.0 - smoothstep(0.002, 0.005, edge));
+                head *= 0.97 + 0.06 * grain;
+                float roof = smoothstep(0.45, 0.75, cn.y);
+                vec3 trimColor = mix(panel, head, roof);
+                diffuseColor.rgb = trimColor;
+                totalEmissiveRadiance *= trimColor;`);
+    };
+    return material;
 }
 
 function buildCabin() {
