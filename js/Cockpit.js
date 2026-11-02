@@ -145,8 +145,46 @@ function vorIndicator(ctx, cx, cy, r, vor) {
     ctx.arc(cx, cy + r * 0.05, r * 0.08, 0, Math.PI * 2);
     ctx.stroke();
 
+    // ILS (vor.ils) : échelle verticale de la pente à droite, un point = 1/4 de la butée
+    const ils = Boolean(vor?.ils);
+    const gsScale = r * 0.12, gsX = cx + r * 0.62, gsY = cy + r * 0.05;
+    if (ils) {
+        for (let i = -4; i <= 4; i++) {
+            if (i === 0) continue;
+            ctx.beginPath();
+            ctx.arc(gsX, gsY + i * gsScale, 3.5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.fillRect(gsX - 8, gsY - 1, 16, 2);
+    }
+
     const signal = vor?.available && !vor.overhead;
-    if (signal) {
+    if (signal && ils) {
+        // Localizer : même aiguille que le VOR ; pente : aiguille horizontale (en haut : la pente est au-dessus)
+        const x = cx + vor.localizer * scale * 5;
+        ctx.strokeStyle = '#f5f5f5';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(x, cy - r * 0.55);
+        ctx.lineTo(x, cy + r * 0.62);
+        ctx.stroke();
+        if (vor.glide) {
+            const y = gsY - vor.glideslope * gsScale * 4;
+            ctx.beginPath();
+            ctx.moveTo(cx - r * 0.5, y);
+            ctx.lineTo(cx + r * 0.5, y);
+            ctx.stroke();
+        } else {
+            // Drapeau GS : pas de pente (passé le seuil)
+            ctx.fillStyle = '#c0392b';
+            ctx.fillRect(cx - r * 0.2 - 52, cy - r * 0.42 + 26, 40, 22);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 14px DejaVu Sans Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('GS', cx - r * 0.2 - 32, cy - r * 0.42 + 38);
+        }
+    } else if (signal) {
         // Aiguille d'écart de route
         const x = cx + vor.deviation * scale * 5;
         ctx.strokeStyle = '#f5f5f5';
@@ -178,8 +216,13 @@ function vorIndicator(ctx, cx, cy, r, vor) {
     ctx.fillStyle = '#ffd34d';
     ctx.font = 'bold 18px DejaVu Sans Mono, monospace';
     ctx.fillText(String(Math.round(course)).padStart(3, '0'), cx, cy - r * 0.42);
-    caption(ctx, cx, cy + r * 0.38, vor?.ident ? `${vor.ident} ${vor.frequency}` : 'VOR', 12);
-    caption(ctx, cx + r * 0.25, cy + r * 1.24, signal ? `DME ${vor.dmeNM.toFixed(1)} NM` : 'VOR', 13);
+    if (ils) {
+        caption(ctx, cx, cy + r * 0.38, `ILS ${vor.runway ?? ''} ${vor.frequency ?? ''}`, 12);
+        caption(ctx, cx + r * 0.25, cy + r * 1.24, signal ? `${(vor.distance / 1852).toFixed(1)} NM` : 'ILS', 13);
+    } else {
+        caption(ctx, cx, cy + r * 0.38, vor?.ident ? `${vor.ident} ${vor.frequency}` : 'VOR', 12);
+        caption(ctx, cx + r * 0.25, cy + r * 1.24, signal ? `DME ${vor.dmeNM.toFixed(1)} NM` : 'VOR', 13);
+    }
     // Bouton OBS (moleté) : clic à gauche -1°, à droite +1°, molette ; touches J / K
     const kx = cx - r * 0.97, ky = cy + r, kr = Math.max(14, r * 0.32);
     ctx.fillStyle = '#2b2d31';

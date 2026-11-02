@@ -2560,17 +2560,18 @@ function updateVor(delta) {
 }
 const ilsButton = document.getElementById('ils-bouton');
 const ilsPanel = document.getElementById('ils-panneau');
-const ilsLoc = document.getElementById('ils-loc');
-const ilsGs = document.getElementById('ils-gs');
+const ilsCanvas = document.getElementById('ils-canvas');
 const ilsText = document.getElementById('ils-texte');
+let ilsTimer = 0;
 
 // ILS : affiché sur la NAV 1 (fréquence 110.30) ; touche I et bouton en vue extérieure : y passer ou en revenir
 function toggleIls() {
     avionics.toggleNav1(nearestIlsKhz());
+    ilsTimer = 0;
     updateIls();
 }
 
-function updateIls() {
+function updateIls(delta = 0) {
     // ILS affiché sur la NAV 1, sinon celui de l'aérodrome le plus proche (bouton « ILS disponible »)
     const tuned = ilsByKhz.get(avionics.nav1.active);
     const state = ils.update(aircraft.position, tuned ?? nearestAirport().ilsFrequency);
@@ -2581,11 +2582,14 @@ function updateIls() {
     if (showButton) ilsButton.textContent = ils.active ? `ILS ${state.runway} ✓` : `ILS ${state.runway} disponible`;
 
     ilsPanel.hidden = !(chaseView && ils.active);
-    if (ilsPanel.hidden) return;
-    // Aiguilles : ±40 % de la taille du cadran en butée
-    ilsLoc.style.left = `${50 + state.localizer * 40}%`;
-    ilsGs.style.top = `${50 - state.glideslope * 40}%`;
-    ilsGs.hidden = state.distance <= 0;
+    if (ilsPanel.hidden || (ilsTimer -= delta) > 0) return;
+    ilsTimer = 0.1;
+    // Même indicateur que le VOR (touche O), route de la piste en haut, aiguille de pente en plus
+    const ctx = ilsCanvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#25272b';
+    ctx.fillRect(0, 0, ilsCanvas.width, ilsCanvas.height);
+    vorIndicator(ctx, ilsCanvas.width / 2, 112, 92, { ...state, ils: true, glide: state.distance > 0 });
     // Unités aéronautiques : distance en milles nautiques, hauteurs en pieds
     ilsText.textContent = `Piste ${state.runway} · ${(state.distance / 1852).toFixed(1)} NM\n`
         + `Hauteur ${Math.round(state.height / 0.3048)} ft (idéal ${Math.round(state.glideHeight / 0.3048)} ft)\n${ils.advice()}`;
@@ -2947,7 +2951,7 @@ renderer.setAnimationLoop((time)=>{
     terrain.animate( clock.elapsedTime );
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
-    updateIls();
+    updateIls(delta);
     updateVor( delta );
     controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps(), controls.getTrim() );
     if (gear) {
