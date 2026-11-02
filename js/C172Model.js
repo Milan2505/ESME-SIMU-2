@@ -560,7 +560,7 @@ function buildCabinShell(model) {
         return copy;
     });
     group.add(sunVisors(roofLine, surfaces));
-    group.add(wingRootVents(model, inverse, roofLine));
+    group.add(wingRootVents(surfaces));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
         group.add(windshieldSeal({ mesh: glass, toCabin: inverse.clone().multiply(glass.matrixWorld) },
@@ -579,7 +579,7 @@ const CABIN_HALF_WIDTH = 0.53, ROOF_TOP = 1.14;
 const WING_CUTS = {
     wing_center: 'belowAndTop', flaps: 'below',
     wingventhole: 'fromCabin',
-    // Emplanture d'origine (peinte) : de la cabine, seul son habillage est dessiné (voir wingRootVents)
+    // Profil d'aile de l'emplanture (en partie hors du pare-brise) : pas dessiné de la cabine (voir wingRootVents)
     wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin',
     wing_leading_edge_center: 'rootFromCabin',
 };
@@ -738,31 +738,29 @@ function windshieldSeal(glass, roof) {
     return group;
 }
 
-// Emplanture de l'aile dans les coins hauts du pare-brise (profil d'aile contre le flanc, ses bords) : habillée du
-// plastique des garnitures, comme une pièce moulée, et un aérateur orientable posé dessus, tourné vers les sièges
-const WING_ROOT_PARTS = ['wingroot', 'wing_1Ledge', 'wing_1Redge'];
-const WING_ROOT_EDGE_MATERIAL = ambient(new MeshStandardMaterial({ color: 0x55585c, roughness: 0.9, side: DoubleSide, emissive: 0x1c1d1f }));
-function wingRootVents(model, inverse, roofLine) {
+// Aérateurs d'emplanture : renflement moulé de la garniture qui descend du plafond (l'aile est juste au-dessus) dans
+// l'angle du toit et du flanc, juste derrière le haut du montant du pare-brise, tout entier dans la cabine ; aérateur
+// orientable dessus, tourné vers les sièges. Plafond et flanc mesurés sur la carlingue (surfaces : repère cabine).
+// Le profil d'aile d'origine, en partie hors du pare-brise, n'est pas dessiné de la cabine (voir WING_CUTS)
+const VENT_POD_Z = -1.97;
+const VENT_POD_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xb4b8be, roughness: 0.85, emissive: 0x2c2e31 }));
+function wingRootVents(surfaces) {
     const group = new Group();
-    const roots = [];
-    model.traverse((source) => {
-        if (!source.isMesh || !WING_ROOT_PARTS.includes(source.name)) return;
-        const inner = new Mesh(source.geometry);
-        inner.applyMatrix4(inverse.clone().multiply(source.matrixWorld));
-        // Profil : garniture ; bords arrondis (nez de l'aile, comme vu de dehors) : même gris, uni (la garniture y
-        // tombait sur la limite du ciel de toit et faisait un liseré clair)
-        inner.material = source.name === 'wingroot' ? cabinTrim(inner.matrix, DoubleSide, roofLine) : WING_ROOT_EDGE_MATERIAL;
-        Object.assign(inner.material, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-        group.add(inner);
-        if (source.name === 'wingroot') {
-            roots.push(new Box3().setFromBufferAttribute(source.geometry.attributes.position).applyMatrix4(inner.matrix));
-        }
-    });
+    const raycaster = new Raycaster(), origin = new Vector3();
     const dark = new MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.55 });
     const black = new MeshBasicMaterial({ color: 0x050505 });
-    for (const box of roots) {
-        const center = box.getCenter(new Vector3()), side = Math.sign(center.x);
-        // Collerette, rotule, buse et son trou ; axe vers les sièges (vers l'intérieur, vers l'arrière, un peu vers le bas)
+    for (const side of [-1, 1]) {
+        raycaster.set(origin.set(side * 0.2, 0.95, VENT_POD_Z), new Vector3(side, 0, 0));
+        const wallX = side * (0.2 + (raycaster.intersectObjects(surfaces, false)[0]?.distance ?? 0.32));
+        raycaster.set(origin.set(wallX - side * 0.07, 0.9, VENT_POD_Z), new Vector3(0, 1, 0));
+        const ceilingY = 0.9 + (raycaster.intersectObjects(surfaces, false)[0]?.distance ?? 0.2);
+        // Renflement : demi-ovoïde dont le haut et le côté sont noyés dans le plafond et le flanc
+        const pod = new Mesh(new SphereGeometry(1, 28, 18), VENT_POD_MATERIAL);
+        pod.scale.set(0.06, 0.05, 0.11);
+        const center = new Vector3(wallX - side * 0.025, ceilingY - 0.012, VENT_POD_Z);
+        pod.position.copy(center);
+        // Aérateur sur la face basse, côté cabine : collerette, rotule, buse et son trou
+        const facing = new Vector3(-side, -0.75, 0.45).normalize();
         const vent = new Group();
         const collar = new Mesh(new TorusGeometry(0.022, 0.005, 10, 28), dark);
         const ball = new Mesh(new SphereGeometry(0.017, 20, 14), dark);
@@ -772,9 +770,9 @@ function wingRootVents(model, inverse, roofLine) {
         const hole = new Mesh(new CircleGeometry(0.0075, 20), black);
         hole.position.z = 0.0225;
         vent.add(collar, ball, nozzle, hole);
-        vent.position.set(center.x - side * 0.012, center.y - 0.01, center.z + 0.02);
-        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.3, 0.6).normalize());
-        group.add(vent);
+        vent.position.copy(center).add(new Vector3(-side * 0.032, -0.03, 0.01));
+        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), facing);
+        group.add(pod, vent);
     }
     return group;
 }
