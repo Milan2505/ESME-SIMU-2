@@ -182,8 +182,73 @@ let gear = null;                  // roulette de nez orientable, roues qui roule
 let chaseView = true;
 const clock = new THREE.Clock();
 
-controls.groundHeight = (x, z) => terrain.heightAt(x, z);
-controls.surfaceAt = (x, z) => airport.surfaceAt(x, z);
+// Sur un lac, les roues s'enfoncent dans l'eau (sol posé 45 cm sous la surface) ; voir aussi surfaceAt
+const WATER_SINK = 0.45;
+function waterLake(x, z) {
+    const lake = terrain.lakeAt(x, z);
+    return lake && terrain.groundAt(x, z, lake) < lake.level - WATER_SINK ? lake : null;
+}
+controls.groundHeight = (x, z) => (waterLake(x, z) ? waterLake(x, z).level - WATER_SINK : terrain.heightAt(x, z));
+controls.surfaceAt = (x, z) => (waterLake(x, z) ? 'water' : airport.surfaceAt(x, z));
+
+// Gerbes d'écume quand l'avion roule (ou glisse) sur un lac : gouttes lancées par les roues, retombant dans l'eau
+const waterSpray = (() => {
+    const COUNT = 260, SPRAY_WHEELS = [[-1.3, 0.6], [1.3, 0.6], [0, -1.5]];   // roues (x, z, repère avion, m)
+    const positions = new Float32Array(COUNT * 3), velocities = new Float32Array(COUNT * 3), life = new Float32Array(COUNT);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const sprite = (() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        g.addColorStop(0, 'rgba(255,255,255,0.9)');
+        g.addColorStop(0.4, 'rgba(235,242,245,0.45)');
+        g.addColorStop(1, 'rgba(235,242,245,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 64, 64);
+        return new THREE.CanvasTexture(canvas);
+    })();
+    const material = new THREE.PointsMaterial({ map: sprite, size: 1.5, transparent: true, depthWrite: false });
+    material.color.setScalar(1.7);   // écume blanche au soleil (le rendu final assombrit les blancs)
+    const points = new THREE.Points(geometry, material);
+    points.frustumCulled = false;
+    scene.add(points);
+    let next = 0, debt = 0;
+    const local = new THREE.Vector3(), push = new THREE.Vector3();
+    for (let i = 0; i < COUNT; i++) positions[i * 3 + 1] = -1e4;
+    return {
+        update(delta, active) {
+            const speed = controls.getSpeed();
+            if (active && speed > 1.5) {
+                debt += delta * Math.min(220, 12 * speed);
+                push.set(0, 0, 1).applyQuaternion(aircraft.quaternion);   // vers l'arrière de l'avion
+                while (debt >= 1) {
+                    debt -= 1;
+                    const [wx, wz] = SPRAY_WHEELS[next % SPRAY_WHEELS.length];
+                    local.set(wx * AIRCRAFT_SCALE, 0, wz * AIRCRAFT_SCALE).applyQuaternion(aircraft.quaternion).add(aircraft.position);
+                    const lake = waterLake(local.x, local.z);
+                    const i = next++ % COUNT;
+                    positions.set([local.x, (lake ? lake.level : local.y - 1) + 0.1, local.z], i * 3);
+                    const side = (Math.random() - 0.5) * 2, up = 1.5 + Math.random() * Math.min(5, speed * 0.25);
+                    velocities.set([push.x * speed * 0.35 + side * 1.5, up, push.z * speed * 0.35 + side * 1.5], i * 3);
+                    life[i] = 0.7 + Math.random() * 0.6;
+                }
+            }
+            let alive = false;
+            for (let i = 0; i < COUNT; i++) {
+                if (life[i] <= 0) continue;
+                life[i] -= delta;
+                velocities[i * 3 + 1] -= 9.81 * delta;
+                for (let k = 0; k < 3; k++) positions[i * 3 + k] += velocities[i * 3 + k] * delta;
+                if (life[i] <= 0) positions[i * 3 + 1] = -1e4;
+                else alive = true;
+            }
+            points.visible = alive;
+            geometry.attributes.position.needsUpdate = alive;
+        },
+    };
+})();
 controls.minAltitude = WHEEL_HEIGHT;
 
 scene.fog = new THREE.Fog(0xffffff);
@@ -2590,10 +2655,11 @@ function updateSounds() {
     sounds.setLoop('rain', rain * (chaseView ? 0.8 : 0.25));
     sounds.setLoop('rainCockpit', rain * (chaseView ? 0 : 0.9));
     const rolling = controls.isOnGround() && !controls.isCrashed() ? Math.min(1, controls.getSpeed() / 20) * 0.6 : 0;
-    const grass = controls.getSurface() === 'grass';
+    const surface = controls.getSurface(), grass = surface === 'grass', water = surface === 'water';
     const rate = 0.7 + controls.getSpeed() / 40;
-    sounds.setLoop('rollAsphalt', grass ? 0 : rolling, rate);
-    sounds.setLoop('rollGrass', grass ? rolling : 0, rate);
+    sounds.setLoop('rollAsphalt', grass || water ? 0 : rolling, rate);
+    // Sur l'eau : le bruissement de l'herbe, plus grave et plus fort, fait le clapotis des roues qui fendent l'eau
+    sounds.setLoop('rollGrass', grass ? rolling : water ? Math.min(1, rolling * 1.6) : 0, water ? rate * 0.55 : rate);
     // Moteur des volets : seulement pendant qu'ils bougent, clac de fin de course à l'arrêt ; plus fort en cabine
     // (il est dans l'aile, au-dessus)
     const flaps = controls.getFlaps();
@@ -2761,7 +2827,8 @@ renderer.setAnimationLoop((time)=>{
     if (controls.isOnGround() && !controls.isCrashed()) {
         const speed = controls.getSpeed();
         const wheelLoad = Math.max(0.15, 1 - (speed / (controls.rotateSpeed * 1.5)) ** 2);
-        shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * (controls.getSurface() === 'grass' ? 0.0015 : 0.0003));
+        const roughness = { grass: 0.0015, water: 0.0022 }[controls.getSurface()] ?? 0.0003;
+        shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * roughness);
     }
     updateHeadTarget( delta );
     // Une erreur de la leçon ne doit jamais figer le simulateur (radio, caméra et rendu viennent après)
@@ -2803,6 +2870,7 @@ renderer.setAnimationLoop((time)=>{
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
     engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
     updateSounds();
+    waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
     updateHud(delta);
     if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName } );

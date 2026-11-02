@@ -95,7 +95,11 @@ const CESSNA_172 = {
 	rotateSpeed: 24,                  // vitesse (m/s) où la profondeur peut lever le nez ; décollage vers 27 m/s
 	maxGroundPitch: deg( 8 ),         // cabré max roues principales au sol : envol avec une bonne marge au décrochage
 	brakes: 4,                        // décélération des freins (m/s²), roues chargées
-	rolling: { asphalt: 0.2, grass: 1.0 }, // résistance au roulement (m/s²), roues chargées
+	rolling: { asphalt: 0.2, grass: 1.0, water: 2.5 }, // résistance au roulement (m/s²), roues chargées
+	// Sur l'eau (lacs) : roues et carénages enfoncés, traînée qui croît avec le carré de la vitesse ; freins inutiles,
+	// direction molle. Un C172 sur roues s'y arrête en quelques secondes et ne peut pas en redécoller
+	waterDrag: 0.016,                 // (m/s²) par (m/s)² : ~10 m/s² à 50 kt
+	waterSteering: 0.35,              // part de l'autorité du palonnier qui reste sur l'eau
 
 	// Limites au contact du sol : au-delà, c'est un crash
 	crashSink: 6,                     // vitesse d'impact perpendiculaire au sol (m/s)

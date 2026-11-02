@@ -49,7 +49,7 @@ class FlightModel extends EventDispatcher {
 		// Environnement
 		this.minAltitude = 1;            // hauteur du centre de l'avion au-dessus du sol, roues posées
 		this.groundHeight = () => 0;     // relief : hauteur du sol en (x, z)
-		this.surfaceAt = () => 'grass';  // revêtement du sol en (x, z) : 'asphalt' ou 'grass'
+		this.surfaceAt = () => 'grass';  // revêtement du sol en (x, z) : 'asphalt', 'grass' ou 'water' (lac)
 		this.obstacles = [];             // boîtes (Box3, repère monde) à ne pas percuter
 		this.turbulence = 0;             // 0 = air calme, 1 = tempête
 		this.rotateSpeed = aircraft.rotateSpeed;
@@ -446,14 +446,17 @@ class FlightModel extends EventDispatcher {
 		// Manche tiré au sol : la profondeur braquée vers le haut freine un peu l'avion (aérofrein léger)
 		const elevatorDrag = A.elevatorGroundDrag * Math.max( 0, input.pitch );
 		speed += ( ( this._thrust( air ) - ( this._dragCoefficient( lift ) + elevatorDrag ) * pressure ) / A.mass - GRAVITY * slope ) * dt;
-		speed -= ( A.rolling[ this.surface ] + input.brake * A.brakes ) * wheelLoad * dt;
+		const onWater = this.surface === 'water';
+		speed -= ( A.rolling[ this.surface ] + ( onWater ? 0 : input.brake * A.brakes ) ) * wheelLoad * dt;
+		// Eau : traînée des roues et des carénages qui fendent l'eau (encore un peu quand l'aile porte : ils trempent)
+		if ( onWater ) speed -= A.waterDrag * speed * speed * Math.max( 0.3, wheelLoad ) * dt;
 		this.airspeed = speed = Math.max( 0, speed );
 		this.indicatedSpeed = air = Math.max( 0, speed + headwind );
 
 		// Palonnier (et manche à basse vitesse) : moins d'autorité quand ça va vite
 		const steer = MathUtils.clamp( input.yaw + input.roll * 0.5, - 1, 1 );
 		const authority = Math.min( 1, speed / 3 ) * ( 1 - 0.6 * Math.min( 1, speed / this.rotateSpeed ) );
-		this._groundYaw += steer * 0.6 * authority * dt;
+		this._groundYaw += steer * 0.6 * authority * ( onWater ? A.waterSteering : 1 ) * dt;
 		// Plein gaz au roulage (décollage) : couple et souffle de l'hélice tirent le nez à gauche, du pied droit
 		this._groundYaw += A.engineGroundYaw * ( this._thrust( air ) / A.staticThrust ) * Math.min( 1, speed / 8 ) * dt;
 
