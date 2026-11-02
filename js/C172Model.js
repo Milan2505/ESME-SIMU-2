@@ -19,7 +19,9 @@ import {
     RepeatWrapping,
     Shape,
     ShapeGeometry,
+    SphereGeometry,
     SRGBColorSpace,
+    TorusGeometry,
     Vector3
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -544,6 +546,7 @@ function buildCabinShell(model) {
         inner.receiveShadow = true;
         group.add(inner);
     }
+    group.add(sunVisors(roofLine));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
         group.add(windshieldSeal({ mesh: glass, toCabin: inverse.clone().multiply(glass.matrixWorld) },
@@ -560,8 +563,9 @@ function buildCabinShell(model) {
 // comme déjà copiée : la livrée ne change que son image, voir repaint)
 const CABIN_HALF_WIDTH = 0.53, ROOF_TOP = 1.14;
 const WING_CUTS = {
-    wing_center: 'below', flaps: 'below',
+    wing_center: 'belowAndTop', flaps: 'below',
     wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin', wingventhole: 'fromCabin',
+    wing_leading_edge_center: 'rootFromCabin',
 };
 function hideWingInCabin(model, inverse) {
     if (!ownMaterials.has(model)) ownMaterials.set(model, new Set());
@@ -575,9 +579,16 @@ function hideWingInCabin(model, inverse) {
             own.add(mesh.material);
         }
         const toCabin = inverse.clone().multiply(mesh.matrixWorld);
-        const test = cut === 'below'
-            ? `abs(vCabinPos.x) < ${CABIN_HALF_WIDTH} && vCabinPos.y < ${ROOF_TOP} && vCabinDown > 0.3`
-            : 'vCameraInCabin > 0.5';
+        const test = {
+            below: `abs(vCabinPos.x) < ${CABIN_HALF_WIDTH} && vCabinPos.y < ${ROOF_TOP} && vCabinDown > 0.3`,
+            // + vu de la cabine, tout sauf le dessous (dessus et bord d'attaque, vus de profil : une lame au bord du
+            // pare-brise ; de la cabine, on ne voit de l'aile que son dessous), et dessous du bord d'attaque devant le toit,
+            // près du fuselage (vu en rasant dans les coins du pare-brise)
+            belowAndTop: `(abs(vCabinPos.x) < ${CABIN_HALF_WIDTH} && vCabinPos.y < ${ROOF_TOP} && vCabinDown > 0.3)
+                || (vCameraInCabin > 0.5 && (vCabinDown < 0.5 || (vCabinPos.z < -2.1 && abs(vCabinPos.x) < 1.6)))`,
+            fromCabin: 'vCameraInCabin > 0.5',
+            rootFromCabin: 'vCameraInCabin > 0.5 && abs(vCabinPos.x) < 1.3',   // près du fuselage seulement
+        }[cut];
         mesh.material.customProgramCacheKey = () => `wingCabinCut:${cut}`;
         mesh.material.onBeforeCompile = (shader) => {
             shader.uniforms.uToCabin = { value: toCabin };
@@ -608,7 +619,7 @@ function hideWingInCabin(model, inverse) {
 // Limite du ciel de toit : hauteur du toit (sommets de la carlingue près de l'axe) par tranches de ROOF_STEP en z,
 // lissée, moins ROOF_DROP (le ciel de toit descend jusqu'au haut des portes). Une limite par la pente de chaque facette
 // suivait les triangles du maillage, en zigzag
-const ROOF_Z0 = -3.0, ROOF_STEP = 0.1, ROOF_SLICES = 40, ROOF_DROP = 0.14;
+const ROOF_Z0 = -3.0, ROOF_STEP = 0.1, ROOF_SLICES = 40, ROOF_DROP = 0.14, ROOF_MIN_Y = 0.95;
 function cabinRoofLine(model, inverse) {
     const top = new Array(ROOF_SLICES).fill(-Infinity);
     const v = new Vector3();
@@ -618,7 +629,7 @@ function cabinRoofLine(model, inverse) {
         const toCabin = inverse.clone().multiply(mesh.matrixWorld), position = mesh.geometry.attributes.position;
         for (let i = 0; i < position.count; i++) {
             v.fromBufferAttribute(position, i).applyMatrix4(toCabin);
-            if (Math.abs(v.x) > 0.45) continue;
+            if (Math.abs(v.x) > 0.45 || v.y < ROOF_MIN_Y) continue;   // toit seulement (pas le capot devant le pare-brise)
             const slice = Math.round((v.z - ROOF_Z0) / ROOF_STEP);
             if (slice >= 0 && slice < ROOF_SLICES) top[slice] = Math.max(top[slice], v.y);
         }
@@ -667,81 +678,174 @@ function boundaryEdges(mesh, toCabin) {
         .map(({ p, q, r }) => ({ a: points[p], b: points[q], third: points[r] }));
 }
 
-// Joint du pare-brise : bande de caoutchouc noir le long du contour visible du pare-brise, un peu en retrait côté
-// cabine, et vis de la cornière tous les ~11 cm. Montants et bas : bord de la vitre (la même pièce contient la lunette
-// arrière : seulement devant WINDSHIELD_MAX_Z). Haut : bord avant du toit de la carlingue, droit, aux coins arrondis
-// (le haut de la vitre est caché derrière). glass, roof : { mesh, toCabin }
-const SEAL_WIDTH = 0.022, SCREW_SPACING = 0.11, WINDSHIELD_MAX_Z = -1.2, GLASS_TOP = 1.12;
+// Moulure du pare-brise : bourrelet de plastique gris (comme les garnitures) le long du contour visible du pare-brise,
+// aérateurs en haut des montants. Montants et bas : bord de la vitre (la même pièce contient la lunette arrière : seulement devant
+// WINDSHIELD_MAX_Z). Haut : bord avant du toit de la carlingue (le haut de la vitre est caché derrière). Arêtes
+// raccordées en un seul cordon, angles arrondis, section bombée. glass, roof : { mesh, toCabin }
+const SEAL_WIDTH = 0.04, SEAL_BULGE = 0.012, WINDSHIELD_MAX_Z = -1.2, GLASS_TOP = 1.12;
+const SEAL_JOIN = 0.08;   // écart max entre deux bouts d'arête raccordés (montant de la vitre -> bord du toit)
 function windshieldSeal(glass, roof) {
-    const eye = CABIN_ORIGIN;
-    const strip = [], candidates = [];
-    // Bande le long de a -> b : normal vers la cabine, inward vers l'intérieur de la vitre
-    const addEdge = (a, b, normal, inward) => {
-        const dir = new Vector3().subVectors(b, a);
-        const lift = normal.clone().multiplyScalar(0.003);
-        const out = inward.clone().multiplyScalar(-SEAL_WIDTH * 0.3), inn = inward.clone().multiplyScalar(SEAL_WIDTH);
-        const a0 = a.clone().add(out).add(lift), b0 = b.clone().add(out).add(lift);
-        const a1 = a.clone().add(inn).add(lift), b1 = b.clone().add(inn).add(lift);
-        strip.push(...a0.toArray(), ...b0.toArray(), ...b1.toArray(), ...a0.toArray(), ...b1.toArray(), ...a1.toArray());
-        // Vis possibles : tous les centimètres, au milieu de la bande
-        const length = dir.length();
-        for (let s = 0; s <= length; s += 0.01) {
-            candidates.push({
-                at: a.clone().addScaledVector(dir, s / length).addScaledVector(inward, SEAL_WIDTH * 0.35).addScaledVector(normal, 0.0045),
-                normal: normal.clone(),
-            });
-        }
-    };
+    // Arêtes : { a, b, normal (vers la cabine), inward (vers la vitre) }
+    const segments = [];
     const dir = new Vector3(), toThird = new Vector3();
     // side : 1, la bande s'étend du côté de la pièce (vitre) ; -1, de l'autre (ouverture sous le toit)
-    const sealEdge = ({ a, b, third }, side) => {
+    const addSegment = ({ a, b, third }, side) => {
         dir.subVectors(b, a);
         toThird.subVectors(third, a);
         const normal = new Vector3().crossVectors(dir, toThird).normalize();
-        if (normal.dot(toThird.subVectors(eye, a)) < 0) normal.negate();   // vers la cabine
+        if (normal.dot(toThird.subVectors(CABIN_ORIGIN, a)) < 0) normal.negate();
         const inward = new Vector3().crossVectors(normal, dir).normalize();
         if (inward.dot(toThird.subVectors(third, a)) * side < 0) inward.negate();
-        addEdge(a, b, normal, inward);
+        segments.push({ a, b, normal, inward });
     };
-    for (const edge of boundaryEdges(glass.mesh, glass.toCabin)) {
+    for (let edge of boundaryEdges(glass.mesh, glass.toCabin)) {
         const { a, b } = edge;
         if (a.z > WINDSHIELD_MAX_Z || b.z > WINDSHIELD_MAX_Z || Math.min(a.y, b.y) > GLASS_TOP) continue;
-        sealEdge(edge, 1);
+        // Haut des montants : coupé au bord du toit (au-dessus, caché), pour se raccorder au coin du toit
+        const [low, high] = a.y < b.y ? [a, b] : [b, a];
+        const roofY = GLASS_TOP - 0.02;
+        if (high.y > roofY) edge = { ...edge, a: low, b: low.clone().lerp(high, (roofY - low.y) / (high.y - low.y)) };
+        addSegment(edge, 1);
     }
     for (const edge of boundaryEdges(roof.mesh, roof.toCabin)) {
         const front = [edge.a, edge.b].every((p) => p.y > GLASS_TOP - 0.06 && p.z < -2.0 && p.z > -2.3
             && Math.abs(p.x) < CABIN_HALF_WIDTH);
-        if (front) sealEdge(edge, -1);
+        if (front) addSegment(edge, -1);
     }
+
     const group = new Group();
-    if (!strip.length) return group;
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute(strip, 3));
-    geometry.computeVertexNormals();
-    group.add(new Mesh(geometry, new MeshStandardMaterial({ color: 0x141414, roughness: 0.75, side: DoubleSide })));
-    // Vis : au moins SCREW_SPACING entre deux
-    const screws = [];
-    for (const candidate of candidates) {
-        if (screws.every((screw) => screw.at.distanceToSquared(candidate.at) > SCREW_SPACING * SCREW_SPACING)) screws.push(candidate);
+    const paths = chainSegments(segments).map(({ points, closed }) => ({ path: roundPath(roundPath(points, closed), closed), closed }));
+    for (const { path, closed } of paths) group.add(sealCord(path, closed));
+    // Aérateurs : sur la moulure en haut de chaque montant, tournés vers les sièges
+    for (const side of [-1, 1]) {
+        let top = null;
+        for (const { path } of paths) {
+            for (const point of path) {
+                if (Math.sign(point.p.x) !== side || point.p.y > GLASS_TOP - 0.06 || point.p.y < GLASS_TOP - 0.2) continue;
+                if (!top || Math.abs(point.p.x) > Math.abs(top.p.x)) top = point;
+            }
+        }
+        if (!top) continue;
+        const at = top.p.clone().addScaledVector(top.inward, -SEAL_WIDTH * 0.2).addScaledVector(top.normal, 0.012);
+        group.add(airVent(at, new Vector3(-side * 0.35, -0.25, 1).normalize()));
     }
-    const head = new CylinderGeometry(0.0042, 0.0048, 0.003, 10);
-    const screwMesh = new InstancedMesh(head, new MeshStandardMaterial({ color: 0x9a9ea3, metalness: 0.8, roughness: 0.35 }), screws.length);
-    const matrix = new Matrix4(), rotation = new Quaternion(), unit = new Vector3(1, 1, 1), up = new Vector3(0, 1, 0);
-    screws.forEach(({ at, normal: n }, i) => {
-        rotation.setFromUnitVectors(up, n);
-        screwMesh.setMatrixAt(i, matrix.compose(at, rotation, unit));
-    });
-    group.add(screwMesh);
     return group;
 }
 
+// Aérateur orientable : collerette noire, rotule et buse (repère de la cabine), axe vers facing
+const VENT_MATERIAL = new MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.55 });
+function airVent(at, facing) {
+    const vent = new Group();
+    const collar = new Mesh(new TorusGeometry(0.03, 0.009, 10, 24), VENT_MATERIAL);
+    const ball = new Mesh(new SphereGeometry(0.024, 18, 12), VENT_MATERIAL);
+    const nozzle = new Mesh(new CylinderGeometry(0.012, 0.014, 0.03, 16, 1, true), VENT_MATERIAL);
+    nozzle.rotation.x = Math.PI / 2;
+    nozzle.position.z = 0.022;
+    vent.add(collar, ball, nozzle);
+    vent.position.copy(at);
+    vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), facing);
+    return vent;
+}
+
+// Pare-soleil : volet sombre sous le toit devant chaque siège, sur son rail (repère de la cabine)
+function sunVisors(roofLine) {
+    const group = new Group();
+    const material = new MeshStandardMaterial({ color: 0x45484e, roughness: 0.7 });
+    const rail = new MeshStandardMaterial({ color: 0x17181b, roughness: 0.5 });
+    const z = -2.0, roofY = roofLine[Math.round((z - ROOF_Z0) / ROOF_STEP)] + ROOF_DROP;
+    for (const x of [-0.24, 0.24]) {
+        const visor = new Mesh(new RoundedBoxGeometry(0.34, 0.01, 0.11, 3, 0.004), material);
+        visor.position.set(x, roofY - 0.025, z + 0.03);
+        visor.rotation.x = -0.12;
+        const track = new Mesh(new RoundedBoxGeometry(0.4, 0.012, 0.025, 2, 0.004), rail);
+        track.position.set(x, roofY - 0.018, z - 0.04);
+        const knob = new Mesh(new CylinderGeometry(0.007, 0.007, 0.012, 12), new MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 }));
+        knob.position.set(x - 0.12, roofY - 0.028, z - 0.04);
+        group.add(visor, track, knob);
+    }
+    return group;
+}
+
+// Arêtes raccordées bout à bout (au plus SEAL_JOIN d'écart) : [{ points: [{ p, normal, inward }], closed }]
+function chainSegments(segments) {
+    const unused = new Set(segments), paths = [];
+    const point = (p, segment) => ({ p, normal: segment.normal, inward: segment.inward });
+    while (unused.size) {
+        const first = unused.values().next().value;
+        unused.delete(first);
+        const points = [point(first.a, first), point(first.b, first)];
+        for (const atEnd of [true, false]) {
+            for (;;) {
+                const tip = atEnd ? points[points.length - 1].p : points[0].p;
+                let best = null, bestDistance = SEAL_JOIN, far = null;
+                for (const segment of unused) {
+                    for (const [near, other] of [[segment.a, segment.b], [segment.b, segment.a]]) {
+                        const distance = near.distanceTo(tip);
+                        if (distance < bestDistance) [best, bestDistance, far] = [segment, distance, other];
+                    }
+                }
+                if (!best) break;
+                unused.delete(best);
+                if (atEnd) points.push(point(far, best));
+                else points.unshift(point(far, best));
+            }
+        }
+        const closed = points.length > 3 && points[0].p.distanceTo(points[points.length - 1].p) < SEAL_JOIN;
+        if (closed) points.pop();
+        paths.push({ points, closed });
+    }
+    return paths;
+}
+
+// Une passe de Chaikin : chaque angle coupé aux quarts, le cordon s'arrondit (bouts d'un cordon ouvert gardés)
+function roundPath(points, closed) {
+    const mix = (u, v, t) => ({
+        p: u.p.clone().lerp(v.p, t),
+        normal: u.normal.clone().lerp(v.normal, t).normalize(),
+        inward: u.inward.clone().lerp(v.inward, t).normalize(),
+    });
+    const result = closed ? [] : [points[0]];
+    const count = closed ? points.length : points.length - 1;
+    for (let i = 0; i < count; i++) {
+        const u = points[i], v = points[(i + 1) % points.length];
+        result.push(mix(u, v, 0.25), mix(u, v, 0.75));
+    }
+    if (!closed) result.push(points[points.length - 1]);
+    return result;
+}
+
+// Cordon bombé le long du chemin : 7 sommets en travers (de 0,6 largeur côté cadre, qui couvre le jour entre la
+// garniture et la vitre, à la largeur entière côté vitre),
+// soulevés vers la cabine en arc ; normales lissées
+function sealCord(path, closed) {
+    const ACROSS = 7, positions = [], index = [];
+    for (const { p, normal, inward } of path) {
+        for (let k = 0; k < ACROSS; k++) {
+            const u = k / (ACROSS - 1);
+            const lift = 0.003 + SEAL_BULGE * Math.sin(Math.PI * u);
+            positions.push(...p.clone().addScaledVector(inward, SEAL_WIDTH * (u * 1.6 - 0.6)).addScaledVector(normal, lift).toArray());
+        }
+    }
+    const rows = path.length, links = closed ? rows : rows - 1;
+    for (let i = 0; i < links; i++) {
+        const r0 = i * ACROSS, r1 = ((i + 1) % rows) * ACROSS;
+        for (let k = 0; k < ACROSS - 1; k++) index.push(r0 + k, r1 + k, r1 + k + 1, r0 + k, r1 + k + 1, r0 + k + 1);
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    geometry.setIndex(index);
+    geometry.computeVertexNormals();
+    return new Mesh(geometry, SEAL_MATERIAL);
+}
+const SEAL_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xc4c7cc, roughness: 0.8, side: DoubleSide, emissive: 0x3c3e42 }));
+
 // Garnitures dessinées dans le shader, en coordonnées de la cabine (la peau de l'avion n'a pas de coordonnées de
-// texture pour l'intérieur) : ciel de toit en vinyle perforé, bombé entre les arceaux, coutures en travers ; flancs,
-// montants et portes en vinyle grainé, bas de porte plus foncé sous un liseré à hauteur d'accoudoir.
+// texture pour l'intérieur) : plastique moulé gris clair à grain fin, ciel de toit compris ; bas de porte gris
+// anthracite sous un liseré à hauteur d'accoudoir.
 // toCabin : repère de la pièce -> repère de la cabine (une matière par pièce, un seul programme pour toutes)
 const CABIN_AXIS_Y = 0.45;   // hauteur de l'axe de la cabine, vers lequel la garniture est éclairée
 const TRIM_COLORS = {
-    headliner: new Color(0xd3cbbb), seam: new Color(0x8f8676), panel: new Color(0xb8a889), kick: new Color(0x5e5549),
+    headliner: new Color(0xc9ccd1), seam: new Color(0x9a9ea5), panel: new Color(0xbfc2c8), kick: new Color(0x3a3d43),
 };
 function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).fill(1.0)) {
     const material = ambient(new MeshStandardMaterial({ roughness: 0.85, side, emissive: 0x4f4f4f }));
@@ -806,17 +910,9 @@ function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).f
                 float grain = 0.6 * trimNoise(gp * 140.0) + 0.4 * trimNoise(gp * 30.0);
                 vec3 panel = mix(uKick, uPanel, smoothstep(uBeltY - 0.01, uBeltY + 0.01, cp.y));
                 float belt = 1.0 - smoothstep(0.004, 0.009, abs(cp.y - uBeltY - 0.015));
-                panel = mix(panel, uSeam, belt * 0.8) * (0.88 + 0.2 * grain);
-                // Ciel de toit : arceaux tous les 30 cm (coutures, tissu bombé entre deux) sur le dessus seulement
-                // (pas en travers des montants), perforations fines effacées de loin (moiré)
-                float onTop = smoothstep(0.65, 0.8, an.y);
-                float bow = fract(cp.z / 0.3);
-                float edge = min(bow, 1.0 - bow) * 0.3;
-                vec3 head = uHeadliner * mix(1.0, 0.84 + 0.16 * sin(3.14159 * bow), onTop);
-                vec2 cell = fract(gp / 0.0055) - 0.5;
-                float holes = (1.0 - smoothstep(0.16, 0.26, length(cell))) * (1.0 - smoothstep(0.0015, 0.003, length(fwidth(gp))));
-                head *= 1.0 - 0.12 * holes;
-                head = mix(head, uSeam, (1.0 - smoothstep(0.002, 0.005, edge)) * onTop);
+                panel = mix(panel, uSeam, belt * 0.5) * (0.95 + 0.08 * grain);
+                // Ciel de toit : même plastique moulé, très légèrement grainé
+                vec3 head = uHeadliner;
                 head *= 0.97 + 0.06 * grain;
                 // Bord du ciel de toit : limite nette (lissée sur un pixel), soulignée d'un jonc foncé
                 float roofSide = cp.y - roofLineAt(cp.z), roofPx = max(fwidth(roofSide), 1e-4);
@@ -831,7 +927,7 @@ function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).f
 
 function buildCabin() {
     const group = new Group();
-    const tan = ambient(new MeshStandardMaterial({ color: 0xc3ab83, roughness: 0.75, emissive: 0x2e281e }));
+    const tan = ambient(new MeshStandardMaterial({ color: 0xaeb2b8, roughness: 0.75, emissive: 0x2c2e31 }));   // accoudoirs, gris des garnitures
     const dark = new MeshStandardMaterial({ color: 0x29292b, roughness: 0.9 });
     // Pare-feu derrière le tableau (pas de ciel de toit rapporté : le toit est l'envers de la carlingue, voir
     // buildCabinShell ; une plaque plate traversait l'aile ou barrait le pare-brise)
@@ -842,7 +938,7 @@ function buildCabin() {
     const carpet = new Mesh(new BoxGeometry(0.94, 0.02, 2.0), new MeshStandardMaterial({ map: carpetTexture(), roughness: 1 }));
     carpet.position.set(0, FLOOR_Y + 0.01, -1.75);
     group.add(carpet);
-    // Sièges avant (tissu gris bleuté, cuir beige, appui-tête), banquette arrière
+    // Sièges avant (tissu gris bleuté, cuir gris, appui-tête), banquette arrière
     // Dossiers à la hauteur du toit, qui descend vers l'arrière : appuis-tête juste dessous. Banquette à la mesure du
     // fuselage, qui se resserre et s'abaisse vers l'arrière (plus en arrière, plus large ou plus haute, elle traversait
     // les flancs et le toit) : ~2,5 cm de marge partout
@@ -855,7 +951,7 @@ function buildCabin() {
         group.add(arm);
         // Harnais : du toit derrière le siège vers la boucle
         const top = new Vector3(side * 0.43, 1.1, SEAT_Z + 0.2), bottom = new Vector3(side * 0.1, FLOOR_Y + 0.3, SEAT_Z + 0.07);
-        const strap = new Mesh(new BoxGeometry(0.045, top.distanceTo(bottom), 0.005), new MeshStandardMaterial({ color: 0xa69b85, roughness: 0.9 }));
+        const strap = new Mesh(new BoxGeometry(0.045, top.distanceTo(bottom), 0.005), new MeshStandardMaterial({ color: 0x5a5d63, roughness: 0.9 }));
         strap.position.copy(top).add(bottom).multiplyScalar(0.5);
         strap.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), top.clone().sub(bottom).normalize());
         group.add(strap);
@@ -927,12 +1023,12 @@ function fabric() {
     return fabricMaterial;
 }
 
-// Siège : assise, dossier incliné, appui-tête ; liserés et joues en cuir beige ; bench : banquette à deux places ;
+// Siège : assise, dossier incliné, appui-tête ; liserés et joues en cuir gris ; bench : banquette à deux places ;
 // backHeight : hauteur relative du dossier ; width : largeur de la banquette
 function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) {
     const g = new Group();
     g.position.set(x, 0, z);
-    const leather = ambient(new MeshStandardMaterial({ color: 0xb59b74, roughness: 0.6, emissive: 0x2e2719 }));
+    const leather = ambient(new MeshStandardMaterial({ color: 0x9a9ea5, roughness: 0.6, emissive: 0x26282b }));
     const cushion = new Mesh(new RoundedBoxGeometry(width, 0.11, 0.48, 4, 0.04), fabric());
     cushion.position.set(0, height, 0);
     const base = new Mesh(new RoundedBoxGeometry(width + 0.02, 0.06, 0.5, 3, 0.02), leather);
