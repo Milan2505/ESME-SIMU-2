@@ -14,6 +14,7 @@ import sys
 import bmesh
 import bpy
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 ROOT = r"C:\Users\melia\ESME-SIMU-2"
 AIRCRAFT = ROOT + r"\asset\c172p.glb"
@@ -28,7 +29,7 @@ GLASS_EDGE = [(0.142, 0.015), (0.105, 0.056), (0.046, 0.19), (-0.128, 0.52), (-0
 DOOR_EDGE = [(0.04, -0.06), (0.02, 0.0), (0.011, 0.011), (-0.069, 0.298), (-0.1, 0.35), (-0.16, 0.6)]
 CEILING_Z = 0.515         # plafond au coin du pare-brise
 PILLAR = {'bottom': 0.0, 'thickness': 0.028}
-HEAD = {'back': -0.34, 'top': CEILING_Z + 0.012, 'bottom': 0.385, 'depth': 0.075}
+HEAD = {'back': -0.16, 'depth': 0.05}
 
 
 def along(points, z):
@@ -72,33 +73,48 @@ def prism(name, outline, x0, x1):
 
 def pillar_outline():
     # Entre l'avant de la porte (1 cm dessus) et le bord de la vitre, du tableau jusque dans le plafond
-    zs = [PILLAR['bottom'] + i * (HEAD['top'] - PILLAR['bottom']) / 24 for i in range(25)]
+    zs = [PILLAR['bottom'] + i * (CEILING_Z - PILLAR['bottom']) / 24 for i in range(25)]
     front = [(glass_y(z) + 0.004, z) for z in zs]
     back = [(along(DOOR_EDGE, z) - 0.012, z) for z in reversed(zs)]
     return front + back
 
 
+def convex_hull(points):
+    pts = sorted(set(points))
+    cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    hull = []
+    for seq in (pts, pts[::-1]):
+        start = len(hull)
+        for p in seq:
+            while len(hull) >= start + 2 and cross(hull[-2], hull[-1], p) <= 0:
+                hull.pop()
+            hull.append(p)
+        hull.pop()
+    return hull
+
+
 def head_outline():
-    # Profil d'emplanture : dessus droit sous le plafond, nez arrondi vers l'avant (contre la vitre), dessous qui
-    # remonte vers l'arrière
-    top, bottom, back = HEAD['top'], HEAD['bottom'], HEAD['back']
-    mid = (top + bottom) / 2
-    nose = glass_y(mid) - 0.004
-    pts = []
-    for i in range(40):   # demi-ellipse du nez : de haut en bas, par l'avant
-        a = math.pi / 2 - math.pi * i / 39
-        pts.append((nose - 0.07 + 0.07 * math.cos(a), (top + bottom) / 2 + (top - bottom) / 2 * math.sin(a)))
-    for i in range(1, 16):   # dessous : courbe qui remonte vers l'arrière
-        t = i / 15
-        pts.append((nose - 0.07 + (back - nose + 0.07) * t, bottom + (top - 0.03 - bottom) * t ** 1.6))
-    pts.append((back, top))
-    # Incliné comme la vitre (le nez la suit à chaque hauteur, arrondi, sans être coupé à plat) ; l'arrière ne bouge pas
-    shear = lambda y, z: y + (glass_y(z) - glass_y(mid)) * max(0.0, (y - back) / (nose - back))
-    return [(shear(y, z), z) for y, z in pts]
+    # Silhouette de l'emplanture d'aile (bord du profil d'origine, contre le flanc, dans le coin du pare-brise),
+    # prolongée vers l'arrière jusqu'au haut du montant
+    edge = bpy.data.objects['wing_1Ledge']
+    pts = [(round(p.y, 4), round(p.z, 4)) for p in (edge.matrix_world @ v.co for v in edge.data.vertices)]
+    top = max(z for _, z in pts)
+    pts += [(HEAD['back'], top), (HEAD['back'], top - 0.06)]
+    return convex_hull(pts)
+
+
+def glass_tree():
+    glass = bpy.data.objects['glas']
+    mesh = glass.data.copy()
+    mesh.transform(glass.matrix_world)
+    tree = BVHTree.FromPolygons([v.co.copy() for v in mesh.vertices], [p.vertices[:] for p in mesh.polygons])
+    bpy.data.meshes.remove(mesh)
+    return tree
 
 
 def molded_trim(name, mat):
-    # Côté gauche ; volumes fondus (voxels), lissés, puis tout ce qui dépasse devant la vitre est ramené derrière
+    # Côté gauche : montant et tête fondus (voxels), lissés ; puis chaque point qui dépasse devant la vraie vitre (mesurée
+    # à sa hauteur et à sa distance du flanc) est ramené GLASS_GAP derrière
     pillar = prism('montant', pillar_outline(), -WALL_X - 0.012, -WALL_X + PILLAR['thickness'])
     head = prism('tete', head_outline(), -WALL_X - 0.012, -WALL_X + HEAD['depth'])
     bpy.ops.object.select_all(action='DESELECT')
@@ -112,15 +128,27 @@ def molded_trim(name, mat):
     remesh.mode = 'VOXEL'
     remesh.voxel_size = 0.004
     smooth = obj.modifiers.new('Moulage', 'LAPLACIANSMOOTH')
-    smooth.iterations = 12
-    smooth.lambda_factor = 1.2
+    smooth.iterations = 10
+    smooth.lambda_factor = 1.0
     smooth.use_volume_preserve = True
     bpy.ops.object.modifier_apply(modifier='Fusion')
     bpy.ops.object.modifier_apply(modifier='Moulage')
-    for v in obj.data.vertices:
-        limit = glass_y(v.co.z)
-        if v.co.y > limit:
-            v.co.y = limit
+    tree = glass_tree()
+
+    def clamp_to_glass():
+        for v in obj.data.vertices:
+            hit = tree.ray_cast(Vector((v.co.x, v.co.y - 0.4, v.co.z)), Vector((0, 1, 0)))
+            if hit[0] is not None and v.co.y > hit[0].y - GLASS_GAP:
+                v.co.y = hit[0].y - GLASS_GAP
+
+    # Découpe, lissage (efface les stries de la découpe), découpe à nouveau
+    clamp_to_glass()
+    polish = obj.modifiers.new('Poli', 'LAPLACIANSMOOTH')
+    polish.iterations = 8
+    polish.lambda_factor = 0.8
+    polish.use_volume_preserve = True
+    bpy.ops.object.modifier_apply(modifier='Poli')
+    clamp_to_glass()
     decimate = obj.modifiers.new('Allegement', 'DECIMATE')
     decimate.ratio = 0.25
     bpy.ops.object.modifier_apply(modifier='Allegement')
@@ -186,7 +214,7 @@ def main():
     cabin = bpy.data.collections.new('Cabine')
     bpy.context.scene.collection.children.link(cabin)
 
-    trim = material('Garniture', (0.5, 0.52, 0.55), 0.85)
+    trim = material('Garniture', (0.42, 0.44, 0.47), 0.85)
     rubber = material('Caoutchouc', (0.025, 0.027, 0.032), 0.55)
     dark = material('Trou', (0.0, 0.0, 0.0), 1.0)
 
@@ -194,9 +222,9 @@ def main():
     bpy.context.view_layer.update()
     parts = [left]
     # Aérateurs : surface de la tête (milieu de sa face intérieure) et du montant plus bas, tournés vers les sièges
-    head_mid = Vector((-WALL_X + 0.2, (HEAD['back'] + glass_y(0.45)) / 2 + 0.03, 0.455))
+    head_mid = Vector((-WALL_X + 0.2, 0.02, 0.46))
     pillar_mid = Vector((-WALL_X + 0.2, (glass_y(0.13) + along(DOOR_EDGE, 0.13)) / 2, 0.13))
-    for vname, probe, scale, facing in (('aerateur_L', head_mid, 1.0, Vector((1, -0.25, -0.2))),
+    for vname, probe, scale, facing in (('aerateur_L', head_mid, 0.9, Vector((1, -0.3, -0.25))),
                                         ('aerateur_bas_L', pillar_mid, 0.75, Vector((1, -0.4, 0.1)))):
         hit, at, _, _ = left.ray_cast(probe, Vector((-1, 0, 0)))
         if not hit:
