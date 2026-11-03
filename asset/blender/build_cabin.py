@@ -34,7 +34,7 @@ PILLAR = {'width': 0.08, 'overlap': 0.012, 'door_overlap': 0.03}      # largeur 
 # bas arrière, par le nez, au haut arrière
 WING_PROFILE = [(-0.087, 0.387), (0.015, 0.403), (0.113, 0.43), (0.138, 0.444), (0.153, 0.46), (0.16, 0.475),
                 (0.158, 0.49), (0.153, 0.501), (0.139, 0.51), (0.098, 0.525), (0.058, 0.533), (-0.087, 0.53)]
-# Tête : le profil, coupé à top (au-dessus, le haut du pare-brise redescend contre le flanc)
+# Tête : le profil entier ; top ne sert plus qu'à centrer l'aérateur en hauteur
 HEAD = {'top': 0.495, 'fillet_from': 0.26}   # tête
 
 
@@ -78,8 +78,8 @@ def trim_outline(tree):
         return (min(ys) if ys else 1.0) - BEVEL - 0.006
 
     # Tête : contour du profil d'aile de l'emplanture (dessous qui remonte vers l'avant, nez arrondi), pris à partir du
-    # bord avant du montant, jusqu'à HEAD['top'] (au-dessus, la vitre redescend), à sa place exacte : nez bombé du bord
-    # d'attaque. Dans le modèle, le nez de l'aile dépasse un peu la vitre à l'emplanture : la tête aussi, cachée dans l'aile
+    # bord avant du montant, jusqu'au haut arrière du profil, à sa place exacte : nez et dessus bombés du bord d'attaque.
+    # Dans le modèle, le nez de l'aile dépasse un peu la vitre à l'emplanture : la tête aussi, cachée dans l'aile
     profile = []
     for (y0, z0_), (y1, z1) in zip(WING_PROFILE, WING_PROFILE[1:]):
         steps = max(1, int(math.hypot(y1 - y0, z1 - z0_) / 0.004))
@@ -91,13 +91,8 @@ def trim_outline(tree):
         length = math.hypot(ty, tz) or 1.0
         d = BEVEL + 0.002   # 2 mm sous le profil : vue de dehors, la tête reste dans le volume de l'aile
         inset.append((y - d * tz / length, z + d * ty / length))   # normale vers l'intérieur (sens direct)
-    top = HEAD['top'] - BEVEL
     start = next(i for i, (y, z) in enumerate(inset) if y >= front(z) + 0.035)
-    head = []
-    for y, z in inset[start:]:
-        if z > top:   # au-dessus : le haut du pare-brise ; la tête s'arrête là (dessus droit, voir plus bas)
-            break
-        head.append((y, z))
+    head = list(inset[start:])   # tout le profil, nez et dessus bombés compris (dessus caché dans l'aile)
     # Dessous près du montant descendu de 1,5 cm (rien jusqu'au nez) : couvre le pli du haut du pare-brise, qui se voyait
     # en fil clair sous la tête ; caché de dehors par le fuselage
     nose_y = max(y for y, _ in head)
@@ -121,11 +116,10 @@ def trim_outline(tree):
         q = p0 * (1 - t) ** 2 + p1 * 2 * t * (1 - t) + p2 * t ** 2
         pts.append((q.x, q.y))
     pts += head[1:]
-    yc, z_top = head[-1][0], top
+    z_top = head[-1][1]
     # Coin arrière du dessus arrondi (rayon 3 cm), puis bord arrière jusqu'au pied
     corner = 0.03
     cy, cz = back(z_top - corner) + corner, z_top - corner
-    pts.append((yc, z_top))
     pts += [(cy + corner * math.cos(a), cz + corner * math.sin(a))
             for a in (math.pi / 2 + math.pi / 2 * i / 8 for i in range(9))]
     pts += [(back(z), z) for z in (cz - cz * i / 16 for i in range(1, 16))]
