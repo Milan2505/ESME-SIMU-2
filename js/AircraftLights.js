@@ -26,9 +26,11 @@ import { AIRCRAFT_SCALE } from './C172Model.js';
 const deg = MathUtils.degToRad;
 // Positions : les feux du modèle (C172Model.js, repère avion avant agrandissement). mesh : pièces du modèle qui
 // servent de verre (elles s'allument) ; rudder : feu porté par la gouverne de direction (il la suit quand elle braque)
+// Feux de navigation de bout d'aile : remontés de NAV_LIFT (verres du modèle compris), au niveau des strobes
+const NAV_LIFT = 0.01;
 const LIGHTS = [
-    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165, -2.086], sector: [deg(-110), deg(4)],  size: 1.1, mesh: ['LeftNavLight'] },
-    { kind: 'nav',     color: 0x18ff3c, position: [5.641, 1.169, -2.087], sector: [deg(-4), deg(110)],  size: 1.1, mesh: ['RightNavLight'] },
+    { kind: 'nav',     color: 0xff2414, position: [-5.64, 1.165 + NAV_LIFT, -2.086], sector: [deg(-110), deg(4)],  size: 1.1, mesh: ['LeftNavLight'], lift: NAV_LIFT },
+    { kind: 'nav',     color: 0x18ff3c, position: [5.641, 1.169 + NAV_LIFT, -2.087], sector: [deg(-4), deg(110)],  size: 1.1, mesh: ['RightNavLight'], lift: NAV_LIFT },
     // Feu de queue : au bord de fuite de la gouverne de direction
     { kind: 'nav',     color: 0xffffff, position: [0, 1.612, 3.85],      sector: [deg(110), deg(250)], size: 0.8, mesh: ['RearNavLight'], rudder: true },
     // Anticollision : au sommet de la dérive (partie fixe, au-dessus de la gouverne)
@@ -284,6 +286,10 @@ class AircraftLights {
             for (const name of light.mesh) {
                 const mesh = model.getObjectByName(name);
                 if (!mesh?.isMesh) continue;
+                if (light.lift && !mesh.userData.lifted) {
+                    mesh.position.y += light.lift;
+                    mesh.userData.lifted = true;
+                }
                 mesh.material = lensMaterial(light.color);   // propre à ce feu (le matériau d'origine est partagé)
                 light.glows.push(mesh.material);
             }
