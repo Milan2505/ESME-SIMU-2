@@ -407,13 +407,15 @@ function sockTexture() {
 
 // Tour et aérogare de chaque aérodrome : modèles de la base de scènes FlightGear (asset/airport, convertis par
 // asset/blender/build_airport.py ; GPL-2.0, voir asset/airport/LICENSE.txt), centre de leur emprise en (x, z) dans le
-// repère de l'aérodrome, à l'est du parking. Façade principale tournée vers le parking (ouest) : quart de tour
+// repère de l'aérodrome, à l'est du parking. Façade principale tournée vers le parking (ouest) : quart de tour.
+// night : décalage (u, v) de la version de nuit dans la texture (fenêtres allumées, comme dans FlightGear)
 const BUILDING_ROTATION = -Math.PI / 2;
 const BUILDINGS = {
     // ESME : tour moderne (vigie vitrée sur un fût, 25 m) et aérogare à bandeau vitré
     esme: [{ model: 'Tour_Controle', x: 395, z: -82, tower: true }, { model: 'generic-terminal', x: 396.5, z: -40 }],
-    // Aix-en-Provence : tour accolée à son bloc technique et club-house en longueur, toits de tuiles (Poitiers-Biard)
-    montval: [{ model: 'LFBI_Tower', x: 393.5, z: -84, tower: true }, { model: 'LFBI_Aeroclub', x: 390.5, z: -40 }],
+    // Aix-en-Provence : tour cylindrique et son aile de bureaux (38 m, Rzeszów), aérogare vitrée (Chōfu)
+    montval: [{ model: 'tower_EPRZ', x: 392, z: -92.5, tower: true, night: [0, 0.5] },
+        { model: 'RJTF-terminal', x: 396.5, z: -40, night: [0.5, 0] }],
 };
 const buildingModels = new Map();   // url -> promesse du modèle (partagé entre les aérodromes)
 const loadBuilding = (name) => {
@@ -1183,7 +1185,7 @@ class Airport {
 
     // Tour ou aérogare (modèle chargé à part, ajouté quand il arrive) : boîte de collision, verres allumés la nuit,
     // feu d'obstacle sur le toit de la tour
-    _loadBuilding({ model, x, z, tower }) {
+    _loadBuilding({ model, x, z, tower, night }) {
         loadBuilding(model).then((source) => {
             const building = source.clone();
             building.position.set(x, 0, z);
@@ -1191,6 +1193,17 @@ class Airport {
             building.traverse((child) => {
                 if (!child.isMesh) return;
                 child.castShadow = child.receiveShadow = true;
+                if (night && child.material.map) {
+                    // Version de nuit de la texture en lumière propre, allumée la nuit (voir setNight)
+                    child.material = child.material.clone();
+                    child.material.emissiveMap = child.material.map.clone();
+                    child.material.emissiveMap.offset.set(...night);
+                    child.material.emissive = new Color(0xffffff);
+                    child.material.emissiveIntensity = 0.05 + 1.6 * (this._night ?? 0);
+                    // Verres semi-transparents dans la texture : le reste de la pièce reste opaque (profondeur écrite)
+                    child.material.depthWrite = true;
+                    this._glowingMaterials.push(child.material);
+                }
                 if (!child.material.name.startsWith('Vitrage')) return;
                 // Verres : teintés le jour, éclairés de l'intérieur la nuit (propres à cet aérodrome, voir setNight)
                 // (sans la texture du modèle, qui les teintait en brun)

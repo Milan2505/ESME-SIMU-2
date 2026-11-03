@@ -16,11 +16,17 @@ from ac_import import load_ac   # noqa: E402
 
 SOURCE = ROOT + r"\asset\airport\source"
 OUT = ROOT + r"\asset\airport"
-MODELS = ['Tour_Controle', 'generic-terminal', 'LFBI_Tower', 'LFBI_Aeroclub']
+# Modèle -> pièces gardées (None : toutes). tower_EPRZ : la tour et son aile, sans l'entrepôt ni le mur annexes
+MODELS = {'Tour_Controle': None, 'generic-terminal': None, 'RJTF-terminal': None, 'tower_EPRZ': ['tower']}
 
-for name in MODELS:
+for name, keep in MODELS.items():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     objects = load_ac(os.path.join(SOURCE, name + '.ac'))
+    if keep:
+        dropped = [o for o in objects if o.name not in keep]
+        objects = [o for o in objects if o.name in keep]
+        for o in dropped:
+            bpy.data.objects.remove(o)
     points = [o.matrix_world @ Vector(c) for o in objects for c in o.bound_box]
     low = Vector([min(p[k] for p in points) for k in range(3)])
     high = Vector([max(p[k] for p in points) for k in range(3)])
