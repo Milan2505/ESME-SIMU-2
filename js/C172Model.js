@@ -577,12 +577,20 @@ const WING_CUTS = {
     wing_center: 'belowAndTop', flaps: 'below',
     wingventhole: 'fromCabin',
     wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin',
-    wing_leading_edge_center: 'rootFromCabin',
 };
 function hideWingInCabin(model, inverse) {
     if (!ownMaterials.has(model)) ownMaterials.set(model, new Set());
     const own = ownMaterials.get(model);
     model.traverse((mesh) => {
+        // Bord d'attaque : à l'emplanture, il passe dans la bulle du pare-brise ; de la cabine on le voit par
+        // l'envers (dessiné des deux côtés, sinon un jour de ciel au-dessus du montant)
+        if (mesh.isMesh && mesh.name === 'wing_leading_edge_center') {
+            if (!own.has(mesh.material)) {
+                mesh.material = ambient(mesh.material.clone());
+                own.add(mesh.material);
+            }
+            mesh.material.side = DoubleSide;
+        }
         const cut = mesh.isMesh && WING_CUTS[mesh.name];
         if (!cut || mesh.userData.cabinCut) return;
         mesh.userData.cabinCut = true;
@@ -593,11 +601,10 @@ function hideWingInCabin(model, inverse) {
         const toCabin = inverse.clone().multiply(mesh.matrixWorld);
         const test = {
             below: `abs(vCabinPos.x) < ${CABIN_HALF_WIDTH} && vCabinPos.y < ${ROOF_TOP} && vCabinDown > 0.3`,
-            // + vu de la cabine, tout sauf le dessous (dessus et bord d'attaque, vus de profil : une lame au bord du
-            // pare-brise ; de la cabine, on ne voit de l'aile que son dessous), et dessous du bord d'attaque devant le toit,
-            // près du fuselage (vu en rasant dans les coins du pare-brise)
+            // + vu de la cabine, le dessus de l'aile (vu de profil, une lame au bord du pare-brise) ; le bord d'attaque
+            // reste visible à travers le haut du pare-brise
             belowAndTop: `(abs(vCabinPos.x) < ${CABIN_HALF_WIDTH} && vCabinPos.y < ${ROOF_TOP} && vCabinDown > 0.3)
-                || (vCameraInCabin > 0.5 && (vCabinDown < 0.5 || (vCabinPos.z < -2.1 && abs(vCabinPos.x) < 1.6)))`,
+                || (vCameraInCabin > 0.5 && vCabinDown < -0.5)`,
             fromCabin: 'vCameraInCabin > 0.5',
             rootFromCabin: 'vCameraInCabin > 0.5 && abs(vCabinPos.x) < 1.3',   // près du fuselage seulement
         }[cut];
