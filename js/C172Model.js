@@ -697,7 +697,7 @@ function boundaryEdges(mesh, toCabin) {
         .map(({ p, q, r }) => ({ a: points[p], b: points[q], third: points[r] }));
 }
 
-// Moulure du pare-brise : bourrelet de plastique gris (comme les garnitures) le long du contour visible du pare-brise. Montants et bas : bord de la vitre (la même pièce contient la lunette arrière : seulement devant
+// Moulure du pare-brise : bourrelet de plastique gris (matière des garnitures) le long du contour visible du pare-brise. Montants et bas : bord de la vitre (la même pièce contient la lunette arrière : seulement devant
 // WINDSHIELD_MAX_Z). Haut : bord avant du toit de la carlingue (le haut de la vitre est caché derrière). Arêtes
 // raccordées en un seul cordon, angles arrondis, section bombée. glass, roof : { mesh, toCabin }
 const SEAL_WIDTH = 0.018, SEAL_BULGE = 0.004, WINDSHIELD_MAX_Z = -1.2, GLASS_TOP = 1.12;
@@ -933,9 +933,11 @@ function sealCord(path, closed) {
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
     geometry.setIndex(index);
     geometry.computeVertexNormals();
-    return new Mesh(geometry, SEAL_MATERIAL);
+    // Matière des garnitures (même gris, même grain, même éclairage que le montant et les flancs), déjà en repère cabine
+    sealMaterial ??= cabinTrim(new Matrix4(), DoubleSide, new Array(ROOF_SLICES).fill(10), false);
+    return new Mesh(geometry, sealMaterial);
 }
-const SEAL_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xc4c7cc, roughness: 0.8, side: DoubleSide, emissive: 0x3c3e42 }));
+let sealMaterial = null;
 
 // Garnitures dessinées dans le shader, en coordonnées de la cabine (la peau de l'avion n'a pas de coordonnées de
 // texture pour l'intérieur) : plastique moulé gris clair à grain fin, ciel de toit compris ; bas de porte gris
