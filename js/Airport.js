@@ -56,7 +56,7 @@ const STANDS = [-80, -60, -40, -20, 15, 45, 75];
 // Noms des places (peints au sol, donnés par la tour) : N1 à N4 au nord du parking, H1 à H3 devant les hangars
 const STAND_NAMES = ['N1', 'N2', 'N3', 'N4', 'H1', 'H2', 'H3'];
 // Identité de l'aérodrome pour la tour de contrôle (code OACI fictif, en LF comme les terrains français)
-const AERODROME = { icao: 'LFXE', name: 'ESME', taxiway: 'A', frequencies: { ground: '121.875', tower: '118.300', approach: '120.450', info: '124.550' } };
+const AERODROME = { icao: 'LFME', name: 'ESME', taxiway: 'A', frequencies: { ground: '121.875', tower: '118.300', approach: '120.450', info: '124.550' } };
 const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 // Balise VOR de l'aérodrome (VOR conventionnel : abri, plan réflecteur circulaire, antenne centrale), au nord-est
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
@@ -420,7 +420,7 @@ const AIRPORTS = {
     montval: {
         // Piste au centre en (5200, -4300) : à ~3,6 NM au sud-est d'ESME, dans sa propre vallée
         id: 'montval', label: 'MONTVAL', position: { x: 5200, z: -4520 }, rotation: -Math.PI / 2,
-        aerodrome: { icao: 'LFXM', name: 'MONTVAL', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
+        aerodrome: { icao: 'LFMA', name: 'MONTVAL', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
         speech: { fr: 'Montval', en: 'Montval' },
         vor: { ident: 'MTV', frequency: '115.20' }, ils: '109.70',
         hangars: ['AÉRO-CLUB MONTVAL', 'HANGAR 2'],
