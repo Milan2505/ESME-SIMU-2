@@ -1,15 +1,14 @@
 # Intérieur de la cabine du C172 modélisé dans Blender (script, Blender 4.2) :
-#   blender --background --python asset/blender/build_cabin.py -- [--render dossier]
+#   blender --background --python asset/blender/build_cabin.py
 # Construit les pièces à partir du modèle de l'avion (asset/c172p.glb, mêmes coordonnées), enregistre
 # asset/blender/cabin.blend (à ouvrir et retoucher dans Blender) et exporte asset/cabin.glb (chargé par le jeu,
 # voir C172Model.loadCabinParts). Repère Blender : x vers la droite, y vers l'avant, z vers le haut.
 #
-# Garniture de montant (une par côté) : une seule pièce moulée qui habille le montant du pare-brise, du tableau au
-# plafond, et s'évase en haut en une tête arrondie en forme d'emplanture d'aile (nez contre la vitre, dessus sous le
-# plafond). Volumes simples fondus ensemble (remaillage par voxels) puis lissés : raccords arrondis comme une pièce de
-# plastique moulé. Aérateur sur la tête, petit aérateur plus bas sur le montant.
+# Garniture de montant (une par côté) : plaque moulée dont le contour est dessiné comme une courbe lisse (montant du
+# tableau au plafond, arrondi creux, tête ronde qui s'avance vers le pare-brise, dessus noyé dans le plafond), épaissie
+# et arrondie par Blender (courbe extrudée à bords biseautés) : surface propre, sans remaillage ni découpe. Le contour
+# reste derrière la vraie vitre (mesurée sur le modèle). Aérateur au centre de la tête, petit aérateur plus bas.
 import math
-import sys
 
 import bmesh
 import bpy
@@ -21,15 +20,17 @@ AIRCRAFT = ROOT + r"\asset\c172p.glb"
 BLEND = ROOT + r"\asset\blender\cabin.blend"
 EXPORT = ROOT + r"\asset\cabin.glb"
 
-WALL_X = 0.518            # flanc gauche/droit (|x|) au montant
-GLASS_GAP = 0.008         # la garniture reste à ce jeu derrière la vitre
-# Bord de la vitre au montant (y, z), relevé sur le modèle (pièce « glas »)
+# Bord de la vitre contre le flanc (y, z), relevé sur le modèle (pièce « glas »)
 GLASS_EDGE = [(0.142, 0.015), (0.105, 0.056), (0.046, 0.19), (-0.128, 0.52), (-0.13, 0.6)]
-# Avant de la porte et de sa vitre (y, z) : le montant habillé s'arrête 1 cm dessus
+# Avant de la porte et de sa vitre (y, z)
 DOOR_EDGE = [(0.04, -0.06), (0.02, 0.0), (0.011, 0.011), (-0.069, 0.298), (-0.1, 0.35), (-0.16, 0.6)]
-CEILING_Z = 0.515         # plafond au coin du pare-brise
-PILLAR = {'bottom': 0.0, 'thickness': 0.028}
-HEAD = {'back': -0.16, 'depth': 0.05}
+
+OUTER_X = -0.514          # face de la plaque côté flanc (gauche)
+EXTRUDE = 0.012           # demi-épaisseur du plat
+BEVEL = 0.012             # arrondi des bords (épaisseur totale : 2 × (EXTRUDE + BEVEL) = 4,8 cm)
+BOTTOM_Z = 0.0            # pied du montant (contre le tableau)
+PILLAR = {'width': 0.08, 'overlap': 0.012, 'door_overlap': 0.03}      # largeur ; débord sur la vitre et la porte
+HEAD = {'center_z': 0.42, 'radius_y': 0.065, 'radius_z': 0.058, 'reach': 0.16, 'fillet_from': 0.26}   # tête
 
 
 def along(points, z):
@@ -43,10 +44,6 @@ def along(points, z):
     return pts[-1][0]
 
 
-def glass_y(z):
-    return along(GLASS_EDGE, z) - GLASS_GAP
-
-
 def material(name, color, roughness=0.8):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -54,53 +51,6 @@ def material(name, color, roughness=0.8):
     bsdf.inputs['Base Color'].default_value = (*color, 1)
     bsdf.inputs['Roughness'].default_value = roughness
     return mat
-
-
-def prism(name, outline, x0, x1):
-    # Polygone (y, z) extrudé en x de x0 (dans le flanc) à x1 (côté cabine) : volume fermé
-    bm = bmesh.new()
-    face = bm.faces.new([bm.verts.new((x0, y, z)) for y, z in outline])
-    ext = bmesh.ops.extrude_face_region(bm, geom=[face])
-    bmesh.ops.translate(bm, vec=(x1 - x0, 0, 0), verts=[v for v in ext['geom'] if isinstance(v, bmesh.types.BMVert)])
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    mesh = bpy.data.meshes.new(name)
-    bm.to_mesh(mesh)
-    bm.free()
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.scene.collection.objects.link(obj)
-    return obj
-
-
-def pillar_outline():
-    # Entre l'avant de la porte (1 cm dessus) et le bord de la vitre, du tableau jusque dans le plafond
-    zs = [PILLAR['bottom'] + i * (CEILING_Z - PILLAR['bottom']) / 24 for i in range(25)]
-    front = [(glass_y(z) + 0.004, z) for z in zs]
-    back = [(along(DOOR_EDGE, z) - 0.012, z) for z in reversed(zs)]
-    return front + back
-
-
-def convex_hull(points):
-    pts = sorted(set(points))
-    cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-    hull = []
-    for seq in (pts, pts[::-1]):
-        start = len(hull)
-        for p in seq:
-            while len(hull) >= start + 2 and cross(hull[-2], hull[-1], p) <= 0:
-                hull.pop()
-            hull.append(p)
-        hull.pop()
-    return hull
-
-
-def head_outline():
-    # Silhouette de l'emplanture d'aile (bord du profil d'origine, contre le flanc, dans le coin du pare-brise),
-    # prolongée vers l'arrière jusqu'au haut du montant
-    edge = bpy.data.objects['wing_1Ledge']
-    pts = [(round(p.y, 4), round(p.z, 4)) for p in (edge.matrix_world @ v.co for v in edge.data.vertices)]
-    top = max(z for _, z in pts)
-    pts += [(HEAD['back'], top), (HEAD['back'], top - 0.06)]
-    return convex_hull(pts)
 
 
 def glass_tree():
@@ -112,48 +62,70 @@ def glass_tree():
     return tree
 
 
-def molded_trim(name, mat):
-    # Côté gauche : montant et tête fondus (voxels), lissés ; puis chaque point qui dépasse devant la vraie vitre (mesurée
-    # à sa hauteur et à sa distance du flanc) est ramené GLASS_GAP derrière
-    pillar = prism('montant', pillar_outline(), -WALL_X - 0.012, -WALL_X + PILLAR['thickness'])
-    head = prism('tete', head_outline(), -WALL_X - 0.012, -WALL_X + HEAD['depth'])
+def trim_outline(tree):
+    # Contour (y, z) du côté gauche, sans l'épaisseur de l'arrondi (BEVEL, ajouté par Blender) : pied, bord avant du
+    # montant, arrondi creux, tête ovale qui s'avance, dessus droit noyé dans le plafond, bord arrière
+    front = lambda z: along(GLASS_EDGE, z) + PILLAR['overlap'] - BEVEL
+    back = lambda z: max(front(z) - PILLAR['width'] + 2 * BEVEL, along(DOOR_EDGE, z) - PILLAR['door_overlap'] + BEVEL)
+    zc, ry, rz = HEAD['center_z'], HEAD['radius_y'], HEAD['radius_z']
+    nose = front(zc) + HEAD['reach']
+    yc, z_bottom, z_top = nose - ry, zc - rz, zc + rz
+    pts = [(back(BOTTOM_Z) + (front(BOTTOM_Z) - back(BOTTOM_Z)) * t / 6, BOTTOM_Z) for t in range(7)]
+    z0 = HEAD['fillet_from']
+    pts += [(front(z), z) for z in (BOTTOM_Z + (z0 - BOTTOM_Z) * i / 12 for i in range(1, 13))]
+    # Arrondi creux : du montant vers le dessous de la tête (tangent à l'ovale, horizontal)
+    p0, p1, p2 = Vector((front(z0), z0)), Vector((front(z_bottom), z_bottom)), Vector((yc, z_bottom))
+    for i in range(1, 16):
+        t = i / 15
+        q = p0 * (1 - t) ** 2 + p1 * 2 * t * (1 - t) + p2 * t ** 2
+        pts.append((q.x, q.y))
+    # Tête : demi-ovale par l'avant, du dessous au dessus
+    for i in range(1, 36):
+        a = -math.pi / 2 + math.pi * i / 36
+        pts.append((yc + ry * math.cos(a), zc + rz * math.sin(a)))
+    # Dessus droit vers l'arrière, puis bord arrière jusqu'au pied
+    # Coin arrière du dessus arrondi (rayon 3 cm), puis bord arrière jusqu'au pied
+    corner = 0.03
+    cy, cz = back(z_top - corner) + corner, z_top - corner
+    pts.append((yc, z_top))
+    pts += [(cy + corner * math.cos(a), cz + corner * math.sin(a))
+            for a in (math.pi / 2 + math.pi / 2 * i / 8 for i in range(9))]
+    pts += [(back(z), z) for z in (cz - cz * i / 16 for i in range(1, 16))]
+    # Contrôle : tout le contour (avec l'arrondi) reste derrière la vitre, sur les deux faces
+    worst = 1.0
+    for y, z in pts:
+        for x in (OUTER_X, OUTER_X + 2 * (EXTRUDE + BEVEL)):
+            hit = tree.ray_cast(Vector((x, -0.5, z)), Vector((0, 1, 0)))
+            if hit[0] is not None:
+                worst = min(worst, hit[0].y - (y + BEVEL))
+    print('JEU_VITRE_MIN', round(worst, 3))
+    return pts
+
+
+def molded_trim(name, mat, tree):
+    curve = bpy.data.curves.new(name, 'CURVE')
+    curve.dimensions = '2D'
+    curve.fill_mode = 'BOTH'
+    curve.extrude = EXTRUDE
+    curve.bevel_depth = BEVEL
+    curve.bevel_resolution = 6
+    spline = curve.splines.new('POLY')
+    outline = trim_outline(tree)
+    spline.points.add(len(outline) - 1)
+    for point, (y, z) in zip(spline.points, outline):
+        point.co = (y, z, 0, 1)
+    spline.use_cyclic_u = True
+    obj = bpy.data.objects.new(name, curve)
+    bpy.context.scene.collection.objects.link(obj)
+    # Plan de la courbe (x, y locaux) -> (y, z) de l'avion ; épaisseur (z local) -> x, vers l'intérieur
+    obj.matrix_world = Matrix(((0, 0, 1, OUTER_X + EXTRUDE + BEVEL), (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
     bpy.ops.object.select_all(action='DESELECT')
-    pillar.select_set(True)
-    head.select_set(True)
-    bpy.context.view_layer.objects.active = pillar
-    bpy.ops.object.join()
-    obj = pillar
-    obj.name = obj.data.name = name
-    remesh = obj.modifiers.new('Fusion', 'REMESH')
-    remesh.mode = 'VOXEL'
-    remesh.voxel_size = 0.004
-    smooth = obj.modifiers.new('Moulage', 'LAPLACIANSMOOTH')
-    smooth.iterations = 10
-    smooth.lambda_factor = 1.0
-    smooth.use_volume_preserve = True
-    bpy.ops.object.modifier_apply(modifier='Fusion')
-    bpy.ops.object.modifier_apply(modifier='Moulage')
-    tree = glass_tree()
-
-    def clamp_to_glass():
-        for v in obj.data.vertices:
-            hit = tree.ray_cast(Vector((v.co.x, v.co.y - 0.4, v.co.z)), Vector((0, 1, 0)))
-            if hit[0] is not None and v.co.y > hit[0].y - GLASS_GAP:
-                v.co.y = hit[0].y - GLASS_GAP
-
-    # Découpe, lissage (efface les stries de la découpe), découpe à nouveau
-    clamp_to_glass()
-    polish = obj.modifiers.new('Poli', 'LAPLACIANSMOOTH')
-    polish.iterations = 8
-    polish.lambda_factor = 0.8
-    polish.use_volume_preserve = True
-    bpy.ops.object.modifier_apply(modifier='Poli')
-    clamp_to_glass()
-    decimate = obj.modifiers.new('Allegement', 'DECIMATE')
-    decimate.ratio = 0.25
-    bpy.ops.object.modifier_apply(modifier='Allegement')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.convert(target='MESH')
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(35))
     obj.data.materials.append(mat)
-    obj.data.shade_smooth()
     return obj
 
 
@@ -202,8 +174,6 @@ def mirrored(obj, name):
 
 
 def main():
-    args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-    render_dir = args[args.index('--render') + 1] if '--render' in args else None
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=AIRCRAFT)
     aircraft = bpy.data.collections.new('Avion (référence, non exporté)')
@@ -218,20 +188,21 @@ def main():
     rubber = material('Caoutchouc', (0.025, 0.027, 0.032), 0.55)
     dark = material('Trou', (0.0, 0.0, 0.0), 1.0)
 
-    left = molded_trim('garniture_montant_L', trim)
-    bpy.context.view_layer.update()
+    tree = glass_tree()
+    left = molded_trim('garniture_montant_L', trim, tree)
     parts = [left]
-    # Aérateurs : surface de la tête (milieu de sa face intérieure) et du montant plus bas, tournés vers les sièges
-    head_mid = Vector((-WALL_X + 0.2, 0.02, 0.46))
-    pillar_mid = Vector((-WALL_X + 0.2, (glass_y(0.13) + along(DOOR_EDGE, 0.13)) / 2, 0.13))
-    for vname, probe, scale, facing in (('aerateur_L', head_mid, 0.9, Vector((1, -0.3, -0.25))),
-                                        ('aerateur_bas_L', pillar_mid, 0.75, Vector((1, -0.4, 0.1)))):
-        hit, at, _, _ = left.ray_cast(probe, Vector((-1, 0, 0)))
-        if not hit:
-            print('AERATEUR NON PLACE', vname)
-            continue
+    # Aérateurs sur la face intérieure : au centre de la tête, et plus bas sur le montant ; tournés vers les sièges
+    inner_x = OUTER_X + 2 * (EXTRUDE + BEVEL)
+    outline = trim_outline(tree)
+    nose = max(y for y, z in outline if abs(z - HEAD['center_z']) < 0.01)
+    head_center = Vector((inner_x, nose - HEAD['radius_y'] + 0.008, HEAD['center_z']))
+    low_z = 0.15
+    low_ys = [y for y, z in outline if abs(z - low_z) < 0.02]
+    low_center = Vector((inner_x, (min(low_ys) + max(low_ys)) / 2, low_z))
+    for vname, at, scale, facing in (('aerateur_L', head_center, 0.85, Vector((1, -0.25, -0.2))),
+                                     ('aerateur_bas_L', low_center, 0.7, Vector((1, -0.35, 0.05)))):
         vent, hole = air_vent(vname, scale, rubber, dark)
-        place((vent, hole), at - Vector((0.004, 0, 0)), facing)
+        place((vent, hole), at - Vector((0.003, 0, 0)), facing)
         parts += [vent, hole]
     for o in list(parts):
         parts.append(mirrored(o, o.name.replace('_L', '_R')))
@@ -245,40 +216,7 @@ def main():
     for o in cabin.all_objects:
         o.select_set(True)
     bpy.ops.export_scene.gltf(filepath=EXPORT, use_selection=True, export_apply=True, export_format='GLB')
-    print('TRIANGLES', sum(len(o.data.polygons) for o in cabin.all_objects))
-
-    if render_dir:
-        render(render_dir)
-
-
-def render(folder):
-    scene = bpy.context.scene
-    scene.render.engine = 'BLENDER_EEVEE_NEXT'
-    scene.render.resolution_x, scene.render.resolution_y = 1000, 700
-    world = bpy.data.worlds.new('Ciel')
-    world.use_nodes = True
-    world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.45, 0.6, 0.8, 1)
-    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.0
-    scene.world = world
-    sun = bpy.data.objects.new('Soleil', bpy.data.lights.new('Soleil', 'SUN'))
-    sun.data.energy = 3
-    sun.rotation_euler = (math.radians(50), 0, math.radians(30))
-    scene.collection.objects.link(sun)
-    cam = bpy.data.objects.new('Vue', bpy.data.cameras.new('Vue'))
-    scene.collection.objects.link(cam)
-    scene.camera = cam
-    # Œil du pilote (repère du jeu : CABIN_ORIGIN + EYE, moins MODEL_OFFSET) ; montant gauche, droit, vue de dehors
-    views = {
-        'gauche': ((-0.2, -0.33, 0.293), (-0.5, -0.05, 0.3), 24),
-        'droite': ((-0.2, -0.33, 0.293), (0.5, -0.05, 0.3), 24),
-        'dehors': ((-0.9, 0.9, 0.75), (-0.45, -0.1, 0.35), 30),
-    }
-    for label, (eye, target, lens) in views.items():
-        cam.data.lens = lens
-        cam.location = eye
-        cam.rotation_euler = (Vector(target) - Vector(eye)).to_track_quat('-Z', 'Y').to_euler()
-        scene.render.filepath = f'{folder}/montant_{label}.png'
-        bpy.ops.render.render(write_still=True)
+    print('TRIANGLES', sum(len(o.data.polygons) for o in cabin.all_objects), 'NEZ', round(nose, 3))
 
 
 main()
