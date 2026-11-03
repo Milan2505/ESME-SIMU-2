@@ -32,7 +32,7 @@ import { FlightHud } from './js/FlightHud.js';
 import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
-import { loadAircraft, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
+import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
@@ -351,7 +351,9 @@ loadAircraft().then(({ model, template, parts }) => {
     setupPropellerBlur(propeller);
     airframe.add(model);
     cockpit.fitInsideHull(model);                    // rien de la cabine ne traverse les flancs
-    cockpit.addCabinShell(buildCabinShell(model));   // garnitures intérieures : l'envers de la carrosserie
+    const shell = buildCabinShell(model);
+    cockpit.addCabinShell(shell);   // garnitures intérieures : l'envers de la carrosserie
+    loadCabinParts().then((parts) => shell.add(parts));   // pièces modélisées dans Blender (carénages, aérateurs)
     cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
     setRegistration(model, atc.registration);
     paintAircraft(model, multiplayer.livery);

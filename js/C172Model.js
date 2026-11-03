@@ -4,7 +4,6 @@ import {
     BoxGeometry,
     BufferGeometry,
     CanvasTexture,
-    CircleGeometry,
     Color,
     CylinderGeometry,
     DoubleSide,
@@ -24,9 +23,7 @@ import {
     RepeatWrapping,
     Shape,
     ShapeGeometry,
-    SphereGeometry,
     SRGBColorSpace,
-    TorusGeometry,
     Vector3
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -560,7 +557,6 @@ function buildCabinShell(model) {
         return copy;
     });
     group.add(sunVisors(roofLine, surfaces));
-    group.add(wingRootVents(model, inverse, surfaces));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
         group.add(windshieldSeal({ mesh: glass, toCabin: inverse.clone().multiply(glass.matrixWorld) },
@@ -572,14 +568,13 @@ function buildCabinShell(model) {
 // Aile et volets traversent la cabine (une seule pièce d'un bout à l'autre, en grands triangles) et ressortaient à
 // travers les garnitures (ligne claire le long des flancs). Leur face inférieure entre les flancs, sous le dessus du
 // toit, cachée dans le fuselage vu de dehors, n'est pas dessinée (le dessus de l'aile, lui, sert de toit vu de dehors).
-// Prise d'air de l'aile : pas dessinée quand la caméra est dans la cabine (l'emplanture y est habillée, voir
-// wingRootVents). Matière propre à chaque pièce (comptée
+// Prise d'air et profil d'emplanture (en partie hors du pare-brise) : pas dessinés quand la caméra est dans la cabine
+// (l'emplanture y est un carénage modélisé dans Blender, voir loadCabinParts). Matière propre à chaque pièce (comptée
 // comme déjà copiée : la livrée ne change que son image, voir repaint)
 const CABIN_HALF_WIDTH = 0.53, ROOF_TOP = 1.14;
 const WING_CUTS = {
     wing_center: 'belowAndTop', flaps: 'below',
     wingventhole: 'fromCabin',
-    // Profil d'aile de l'emplanture (en partie hors du pare-brise) : pas dessiné de la cabine (voir wingRootVents)
     wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin',
     wing_leading_edge_center: 'rootFromCabin',
 };
@@ -738,90 +733,22 @@ function windshieldSeal(glass, roof) {
     return group;
 }
 
-// Carénage d'emplanture : le bout de l'aile dans la cabine, habillé comme les garnitures. Contour du profil d'aile du
-// modèle (même forme que vue de dehors), à sa place, coupé le long de la vitre du pare-brise (le nez s'y appuie), qui
-// s'avance du flanc vers l'intérieur, bords arrondis ; aérateur orientable sur sa face intérieure,
-// tourné vers les sièges. Vitre et flanc mesurés sur la carlingue (surfaces : repère cabine). Le profil d'origine, en
-// partie hors du pare-brise, n'est pas dessiné de la cabine (voir WING_CUTS)
-const FAIRING_DEPTH = 0.07, FAIRING_GLASS_GAP = 0.012;
-const FAIRING_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xb4b8be, roughness: 0.85, emissive: 0x2c2e31, side: DoubleSide }));
-function wingRootVents(model, inverse, surfaces) {
-    const group = new Group();
-    const raycaster = new Raycaster(), origin = new Vector3();
-    const cast = (from, dir, fallback) => {
-        raycaster.set(from, dir);
-        return raycaster.intersectObjects(surfaces, false)[0]?.distance ?? fallback;
-    };
-    const dark = new MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.55 });
-    const black = new MeshBasicMaterial({ color: 0x050505 });
-    model.traverse((root) => {
-        if (!root.isMesh || root.name !== 'wingroot') return;
-        // Contour du profil dans le plan (u = -z, y) : enveloppe convexe des sommets
-        const toCabin = inverse.clone().multiply(root.matrixWorld), position = root.geometry.attributes.position;
-        const v = new Vector3(), pts = [];
-        let sumX = 0;
-        for (let i = 0; i < position.count; i++) {
-            v.fromBufferAttribute(position, i).applyMatrix4(toCabin);
-            pts.push([-v.z, v.y]);
-            sumX += v.x;
-        }
-        const side = Math.sign(sumX), x = sumX / position.count;
-        pts.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
-        const cross = (o, p, q) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
-        const hull = [];
-        for (const list of [pts, [...pts].reverse()]) {
-            const start = hull.length;
-            for (const pt of list) {
-                while (hull.length >= start + 2 && cross(hull[hull.length - 2], hull[hull.length - 1], pt) <= 0) hull.pop();
-                hull.push(pt);
-            }
-            hull.pop();
-        }
-        // Coupe le long de la vitre : droite u = glass(y) mesurée en bas et en haut du profil ; ce qui dépasse devant
-        // est retiré (le nez s'appuie contre le verre)
-        const sampleX = x - side * 0.04;
-        const yLow = Math.min(...hull.map((pt) => pt[1])), yHigh = Math.max(...hull.map((pt) => pt[1]));
-        const glassAt = (y) => -(-1.7 - cast(origin.set(sampleX, y, -1.7), new Vector3(0, 0, -1), 1)) - FAIRING_GLASS_GAP;
-        const g0 = glassAt(yLow + 0.005), g1 = glassAt(yHigh - 0.005);
-        const limit = (y) => g0 + (g1 - g0) * (y - yLow) / Math.max(1e-3, yHigh - yLow);
-        const clipped = [];
-        hull.forEach((p0, i) => {
-            const p1 = hull[(i + 1) % hull.length];
-            const in0 = p0[0] <= limit(p0[1]), in1 = p1[0] <= limit(p1[1]);
-            if (in0) clipped.push(p0);
-            if (in0 !== in1) {
-                const d0 = p0[0] - limit(p0[1]), d1 = p1[0] - limit(p1[1]), t = d0 / (d0 - d1);
-                clipped.push([p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t]);
-            }
-        });
-        const shape = new Shape();
-        clipped.forEach(([u, y], i) => (i ? shape.lineTo(u, y) : shape.moveTo(u, y)));
-        shape.closePath();
-        const geometry = new ExtrudeGeometry(shape, {
-            depth: FAIRING_DEPTH, curveSegments: 12, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.008, bevelSegments: 4,
-        });
-        const fairing = new Mesh(geometry, FAIRING_MATERIAL);
-        // Repère : u -> -z, y -> y, épaisseur -> vers l'intérieur ; part du flanc (1 cm dedans)
-        const wallX = side * (0.2 + cast(origin.set(side * 0.2, 1.0, -2.1), new Vector3(side, 0, 0), 0.32));
-        fairing.matrixAutoUpdate = false;
-        fairing.matrix.makeBasis(new Vector3(0, 0, -1), new Vector3(0, 1, 0), new Vector3(-side, 0, 0))
-            .setPosition(wallX + side * 0.01, 0, 0);
-        // Aérateur au centre de la face intérieure
-        const [cu, cy] = clipped.reduce((sum, [u, y]) => [sum[0] + u / clipped.length, sum[1] + y / clipped.length], [0, 0]);
-        const vent = new Group();
-        const collar = new Mesh(new TorusGeometry(0.024, 0.006, 10, 28), dark);
-        const ball = new Mesh(new SphereGeometry(0.019, 20, 14), dark);
-        const nozzle = new Mesh(new CylinderGeometry(0.01, 0.014, 0.026, 20, 1, true), dark);
-        nozzle.rotation.x = Math.PI / 2;
-        nozzle.position.z = 0.018;
-        const hole = new Mesh(new CircleGeometry(0.0085, 20), black);
-        hole.position.z = 0.028;
-        vent.add(collar, ball, nozzle, hole);
-        vent.position.set(wallX + side * 0.01 - side * (FAIRING_DEPTH + 0.012), cy, -cu);
-        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.15, 0.2).normalize());
-        group.add(fairing, vent);
+// Pièces de la cabine modélisées dans Blender (asset/blender/build_cabin.py -> asset/cabin.glb, mêmes coordonnées que
+// le modèle de l'avion) : carénages d'emplanture et leurs aérateurs. Groupe en repère avion, à ajouter aux garnitures
+const CABIN_PARTS_URL = 'asset/cabin.glb';
+async function loadCabinParts() {
+    const gltf = await new GLTFLoader().loadAsync(CABIN_PARTS_URL);
+    const parts = gltf.scene;
+    parts.position.copy(MODEL_OFFSET);
+    parts.traverse((child) => {
+        if (!child.isMesh) return;
+        child.receiveShadow = true;
+        // Garnitures : un peu auto-éclairées de jour, comme les autres (voir ambient)
+        const material = child.material;
+        material.emissive.copy(material.color).multiplyScalar(0.35);
+        ambient(material);
     });
-    return group;
+    return parts;
 }
 
 // Pare-soleil : volet de plastique teinté sous le toit devant chaque siège, sur son bras à fente et son bloc de pivot,
@@ -1229,4 +1156,4 @@ function seat(x, z, height, bench, backHeight = 1, width = bench ? 0.98 : 0.46) 
     return g;
 }
 
-export { loadAircraft, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE, SUN_VISOR_UP };
+export { loadAircraft, loadCabinParts, aircraftParts, buildCabin, buildCabinShell, setRegistration, setLiveryColor, setDaylight, ambient, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE, SUN_VISOR_UP };
