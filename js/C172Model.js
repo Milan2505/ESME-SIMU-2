@@ -560,7 +560,7 @@ function buildCabinShell(model) {
         return copy;
     });
     group.add(sunVisors(roofLine, surfaces));
-    group.add(wingRootVents(surfaces));
+    group.add(wingRootVents(model, inverse, surfaces));
     const glass = model.getObjectByName('glas'), roof = model.getObjectByName('fuselage');
     if (glass?.isMesh && roof?.isMesh) {
         group.add(windshieldSeal({ mesh: glass, toCabin: inverse.clone().multiply(glass.matrixWorld) },
@@ -738,42 +738,89 @@ function windshieldSeal(glass, roof) {
     return group;
 }
 
-// Aérateurs d'emplanture : renflement moulé de la garniture qui descend du plafond (l'aile est juste au-dessus) dans
-// l'angle du toit et du flanc, juste derrière le haut du montant du pare-brise, tout entier dans la cabine ; aérateur
-// orientable dessus, tourné vers les sièges. Plafond et flanc mesurés sur la carlingue (surfaces : repère cabine).
-// Le profil d'aile d'origine, en partie hors du pare-brise, n'est pas dessiné de la cabine (voir WING_CUTS)
-const VENT_POD_Z = -1.97;
-const VENT_POD_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xb4b8be, roughness: 0.85, emissive: 0x2c2e31 }));
-function wingRootVents(surfaces) {
+// Carénage d'emplanture : le bout de l'aile dans la cabine, habillé comme les garnitures. Contour du profil d'aile du
+// modèle (même forme que vue de dehors), à sa place, coupé le long de la vitre du pare-brise (le nez s'y appuie), qui
+// s'avance du flanc vers l'intérieur, bords arrondis ; aérateur orientable sur sa face intérieure,
+// tourné vers les sièges. Vitre et flanc mesurés sur la carlingue (surfaces : repère cabine). Le profil d'origine, en
+// partie hors du pare-brise, n'est pas dessiné de la cabine (voir WING_CUTS)
+const FAIRING_DEPTH = 0.07, FAIRING_GLASS_GAP = 0.012;
+const FAIRING_MATERIAL = ambient(new MeshStandardMaterial({ color: 0xb4b8be, roughness: 0.85, emissive: 0x2c2e31, side: DoubleSide }));
+function wingRootVents(model, inverse, surfaces) {
     const group = new Group();
     const raycaster = new Raycaster(), origin = new Vector3();
+    const cast = (from, dir, fallback) => {
+        raycaster.set(from, dir);
+        return raycaster.intersectObjects(surfaces, false)[0]?.distance ?? fallback;
+    };
     const dark = new MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.55 });
     const black = new MeshBasicMaterial({ color: 0x050505 });
-    for (const side of [-1, 1]) {
-        raycaster.set(origin.set(side * 0.2, 0.95, VENT_POD_Z), new Vector3(side, 0, 0));
-        const wallX = side * (0.2 + (raycaster.intersectObjects(surfaces, false)[0]?.distance ?? 0.32));
-        raycaster.set(origin.set(wallX - side * 0.07, 0.9, VENT_POD_Z), new Vector3(0, 1, 0));
-        const ceilingY = 0.9 + (raycaster.intersectObjects(surfaces, false)[0]?.distance ?? 0.2);
-        // Renflement : demi-ovoïde dont le haut et le côté sont noyés dans le plafond et le flanc
-        const pod = new Mesh(new SphereGeometry(1, 28, 18), VENT_POD_MATERIAL);
-        pod.scale.set(0.06, 0.05, 0.11);
-        const center = new Vector3(wallX - side * 0.025, ceilingY - 0.012, VENT_POD_Z);
-        pod.position.copy(center);
-        // Aérateur sur la face basse, côté cabine : collerette, rotule, buse et son trou
-        const facing = new Vector3(-side, -0.75, 0.45).normalize();
+    model.traverse((root) => {
+        if (!root.isMesh || root.name !== 'wingroot') return;
+        // Contour du profil dans le plan (u = -z, y) : enveloppe convexe des sommets
+        const toCabin = inverse.clone().multiply(root.matrixWorld), position = root.geometry.attributes.position;
+        const v = new Vector3(), pts = [];
+        let sumX = 0;
+        for (let i = 0; i < position.count; i++) {
+            v.fromBufferAttribute(position, i).applyMatrix4(toCabin);
+            pts.push([-v.z, v.y]);
+            sumX += v.x;
+        }
+        const side = Math.sign(sumX), x = sumX / position.count;
+        pts.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+        const cross = (o, p, q) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+        const hull = [];
+        for (const list of [pts, [...pts].reverse()]) {
+            const start = hull.length;
+            for (const pt of list) {
+                while (hull.length >= start + 2 && cross(hull[hull.length - 2], hull[hull.length - 1], pt) <= 0) hull.pop();
+                hull.push(pt);
+            }
+            hull.pop();
+        }
+        // Coupe le long de la vitre : droite u = glass(y) mesurée en bas et en haut du profil ; ce qui dépasse devant
+        // est retiré (le nez s'appuie contre le verre)
+        const sampleX = x - side * 0.04;
+        const yLow = Math.min(...hull.map((pt) => pt[1])), yHigh = Math.max(...hull.map((pt) => pt[1]));
+        const glassAt = (y) => -(-1.7 - cast(origin.set(sampleX, y, -1.7), new Vector3(0, 0, -1), 1)) - FAIRING_GLASS_GAP;
+        const g0 = glassAt(yLow + 0.005), g1 = glassAt(yHigh - 0.005);
+        const limit = (y) => g0 + (g1 - g0) * (y - yLow) / Math.max(1e-3, yHigh - yLow);
+        const clipped = [];
+        hull.forEach((p0, i) => {
+            const p1 = hull[(i + 1) % hull.length];
+            const in0 = p0[0] <= limit(p0[1]), in1 = p1[0] <= limit(p1[1]);
+            if (in0) clipped.push(p0);
+            if (in0 !== in1) {
+                const d0 = p0[0] - limit(p0[1]), d1 = p1[0] - limit(p1[1]), t = d0 / (d0 - d1);
+                clipped.push([p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t]);
+            }
+        });
+        const shape = new Shape();
+        clipped.forEach(([u, y], i) => (i ? shape.lineTo(u, y) : shape.moveTo(u, y)));
+        shape.closePath();
+        const geometry = new ExtrudeGeometry(shape, {
+            depth: FAIRING_DEPTH, curveSegments: 12, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.008, bevelSegments: 4,
+        });
+        const fairing = new Mesh(geometry, FAIRING_MATERIAL);
+        // Repère : u -> -z, y -> y, épaisseur -> vers l'intérieur ; part du flanc (1 cm dedans)
+        const wallX = side * (0.2 + cast(origin.set(side * 0.2, 1.0, -2.1), new Vector3(side, 0, 0), 0.32));
+        fairing.matrixAutoUpdate = false;
+        fairing.matrix.makeBasis(new Vector3(0, 0, -1), new Vector3(0, 1, 0), new Vector3(-side, 0, 0))
+            .setPosition(wallX + side * 0.01, 0, 0);
+        // Aérateur au centre de la face intérieure
+        const [cu, cy] = clipped.reduce((sum, [u, y]) => [sum[0] + u / clipped.length, sum[1] + y / clipped.length], [0, 0]);
         const vent = new Group();
-        const collar = new Mesh(new TorusGeometry(0.022, 0.005, 10, 28), dark);
-        const ball = new Mesh(new SphereGeometry(0.017, 20, 14), dark);
-        const nozzle = new Mesh(new CylinderGeometry(0.009, 0.01, 0.02, 20, 1, true), dark);
+        const collar = new Mesh(new TorusGeometry(0.024, 0.006, 10, 28), dark);
+        const ball = new Mesh(new SphereGeometry(0.019, 20, 14), dark);
+        const nozzle = new Mesh(new CylinderGeometry(0.01, 0.014, 0.026, 20, 1, true), dark);
         nozzle.rotation.x = Math.PI / 2;
-        nozzle.position.z = 0.015;
-        const hole = new Mesh(new CircleGeometry(0.0075, 20), black);
-        hole.position.z = 0.0225;
+        nozzle.position.z = 0.018;
+        const hole = new Mesh(new CircleGeometry(0.0085, 20), black);
+        hole.position.z = 0.028;
         vent.add(collar, ball, nozzle, hole);
-        vent.position.copy(center).add(new Vector3(-side * 0.032, -0.03, 0.01));
-        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), facing);
-        group.add(pod, vent);
-    }
+        vent.position.set(wallX + side * 0.01 - side * (FAIRING_DEPTH + 0.012), cy, -cu);
+        vent.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(-side, -0.15, 0.2).normalize());
+        group.add(fairing, vent);
+    });
     return group;
 }
 
