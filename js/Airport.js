@@ -412,7 +412,7 @@ const BUILDING_ROTATION = -Math.PI / 2;
 const BUILDINGS = {
     // ESME : tour moderne (vigie vitrée sur un fût, 25 m) et aérogare à bandeau vitré
     esme: [{ model: 'Tour_Controle', x: 395, z: -82, tower: true }, { model: 'generic-terminal', x: 396.5, z: -40 }],
-    // MONTVAL : tour accolée à son bloc technique et club-house en longueur, toits de tuiles (Poitiers-Biard)
+    // Aix-en-Provence : tour accolée à son bloc technique et club-house en longueur, toits de tuiles (Poitiers-Biard)
     montval: [{ model: 'LFBI_Tower', x: 393.5, z: -84, tower: true }, { model: 'LFBI_Aeroclub', x: 390.5, z: -40 }],
 };
 const buildingModels = new Map();   // url -> promesse du modèle (partagé entre les aérodromes)
@@ -438,11 +438,11 @@ const AIRPORTS = {
     },
     montval: {
         // Piste au centre en (5200, -4300) : à ~3,6 NM au sud-est d'ESME, dans sa propre vallée
-        id: 'montval', label: 'MONTVAL', position: { x: 5200, z: -4520 }, rotation: -Math.PI / 2,
-        aerodrome: { icao: 'LFMA', name: 'MONTVAL', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
-        speech: { fr: 'Montval', en: 'Montval' },
+        id: 'montval', label: 'AIX', position: { x: 5200, z: -4520 }, rotation: -Math.PI / 2,
+        aerodrome: { icao: 'LFMA', name: 'Aix en Provence', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
+        speech: { fr: 'Aix-en-Provence', en: 'Aix en Provence' },
         vor: { ident: 'MTV', frequency: '115.20' }, ils: '109.70',
-        hangars: ['AÉRO-CLUB MONTVAL', 'HANGAR 2'],
+        hangars: ['AÉRO-CLUB AIX', 'HANGAR 2'],
         parked: [['bleu', 'F-GDVM'], ['jaune', 'F-HMTV'], ['violet', 'F-GJPA']],
         lakes: [{ x: -300, z: -620, radius: 190 }, { x: 640, z: 800, radius: 230 }],
         description: 'Terrain de montagne, piste est-ouest',
