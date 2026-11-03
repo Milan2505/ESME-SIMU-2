@@ -30,9 +30,12 @@ EXTRUDE = 0.002           # demi-épaisseur du plat
 BEVEL = 0.006             # arrondi des bords (épaisseur totale : 2 × (EXTRUDE + BEVEL) = 1,6 cm)
 BOTTOM_Z = 0.0            # pied du montant (contre le tableau)
 PILLAR = {'width': 0.08, 'overlap': 0.012, 'door_overlap': 0.03}      # largeur ; débord sur la vitre et la porte
-# Tête calée sur l'emplanture de l'aile (profil d'origine : z 0,39 à 0,53, nez à y 0,16), sous le haut de la vitre
-# (qui redescend au-dessus de z 0,50 contre le flanc)
-HEAD = {'center_z': 0.44, 'radius_y': 0.07, 'radius_z': 0.05, 'nose': 0.14, 'fillet_from': 0.26}   # tête
+# Profil d'aile de l'emplanture (y, z), relevé sur le modèle (pièce « wing_1Ledge », contre le flanc gauche) : du
+# bas arrière, par le nez, au haut arrière
+WING_PROFILE = [(-0.087, 0.387), (0.015, 0.403), (0.113, 0.43), (0.138, 0.444), (0.153, 0.46), (0.16, 0.475),
+                (0.158, 0.49), (0.153, 0.501), (0.139, 0.51), (0.098, 0.525), (0.058, 0.533), (-0.087, 0.53)]
+# Tête : le profil, coupé à top (au-dessus, le haut du pare-brise redescend contre le flanc)
+HEAD = {'top': 0.495, 'fillet_from': 0.26}   # tête
 
 
 def along(points, z):
@@ -69,32 +72,50 @@ def trim_outline(tree):
     # montant, arrondi creux, tête ovale qui s'avance, dessus droit noyé dans le plafond, bord arrière
     front = lambda z: along(GLASS_EDGE, z) + PILLAR['overlap'] - BEVEL
     back = lambda z: max(front(z) - PILLAR['width'] + 2 * BEVEL, along(DOOR_EDGE, z) - PILLAR['door_overlap'] + BEVEL)
-    zc, ry, rz = HEAD['center_z'], HEAD['radius_y'], HEAD['radius_z']
-    nose = HEAD['nose'] - BEVEL
-    yc, z_bottom, z_top = nose - ry, zc - rz, zc + rz
-    pts = [(back(BOTTOM_Z) + (front(BOTTOM_Z) - back(BOTTOM_Z)) * t / 6, BOTTOM_Z) for t in range(7)]
-    z0 = HEAD['fillet_from']
-    pts += [(front(z), z) for z in (BOTTOM_Z + (z0 - BOTTOM_Z) * i / 12 for i in range(1, 13))]
-    # Arrondi creux : du montant vers le dessous de la tête (tangent à l'ovale, horizontal)
-    p0, p1, p2 = Vector((front(z0), z0)), Vector((front(z_bottom), z_bottom)), Vector((yc, z_bottom))
-    for i in range(1, 16):
-        t = i / 15
-        q = p0 * (1 - t) ** 2 + p1 * 2 * t * (1 - t) + p2 * t ** 2
-        pts.append((q.x, q.y))
-    # Tête : demi-ovale par l'avant, du dessous au dessus ; ramené derrière la vitre là où elle descend (haut du
-    # pare-brise), puis adouci
     def glass_limit(z):
         ys = [hit[0].y for x in (OUTER_X, OUTER_X + 2 * (EXTRUDE + BEVEL))
               for hit in [tree.ray_cast(Vector((x, -0.5, z)), Vector((0, 1, 0)))] if hit[0] is not None]
         return (min(ys) if ys else 1.0) - BEVEL - 0.006
-    head = [(yc + ry * math.cos(a), zc + rz * math.sin(a))
-            for a in (-math.pi / 2 + math.pi * i / 36 for i in range(1, 36))]
-    head = [(min(y, glass_limit(z)), z) for y, z in head]
-    for _ in range(2):
+
+    # Tête : contour du profil d'aile de l'emplanture (dessous qui remonte vers l'avant, nez arrondi), pris à partir du
+    # bord avant du montant, jusqu'à HEAD['top'] (au-dessus, la vitre redescend) ; décalé vers l'intérieur de l'arrondi,
+    # ramené derrière la vitre, adouci
+    profile = []
+    for (y0, z0_), (y1, z1) in zip(WING_PROFILE, WING_PROFILE[1:]):
+        steps = max(1, int(math.hypot(y1 - y0, z1 - z0_) / 0.004))
+        profile += [(y0 + (y1 - y0) * k / steps, z0_ + (z1 - z0_) * k / steps) for k in range(steps)]
+    inset = []
+    for i, (y, z) in enumerate(profile):
+        (ya, za), (yb, zb) = profile[max(0, i - 1)], profile[min(len(profile) - 1, i + 1)]
+        ty, tz = yb - ya, zb - za
+        length = math.hypot(ty, tz) or 1.0
+        d = BEVEL - 0.004   # dépasse le profil de 4 mm : couvre l'aile (sinon un fil clair sous la tête)
+        inset.append((y - d * tz / length, z + d * ty / length))   # normale vers l'intérieur (sens direct)
+    top = HEAD['top'] - BEVEL
+    start = next(i for i, (y, z) in enumerate(inset) if y >= front(z) + 0.035)
+    head = []
+    for y, z in inset[start:]:
+        if z > top:   # au-dessus : le haut du pare-brise ; la tête s'arrête là (dessus droit, voir plus bas)
+            break
+        head.append((min(y, glass_limit(z)), z))
+    for _ in range(3):
         head = [head[0]] + [((head[i - 1][0] + 2 * head[i][0] + head[i + 1][0]) / 4,
                              (head[i - 1][1] + 2 * head[i][1] + head[i + 1][1]) / 4) for i in range(1, len(head) - 1)] + [head[-1]]
-    pts += head
-    # Dessus droit vers l'arrière, puis bord arrière jusqu'au pied
+    pts = [(back(BOTTOM_Z) + (front(BOTTOM_Z) - back(BOTTOM_Z)) * t / 6, BOTTOM_Z) for t in range(7)]
+    z0 = HEAD['fillet_from']
+    pts += [(front(z), z) for z in (BOTTOM_Z + (z0 - BOTTOM_Z) * i / 12 for i in range(1, 13))]
+    # Arrondi creux : du montant vers le début du dessous de la tête, tangent à lui
+    head = head[3:]   # premiers points (lissage contre le départ) : l'arrondi creux s'y raccorde plus loin
+    (ys, zs), (yn, zn) = head[0], head[min(3, len(head) - 1)]
+    slope = (zn - zs) / ((yn - ys) or 1e-6)
+    p0, p2 = Vector((front(z0), z0)), Vector((ys, zs))
+    p1 = Vector((front(zs), zs - slope * (ys - front(zs))))   # sur la tangente du dessous, à l'aplomb du montant
+    for i in range(1, 16):
+        t = i / 15
+        q = p0 * (1 - t) ** 2 + p1 * 2 * t * (1 - t) + p2 * t ** 2
+        pts.append((q.x, q.y))
+    pts += head[1:]
+    yc, z_top = head[-1][0], top
     # Coin arrière du dessus arrondi (rayon 3 cm), puis bord arrière jusqu'au pied
     corner = 0.03
     cy, cz = back(z_top - corner) + corner, z_top - corner
@@ -205,12 +226,15 @@ def main():
     # Aérateurs sur la face intérieure : au centre de la tête, et plus bas sur le montant ; tournés vers les sièges
     inner_x = OUTER_X + 2 * (EXTRUDE + BEVEL)
     outline = trim_outline(tree)
-    nose = max(y for y, z in outline if abs(z - HEAD['center_z']) < 0.01)
-    head_center = Vector((inner_x, nose - HEAD['radius_y'] + 0.008, HEAD['center_z']))
+    # Centre de la tête : à 6 cm du nez, à mi-hauteur entre le dessous du profil et le dessus
+    nose = max(y for y, z in outline if z > 0.4)
+    head_y = nose - 0.06
+    below = min((z for y, z in outline if z > 0.35 and abs(y - head_y) < 0.006), default=0.43)
+    head_center = Vector((inner_x, head_y, (below + HEAD['top']) / 2))
     low_z = 0.15
     low_ys = [y for y, z in outline if abs(z - low_z) < 0.02]
     low_center = Vector((inner_x, (min(low_ys) + max(low_ys)) / 2, low_z))
-    for vname, at, scale, facing in (('aerateur_L', head_center, 0.85, Vector((1, -0.25, -0.2))),
+    for vname, at, scale, facing in (('aerateur_L', head_center, 0.62, Vector((1, -0.25, -0.2))),
                                      ('aerateur_bas_L', low_center, 0.7, Vector((1, -0.35, 0.05)))):
         vent, hole = air_vent(vname, scale, rubber, dark)
         place((vent, hole), at - Vector((0.003, 0, 0)), facing)
