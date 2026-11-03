@@ -30,7 +30,9 @@ EXTRUDE = 0.002           # demi-épaisseur du plat
 BEVEL = 0.006             # arrondi des bords (épaisseur totale : 2 × (EXTRUDE + BEVEL) = 1,6 cm)
 BOTTOM_Z = 0.0            # pied du montant (contre le tableau)
 PILLAR = {'width': 0.08, 'overlap': 0.012, 'door_overlap': 0.03}      # largeur ; débord sur la vitre et la porte
-HEAD = {'center_z': 0.42, 'radius_y': 0.065, 'radius_z': 0.058, 'reach': 0.16, 'fillet_from': 0.26}   # tête
+# Tête calée sur l'emplanture de l'aile (profil d'origine : z 0,39 à 0,53, nez à y 0,16), sous le haut de la vitre
+# (qui redescend au-dessus de z 0,50 contre le flanc)
+HEAD = {'center_z': 0.44, 'radius_y': 0.07, 'radius_z': 0.05, 'nose': 0.14, 'fillet_from': 0.26}   # tête
 
 
 def along(points, z):
@@ -68,7 +70,7 @@ def trim_outline(tree):
     front = lambda z: along(GLASS_EDGE, z) + PILLAR['overlap'] - BEVEL
     back = lambda z: max(front(z) - PILLAR['width'] + 2 * BEVEL, along(DOOR_EDGE, z) - PILLAR['door_overlap'] + BEVEL)
     zc, ry, rz = HEAD['center_z'], HEAD['radius_y'], HEAD['radius_z']
-    nose = front(zc) + HEAD['reach']
+    nose = HEAD['nose'] - BEVEL
     yc, z_bottom, z_top = nose - ry, zc - rz, zc + rz
     pts = [(back(BOTTOM_Z) + (front(BOTTOM_Z) - back(BOTTOM_Z)) * t / 6, BOTTOM_Z) for t in range(7)]
     z0 = HEAD['fillet_from']
@@ -79,10 +81,19 @@ def trim_outline(tree):
         t = i / 15
         q = p0 * (1 - t) ** 2 + p1 * 2 * t * (1 - t) + p2 * t ** 2
         pts.append((q.x, q.y))
-    # Tête : demi-ovale par l'avant, du dessous au dessus
-    for i in range(1, 36):
-        a = -math.pi / 2 + math.pi * i / 36
-        pts.append((yc + ry * math.cos(a), zc + rz * math.sin(a)))
+    # Tête : demi-ovale par l'avant, du dessous au dessus ; ramené derrière la vitre là où elle descend (haut du
+    # pare-brise), puis adouci
+    def glass_limit(z):
+        ys = [hit[0].y for x in (OUTER_X, OUTER_X + 2 * (EXTRUDE + BEVEL))
+              for hit in [tree.ray_cast(Vector((x, -0.5, z)), Vector((0, 1, 0)))] if hit[0] is not None]
+        return (min(ys) if ys else 1.0) - BEVEL - 0.006
+    head = [(yc + ry * math.cos(a), zc + rz * math.sin(a))
+            for a in (-math.pi / 2 + math.pi * i / 36 for i in range(1, 36))]
+    head = [(min(y, glass_limit(z)), z) for y, z in head]
+    for _ in range(2):
+        head = [head[0]] + [((head[i - 1][0] + 2 * head[i][0] + head[i + 1][0]) / 4,
+                             (head[i - 1][1] + 2 * head[i][1] + head[i + 1][1]) / 4) for i in range(1, len(head) - 1)] + [head[-1]]
+    pts += head
     # Dessus droit vers l'arrière, puis bord arrière jusqu'au pied
     # Coin arrière du dessus arrondi (rayon 3 cm), puis bord arrière jusqu'au pied
     corner = 0.03
@@ -96,9 +107,9 @@ def trim_outline(tree):
     for y, z in pts:
         for x in (OUTER_X, OUTER_X + 2 * (EXTRUDE + BEVEL)):
             hit = tree.ray_cast(Vector((x, -0.5, z)), Vector((0, 1, 0)))
-            if hit[0] is not None:
-                worst = min(worst, hit[0].y - (y + BEVEL))
-    print('JEU_VITRE_MIN', round(worst, 3))
+            if hit[0] is not None and hit[0].y - (y + BEVEL) < worst:
+                worst, where = hit[0].y - (y + BEVEL), (round(x, 3), round(y, 3), round(z, 3), round(hit[0].y, 3))
+    print('JEU_VITRE_MIN', round(worst, 3), where if worst < 1 else '')
     return pts
 
 
