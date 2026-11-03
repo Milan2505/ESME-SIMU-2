@@ -408,13 +408,14 @@ function sockTexture() {
 // Tour et aérogare de chaque aérodrome : modèles de la base de scènes FlightGear (asset/airport, convertis par
 // asset/blender/build_airport.py ; GPL-2.0, voir asset/airport/LICENSE.txt), centre de leur emprise en (x, z) dans le
 // repère de l'aérodrome, à l'est du parking. Façade principale tournée vers le parking (ouest) : quart de tour.
-// night : décalage (u, v) de la version de nuit dans la texture (fenêtres allumées, comme dans FlightGear)
+// night : décalage (u, v) de la version de nuit dans la texture (fenêtres allumées, comme dans FlightGear) ;
+// beacon : feu d'obstacle décalé de (dx, dz) du centre, sur le fût (tour au bout de son bâtiment)
 const BUILDING_ROTATION = -Math.PI / 2;
 const BUILDINGS = {
     // ESME : tour moderne (vigie vitrée sur un fût, 25 m) et aérogare à bandeau vitré
     esme: [{ model: 'Tour_Controle', x: 395, z: -82, tower: true }, { model: 'generic-terminal', x: 396.5, z: -40 }],
     // Aix-en-Provence : tour cylindrique et son aile de bureaux (38 m, Rzeszów), aérogare vitrée (Chōfu)
-    montval: [{ model: 'tower_EPRZ', x: 392, z: -92.5, tower: true, night: [0, 0.5] },
+    montval: [{ model: 'tower_EPRZ', x: 392, z: -92.5, tower: true, beacon: [0, -17.15], night: [0, 0.5] },
         { model: 'RJTF-terminal', x: 396.5, z: -40, night: [0.5, 0] }],
 };
 const buildingModels = new Map();   // url -> promesse du modèle (partagé entre les aérodromes)
@@ -1185,7 +1186,7 @@ class Airport {
 
     // Tour ou aérogare (modèle chargé à part, ajouté quand il arrive) : boîte de collision, verres allumés la nuit,
     // feu d'obstacle sur le toit de la tour
-    _loadBuilding({ model, x, z, tower, night }) {
+    _loadBuilding({ model, x, z, tower, beacon = [0, 0], night }) {
         loadBuilding(model).then((source) => {
             const building = source.clone();
             building.position.set(x, 0, z);
@@ -1220,7 +1221,7 @@ class Airport {
             this.obstacles.push(box);
             this._obstaclesToWorld();
             if (tower) {
-                this._beacon.position.set(x, box.max.y + 0.25, z);
+                this._beacon.position.set(x + beacon[0], box.max.y + 0.25, z + beacon[1]);
                 this._beaconPlaced = true;
             }
         }).catch((error) => console.error(error));

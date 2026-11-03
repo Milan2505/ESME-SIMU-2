@@ -9,7 +9,8 @@ Fichiers d'origine (format AC3D, avec leur texture) dans source/ :
 - Tour_Controle.ac : tour de contrôle moderne (ESME)
 - generic-terminal.ac : aérogare (ESME)
 - tower_EPRZ.ac : tour cylindrique et aile de bureaux de Rzeszów (Aix-en-Provence) ; seule la pièce « tower » est
-  gardée (sans l'entrepôt ni le mur annexes, ni leur texture tower_EPRZ_2.png)
+  gardée (sans l'entrepôt ni le mur annexes, ni leur texture tower_EPRZ_2.png) ; texture retouchée : murs gris
+  foncé repeints en blanc cassé (grain d'origine gardé, version de nuit inchangée)
 - RJTF-terminal.ac : aérogare de Chōfu, par Hans Kunkell, 2020 (Aix-en-Provence) ; texture retouchée : l'inscription
   en japonais de la façade est recouverte par le motif des panneaux vitrés voisins
 
