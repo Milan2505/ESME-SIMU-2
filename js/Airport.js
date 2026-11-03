@@ -31,11 +31,13 @@ import {
     Vector2,
     Vector3
 } from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { flareTexture } from './LightFlare.js';
 import { mergeStatic } from './MergeStatic.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
-// Tout est modélisé ici (pas de modèle externe) ; le relief est aplani autour (voir reliefFactor).
+// Tout est modélisé ici, sauf la tour et l'aérogare (modèles FlightGear, voir BUILDINGS) ; le relief est aplani
+// autour (voir reliefFactor).
 const RUNWAY = { x: 220, z: 0, length: 1000, width: 30 };   // (avant : 700 m)
 const TAXIWAY = { minX: 235, maxX: 300, minZ: -8, maxZ: 8 };
 const APRON = { minX: 300, maxX: 365, minZ: -95, maxZ: 95 };
@@ -402,6 +404,23 @@ function sockTexture() {
         }
     });
 }
+
+// Tour et aérogare de chaque aérodrome : modèles de la base de scènes FlightGear (asset/airport, convertis par
+// asset/blender/build_airport.py ; GPL-2.0, voir asset/airport/LICENSE.txt), centre de leur emprise en (x, z) dans le
+// repère de l'aérodrome, à l'est du parking. Façade principale tournée vers le parking (ouest) : quart de tour
+const BUILDING_ROTATION = -Math.PI / 2;
+const BUILDINGS = {
+    // ESME : tour moderne (vigie vitrée sur un fût, 25 m) et aérogare à bandeau vitré
+    esme: [{ model: 'Tour_Controle', x: 395, z: -82, tower: true }, { model: 'generic-terminal', x: 396.5, z: -40 }],
+    // MONTVAL : tour accolée à son bloc technique et club-house en longueur, toits de tuiles (Poitiers-Biard)
+    montval: [{ model: 'LFBI_Tower', x: 393.5, z: -84, tower: true }, { model: 'LFBI_Aeroclub', x: 390.5, z: -40 }],
+};
+const buildingModels = new Map();   // url -> promesse du modèle (partagé entre les aérodromes)
+const loadBuilding = (name) => {
+    const url = `asset/airport/${name}.glb`;
+    if (!buildingModels.has(url)) buildingModels.set(url, new GLTFLoader().loadAsync(url).then((gltf) => gltf.scene));
+    return buildingModels.get(url);
+};
 
 // Identité de chaque aérodrome. Tous ont le même plan (piste de 1000 m, bretelle, parking, deux hangars, tour,
 // terminal, VOR) : il est dessiné dans le repère de l'aérodrome (piste nord-sud, voir les constantes ci-dessus), puis
@@ -883,7 +902,7 @@ class Airport {
         this._sock.rotation.x = droop; // > 0 : la manche pend vers le sol
         this._sock.rotation.z = Math.sin(t * 2.3) * 0.12 * (0.3 + windStrength);
         // Feu d'obstacle rouge clignotant en haut de la tour
-        this._beacon.visible = Math.sin(t * Math.PI) > 0;
+        this._beacon.visible = this._beaconPlaced && Math.sin(t * Math.PI) > 0;
     }
 
     // PAPI : 4 feux à gauche de la piste, au niveau du point visé. Chaque feu est blanc si l'on est
@@ -979,65 +998,14 @@ class Airport {
     }
 
     _buildBuildings() {
-        const wall = new MeshStandardMaterial({ color: 0xe9e4d8, roughness: 0.9 });
-        const darkWall = new MeshStandardMaterial({ color: 0x5d6d7e, roughness: 0.8 });
-        const roof = new MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.8 });
-
-        // Fenêtres du terminal : allumées la nuit
-        const windowsMap = canvasTexture(256, 64, (ctx, w, h) => {
-            ctx.fillStyle = '#e9e4d8';
-            ctx.fillRect(0, 0, w, h);
-            for (let x = 8; x < w; x += 32) {
-                ctx.fillStyle = '#26323d';
-                ctx.fillRect(x, 20, 22, 26);
-            }
-        });
-        const emissiveMap = canvasTexture(256, 64, (ctx, w, h) => {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, w, h);
-            for (let x = 8; x < w; x += 32) {
-                ctx.fillStyle = Math.random() < 0.75 ? '#ffd28a' : '#000';
-                ctx.fillRect(x, 20, 22, 26);
-            }
-        });
-        const terminalMaterial = new MeshStandardMaterial({
-            map: windowsMap, emissiveMap, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.8,
-        });
-        const glass = new MeshStandardMaterial({
-            color: 0x1d3b4a, metalness: 0.6, roughness: 0.15, emissive: 0xffe2a8, emissiveIntensity: 0,
-        });
-        this._glowingMaterials = [terminalMaterial, glass];
-
-        // Terminal (fenêtres sur les façades longues)
-        const terminal = new Mesh(new BoxGeometry(16, 6, 40),
-            [terminalMaterial, terminalMaterial, roof, roof, wall, wall]); // faces +x, -x, +y, -y, +z, -z
-        terminal.position.set(392, 3, -40);
-        this.group.add(terminal);
-        this._addObstacle(terminal);
-        const terminalRoof = new Mesh(new BoxGeometry(17, 0.6, 41), roof);
-        terminalRoof.position.set(392, 6.3, -40);
-        this.group.add(terminalRoof);
-
-        // Tour de contrôle : fût, vigie vitrée octogonale, toit et antenne
-        const shaft = new Mesh(new BoxGeometry(5, 18, 5), wall);
-        shaft.position.set(392, 9, -75);
-        this.group.add(shaft);
-        this._addObstacle(shaft);
-        const cabBase = new Mesh(new CylinderGeometry(4.6, 3.6, 1.5, 8), darkWall);
-        cabBase.position.set(392, 18.75, -75);
-        const cab = new Mesh(new CylinderGeometry(4.8, 4.4, 3.5, 8), glass);
-        cab.position.set(392, 21.25, -75);
-        const cabRoof = new Mesh(new CylinderGeometry(5.4, 5.4, 0.6, 8), roof);
-        cabRoof.position.set(392, 23.3, -75);
-        const antenna = new Mesh(new CylinderGeometry(0.08, 0.12, 5, 6), darkWall);
-        antenna.position.set(392, 26.1, -75);
-        this.group.add(cabBase, cab, cabRoof, antenna);
-        this._addObstacle(cab);
+        this._glowingMaterials = [];
+        // Feu d'obstacle rouge clignotant en haut de la tour (placé quand son modèle est chargé)
         this._beacon = new Mesh(new BoxGeometry(0.5, 0.5, 0.5), new MeshStandardMaterial({
             color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 4,
         }));
-        this._beacon.position.set(392, 28.7, -75);
+        this._beacon.visible = false;
         this.group.add(this._beacon);
+        for (const building of BUILDINGS[this.id] ?? BUILDINGS.esme) this._loadBuilding(building);
 
         // Hangars métalliques : toit à deux pans, bardage nervuré, portes coulissantes entrouvertes vers le parking
         HANGARS.forEach((h, i) => this._buildHangar(h.x, h.z, this.hangars[i].name));
@@ -1211,6 +1179,38 @@ class Airport {
         const margin = TAXIWAY.maxZ + 4;
         place([red, location], margin);                // à gauche en roulant vers la piste (au sud)
         place([location, red, info], -margin - 1.4);   // à droite (au nord)
+    }
+
+    // Tour ou aérogare (modèle chargé à part, ajouté quand il arrive) : boîte de collision, verres allumés la nuit,
+    // feu d'obstacle sur le toit de la tour
+    _loadBuilding({ model, x, z, tower }) {
+        loadBuilding(model).then((source) => {
+            const building = source.clone();
+            building.position.set(x, 0, z);
+            building.rotation.y = BUILDING_ROTATION;
+            building.traverse((child) => {
+                if (!child.isMesh) return;
+                child.castShadow = child.receiveShadow = true;
+                if (!child.material.name.startsWith('Vitrage')) return;
+                // Verres : teintés le jour, éclairés de l'intérieur la nuit (propres à cet aérodrome, voir setNight)
+                // (sans la texture du modèle, qui les teintait en brun)
+                child.material = child.material.clone();
+                Object.assign(child.material, { map: null, opacity: 0.65, metalness: 0.4, roughness: 0.1 });
+                child.material.color.set(0x5d7a8e);
+                child.material.emissive = new Color(0xffe2a8);
+                child.material.emissiveIntensity = 0.05 + 1.6 * (this._night ?? 0);
+                this._glowingMaterials.push(child.material);
+                child.castShadow = false;
+            });
+            const box = new Box3().setFromObject(building);   // (pas encore rattaché : repère de l'aérodrome)
+            this.group.add(building);
+            this.obstacles.push(box);
+            this._obstaclesToWorld();
+            if (tower) {
+                this._beacon.position.set(x, box.max.y + 0.25, z);
+                this._beaconPlaced = true;
+            }
+        }).catch((error) => console.error(error));
     }
 
     _addObstacle(mesh) {

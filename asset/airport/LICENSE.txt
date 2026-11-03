@@ -1,0 +1,15 @@
+Tours de contrôle et aérogares des aérodromes
+
+Source : base de modèles de scènes du projet FlightGear (modèles partagés TerraSync, dossier Models/Airport),
+https://flightgear.sourceforge.net/scenery/Models/Airport/ et https://scenery.flightgear.org/
+Licence : GNU General Public License, version 2 (GPL-2.0) - https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+Auteurs : contributeurs de la base de modèles de scènes FlightGear.
+
+Fichiers d'origine (format AC3D, avec leur texture) dans source/ :
+- Tour_Controle.ac : tour de contrôle moderne (ESME)
+- generic-terminal.ac : aérogare (ESME)
+- LFBI_Tower.ac : tour et bloc technique de Poitiers-Biard (MONTVAL)
+- LFBI_Aeroclub.ac : club-house de Poitiers-Biard (MONTVAL)
+
+Les fichiers .glb sont convertis à partir de ces modèles par asset/blender/build_airport.py (recentrés au sol,
+vitrages renommés « Vitrage ») et restent sous licence GPL-2.0.
