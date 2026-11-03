@@ -539,6 +539,7 @@ function buildCabinShell(model) {
     const inverse = model.matrixWorld.clone().invert();
     hideWingInCabin(model, inverse);
     const roofLine = cabinRoofLine(model, inverse);
+    group.userData.roofLine = roofLine;   // pour habiller les pièces ajoutées (voir loadCabinParts)
     for (const name of ['fuselage', 'leftdoor', 'rightdoor', 'windowframeleftext', 'windowframerightext', 'baggagedoorexterior', 'fuselage_cowling_top']) {
         const source = model.getObjectByName(name);
         if (!source) continue;
@@ -734,19 +735,27 @@ function windshieldSeal(glass, roof) {
 }
 
 // Pièces de la cabine modélisées dans Blender (asset/blender/build_cabin.py -> asset/cabin.glb, mêmes coordonnées que
-// le modèle de l'avion) : carénages d'emplanture et leurs aérateurs. Groupe en repère avion, à ajouter aux garnitures
+// le modèle de l'avion) : garnitures de montant et leurs aérateurs, ajoutées aux garnitures (shell : voir
+// buildCabinShell). Les pièces de matière « Garniture » prennent la matière de la coque (cabinTrim : même grain, même
+// gris, même éclairage) ; les autres (caoutchouc des aérateurs) gardent la leur, un peu auto-éclairée de jour
 const CABIN_PARTS_URL = 'asset/cabin.glb';
-async function loadCabinParts() {
+async function loadCabinParts(shell) {
     const gltf = await new GLTFLoader().loadAsync(CABIN_PARTS_URL);
     const parts = gltf.scene;
     parts.position.copy(MODEL_OFFSET);
+    shell.add(parts);
+    shell.updateMatrixWorld(true);
+    const toShell = shell.matrixWorld.clone().invert();
     parts.traverse((child) => {
         if (!child.isMesh) return;
         child.receiveShadow = true;
-        // Garnitures : un peu auto-éclairées de jour, comme les autres (voir ambient)
-        const material = child.material;
-        material.emissive.copy(material.color).multiplyScalar(0.35);
-        ambient(material);
+        if (child.material.name === 'Garniture') {
+            // Gris des flancs, sans limite du ciel de toit ni liseré (ils traverseraient la pièce)
+            child.material = cabinTrim(toShell.clone().multiply(child.matrixWorld), FrontSide, new Array(ROOF_SLICES).fill(10), false);
+        } else {
+            child.material.emissive.copy(child.material.color).multiplyScalar(0.35);
+            ambient(child.material);
+        }
     });
     return parts;
 }
@@ -929,7 +938,8 @@ const CABIN_AXIS_Y = 0.45;   // hauteur de l'axe de la cabine, vers lequel la ga
 const TRIM_COLORS = {
     headliner: new Color(0xc9ccd1), seam: new Color(0x9a9ea5), panel: new Color(0xbfc2c8), kick: new Color(0x3a3d43),
 };
-function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).fill(1.0)) {
+// belt : liseré et bas de porte foncé (pas sur les pièces rapportées, qu'ils traverseraient)
+function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).fill(1.0), belt = true) {
     const material = ambient(new MeshStandardMaterial({ roughness: 0.85, side, emissive: 0x4f4f4f }));
     material.customProgramCacheKey = () => 'cabinTrim';
     material.onBeforeCompile = (shader) => {
@@ -937,7 +947,7 @@ function cabinTrim(toCabin, side = BackSide, roofLine = new Array(ROOF_SLICES).f
             uToCabin: { value: toCabin },
             uHeadliner: { value: TRIM_COLORS.headliner }, uSeam: { value: TRIM_COLORS.seam },
             uPanel: { value: TRIM_COLORS.panel }, uKick: { value: TRIM_COLORS.kick },
-            uBeltY: { value: FLOOR_Y + 0.5 },
+            uBeltY: { value: belt ? FLOOR_Y + 0.5 : -10 },
             uRoofLine: { value: roofLine },
         });
         shader.vertexShader = shader.vertexShader

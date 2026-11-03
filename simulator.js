@@ -353,7 +353,7 @@ loadAircraft().then(({ model, template, parts }) => {
     cockpit.fitInsideHull(model);                    // rien de la cabine ne traverse les flancs
     const shell = buildCabinShell(model);
     cockpit.addCabinShell(shell);   // garnitures intérieures : l'envers de la carrosserie
-    loadCabinParts().then((parts) => shell.add(parts));   // pièces modélisées dans Blender (carénages, aérateurs)
+    loadCabinParts(shell);   // pièces modélisées dans Blender (carénages, aérateurs)
     cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
     setRegistration(model, atc.registration);
     paintAircraft(model, multiplayer.livery);

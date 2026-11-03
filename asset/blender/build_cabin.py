@@ -26,8 +26,8 @@ GLASS_EDGE = [(0.142, 0.015), (0.105, 0.056), (0.046, 0.19), (-0.128, 0.52), (-0
 DOOR_EDGE = [(0.04, -0.06), (0.02, 0.0), (0.011, 0.011), (-0.069, 0.298), (-0.1, 0.35), (-0.16, 0.6)]
 
 OUTER_X = -0.514          # face de la plaque côté flanc (gauche)
-EXTRUDE = 0.012           # demi-épaisseur du plat
-BEVEL = 0.012             # arrondi des bords (épaisseur totale : 2 × (EXTRUDE + BEVEL) = 4,8 cm)
+EXTRUDE = 0.002           # demi-épaisseur du plat
+BEVEL = 0.006             # arrondi des bords (épaisseur totale : 2 × (EXTRUDE + BEVEL) = 1,6 cm)
 BOTTOM_Z = 0.0            # pied du montant (contre le tableau)
 PILLAR = {'width': 0.08, 'overlap': 0.012, 'door_overlap': 0.03}      # largeur ; débord sur la vitre et la porte
 HEAD = {'center_z': 0.42, 'radius_y': 0.065, 'radius_z': 0.058, 'reach': 0.16, 'fillet_from': 0.26}   # tête
