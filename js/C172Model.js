@@ -574,7 +574,7 @@ function buildCabinShell(model) {
 // comme déjà copiée : la livrée ne change que son image, voir repaint)
 const CABIN_HALF_WIDTH = 0.53, ROOF_TOP = 1.14;
 const WING_CUTS = {
-    wing_center: 'belowAndTop', flaps: 'below',
+    wing_center: 'belowAndTop', flaps: 'below', wing_leading_edge_center: 'below',
     wingventhole: 'fromCabin',
     wingroot: 'fromCabin', wing_1Ledge: 'fromCabin', wing_1Redge: 'fromCabin',
 };

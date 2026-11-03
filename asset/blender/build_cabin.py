@@ -78,8 +78,8 @@ def trim_outline(tree):
         return (min(ys) if ys else 1.0) - BEVEL - 0.006
 
     # Tête : contour du profil d'aile de l'emplanture (dessous qui remonte vers l'avant, nez arrondi), pris à partir du
-    # bord avant du montant, jusqu'à HEAD['top'] (au-dessus, la vitre redescend) ; décalé vers l'intérieur de l'arrondi,
-    # ramené derrière la vitre, adouci
+    # bord avant du montant, jusqu'à HEAD['top'] (au-dessus, la vitre redescend), à sa place exacte : nez bombé du bord
+    # d'attaque. Dans le modèle, le nez de l'aile dépasse un peu la vitre à l'emplanture : la tête aussi, cachée dans l'aile
     profile = []
     for (y0, z0_), (y1, z1) in zip(WING_PROFILE, WING_PROFILE[1:]):
         steps = max(1, int(math.hypot(y1 - y0, z1 - z0_) / 0.004))
@@ -89,7 +89,7 @@ def trim_outline(tree):
         (ya, za), (yb, zb) = profile[max(0, i - 1)], profile[min(len(profile) - 1, i + 1)]
         ty, tz = yb - ya, zb - za
         length = math.hypot(ty, tz) or 1.0
-        d = BEVEL - 0.004   # dépasse le profil de 4 mm : couvre l'aile (sinon un fil clair sous la tête)
+        d = BEVEL + 0.002   # 2 mm sous le profil : vue de dehors, la tête reste dans le volume de l'aile
         inset.append((y - d * tz / length, z + d * ty / length))   # normale vers l'intérieur (sens direct)
     top = HEAD['top'] - BEVEL
     start = next(i for i, (y, z) in enumerate(inset) if y >= front(z) + 0.035)
@@ -97,7 +97,13 @@ def trim_outline(tree):
     for y, z in inset[start:]:
         if z > top:   # au-dessus : le haut du pare-brise ; la tête s'arrête là (dessus droit, voir plus bas)
             break
-        head.append((min(y, glass_limit(z)), z))
+        head.append((y, z))
+    # Dessous près du montant descendu de 1,5 cm (rien jusqu'au nez) : couvre le pli du haut du pare-brise, qui se voyait
+    # en fil clair sous la tête ; caché de dehors par le fuselage
+    nose_y = max(y for y, _ in head)
+    i_nose = max(range(len(head)), key=lambda i: head[i][0])
+    head = [(y, z - 0.015 * min(1.0, max(0.0, (nose_y - 0.07 - y) / 0.05)) if i < i_nose else z)
+            for i, (y, z) in enumerate(head)]
     for _ in range(3):
         head = [head[0]] + [((head[i - 1][0] + 2 * head[i][0] + head[i + 1][0]) / 4,
                              (head[i - 1][1] + 2 * head[i][1] + head[i + 1][1]) / 4) for i in range(1, len(head) - 1)] + [head[-1]]
@@ -126,6 +132,8 @@ def trim_outline(tree):
     # Contrôle : tout le contour (avec l'arrondi) reste derrière la vitre, sur les deux faces
     worst = 1.0
     for y, z in pts:
+        if z > HEAD['fillet_from']:   # tête : dans le volume de l'aile (voir plus haut)
+            continue
         for x in (OUTER_X, OUTER_X + 2 * (EXTRUDE + BEVEL)):
             hit = tree.ray_cast(Vector((x, -0.5, z)), Vector((0, 1, 0)))
             if hit[0] is not None and hit[0].y - (y + BEVEL) < worst:
