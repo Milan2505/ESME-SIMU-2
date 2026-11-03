@@ -322,7 +322,8 @@ class AircraftLights {
         const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight, taxi: this.landingLight };
         this._followRudder();
         if (this.beaconLight?.visible) {
-            this.beaconLight.intensity = beacon ? 6 : 0;
+            // Pas en vue cabine : la lumière traverse le toit (pas d'ombres) et faisait des éclairs rouges sur le tableau
+            this.beaconLight.intensity = beacon && !this._cabin ? 6 : 0;
         }
         for (const light of this.tipLights) {
             const flash = strobeOn && sw.strobe;
