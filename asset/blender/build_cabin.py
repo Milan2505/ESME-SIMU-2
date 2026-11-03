@@ -1,8 +1,13 @@
 # Intérieur de la cabine du C172 modélisé dans Blender (script, Blender 4.2) :
-#   blender --background --python asset/blender/build_cabin.py -- [--render chemin.png]
+#   blender --background --python asset/blender/build_cabin.py -- [--render dossier]
 # Construit les pièces à partir du modèle de l'avion (asset/c172p.glb, mêmes coordonnées), enregistre
 # asset/blender/cabin.blend (à ouvrir et retoucher dans Blender) et exporte asset/cabin.glb (chargé par le jeu,
 # voir C172Model.loadCabinParts). Repère Blender : x vers la droite, y vers l'avant, z vers le haut.
+#
+# Garniture de montant (une par côté) : une seule pièce moulée qui habille le montant du pare-brise, du tableau au
+# plafond, et s'évase en haut en une tête arrondie en forme d'emplanture d'aile (nez contre la vitre, dessus sous le
+# plafond). Volumes simples fondus ensemble (remaillage par voxels) puis lissés : raccords arrondis comme une pièce de
+# plastique moulé. Aérateur sur la tête, petit aérateur plus bas sur le montant.
 import math
 import sys
 
@@ -15,9 +20,30 @@ AIRCRAFT = ROOT + r"\asset\c172p.glb"
 BLEND = ROOT + r"\asset\blender\cabin.blend"
 EXPORT = ROOT + r"\asset\cabin.glb"
 
-FAIRING_DEPTH = 0.07      # avancée du carénage d'emplanture depuis le flanc (m)
-GLASS_GAP = 0.012         # le nez du carénage reste à ce jeu derrière la vitre du pare-brise
-BEVEL = 0.016             # arrondi des arêtes du carénage
+WALL_X = 0.518            # flanc gauche/droit (|x|) au montant
+GLASS_GAP = 0.008         # la garniture reste à ce jeu derrière la vitre
+# Bord de la vitre au montant (y, z), relevé sur le modèle (pièce « glas »)
+GLASS_EDGE = [(0.142, 0.015), (0.105, 0.056), (0.046, 0.19), (-0.128, 0.52), (-0.13, 0.6)]
+# Avant de la porte et de sa vitre (y, z) : le montant habillé s'arrête 1 cm dessus
+DOOR_EDGE = [(0.04, -0.06), (0.02, 0.0), (0.011, 0.011), (-0.069, 0.298), (-0.1, 0.35), (-0.16, 0.6)]
+CEILING_Z = 0.515         # plafond au coin du pare-brise
+PILLAR = {'bottom': 0.0, 'thickness': 0.028}
+HEAD = {'back': -0.34, 'top': CEILING_Z + 0.012, 'bottom': 0.385, 'depth': 0.075}
+
+
+def along(points, z):
+    # y du bord à la hauteur z (interpolation linéaire entre les points, triés par z)
+    pts = sorted(points, key=lambda p: p[1])
+    if z <= pts[0][1]:
+        return pts[0][0]
+    for (y0, z0), (y1, z1) in zip(pts, pts[1:]):
+        if z <= z1:
+            return y0 + (y1 - y0) * (z - z0) / (z1 - z0)
+    return pts[-1][0]
+
+
+def glass_y(z):
+    return along(GLASS_EDGE, z) - GLASS_GAP
 
 
 def material(name, color, roughness=0.8):
@@ -29,116 +55,127 @@ def material(name, color, roughness=0.8):
     return mat
 
 
-def world_points(obj):
-    return [obj.matrix_world @ v.co for v in obj.data.vertices]
-
-
-def profile_outline(edge):
-    # Contour du profil d'aile : boucle extérieure du bord (côté flanc), ordonnée autour de son centre, en (y, z)
-    pts = world_points(edge)
-    outer = max(abs(p.x) for p in pts)
-    loop = [p for p in pts if abs(p.x) > outer - 0.003]
-    cy = sum(p.y for p in loop) / len(loop)
-    cz = sum(p.z for p in loop) / len(loop)
-    loop.sort(key=lambda p: math.atan2(p.z - cz, p.y - cy))
-    out = []
-    for p in loop:   # sommets en double (coutures)
-        if not out or (Vector((p.y, p.z)) - Vector((out[-1].y, out[-1].z))).length > 1e-4:
-            out.append(p)
-    # Lissage (Chaikin, 3 passes) : contour arrondi, sans les facettes du maillage d'origine
-    for _ in range(3):
-        smooth = []
-        for i, a in enumerate(out):
-            b = out[(i + 1) % len(out)]
-            smooth += [a.lerp(b, 0.25), a.lerp(b, 0.75)]
-        out = smooth
-    return out, outer
-
-
-def glass_line(glass, side, z_low, z_high):
-    # Vitre du pare-brise au coin : y(z) le long du flanc (droite par les sommets les plus proches du flanc)
-    pts = [p for p in world_points(glass) if side * p.x > 0.42 and z_low - 0.05 < p.z < z_high + 0.05 and p.y > -0.3]
-    def front_at(z):
-        near = sorted(pts, key=lambda p: abs(p.z - z))[:6]
-        return min(p.y for p in near)   # la vitre est devant (y grand) : on prend le plus en arrière, côté cabine
-    return front_at(z_low), front_at(z_high)
-
-
-def fairing(side, edge, glass, mat):
-    outline, outer = profile_outline(edge)
-    z_low = min(p.z for p in outline)
-    z_high = max(p.z for p in outline)
-    y_low, y_high = glass_line(glass, side, z_low, z_high)
-    mesh = bpy.data.meshes.new(f'fairing_{"L" if side < 0 else "R"}')
+def prism(name, outline, x0, x1):
+    # Polygone (y, z) extrudé en x de x0 (dans le flanc) à x1 (côté cabine) : volume fermé
     bm = bmesh.new()
-    wall_x = side * (outer + 0.005)   # 5 mm dans le flanc : soudé à la carlingue
-    verts = [bm.verts.new((wall_x, p.y, p.z)) for p in outline]
-    face = bm.faces.new(verts)
+    face = bm.faces.new([bm.verts.new((x0, y, z)) for y, z in outline])
     ext = bmesh.ops.extrude_face_region(bm, geom=[face])
-    moved = [v for v in ext['geom'] if isinstance(v, bmesh.types.BMVert)]
-    bmesh.ops.translate(bm, vec=(-side * (FAIRING_DEPTH + 0.005), 0, 0), verts=moved)
-    # Coupe le long de la vitre (plan qui suit sa pente au coin), nez GLASS_GAP derrière
-    p0 = Vector((wall_x, y_low - GLASS_GAP, z_low))
-    p1 = Vector((wall_x, y_high - GLASS_GAP, z_high))
-    along = (p1 - p0).normalized()
-    normal = along.cross(Vector((1, 0, 0))).normalized()
-    if normal.y < 0:
-        normal = -normal   # vers l'avant (vers la vitre)
-    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
-    cut = bmesh.ops.bisect_plane(bm, geom=geom, plane_co=p0, plane_no=normal, clear_outer=True)
-    cut_edges = [e for e in cut['geom_cut'] if isinstance(e, bmesh.types.BMEdge)]
-    if cut_edges:
-        bmesh.ops.holes_fill(bm, edges=cut_edges)
+    bmesh.ops.translate(bm, vec=(x1 - x0, 0, 0), verts=[v for v in ext['geom'] if isinstance(v, bmesh.types.BMVert)])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bm.to_mesh(mesh)
-    bm.free()
-    obj = bpy.data.objects.new(mesh.name, mesh)
-    obj.data.materials.append(mat)
-    bevel = obj.modifiers.new('Arrondi', 'BEVEL')
-    bevel.width = BEVEL
-    bevel.segments = 8
-    bevel.limit_method = 'ANGLE'
-    bevel.angle_limit = math.radians(50)   # arêtes vives seulement (pourtour des faces), pas le contour déjà lissé
-    bevel.harden_normals = True
-    obj.data.shade_smooth()
-    # Centre de la face intérieure (pour l'aérateur)
-    inner = [obj.matrix_world @ v.co for v in obj.data.vertices if abs(v.co.x) < abs(wall_x) - FAIRING_DEPTH + 0.001]
-    center = sum(inner, Vector()) / max(1, len(inner))
-    return obj, center
-
-
-def air_vent(name, at, facing, mat_rubber, mat_dark):
-    # Aérateur : profil tourné (collerette plate, rotule, buse conique en caoutchouc), axe local z vers facing
-    profile = [(x * 1.3, y * 1.3) for x, y in [(0.0, 0.0), (0.03, 0.0), (0.031, 0.004), (0.026, 0.007), (0.021, 0.008),
-               (0.02, 0.018), (0.017, 0.03), (0.013, 0.042), (0.0115, 0.046), (0.009, 0.046), (0.009, 0.02), (0.0, 0.02)]]
     mesh = bpy.data.meshes.new(name)
-    bm = bmesh.new()
-    prev = [bm.verts.new((r, 0, h)) for r, h in profile]
-    edges = [bm.edges.new((prev[i], prev[i + 1])) for i in range(len(prev) - 1)]
-    bmesh.ops.spin(bm, geom=prev + edges, cent=(0, 0, 0), axis=(0, 0, 1), angle=math.tau, steps=40, use_merge=True)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(mesh)
     bm.free()
     obj = bpy.data.objects.new(name, mesh)
-    obj.data.materials.append(mat_rubber)
-    obj.data.shade_smooth()
-    rot = Vector((0, 0, 1)).rotation_difference(facing.normalized()).to_matrix().to_4x4()
-    obj.matrix_world = Matrix.Translation(at) @ rot
-    # Trou de la buse
-    bpy.ops.mesh.primitive_circle_add(vertices=24, radius=0.0117, fill_type='NGON', location=(0, 0, 0))
-    hole = bpy.context.active_object
-    hole.name = name + '_trou'
-    hole.data.materials.append(mat_dark)
-    hole.parent = obj
-    hole.matrix_parent_inverse = Matrix.Identity(4)
-    hole.location = (0, 0, 0.0575)
+    bpy.context.scene.collection.objects.link(obj)
     return obj
+
+
+def pillar_outline():
+    # Entre l'avant de la porte (1 cm dessus) et le bord de la vitre, du tableau jusque dans le plafond
+    zs = [PILLAR['bottom'] + i * (HEAD['top'] - PILLAR['bottom']) / 24 for i in range(25)]
+    front = [(glass_y(z) + 0.004, z) for z in zs]
+    back = [(along(DOOR_EDGE, z) - 0.012, z) for z in reversed(zs)]
+    return front + back
+
+
+def head_outline():
+    # Profil d'emplanture : dessus droit sous le plafond, nez arrondi vers l'avant (contre la vitre), dessous qui
+    # remonte vers l'arrière
+    top, bottom, back = HEAD['top'], HEAD['bottom'], HEAD['back']
+    mid = (top + bottom) / 2
+    nose = glass_y(mid) - 0.004
+    pts = []
+    for i in range(40):   # demi-ellipse du nez : de haut en bas, par l'avant
+        a = math.pi / 2 - math.pi * i / 39
+        pts.append((nose - 0.07 + 0.07 * math.cos(a), (top + bottom) / 2 + (top - bottom) / 2 * math.sin(a)))
+    for i in range(1, 16):   # dessous : courbe qui remonte vers l'arrière
+        t = i / 15
+        pts.append((nose - 0.07 + (back - nose + 0.07) * t, bottom + (top - 0.03 - bottom) * t ** 1.6))
+    pts.append((back, top))
+    # Incliné comme la vitre (le nez la suit à chaque hauteur, arrondi, sans être coupé à plat) ; l'arrière ne bouge pas
+    shear = lambda y, z: y + (glass_y(z) - glass_y(mid)) * max(0.0, (y - back) / (nose - back))
+    return [(shear(y, z), z) for y, z in pts]
+
+
+def molded_trim(name, mat):
+    # Côté gauche ; volumes fondus (voxels), lissés, puis tout ce qui dépasse devant la vitre est ramené derrière
+    pillar = prism('montant', pillar_outline(), -WALL_X - 0.012, -WALL_X + PILLAR['thickness'])
+    head = prism('tete', head_outline(), -WALL_X - 0.012, -WALL_X + HEAD['depth'])
+    bpy.ops.object.select_all(action='DESELECT')
+    pillar.select_set(True)
+    head.select_set(True)
+    bpy.context.view_layer.objects.active = pillar
+    bpy.ops.object.join()
+    obj = pillar
+    obj.name = obj.data.name = name
+    remesh = obj.modifiers.new('Fusion', 'REMESH')
+    remesh.mode = 'VOXEL'
+    remesh.voxel_size = 0.004
+    smooth = obj.modifiers.new('Moulage', 'LAPLACIANSMOOTH')
+    smooth.iterations = 12
+    smooth.lambda_factor = 1.2
+    smooth.use_volume_preserve = True
+    bpy.ops.object.modifier_apply(modifier='Fusion')
+    bpy.ops.object.modifier_apply(modifier='Moulage')
+    for v in obj.data.vertices:
+        limit = glass_y(v.co.z)
+        if v.co.y > limit:
+            v.co.y = limit
+    decimate = obj.modifiers.new('Allegement', 'DECIMATE')
+    decimate.ratio = 0.25
+    bpy.ops.object.modifier_apply(modifier='Allegement')
+    obj.data.materials.append(mat)
+    obj.data.shade_smooth()
+    return obj
+
+
+def air_vent(name, scale, rubber, dark):
+    # Aérateur : profil tourné (collerette plate, rotule, buse conique en caoutchouc), axe local z = sortie ; trou
+    profile = [(x * scale, y * scale) for x, y in [
+        (0.0, 0.0), (0.039, 0.0), (0.04, 0.005), (0.034, 0.009), (0.027, 0.01), (0.026, 0.023),
+        (0.022, 0.039), (0.017, 0.055), (0.015, 0.06), (0.0117, 0.06), (0.0117, 0.026), (0.0, 0.026)]]
+    bm = bmesh.new()
+    verts = [bm.verts.new((r, 0, h)) for r, h in profile]
+    edges = [bm.edges.new((verts[i], verts[i + 1])) for i in range(len(verts) - 1)]
+    bmesh.ops.spin(bm, geom=verts + edges, cent=(0, 0, 0), axis=(0, 0, 1), angle=math.tau, steps=40, use_merge=True)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    obj.data.materials.append(rubber)
+    obj.data.shade_smooth()
+    hole_bm = bmesh.new()
+    bmesh.ops.create_circle(hole_bm, cap_ends=True, segments=24, radius=0.0115 * scale)
+    bmesh.ops.translate(hole_bm, vec=(0, 0, 0.058 * scale), verts=hole_bm.verts)
+    hole_mesh = bpy.data.meshes.new(name + '_trou')
+    hole_bm.to_mesh(hole_mesh)
+    hole_bm.free()
+    hole = bpy.data.objects.new(name + '_trou', hole_mesh)
+    hole.data.materials.append(dark)
+    return obj, hole
+
+
+def place(objs, at, facing):
+    rot = Vector((0, 0, 1)).rotation_difference(facing.normalized()).to_matrix().to_4x4()
+    for o in objs:
+        o.matrix_world = Matrix.Translation(at) @ rot
+
+
+def mirrored(obj, name):
+    # Copie côté droit : symétrie en x (géométrie et placement), normales retournées
+    flip = Matrix.Scale(-1, 4, (1, 0, 0))
+    mesh = obj.data.copy()
+    mesh.transform(obj.matrix_world)
+    mesh.transform(flip)
+    mesh.flip_normals()
+    return bpy.data.objects.new(name, mesh)
 
 
 def main():
     args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-    render_path = args[args.index('--render') + 1] if '--render' in args else None
+    render_dir = args[args.index('--render') + 1] if '--render' in args else None
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=AIRCRAFT)
     aircraft = bpy.data.collections.new('Avion (référence, non exporté)')
@@ -149,56 +186,71 @@ def main():
     cabin = bpy.data.collections.new('Cabine')
     bpy.context.scene.collection.children.link(cabin)
 
-    trim = material('Garniture', (0.55, 0.57, 0.6), 0.85)
-    rubber = material('Caoutchouc', (0.02, 0.02, 0.025), 0.6)
+    trim = material('Garniture', (0.5, 0.52, 0.55), 0.85)
+    rubber = material('Caoutchouc', (0.025, 0.027, 0.032), 0.55)
     dark = material('Trou', (0.0, 0.0, 0.0), 1.0)
-    glass = bpy.data.objects['glas']
-    for side, edge_name in ((-1, 'wing_1Ledge'), (1, 'wing_1Redge')):
-        obj, center = fairing(side, bpy.data.objects[edge_name], glass, trim)
-        cabin.objects.link(obj)
-        facing = Vector((-side, -0.2, -0.15))   # vers les sièges : vers l'intérieur, l'arrière, un peu vers le bas
-        vent = air_vent(f'aerateur_{"L" if side < 0 else "R"}', center + Vector((side * 0.002, -0.03, 0)), facing, rubber, dark)
-        for o in (vent, *vent.children):
-            for c in o.users_collection:
-                c.objects.unlink(o)
-            cabin.objects.link(o)
+
+    left = molded_trim('garniture_montant_L', trim)
+    bpy.context.view_layer.update()
+    parts = [left]
+    # Aérateurs : surface de la tête (milieu de sa face intérieure) et du montant plus bas, tournés vers les sièges
+    head_mid = Vector((-WALL_X + 0.2, (HEAD['back'] + glass_y(0.45)) / 2 + 0.03, 0.455))
+    pillar_mid = Vector((-WALL_X + 0.2, (glass_y(0.13) + along(DOOR_EDGE, 0.13)) / 2, 0.13))
+    for vname, probe, scale, facing in (('aerateur_L', head_mid, 1.0, Vector((1, -0.25, -0.2))),
+                                        ('aerateur_bas_L', pillar_mid, 0.75, Vector((1, -0.4, 0.1)))):
+        hit, at, _, _ = left.ray_cast(probe, Vector((-1, 0, 0)))
+        if not hit:
+            print('AERATEUR NON PLACE', vname)
+            continue
+        vent, hole = air_vent(vname, scale, rubber, dark)
+        place((vent, hole), at - Vector((0.004, 0, 0)), facing)
+        parts += [vent, hole]
+    for o in list(parts):
+        parts.append(mirrored(o, o.name.replace('_L', '_R')))
+    for o in parts:
+        for c in o.users_collection:
+            c.objects.unlink(o)
+        cabin.objects.link(o)
 
     bpy.ops.wm.save_as_mainfile(filepath=BLEND)
-    # Export : seulement la collection Cabine, modificateurs appliqués
     bpy.ops.object.select_all(action='DESELECT')
     for o in cabin.all_objects:
         o.select_set(True)
     bpy.ops.export_scene.gltf(filepath=EXPORT, use_selection=True, export_apply=True, export_format='GLB')
+    print('TRIANGLES', sum(len(o.data.polygons) for o in cabin.all_objects))
 
-    if render_path:
-        render(render_path)
+    if render_dir:
+        render(render_dir)
 
 
-def render(path):
+def render(folder):
     scene = bpy.context.scene
-    scene.render.engine = 'CYCLES'
-    scene.cycles.samples = 24
-    scene.cycles.device = 'CPU'
-    scene.render.resolution_x, scene.render.resolution_y = 1280, 720
+    scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    scene.render.resolution_x, scene.render.resolution_y = 1000, 700
     world = bpy.data.worlds.new('Ciel')
     world.use_nodes = True
     world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.45, 0.6, 0.8, 1)
-    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.2
+    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.0
     scene.world = world
     sun = bpy.data.objects.new('Soleil', bpy.data.lights.new('Soleil', 'SUN'))
     sun.data.energy = 3
-    sun.rotation_euler = (math.radians(40), 0, math.radians(30))
+    sun.rotation_euler = (math.radians(50), 0, math.radians(30))
     scene.collection.objects.link(sun)
-    # Œil du pilote (repère du jeu : CABIN_ORIGIN + EYE, moins MODEL_OFFSET), regard vers le coin gauche du pare-brise
-    cam = bpy.data.objects.new('Pilote', bpy.data.cameras.new('Pilote'))
-    cam.data.lens = 20
-    cam.location = (-0.2, -0.33, 0.293)
-    target = Vector((-0.5, 0.05, 0.45))
-    cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()
+    cam = bpy.data.objects.new('Vue', bpy.data.cameras.new('Vue'))
     scene.collection.objects.link(cam)
     scene.camera = cam
-    scene.render.filepath = path
-    bpy.ops.render.render(write_still=True)
+    # Œil du pilote (repère du jeu : CABIN_ORIGIN + EYE, moins MODEL_OFFSET) ; montant gauche, droit, vue de dehors
+    views = {
+        'gauche': ((-0.2, -0.33, 0.293), (-0.5, -0.05, 0.3), 24),
+        'droite': ((-0.2, -0.33, 0.293), (0.5, -0.05, 0.3), 24),
+        'dehors': ((-0.9, 0.9, 0.75), (-0.45, -0.1, 0.35), 30),
+    }
+    for label, (eye, target, lens) in views.items():
+        cam.data.lens = lens
+        cam.location = eye
+        cam.rotation_euler = (Vector(target) - Vector(eye)).to_track_quat('-Z', 'Y').to_euler()
+        scene.render.filepath = f'{folder}/montant_{label}.png'
+        bpy.ops.render.render(write_still=True)
 
 
 main()
