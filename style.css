@@ -1879,15 +1879,11 @@ body:has(#simulator.jeu) {
   display: none;
 }
 /* Zones sûres d'iOS (coins arrondis, barre d'accueil) : les commandes restent entières et loin des gestes système.
-   À gauche : le manche, et le palonnier juste dessous */
+   À gauche : le manche ; à droite : boutons, palonnier dessous, et manette des gaz */
 .tactile-gauche {
   position: absolute;
   left: calc(24px + env(safe-area-inset-left, 0px));
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 #tactile-manche {
   position: relative;
@@ -1915,7 +1911,8 @@ body:has(#simulator.jeu) {
 #tactile-palonnier {
   position: relative;
   box-sizing: border-box;
-  width: clamp(190px, 30vmin, 260px);
+  width: 100%;
+  min-width: 180px;
   height: 46px;
   border-radius: 23px;
   background: rgba(15, 18, 22, 0.45);
@@ -1969,6 +1966,11 @@ body:has(#simulator.jeu) {
   display: flex;
   align-items: flex-end;
   gap: 12px;
+}
+.tactile-colonne {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .tactile-boutons {
   display: grid;

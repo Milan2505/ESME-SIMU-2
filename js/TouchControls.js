@@ -1,5 +1,5 @@
 // Commandes tactiles (tablettes) : par-dessus l'écran de vol, un manche sous le pouce gauche (tangage et roulis ; au
-// sol, il oriente aussi la roulette de nez) et le palonnier juste dessous (lacet), une manette des gaz à droite, et des boutons : freins et trim (tenus),
+// sol, il oriente aussi la roulette de nez) une manette des gaz à droite, le palonnier sous les boutons (lacet), et des boutons : freins et trim (tenus),
 // volets, vue, recentrage, barre de menus. Affichées d'office sur un écran tactile principal (tablette), ou dès que
 // l'écran est touché (ordinateur à écran tactile) ; seulement en vol (pas au menu, au hangar, au choix du départ).
 // Elles s'ajoutent au clavier (voir PlaneControls.setTouchInput).
