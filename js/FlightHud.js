@@ -75,7 +75,11 @@ class FlightHud {
         if (u <= 0) return;
         ctx.setTransform(u, 0, 0, u, 0, 0);
         const W = canvas.width / u, H = canvas.height / u;
-        const m = 14, bottom = H - m;
+        // bottomInset { left, right } (px de l'écran) : place laissée en bas de chaque côté (commandes tactiles), les
+        // jauges de ce côté remontent d'autant
+        const m = 14, inset = this.bottomInset ?? { left: 0, right: 0 };
+        const bottomLeft = H - m - inset.left * this.ratio / u, bottomRight = H - m - inset.right * this.ratio / u;
+        const bottom = H - m;
 
         // Rose des caps (haut gauche) : sous le panneau du moniteur s'il est affiché, sinon à sa droite
         let cx = m + 78, cy = m + 78;
@@ -90,28 +94,28 @@ class FlightHud {
 
         // Bas gauche
         let x = m;
-        this._speedTape(x, bottom - 210, 62, 210, d.speed * KT, d.tas * KT);
+        this._speedTape(x, bottomLeft - 210, 62, 210, d.speed * KT, d.tas * KT);
         x += 70;
-        this._rpm(x, bottom - 110, 90, 110, d.rpm);
+        this._rpm(x, bottomLeft - 110, 90, 110, d.rpm);
         x += 98;
-        this._bar(x, bottom - 110, 44, 110, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
+        this._bar(x, bottomLeft - 110, 44, 110, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
             [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]]);
         x += 52;
         const aoa = d.stallAlpha > 0 ? Math.max(0, Math.min(1, d.alpha / d.stallAlpha)) : 0;
-        this._bar(x, bottom - 110, 44, 110, 'AOA', aoa, `${Math.round(d.alpha)}°`,
+        this._bar(x, bottomLeft - 110, 44, 110, 'AOA', aoa, `${Math.round(d.alpha)}°`,
             [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]]);
 
         // Bas droite
         let r = W - m;
         r -= 54;
-        this._vsTape(r, bottom - 210, 54, 210, d.verticalSpeed * FT * 60);
+        this._vsTape(r, bottomRight - 210, 54, 210, d.verticalSpeed * FT * 60);
         r -= 8 + 76;
-        this._altitudeTape(r, bottom - 210, 76, 210, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro);
+        this._altitudeTape(r, bottomRight - 210, 76, 210, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro);
         r -= 8 + 44;
-        this._trim(r, bottom - 110, 44, 110, d);
+        this._trim(r, bottomRight - 110, 44, 110, d);
         r -= 8 + 44;
         const flaps = d.flapMax > 0 ? d.flaps / d.flapMax : 0;
-        this._bar(r, bottom - 110, 44, 110, 'FLAPS', 1 - flaps, `${Math.round(d.flaps)}°`, null, true,
+        this._bar(r, bottomRight - 110, 44, 110, 'FLAPS', 1 - flaps, `${Math.round(d.flaps)}°`, null, true,
             d.flapMax > 0 ? 1 - d.flapTarget / d.flapMax : 1);
     }
 

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	<link rel="stylesheet" type="text/css" href="style.css">
     <title>Simulateur de vol</title>
 	<script type="importmap">
@@ -216,6 +216,23 @@
 	<canvas id="ecran" tabindex="0"></canvas>
 	<canvas id="hud" hidden></canvas>
 	<div id="astuce-echap" class="cache">Échap : afficher les menus</div>
+	<!-- Commandes tactiles (tablettes, voir TouchControls.js) : manche à gauche, gaz et boutons à droite -->
+	<div id="tactile" hidden>
+		<div id="tactile-manche" title="Manche : tangage et roulis (au sol, oriente aussi la roulette)"><span></span></div>
+		<div class="tactile-droite">
+			<div class="tactile-boutons">
+				<button data-tactile="menu" title="Afficher ou cacher la barre de menus">☰ Menus</button>
+				<button data-tactile="view" title="Vue cabine / extérieure">Vue</button>
+				<button data-tactile="recenter" title="Recentrer la vue">Centrer</button>
+				<button data-tactile="volets-plus" title="Sortir un cran de volets">Volets +</button>
+				<button data-tactile="volets-moins" title="Rentrer un cran de volets">Volets −</button>
+				<button data-tactile="trim-cabrer" title="Trim à cabrer (tenir)">Trim ▲</button>
+				<button data-tactile="trim-piquer" title="Trim à piquer (tenir)">Trim ▼</button>
+				<button data-tactile="frein" class="tactile-frein" title="Freins (tenir)">Freins</button>
+			</div>
+			<div id="tactile-gaz" title="Manette des gaz : glisser vers le haut pour pousser"><span></span><em>Gaz 0 %</em></div>
+		</div>
+	</div>
 	<div id="alarme">DÉCROCHAGE</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
@@ -264,7 +281,7 @@
 				<p class="mp-info">Clavier AZERTY · Z/S profondeur · Q/D ailerons · Espace/Ctrl gaz · V vue</p>
 			</section>
 		</div>
-		<p class="mp-pied">Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
+		<p class="mp-pied">Réalisé par Milan Eliayan · Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
 	</div>
 
 	<!-- Choix de l'aérodrome (Vol libre, Multijoueur), avant le hangar : survoler un terrain le montre -->

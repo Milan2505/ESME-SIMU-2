@@ -52,7 +52,10 @@ class PlaneControls extends Controls {
 			trimDown: 0, trimUp: 0,
 		};
 		this.accel = 0;
-		this._rotationVector = new Vector3( 0, 0, 0 );   // touches enfoncées (-1, 0 ou 1)
+		// Commandes tactiles (tablette, voir TouchControls.js) : manche analogique (-1 -> 1), freins et trim tenus ;
+		// elles s'ajoutent au clavier
+		this._touch = { pitch: 0, roll: 0, yaw: 0, brake: 0, trim: 0 };
+		this._rotationVector = new Vector3( 0, 0, 0 );   // touches enfoncées (-1, 0 ou 1) et manche tactile
 		this._controls = new Vector3( 0, 0, 0 );         // position réelle des gouvernes, qui suit les touches en douceur
 		this._lastQuaternion = new Quaternion();
 		this._lastPosition = new Vector3();
@@ -143,10 +146,11 @@ class PlaneControls extends Controls {
 			pitch: this._controls.x,
 			yaw: this._controls.y,
 			roll: this._controls.z,
-			brake: Math.max( this._moveState.brake, this.parkingBrake ? 1 : 0 ),
+			brake: Math.max( this._moveState.brake, this._touch.brake, this.parkingBrake ? 1 : 0 ),
 		} );
 		model.throttle = Math.min( 1, Math.max( 0, model.throttle + this.accel * this.throttleRate * delta ) );
-		model.trim = MathUtils.clamp( model.trim + ( this._moveState.trimUp - this._moveState.trimDown ) * _TRIM_RATE * delta,
+		const trim = MathUtils.clamp( this._moveState.trimUp - this._moveState.trimDown + this._touch.trim, - 1, 1 );
+		model.trim = MathUtils.clamp( model.trim + trim * _TRIM_RATE * delta,
 			model.aircraft.trimTabMin, model.aircraft.trimTabMax );
 
 		model.step( delta );
@@ -193,10 +197,17 @@ class PlaneControls extends Controls {
 	}
 
 	_updateVectors() {
+		const t = this._touch;
 		this.accel = - this._moveState.speeddown + this._moveState.speedup;
-		this._rotationVector.x = - this._moveState.pitchDown + this._moveState.pitchUp;
-		this._rotationVector.y = - this._moveState.yawRight + this._moveState.yawLeft;
-		this._rotationVector.z = - this._moveState.rollRight + this._moveState.rollLeft;
+		this._rotationVector.x = MathUtils.clamp( - this._moveState.pitchDown + this._moveState.pitchUp + t.pitch, - 1, 1 );
+		this._rotationVector.y = MathUtils.clamp( - this._moveState.yawRight + this._moveState.yawLeft + t.yaw, - 1, 1 );
+		this._rotationVector.z = MathUtils.clamp( - this._moveState.rollRight + this._moveState.rollLeft + t.roll, - 1, 1 );
+	}
+
+	// Commandes tactiles : { pitch (+ = cabrer), roll (+ = à gauche), yaw (+ = à gauche), brake (0 / 1), trim (+ = cabrer) }
+	setTouchInput( input ) {
+		Object.assign( this._touch, input );
+		this._updateVectors();
 	}
 
 	// --- Valeurs pour les instruments, le son et l'affichage ---
@@ -233,8 +244,8 @@ class PlaneControls extends Controls {
 			pitch: this._controls.x,
 			roll: this._controls.z,
 			yaw: this._controls.y,
-			brake: Math.max( this._moveState.brake, this.parkingBrake ? 1 : 0 ),
-			toeBrake: this._moveState.brake,
+			brake: Math.max( this._moveState.brake, this._touch.brake, this.parkingBrake ? 1 : 0 ),
+			toeBrake: Math.max( this._moveState.brake, this._touch.brake ),
 		};
 	}
 	// Trim : angle du tab (degrés, + = à cabrer), repère de décollage et butées

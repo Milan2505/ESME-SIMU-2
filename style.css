@@ -1855,6 +1855,117 @@ body:has(#simulator.jeu) {
   overflow: hidden;
 }
 /* Rappel « Échap : menus » en bas de l'écran, quelques secondes au début du vol */
+/* Commandes tactiles (tablettes) : sur l'écran de vol ; le doigt ailleurs tourne toujours la caméra */
+#tactile {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  z-index: 3;
+  position: relative;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#tactile[hidden] {
+  display: none;
+}
+#tactile-manche {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: clamp(130px, 22vmin, 190px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(15, 18, 22, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  pointer-events: auto;
+  touch-action: none;
+}
+#tactile-manche span {
+  position: absolute;
+  left: 30%;
+  top: 30%;
+  width: 40%;
+  height: 40%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+#tactile-manche.actif {
+  border-color: #ffd23c;
+}
+.tactile-droite {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.tactile-boutons {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 8px;
+}
+.tactile-boutons button {
+  min-width: 78px;
+  min-height: 44px;
+  padding: 6px 10px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 14px;
+  color: white;
+  background: rgba(15, 18, 22, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
+  pointer-events: auto;
+  touch-action: none;
+}
+.tactile-boutons button.actif,
+.tactile-boutons button:active {
+  border-color: #ffd23c;
+  background: rgba(255, 210, 60, 0.3);
+}
+.tactile-boutons .tactile-frein {
+  grid-column: 1 / -1;
+}
+#tactile-gaz {
+  position: relative;
+  width: 64px;
+  height: clamp(160px, 34vmin, 260px);
+  border-radius: 10px;
+  background: rgba(15, 18, 22, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  pointer-events: auto;
+  touch-action: none;
+}
+#tactile-gaz span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: rgba(255, 210, 60, 0.55);
+}
+#tactile-gaz em {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 11px;
+  font-style: normal;
+  text-align: center;
+  color: white;
+  text-shadow: 0 1px 2px black;
+}
+@media (max-width: 700px) {
+  .tactile-boutons button {
+    min-width: 64px;
+    font-size: 12px;
+  }
+}
+
 #astuce-echap {
   grid-column: 1 / -1;
   grid-row: 2;

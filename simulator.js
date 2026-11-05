@@ -32,6 +32,7 @@ import { FlightHud } from './js/FlightHud.js';
 import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
+import { TouchControls } from './js/TouchControls.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
@@ -557,7 +558,18 @@ const LEVERS = new Set(['throttle', 'mixture']);
 const LEVER_TRAVEL = 220;   // px de glissement pour toute la course
 let leverDrag = null;
 let dragDistance = 0;
+// Écran tactile : deux doigts écartés ou rapprochés = zoom (comme la molette)
+const fingers = new Map();
+let pinch = null;
+const fingerSpread = () => { const [a, b] = [...fingers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
 view.addEventListener('pointerdown', (event) => {
+    fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (fingers.size === 2) {
+        pinch = fingerSpread();
+        leverDrag = null;
+        dragDistance = Infinity;   // pas de clic sur une commande à la fin du geste
+        return;
+    }
     drag = { x: event.clientX, y: event.clientY };
     dragDistance = 0;
     const lever = event.button === 0 ? controlAt(event) : null;
@@ -566,6 +578,13 @@ view.addEventListener('pointerdown', (event) => {
     view.focus();
 });
 view.addEventListener('pointermove', (event) => {
+    if (fingers.has(event.pointerId)) fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pinch !== null && fingers.size >= 2) {
+        const spread = fingerSpread();
+        if (spread > 0) applyZoom(pinch / spread - 1);
+        pinch = spread;
+        return;
+    }
     if (!drag) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     drag = { x: event.clientX, y: event.clientY };
@@ -598,7 +617,14 @@ view.addEventListener('pointermove', (event) => {
         head.pitch = THREE.MathUtils.clamp(head.pitch - dy * ORBIT_SPEED * 0.7, -1.0, 1.1);
     }
 });
-for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, () => { drag = null; leverDrag = null; });
+for (const type of ['pointerup', 'pointercancel']) view.addEventListener(type, (event) => {
+    fingers.delete(event.pointerId);
+    if (fingers.size < 2) pinch = null;
+    // Un doigt levé après le pincement : l'autre reprend la caméra là où il est (sans saut)
+    const rest = fingers.size === 1 ? [...fingers.values()][0] : null;
+    drag = rest ? { ...rest } : null;
+    leverDrag = null;
+});
 // Manette glissée de amount (part de la course, + = pousser) ; un petit clic tous les dixièmes de course
 function moveLever(lever, amount) {
     if (!amount) return;
@@ -623,7 +649,10 @@ view.addEventListener('wheel', (event) => {
         const up = event.deltaY < 0 ? 1 : -1;
         if (useControl(control, control.id === 'trimWheel' ? -up : up, true, event.shiftKey)) return;
     }
-    const zoom = Math.sign(event.deltaY) * 0.1;
+    applyZoom(Math.sign(event.deltaY) * 0.1);
+}, { passive: false });
+// Zoom : zoom > 0 éloigne (molette vers soi, doigts rapprochés), en part de la distance ou du champ de vision
+function applyZoom(zoom) {
     if (choosingSpawn && !inHangar && !inMenu) {
         spawnCam.goal.distance = THREE.MathUtils.clamp(spawnCam.goal.distance * (1 + zoom * 1.5), 40, 1100);
         markSpawnView(null);
@@ -635,7 +664,7 @@ view.addEventListener('wheel', (event) => {
         camera.fov = THREE.MathUtils.clamp(camera.fov * (1 + zoom), 30, 85);
         camera.updateProjectionMatrix();
     }
-}, { passive: false });
+}
 
 // Après une réinitialisation (bouton ou touche R), la caméra se replace d'un coup
 controls.addEventListener('reset', () => {
@@ -2916,6 +2945,15 @@ function checkNewShaders(now) {
 }
 watchNewShaders(120);
 
+// Commandes tactiles (tablettes) : manche, gaz et boutons sur l'écran de vol (voir TouchControls.js)
+const touchControls = new TouchControls(document.getElementById('tactile'), controls, {
+    view: () => toggleView(),
+    recenter: () => recenterCamera(),
+    menu: () => setMenuBar(!simulatorElement.classList.contains('barre')),
+    flaps: (step) => controls.setFlapLevel(controls.getFlapLevel() + step),
+});
+if (touchControls.enabled) escapeHint.textContent = '☰ Menus : afficher les menus';
+
 let initiationErrorShown = false;
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
@@ -3041,6 +3079,8 @@ renderer.setAnimationLoop((time)=>{
     shadowCenter.copy(aircraft.position);
     graphics.update( shadowCenter, !chaseView, decorShadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
+    touchControls.update(!inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
+    flightHud.bottomInset = touchControls.inset;   // jauges du HUD au-dessus des commandes tactiles
     checkNewShaders(performance.now());
     if (!shaderWarmup) graphics.render();
     updatePerf(performance.now() - frameStart);
