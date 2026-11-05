@@ -115,8 +115,14 @@ class DraggablePanel {
 
 class TabletPanels {
     // root : calque posé sur l'écran de vol ; registry : voir TabletRegistry.js
-    constructor(root, registry) {
+    // options.leftReserve() : largeur à laisser libre à gauche (px, rose des caps) pour placer les panneaux par défaut ;
+    // options.onOpen() : un panneau s'ouvre (les autres fenêtres flottantes de l'écran se ferment) ;
+    // options.obstacles() : zones à ne pas recouvrir par défaut [{ x, y, w, h }] (px de l'écran : jauges, commandes…)
+    constructor(root, registry, { leftReserve = () => 0, onOpen = () => {}, obstacles = () => [] } = {}) {
         this.root = root;
+        this.leftReserve = leftReserve;
+        this.onOpen = onOpen;
+        this.obstacles = obstacles;
         this.registry = registry;
         this._timer = 0;
         this._updaters = [];      // mises à jour des tuiles affichées
@@ -152,6 +158,7 @@ class TabletPanels {
 
     // Panneau des catégories d'un bouton principal (à côté de la colonne)
     openMain(main) {
+        run(this.onOpen);
         const items = element('div', 'tb-categories');
         for (const category of main.categories) {
             const button = element('button', 'tb-categorie', category.label);
@@ -164,14 +171,16 @@ class TabletPanels {
             items.append(button);
         }
         const column = this.column.getBoundingClientRect(), area = this.root.getBoundingClientRect();
-        this.list.show(`principal:${main.id}`, main.label, items,
-            (w, h, width) => [column.left - area.left - w - 10, column.top - area.top]);
+        const cx = column.left - area.left, cy = column.top - area.top;
+        this.list.show(`principal:${main.id}`, main.label, items, (w, h) => this._place(w, h, [
+            [cx - w - 10, cy], [cx + column.width - w, cy + column.height + 10], [this.leftReserve(), cy]]));
         this._markMain(main.id);
         this._markCategory(this.detail.open ? this._category : null);
     }
 
     // Panneau d'une catégorie : titre et grille de tuiles (3 colonnes)
     openCategory(category) {
+        run(this.onOpen);
         this._category = category.id;
         const grid = element('div', 'tb-grille');
         this._updaters = category.tiles.map((tile) => {
@@ -179,13 +188,60 @@ class TabletPanels {
             grid.append(node);
             return update;
         });
-        this.detail.show(`categorie:${category.id}`, category.label, grid, (w, h, width, height) => {
+        // Largeur : celle qui reste entre ce qui occupe le haut à gauche et la liste (au moins 340 px : 3 colonnes lisibles)
+        const listNode = this.list.open ? this.list.node : null;
+        const free = (listNode ? listNode.offsetLeft - 10 : this.root.clientWidth - 140) - this.leftReserve();
+        this.detail.node.style.width = free >= 340 ? `${Math.min(480, free)}px` : '';
+        // Par défaut : à gauche de la liste des catégories, sinon dessous, sinon à droite de ce qui occupe le haut à
+        // gauche (rose des caps, moniteur), sinon au centre : la première place qui ne recouvre rien
+        this.detail.show(`categorie:${category.id}`, category.label, grid, (w, h, width) => {
             const list = this.list.open ? this.list.node : null;
+            const top = list ? list.offsetTop : 12;
             const right = list ? list.offsetLeft - 10 : width - 140;
-            return [Math.max(0, right - w), list ? list.offsetTop : 12];
+            return this._place(w, h, [
+                [right - w, top],
+                ...(list ? [[list.offsetLeft + list.offsetWidth - w, list.offsetTop + list.offsetHeight + 10]] : []),
+                [this.leftReserve(), top],
+                [(width - w) / 2, top],
+            ], list ? [list] : []);
         });
         this._markCategory(category.id);
         this._refresh();
+    }
+
+    // Première place (coin haut-gauche, px dans root) où le panneau w × h tient dans l'écran sans recouvrir d'obstacle ni
+    // les panneaux ouverts (others) ; sinon celle qui en recouvre le moins
+    _place(w, h, candidates, others = []) {
+        const area = this.root.getBoundingClientRect();
+        const rects = [
+            ...run(this.obstacles).map((r) => ({ x: r.x - area.left, y: r.y - area.top, w: r.w, h: r.h })),
+            ...others.map((n) => ({ x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight })),
+        ];
+        const overlap = ([x, y]) => {
+            let total = 0;
+            if (x < 0 || y < 0 || x + w > area.width || y + h > area.height) total += 1e9;
+            for (const r of rects) {
+                const ox = Math.min(x + w, r.x + r.w) - Math.max(x, r.x), oy = Math.min(y + h, r.y + r.h) - Math.max(y, r.y);
+                if (ox > 0 && oy > 0) total += ox * oy;
+            }
+            return total;
+        };
+        // Places proposées, puis les mêmes colonnes plus bas (par pas de 20 px)
+        const all = [...candidates];
+        for (const [x] of candidates) for (let y = 0; y + h <= area.height; y += 20) all.push([x, y]);
+        let best = candidates[0], bestScore = Infinity;
+        for (const candidate of all) {
+            const score = overlap(candidate);
+            if (score === 0) return candidate;
+            if (score < bestScore) { best = candidate; bestScore = score; }
+        }
+        return best;
+    }
+
+    // Tout refermer (une autre fenêtre s'ouvre à leur place)
+    closeAll() {
+        if (this.detail.open) this.detail.hide();
+        if (this.list.open) this.list.hide();
     }
 
     _markMain(id) {

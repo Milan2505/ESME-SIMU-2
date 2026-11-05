@@ -1056,7 +1056,6 @@ updateCamera(0, true);
 
 // Plein écran : tout le cockpit (écran de vol + panneaux), bouton ou touche F
 const simulatorElement = document.getElementById('simulator');
-const fullscreenButton = document.getElementById('plein-ecran');
 
 // Boutons Plein écran : seulement sur tablette (sur ordinateur : touche F, et plein écran au premier clic), sauf si le
 // site est ouvert depuis l'écran d'accueil (déjà en plein écran). Safari (iPad) : API préfixée webkit. Chrome, Firefox
@@ -1085,17 +1084,13 @@ function toggleFullscreen() {
 const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
 const fullscreenApi = Boolean(simulatorElement.requestFullscreen || simulatorElement.webkitRequestFullscreen);
 if (!isTablet() || isStandalone()) for (const button of fullscreenButtons) button.hidden = true;
+// Un bouton par écran : ⛶ de la barre de menus (en vol) et celui du menu principal (au lancement)
 for (const button of fullscreenButtons) {
-    if (button === fullscreenButton || button.id === 'reglages-plein-ecran') continue;   // (déjà branchés plus bas)
     button.addEventListener('click', (event) => {
         toggleFullscreen();
-        event.currentTarget.blur();
+        event.currentTarget.blur(); // garde le clavier pour le pilotage
     });
 }
-fullscreenButton.addEventListener('click', (event) => {
-    toggleFullscreen();
-    event.currentTarget.blur(); // garde le clavier pour le pilotage
-});
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyF' && !event.repeat && !isTypingTarget(event.target)) toggleFullscreen();
 });
@@ -1119,10 +1114,8 @@ document.addEventListener('focusin', (event) => {
         || (field instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'range', 'submit', 'color', 'file'].includes(field.type));
     if (typing && isTablet() && fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
 });
-const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-settingsFullscreenButton.addEventListener('click', toggleFullscreen);
 function onFullscreenChange() {
     const label = fullscreenElement() ? 'Quitter le plein écran' : 'Plein écran';
     for (const button of fullscreenButtons) (button.querySelector('.libelle') ?? button).textContent = label;
@@ -1838,12 +1831,6 @@ for (const button of mainMenu.querySelectorAll('.mp-bouton, .mp-choix button')) 
     button.addEventListener('focus', () => { if (button.matches(':focus-visible')) sounds.click(0.12, 2600); });
     button.addEventListener('click', () => sounds.click(0.25, 1800));
 }
-document.getElementById('menu-principal-bouton').addEventListener('click', (event) => {
-    closeMenus();
-    if (!confirm('Revenir au menu principal ? Le vol en cours sera interrompu.')) return;
-    openMainMenu();
-    event.currentTarget.blur();
-});
 // Barre de menus (Échap) : « Mode photo » masque les infos de vol et les panneaux superposés ; le même bouton les
 // remet. La barre se referme pour dégager la vue (Échap la rouvre pour sortir du mode photo)
 const photoButton = document.getElementById('mode-photo');
@@ -2096,6 +2083,8 @@ function updateRemoteCrashes(delta) {
 
 // Carte : bouton du bandeau ou touche M
 const mapPanel = document.getElementById('carte');
+// Carte : déplaçable n'importe où sur l'écran (glisser sa barre de titre), position gardée
+makeDraggable(mapPanel, mapPanel.querySelector('.carte-entete'), 'esme-fenetre-carte');
 const mapButton = document.getElementById('carte-bouton');
 const mapView = new MapView(document.getElementById('carte-canvas'), {
     heightAt: (x, z) => terrain.heightAt(x, z),
@@ -2107,6 +2096,11 @@ const mapView = new MapView(document.getElementById('carte-canvas'), {
 });
 
 function toggleMap(open = mapPanel.hidden) {
+    // iPad : une seule fenêtre flottante à la fois (radio, carte, panneaux SOL / SYSTÈMES)
+    if (open && isTablet()) {
+        if (!atcPanel.hidden) toggleAtc(false);
+        tabletPanels?.closeAll();
+    }
     mapPanel.hidden = !open;
     mapButton.setAttribute('aria-pressed', String(open));
     if (open) updateMap(0, true);
@@ -2161,6 +2155,11 @@ setAtcButtonLabel('Tour', airport.aerodrome.frequencies.tower);
 window.speechSynthesis?.getVoices();   // charge la liste des voix à l'avance
 
 function toggleAtc(open = atcPanel.hidden) {
+    // iPad : une seule fenêtre flottante à la fois (radio, carte, panneaux SOL / SYSTÈMES)
+    if (open && isTablet()) {
+        if (!mapPanel.hidden) toggleMap(false);
+        tabletPanels?.closeAll();
+    }
     atcPanel.hidden = !open;
     atcButton.setAttribute('aria-pressed', String(open));
     if (open) {
@@ -3027,10 +3026,6 @@ document.getElementById('paramètre').addEventListener('click', openSettings);
 document.getElementById('paramètre').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') openSettings();
 });
-document.getElementById('qualite').addEventListener('click', (event) => {
-    openSettings();
-    event.currentTarget.blur();
-});
 document.getElementById('reglages-fermer').addEventListener('click', () => settingsDialog.close());
 
 function updatePerf(cpuTime) {
@@ -3104,7 +3099,6 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     recenter: () => recenterCamera(),
     menu: () => setMenuBar(!simulatorElement.classList.contains('barre')),
     flaps: (step) => controls.setFlapLevel(controls.getFlapLevel() + step),
-    nav: () => toggleNavPanels(),
 });
 updateNavPanelsButton();
 
@@ -3146,7 +3140,38 @@ const tabletApi = {
     },
     openSettings: () => openSettings(),
 };
-const tabletPanels = isTablet() ? new TabletPanels(document.getElementById('tablette-ui'), tabletRegistry(tabletApi)) : null;
+const tabletPanels = isTablet() ? new TabletPanels(document.getElementById('tablette-ui'), tabletRegistry(tabletApi), {
+    // Panneaux posés à droite de la rose des caps (HUD) et du panneau du moniteur (Initiation), en haut à gauche
+    leftReserve: () => tabletLeftReserve(),
+    // Ne pas poser un panneau, par défaut, sur les jauges, la rose des caps, le moniteur ou les commandes tactiles
+    obstacles: () => {
+        const rects = [];
+        const hud = document.getElementById('hud');
+        if (!hud.hidden && flightHud.boxes) {
+            const r = hud.getBoundingClientRect();
+            for (const b of flightHud.boxes) rects.push({ x: r.left + b.x, y: r.top + b.y, w: b.w, h: b.h });
+        }
+        for (const node of [document.getElementById('moniteur'), ...document.getElementById('tactile').children]) {
+            if (!node || node.hidden || !node.offsetWidth) continue;
+            const r = node.getBoundingClientRect();
+            rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+        }
+        return rects;
+    },
+    // Un seul panneau flottant à la fois sur iPad : fenêtre radio et carte refermées
+    onOpen: () => {
+        if (!atcPanel.hidden) toggleAtc(false);
+        if (!mapPanel.hidden) toggleMap(false);
+    },
+}) : null;
+// Largeur occupée en haut à gauche (px) : rose des caps, panneau du moniteur
+function tabletLeftReserve() {
+    const cap = flightHud.boxes?.find((b) => b.name === 'CAP');
+    const monitor = document.getElementById('moniteur');
+    const area = simulatorElement.getBoundingClientRect();
+    const monitorRight = monitor && !monitor.hidden && monitor.offsetWidth ? monitor.getBoundingClientRect().right - area.left : 0;
+    return Math.max(cap && !document.getElementById('hud').hidden ? cap.x + cap.w : 0, monitorRight) + 8;
+}
 if (touchControls.enabled) escapeHint.textContent = '☰ Menus : afficher les menus';
 
 // Collision avec les autres avions : garés (aérodromes) et ceux des autres joueurs, à leur forme (voir PlaneCollision.js)
@@ -3168,7 +3193,7 @@ function checkPlaneCollisions() {
 }
 
 let initiationErrorShown = false;
-let lastTouchInset = '';
+let lastTouchInset = '', lastLeftReserve = -1;
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
     if (fpsLimit > 0) {
@@ -3298,11 +3323,20 @@ renderer.setAnimationLoop((time)=>{
     tabletPanels?.update(delta, !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
     flightHud.bottomInset = touchControls.inset;   // jauges du HUD au-dessus des commandes tactiles
     // Bouton et panneau ILS (bas gauche) : au-dessus des jauges, qui montent elles-mêmes au-dessus du manche tactile
-    const insetKey = `${touchControls.inset.left}/${touchControls.inset.right}`;
+    if (tabletPanels) {
+        const reserve = Math.round(tabletLeftReserve());
+        if (reserve !== lastLeftReserve) {
+            lastLeftReserve = reserve;
+            simulatorElement.style.setProperty('--reserve-gauche', `${reserve}px`);
+        }
+    }
+    const insetKey = `${touchControls.inset.left}/${touchControls.inset.right}/${touchControls.insetWidth.left}/${touchControls.insetWidth.right}`;
     if (insetKey !== lastTouchInset) {
         lastTouchInset = insetKey;
         simulatorElement.style.setProperty('--tactile-gauche', `${touchControls.inset.left}px`);
         simulatorElement.style.setProperty('--tactile-droite', `${touchControls.inset.right}px`);
+        simulatorElement.style.setProperty('--tactile-largeur-gauche', `${touchControls.insetWidth.left}px`);
+        simulatorElement.style.setProperty('--tactile-largeur-droite', `${touchControls.insetWidth.right}px`);
     }
     checkNewShaders(performance.now());
     if (!shaderWarmup) graphics.render();

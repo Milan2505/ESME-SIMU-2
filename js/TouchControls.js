@@ -26,6 +26,7 @@ class TouchControls {
         this.holdBrake = false;   // freins tenus depuis l'interface tablette (tuile FREINS)
         this._trim = 0;
         this._shown = null;
+        this.insetWidth = { left: 0, right: 0 };   // largeur occupée en bas, à gauche et à droite (px)
         this.inset = { left: 0, right: 0 };   // hauteur occupée en bas, à gauche et à droite (px) : jauges du HUD au-dessus
         this._insetAt = 0;
         if (!this.enabled) {
@@ -135,7 +136,13 @@ class TouchControls {
             const bottom = this.root.getBoundingClientRect().bottom;
             const height = (child) => Math.max(0, bottom - child.getBoundingClientRect().top + 8);
             this.inset = { left: height(this.root.children[0]), right: height(this.root.children[1]) };
-        } else if (!shown) this.inset = { left: 0, right: 0 };
+            // Largeur occupée de chaque côté (px depuis le bord) : la zone des indicateurs VOR / ILS reste entre les deux
+            const box = this.root.getBoundingClientRect();
+            this.insetWidth = { left: this.root.children[0].getBoundingClientRect().right - box.left + 8, right: box.right - this.root.children[1].getBoundingClientRect().left + 8 };
+        } else if (!shown) {
+            this.inset = { left: 0, right: 0 };
+            this.insetWidth = { left: 0, right: 0 };
+        }
         if (shown) {
             const throttle = this.controls.getThrottle();
             this._throttleFill.style.height = `${throttle * 100}%`;

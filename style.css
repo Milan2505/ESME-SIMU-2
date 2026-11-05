@@ -2510,6 +2510,13 @@ body:has(#simulator.jeu) {
 #simulator.jeu.barre.barre-2-lignes > #mode-photo { grid-column: 3; grid-row: 2; }
 #simulator.jeu.barre.barre-2-lignes > #barre-plein-ecran { grid-column: 4; grid-row: 2; }
 #simulator.jeu.barre.barre-2-lignes > #quitter-partie { grid-column: 5; grid-row: 2; }
+/* iPad (sans Commandes) : 5 cases par ligne */
+html.tablette #simulator.jeu.barre.barre-2-lignes { grid-template-columns: repeat(5, auto) 1fr; }
+html.tablette #simulator.jeu.barre.barre-2-lignes > #météo { grid-column: 1; }
+html.tablette #simulator.jeu.barre.barre-2-lignes > #carte-case { grid-column: 2; }
+html.tablette #simulator.jeu.barre.barre-2-lignes > #atc-case { grid-column: 3; }
+html.tablette #simulator.jeu.barre.barre-2-lignes > #online { grid-column: 4; }
+html.tablette #simulator.jeu.barre.barre-2-lignes > #profil { grid-column: 5; }
 #simulator.jeu.barre.barre-2-lignes > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre,
   #masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
   border-left: none;
@@ -2517,8 +2524,14 @@ body:has(#simulator.jeu) {
 }
 /* Plein écran sur iPad : Safari masque l'heure mais pose sa croix de sortie dans le coin haut-gauche (~90 × 60 px) ; ses
    touchers vont à Safari. La première case de la barre (Commandes) commence à sa droite */
-html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) > #commandes {
+html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) > #météo {
   margin-left: 96px;
+}
+/* Interface iPad (un seul emplacement par fonction) : pas de menu Commandes. Ses fonctions sont ailleurs à l'écran
+   (Vue, Volets : commandes tactiles ; Réinitialiser, Changer de départ, VOR / ILS : panneaux SOL / SYSTÈMES), et son
+   aide est celle du clavier */
+html.tablette #simulator.jeu > #commandes {
+  display: none !important;
 }
 #simulator.jeu > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre, #masse-bouton, #mode-photo,
   #barre-plein-ecran, #quitter-partie) {
@@ -2569,8 +2582,7 @@ html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) > #commandes 
 #simulator.photo > #hud,
 #simulator.photo > #nom-vue,
 #simulator.photo > #ils-bouton,
-#simulator.photo > #ils-panneau,
-#simulator.photo > #vor-panneau,
+#simulator.photo > #nav-zone,
 #simulator.photo > #astuce-echap,
 #simulator.photo > #perf,
 #simulator.photo > #radio-indicateur,
@@ -2588,25 +2600,68 @@ html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) > #commandes 
 #simulator.jeu > #perf {
   justify-self: end;
 }
-/* Indicateur VOR (touche O) : en bas, au centre, entre les deux groupes de jauges */
-#simulator.jeu > #vor-panneau {
-  justify-self: center;
-  margin: 12px;
+/* Indicateurs VOR et ILS : une seule zone, en bas au centre, entre les groupes de jauges (300 unités du HUD de chaque
+   côté) et entre les commandes tactiles (--tactile-largeur-* : posées par simulator.js). Côte à côte s'il y a la place,
+   sinon l'un au-dessus de l'autre. Avant, l'ILS était dans la colonne de droite, sous la fenêtre radio */
+#nav-zone {
+  grid-column: 1 / -1;
+  grid-row: -2;
+  align-self: end;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0 max(calc(var(--hud-u, 1px) * 290), var(--tactile-largeur-droite, 0px)) 12px max(calc(var(--hud-u, 1px) * 300), var(--tactile-largeur-gauche, 0px));
+  pointer-events: none;
 }
-/* ILS : bouton au-dessus des jauges de gauche, panneau au-dessus de celles de droite */
+#nav-zone > #vor-panneau,
+#nav-zone > #ils-panneau {
+  margin: 0;
+  pointer-events: auto;
+}
+#nav-zone > #ils-panneau {
+  pointer-events: none;
+}
+/* ILS : bouton (« ILS disponible ») au-dessus des jauges de gauche */
 /* (--tactile-gauche : hauteur du manche tactile, sous les jauges ; posée par simulator.js) */
 #simulator.jeu > #ils-bouton {
   margin-bottom: calc(var(--hud-u) * 250 + var(--tactile-gauche, 0px));
 }
-#simulator.jeu > #ils-panneau {
-  margin-bottom: calc(var(--hud-u) * 250 + var(--tactile-droite, 0px));
-}
-/* Infos de vol masquées (réglage, vue cabine) : panneaux à leur place habituelle (au-dessus des commandes tactiles) */
+/* Infos de vol masquées (réglage, vue cabine) : bouton au-dessus des commandes tactiles */
 #simulator.jeu.sans-hud > #ils-bouton {
   margin-bottom: calc(12px + var(--tactile-gauche, 0px));
 }
-#simulator.jeu.sans-hud > #ils-panneau {
-  margin-bottom: calc(12px + var(--tactile-droite, 0px));
+/* Fenêtre radio et carte : par défaut au-dessus de la zone du bas (jauges, indicateurs VOR / ILS) ; déplaçables */
+#simulator.jeu > #atc {
+  max-height: max(240px, calc(100% - 350px));
+}
+#simulator.jeu > #carte {
+  width: min(92%, 58vh, max(240px, calc(100dvh - 430px)));
+}
+/* Alarmes (décrochage, BANK ANGLE) : toujours visibles, par-dessus toute fenêtre ; elles ne captent pas le toucher */
+#simulator.jeu > :is(#alarme, #alarme-inclinaison) {
+  z-index: 7;
+}
+/* iPad : la colonne SOL / SYSTÈMES occupe le haut à droite et les jauges montent au-dessus des commandes tactiles.
+   Fenêtre radio et carte s'ouvrent en haut, entre la rose des caps (à gauche) et la colonne (à droite), et s'arrêtent
+   au-dessus des jauges et des commandes tactiles */
+html.tablette #simulator.jeu {
+  --tablette-gauche: var(--reserve-gauche, calc(var(--hud-u) * 175 + 8px));   /* rose des caps, panneau du moniteur */
+  --tablette-droite: 140px;                            /* colonne SOL / SYSTÈMES */
+  --tablette-bas: calc(var(--hud-u) * 250 + max(var(--tactile-gauche, 0px), var(--tactile-droite, 0px)) + 50px);
+}
+html.tablette #simulator.jeu > #atc {
+  justify-self: center;
+  margin: 10px var(--tablette-droite) 10px var(--tablette-gauche);
+  width: min(430px, calc(100% - var(--tablette-gauche) - var(--tablette-droite)));
+  max-height: max(240px, calc(100% - 20px - var(--tablette-bas)));
+}
+html.tablette #simulator.jeu > #carte {
+  justify-self: center;
+  margin: 10px var(--tablette-droite) 10px var(--tablette-gauche);
+  width: min(58vh, calc(100% - var(--tablette-gauche) - var(--tablette-droite)), max(180px, calc(100dvh - 120px - var(--tablette-bas))));   /* (120 px : barre de menus, titre de la carte, marges) */
 }
 
 /* Masse et centrage (WeightBalance.js) : chargement à gauche, graphique à droite, thème du menu principal */

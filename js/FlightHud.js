@@ -93,6 +93,11 @@ class FlightHud {
             else cx = Math.max(cx, (panel.right - view.left) * k + 8 + 70);
         }
         this._compass(cx, cy, 70, d.heading, d.windDirection, d.windSpeed);
+        // Zones occupées (px CSS, dans le calque) : rose des caps et ses deux cases, puis chaque jauge (voir _row). Les
+        // autres éléments de l'écran de vol s'en tiennent écartés (contrôle des chevauchements)
+        this.boxes = [];
+        this._box_css = (name, x, y, w, h) => this.boxes.push({ name, x: x * u / this.ratio, y: y * u / this.ratio, w: w * u / this.ratio, h: h * u / this.ratio });
+        this._box_css('CAP', cx - 70, cy - 70, 140, 70 + 70 + 52);
 
         // Jauges du bas : deux rangées de blocs (gauche, droite), posées côte à côte avec un écart minimal garanti.
         // Chaque rangée tient dans sa moitié de l'écran (moins un passage central) : si la place manque (écran étroit,
@@ -100,19 +105,19 @@ class FlightHud {
         const aoa = d.stallAlpha > 0 ? Math.max(0, Math.min(1, d.alpha / d.stallAlpha)) : 0;
         const flaps = d.flapMax > 0 ? d.flaps / d.flapMax : 0;
         const left = [
-            [62, 210, (x, y, w, h) => this._speedTape(x, y, w, h, d.speed * KT, d.tas * KT)],
-            [90, 110, (x, y, w, h) => this._rpm(x, y, w, h, d.rpm)],
+            [62, 210, (x, y, w, h) => this._speedTape(x, y, w, h, d.speed * KT, d.tas * KT), 'AIRSPEED'],
+            [90, 110, (x, y, w, h) => this._rpm(x, y, w, h, d.rpm), 'ENGINE'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
-                [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]])],
+                [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]]), 'FUEL'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'AOA', aoa, `${Math.round(d.alpha)}°`,
-                [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]])],
+                [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]]), 'AOA'],
         ];
         const right = [
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FLAPS', 1 - flaps, `${Math.round(d.flaps)}°`, null, true,
-                d.flapMax > 0 ? 1 - d.flapTarget / d.flapMax : 1)],
-            [44, 110, (x, y, w, h) => this._trim(x, y, w, h, d)],
-            [76, 210, (x, y, w, h) => this._altitudeTape(x, y, w, h, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro)],
-            [54, 210, (x, y, w, h) => this._vsTape(x, y, w, h, d.verticalSpeed * FT * 60)],
+                d.flapMax > 0 ? 1 - d.flapTarget / d.flapMax : 1), 'FLAPS'],
+            [44, 110, (x, y, w, h) => this._trim(x, y, w, h, d), 'TRIM'],
+            [76, 210, (x, y, w, h) => this._altitudeTape(x, y, w, h, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro), 'ALTITUDE'],
+            [54, 210, (x, y, w, h) => this._vsTape(x, y, w, h, d.verticalSpeed * FT * 60), 'VS'],
         ];
         const half = (W - 2 * m - HUD_CENTER_GAP) / 2;
         this._row(left, m, bottomLeft, half, 'left');
@@ -129,8 +134,9 @@ class FlightHud {
         ctx.translate(x, bottom);
         ctx.scale(k, k);
         let left = anchor === 'left' ? 0 : -total;
-        for (const [w, h, draw] of blocks) {
+        for (const [w, h, draw, name] of blocks) {
             draw(left, -h, w, h);
+            this._box_css(name, x + left * k, bottom - h * k, w * k, h * k);
             left += w + HUD_GAP;
         }
         ctx.restore();

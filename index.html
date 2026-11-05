@@ -149,10 +149,7 @@
 				<button id="volets" title="Sortir un cran de volets (touches G / T)">Volets : 0°</button>
 				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
 				<button id="depart" title="Choisir un autre point de départ">Changer de départ</button>
-				<button id="menu-principal-bouton" title="Revenir au menu principal">Menu principal</button>
 				<button id="nav-panneaux" title="Afficher ou masquer les indicateurs VOR et ILS en vue extérieure (touche O : VOR seul)">VOR / ILS : masqués</button>
-				<button id="plein-ecran" data-plein-ecran title="Plein écran (touche F)"><span class="libelle">Plein écran</span></button>
-				<button id="qualite" title="Qualité graphique et aides au pilotage">Paramètres</button>
 			</div>
 			<table class="aide">
 				<tr><th colspan="2">Pilotage (clavier AZERTY)</th></tr>
@@ -237,7 +234,6 @@
 				<button data-tactile="volets-moins" title="Rentrer un cran de volets">Volets −</button>
 				<button data-tactile="trim-cabrer" title="Trim à cabrer (tenir)">Trim ▲</button>
 				<button data-tactile="trim-piquer" title="Trim à piquer (tenir)">Trim ▼</button>
-				<button data-tactile="nav" title="Afficher ou masquer les indicateurs VOR et ILS">VOR / ILS</button>
 				<button data-tactile="frein" class="tactile-frein" title="Freins (tenir)">Freins</button>
 			</div>
 			<div id="tactile-gaz" title="Manette des gaz : glisser vers le haut pour pousser"><span></span><em>Gaz 0 %</em></div>
@@ -250,16 +246,19 @@
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
 	<button id="ils-bouton" hidden title="Guidage ILS (touche I)">ILS</button>
-	<div id="ils-panneau" hidden>
-		<canvas id="ils-canvas" width="240" height="236"></canvas>
-		<pre id="ils-texte"></pre>
-	</div>
-	<div id="vor-panneau" hidden>
-		<canvas id="vor-canvas" width="240" height="236"></canvas>
-		<div class="vor-boutons">
-			<button id="vor-moins" title="Route -1° (touche J)">OBS −</button>
-			<button id="vor-to" title="Centrer l'aiguille vers la balise (touche H)">Vers balise</button>
-			<button id="vor-plus" title="Route +1° (touche K)">OBS +</button>
+	<!-- Indicateurs de navigation (vue extérieure) : une seule zone, en bas au centre, entre les jauges et les commandes tactiles -->
+	<div id="nav-zone">
+		<div id="vor-panneau" hidden>
+			<canvas id="vor-canvas" width="240" height="236"></canvas>
+			<div class="vor-boutons">
+				<button id="vor-moins" title="Route -1° (touche J)">OBS −</button>
+				<button id="vor-to" title="Centrer l'aiguille vers la balise (touche H)">Vers balise</button>
+				<button id="vor-plus" title="Route +1° (touche K)">OBS +</button>
+			</div>
+		</div>
+		<div id="ils-panneau" hidden>
+			<canvas id="ils-canvas" width="240" height="236"></canvas>
+			<pre id="ils-texte"></pre>
 		</div>
 	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
@@ -526,7 +525,6 @@
 		<p class="reglages-intro">Ordinateur qui rame ? Choisissez « Bas » ou « Moyen ». En bas : les aides au pilotage. Les changements s'appliquent tout de suite.</p>
 		<div id="reglages-liste"></div>
 		<div class="multi-ligne">
-			<button id="reglages-plein-ecran" data-plein-ecran title="Plein écran (touche F)"><span class="libelle">Plein écran</span></button>
 			<button id="reglages-fermer">Fermer</button>
 		</div>
 	</dialog>
