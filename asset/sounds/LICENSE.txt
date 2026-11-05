@@ -22,10 +22,13 @@ https://github.com/HHS81/c182s (Sounds/)
 
 Licence de ces fichiers : GNU General Public License v2.0 (GPL-2.0)
 
-bank_angle_voice.wav (« Bank angle. Bank angle. ») et bank_angle_check.wav (« Bank angle, check! »)
-Calculés pour ce projet avec les voix Piper (https://huggingface.co/rhasspy/piper-voices) :
-en_GB-northern_english_male-medium (CC BY-SA 4.0) pour l'alarme, en_GB-alan-medium (voir sa fiche) pour le pilote.
-Ils suivent la licence de la voix qui les a produits.
+bank-angle.wav (annonce « BANK ANGLE » de l'EGPWS Honeywell MK VIII, celle des Airbus)
+Source : projet FlightGear A310 (https://github.com/FGMEMBERS/A310, Sounds/mk-viii/), aussi dans FlightGear fgdata
+(Sounds/mk-viii/) ; licence GNU General Public License v2.0 (GPL-2.0)
+
+bank_angle_check.wav (le pilote : « Bank angle, check! »)
+Calculé pour ce projet avec la voix Piper en_GB-alan-medium (https://huggingface.co/rhasspy/piper-voices, voir sa
+fiche) ; il suit la licence de cette voix.
 https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 
 Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.

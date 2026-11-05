@@ -471,7 +471,8 @@ class Airport {
         this.label = config.label;
         this.description = config.description;
         this.group = new Group();
-        this.obstacles = [];         // boîtes à ne pas percuter (bâtiments, avions garés…), repère monde
+        this.obstacles = [];         // boîtes à ne pas percuter (bâtiments, mâts…), repère monde
+        this.parkedPlanes = [];      // avions garés : matrices monde (Matrix4), collision à leur forme (PlaneCollision.js)
         this._worldObstacles = 0;    // boîtes déjà passées du repère de l'aérodrome au repère monde
         // Placement dans le monde : (x, z) local -> monde, et l'inverse ; caps (degrés, 0 = nord) : monde = local - rotation
         const rotation = config.rotation ?? 0;
@@ -716,9 +717,9 @@ class Airport {
             holder.position.set(spot.x, wheelHeight - 0.01, spot.z); // roues posées sur le parking
             holder.rotation.y = Math.PI / 2;           // nez vers la piste (ouest)
             holder.add(plane);
-            holder.updateMatrixWorld(true);            // (pas encore rattaché : boîte dans le repère de l'aérodrome)
-            this.obstacles.push(new Box3().setFromObject(holder).expandByScalar(-1));
             parked.add(holder);
+            holder.updateMatrix();
+            this.parkedPlanes.push(this._matrix.clone().multiply(holder.matrix));   // (fusionnés ensuite : position gardée ici)
         }
         this.group.add(parked);
         const shown = this.group.visible;
@@ -1393,6 +1394,7 @@ class AirportNetwork extends EventTarget {
     get main() { return this.list[0]; }
     get start() { return this.main.start; }
     get obstacles() { return this.list.flatMap((a) => a.obstacles); }
+    get parkedPlanes() { return this.list.flatMap((a) => a.parkedPlanes); }
     get runways() { return this.current.runways; }
     get allRunways() { return this.list.flatMap((a) => a.runways); }
     get runwayLength() { return this.current.runwayLength; }

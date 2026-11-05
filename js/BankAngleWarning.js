@@ -1,14 +1,13 @@
-// Alarme d'inclinaison façon Airbus : au-delà de 45° d'inclinaison en vol, l'annonce « BANK ANGLE, BANK ANGLE »
-// (haut-parleur du poste : voix synthétique, bande étroite), répétée toutes les quelques secondes tant que l'inclinaison
-// reste excessive ; après la première, le pilote annonce « Bank angle, check! » (dans le casque). L'alarme se réarme
-// une fois revenu sous 40°.
-// Sons calculés avec les voix Piper (rhasspy/piper-voices) : Northern English Male (alarme), Alan (pilote), voir
-// asset/sounds/LICENSE.txt
+// Alarme d'inclinaison Airbus : au-delà de 45° d'inclinaison en vol, l'annonce « BANK ANGLE, BANK ANGLE » de l'EGPWS,
+// répétée toutes les quelques secondes tant que l'inclinaison reste excessive ; après la première, le pilote annonce
+// « Bank angle, check! » (dans le casque). L'alarme se réarme une fois revenu sous 40°.
+// Sons : EGPWS MK VIII du projet FlightGear A310 (GPL-2.0) ; pilote : voix Piper Alan. Voir asset/sounds/LICENSE.txt
 
 const SOUNDS = {
-    voice: 'asset/sounds/bank_angle_voice.wav',
+    voice: 'asset/sounds/bank-angle.wav',        // « BANK ANGLE » (dit deux fois de suite)
     check: 'asset/sounds/bank_angle_check.wav',
 };
+const VOICE_GAP = 0.15;     // s entre les deux « BANK ANGLE »
 const LIMIT = 45;           // ° : déclenchement
 const REARM = 40;           // ° : alarme réarmée en dessous
 const MIN_HEIGHT = 30;      // ft au-dessus du sol : pas d'alarme au décollage ni à l'arrondi
@@ -32,13 +31,8 @@ class BankAngleWarning {
     async unlock() {
         if (this._audio) return;
         this._audio = new AudioContext();
-        // Alarme : haut-parleur du poste (bande étroite, un peu saturé) ; pilote : casque (voix directe)
-        this._speaker = this._chain([
-            new BiquadFilterNode(this._audio, { type: 'highpass', frequency: 380, Q: 0.7 }),
-            new BiquadFilterNode(this._audio, { type: 'lowpass', frequency: 3600, Q: 0.7 }),
-            new WaveShaperNode(this._audio, { curve: saturation(1.8) }),
-            new GainNode(this._audio, { gain: this.volume }),
-        ]);
+        // Alarme : haut-parleur du poste (le son de l'EGPWS tel quel) ; pilote : casque
+        this._speaker = this._chain([new GainNode(this._audio, { gain: this.volume })]);
         this._headset = this._chain([
             new BiquadFilterNode(this._audio, { type: 'highpass', frequency: 220, Q: 0.7 }),
             new GainNode(this._audio, { gain: this.volume * 0.9 }),
@@ -67,18 +61,20 @@ class BankAngleWarning {
             return;
         }
         this.active = angle > LIMIT || (this.active && angle > REARM);
-        if (!this.active || !this._buffers || this._source) return;
+        if (!this.active || !this._buffers || this._source || this._busy) return;
         const now = this._audio.currentTime;
         if (this._armed || now >= this._nextAt) {
             this._armed = false;
+            this._busy = true;   // « BANK ANGLE, BANK ANGLE » en cours (pause entre les deux comprise)
             const episode = this._episode;
-            this._play('voice', this._speaker, () => {
+            this._play('voice', this._speaker, () => setTimeout(() => this._play('voice', this._speaker, () => {
+                this._busy = false;
                 this._nextAt = this._audio.currentTime + REPEAT;
                 // Réponse du pilote : une fois par épisode, et seulement s'il n'est pas déjà fini (avion remis à plat)
                 if (this._checked || episode !== this._episode) return;
                 this._checked = true;
                 setTimeout(() => { if (episode === this._episode) this._play('check', this._headset); }, CHECK_DELAY * 1000);
-            });
+            }), VOICE_GAP * 1000));
         }
     }
 
@@ -93,16 +89,6 @@ class BankAngleWarning {
         source.start();
         this._source = source;
     }
-}
-
-// Saturation douce (tanh) : timbre du haut-parleur d'alarme
-function saturation(drive) {
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < curve.length; i++) {
-        const x = (i / (curve.length - 1)) * 2 - 1;
-        curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
-    }
-    return curve;
 }
 
 export { BankAngleWarning };

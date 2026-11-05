@@ -287,6 +287,10 @@ class PlaneControls extends Controls {
 	getFlaps() {
 		return this.model.flaps;
 	}
+	// Choc avec un autre avion (voir PlaneCollision.js) : comme un crash du modèle de vol
+	collide( reason ) {
+		this.model.collide( reason );
+	}
 	isOnGround() {
 		return this.model.onGround;
 	}

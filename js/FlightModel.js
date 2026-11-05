@@ -43,6 +43,7 @@ const SETTLE_TIME = 0.3;            // s
 const GEAR_OMEGA = 11;              // rad/s
 const GEAR_DAMPING = 0.75;
 const GEAR_TRAVEL = [ - 0.18, 0.05 ];   // m : enfoncement max, détente max
+const OBSTACLE_CELL = 64;           // m : côté des cases du rangement des obstacles (voir _checkObstacles)
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
 const DRIFT_RATE = 2;               // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
 
@@ -579,9 +580,37 @@ class FlightModel extends EventDispatcher {
 		this.dispatchEvent( { type: 'touchdown', impact } );
 	}
 
+	// Obstacles (bâtiments, arbres, décor) : rangés une fois par cases de OBSTACLE_CELL m ; à chaque pas de calcul, seules
+	// les boîtes de la case de l'avion sont testées (au lieu de toutes, des milliers avec le décor)
+	set obstacles( list ) {
+		this._obstacleList = list;
+		this._obstacleGrid = null;
+	}
+	get obstacles() {
+		return this._obstacleList;
+	}
+
+	_buildObstacleGrid() {
+		const grid = new Map(), margin = this.aircraft.obstacleMargin;
+		const cell = ( v ) => Math.floor( v / OBSTACLE_CELL );
+		for ( const box of this._obstacleList ?? [] ) {
+			for ( let ix = cell( box.min.x - margin ); ix <= cell( box.max.x + margin ); ix ++ ) {
+				for ( let iz = cell( box.min.z - margin ); iz <= cell( box.max.z + margin ); iz ++ ) {
+					const key = ix * 100000 + iz;
+					if ( ! grid.has( key ) ) grid.set( key, [] );
+					grid.get( key ).push( box );
+				}
+			}
+		}
+		return grid;
+	}
+
 	_checkObstacles() {
 		const position = this.object.position;
-		for ( const box of this.obstacles ) {
+		this._obstacleGrid ??= this._buildObstacleGrid();
+		const boxes = this._obstacleGrid.get( Math.floor( position.x / OBSTACLE_CELL ) * 100000 + Math.floor( position.z / OBSTACLE_CELL ) );
+		if ( ! boxes ) return;
+		for ( const box of boxes ) {
 			if ( box.distanceToPoint( position ) < this.aircraft.obstacleMargin ) {
 				this._crash( 'Collision avec un obstacle' );
 				return;
@@ -591,6 +620,11 @@ class FlightModel extends EventDispatcher {
 
 	// Fin du vol décidée hors du modèle (avion coulé dans un lac)
 	crash( reason ) {
+		if ( ! this.crashed ) this._crash( reason );
+	}
+
+	// Choc détecté hors du modèle de vol (autre avion, voir PlaneCollision.js)
+	collide( reason ) {
 		if ( ! this.crashed ) this._crash( reason );
 	}
 

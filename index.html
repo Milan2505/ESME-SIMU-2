@@ -114,9 +114,10 @@
 	</div>
 	
 	<!-- Barre de menus (Échap) : quitter le vol et revenir au menu principal -->
-	<button id="masse-bouton" title="Pilote, passagers, bagages et carburant">Masse et centrage</button>
-	<button id="mode-photo" title="Masquer les infos de vol et les panneaux, pour les captures">Mode photo</button>
-	<button id="quitter-partie" title="Quitter le vol et revenir au menu principal">Quitter la partie</button>
+	<button id="masse-bouton" title="Pilote, passagers, bagages et carburant">Masse<span class="long"> et centrage</span></button>
+	<button id="mode-photo" title="Masquer les infos de vol et les panneaux, pour les captures"><span class="long">Mode photo</span><span class="court">Photo</span></button>
+	<button id="barre-plein-ecran" data-plein-ecran title="Plein écran (touche F)">⛶<span class="long"> <span class="libelle">Plein écran</span></span></button>
+	<button id="quitter-partie" title="Quitter le vol et revenir au menu principal">Quitter<span class="long"> la partie</span></button>
 	
 	<!-- Joueurs en ligne (partie multijoueur) et radio -->
 	<div id="online" class="menu">
@@ -142,7 +143,7 @@
 				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
 				<button id="depart" title="Choisir un autre point de départ">Changer de départ</button>
 				<button id="menu-principal-bouton" title="Revenir au menu principal">Menu principal</button>
-				<button id="plein-ecran" title="Plein écran (touche F)">Plein écran</button>
+				<button id="plein-ecran" data-plein-ecran title="Plein écran (touche F)"><span class="libelle">Plein écran</span></button>
 				<button id="qualite" title="Qualité graphique et aides au pilotage">Paramètres</button>
 			</div>
 			<table class="aide">
@@ -204,7 +205,7 @@
 	</div>
 
 	<div id="météo" class="menu">
-		<button class="menu-titre" aria-expanded="false">Météo : <span id="météo-actuelle">Jour</span> <span class="menu-fleche">▾</span></button>
+		<button class="menu-titre" aria-expanded="false"><span class="long">Météo : </span><span id="météo-actuelle">Jour</span> <span class="menu-fleche">▾</span></button>
 		<div class="menu-contenu" hidden>
 			<div class="menu-boutons"></div>
 			<label id="couverture" hidden>Nuages : <span id="couverture-valeur"></span>
@@ -258,6 +259,7 @@
 	</div>
 	<!-- Menu principal (au lancement, et menu Commandes) : mode de jeu, météo, réglages ; l'aérodrome en direct derrière -->
 	<div id="menu-principal" hidden>
+		<button id="mp-plein-ecran" data-plein-ecran title="Plein écran (touche F)">⛶ <span class="libelle">Plein écran</span></button>
 		<div class="mp-gauche">
 			<img class="mp-logo" src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="ESME">
 			<h1 class="mp-titre">ESME <span>flight simulator</span></h1>
@@ -513,7 +515,7 @@
 		<p class="reglages-intro">Ordinateur qui rame ? Choisissez « Bas » ou « Moyen ». En bas : les aides au pilotage. Les changements s'appliquent tout de suite.</p>
 		<div id="reglages-liste"></div>
 		<div class="multi-ligne">
-			<button id="reglages-plein-ecran" title="Plein écran (touche F)">Plein écran</button>
+			<button id="reglages-plein-ecran" data-plein-ecran title="Plein écran (touche F)"><span class="libelle">Plein écran</span></button>
 			<button id="reglages-fermer">Fermer</button>
 		</div>
 	</dialog>

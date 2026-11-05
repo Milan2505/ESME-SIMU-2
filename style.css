@@ -732,7 +732,7 @@ img{margin: 0px;
   /* Plein écran : l'écran de vol occupe tout l'écran, sous une barre avec les menus Commandes et Météo */
   #simulator:is(:fullscreen, .jeu) {
     display: grid;
-    grid-template-columns: auto auto auto auto 1fr auto auto auto auto auto auto;
+    grid-template-columns: auto auto auto auto 1fr auto auto auto auto auto auto auto;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
     padding: 0;
@@ -2383,7 +2383,7 @@ body:has(#simulator.jeu) {
 }
 #simulator.jeu.barre > #quitter-partie {
   display: block;
-  grid-column: 11;
+  grid-column: 12;
   grid-row: 1;
   padding: 0 20px;
   font-family: DejaVu Sans Mono, monospace;
@@ -2416,6 +2416,96 @@ body:has(#simulator.jeu) {
 /* Barre de menus (Échap) : « Mode photo » (masque les infos de vol et les panneaux superposés) */
 #mode-photo {
   display: none;
+}
+/* Plein écran : dans la barre, juste avant « Quitter la partie » ; au menu principal, en haut à droite */
+#barre-plein-ecran {
+  display: none;
+}
+#simulator.jeu.barre > #barre-plein-ecran {
+  display: block;
+  grid-column: 11;
+  grid-row: 1;
+  padding: 0 18px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #114E69;
+  cursor: pointer;
+  background: #fff;
+  border: none;
+  border-bottom: 2px solid black;
+  border-left: 2px solid black;
+}
+#simulator.jeu.barre > #barre-plein-ecran:hover {
+  background: #e8f1f5;
+}
+#mp-plein-ecran {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 1;
+  padding: 10px 18px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+}
+#mp-plein-ecran:hover {
+  background: rgba(143, 211, 255, 0.25);
+  border-color: #8fd3ff;
+}
+[data-plein-ecran][hidden] {
+  display: none !important;
+}
+
+/* Barre du haut sur écran étroit (tablettes) : rien ne passe à la ligne ; textes plus petits, puis libellés courts */
+#simulator.jeu > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre, #masse-bouton, #mode-photo,
+  #barre-plein-ecran, #quitter-partie) {
+  white-space: nowrap;
+}
+@media (max-width: 1366px) {
+  #simulator.jeu .menu-titre {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  #simulator.jeu.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  #simulator.jeu > #paramètre {
+    padding: 0 10px;
+  }
+  #simulator.jeu > #paramètre h4 {
+    font-size: 13px;
+  }
+}
+#simulator.jeu .court {
+  display: none;
+}
+@media (max-width: 1280px) {
+  #simulator.jeu .long {
+    display: none;
+  }
+  #simulator.jeu .court {
+    display: inline;
+  }
+  #simulator.jeu .menu-titre {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  #simulator.jeu.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+    padding: 0 8px;
+  }
+  #simulator.jeu > #paramètre {
+    padding: 0 8px;
+  }
+  #simulator.jeu > #paramètre h4 {
+    font-size: 12px;
+  }
 }
 #simulator.jeu.barre > #mode-photo {
   display: block;

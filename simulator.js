@@ -33,6 +33,7 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
+import { planesCollide } from './js/PlaneCollision.js';
 import { BankAngleWarning } from './js/BankAngleWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
@@ -1051,9 +1052,24 @@ updateCamera(0, true);
 const simulatorElement = document.getElementById('simulator');
 const fullscreenButton = document.getElementById('plein-ecran');
 
+// Safari (iPad) : API préfixée webkit ; pas d'API du tout (iPhone) : boutons Plein écran cachés
+const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
+function requestFullscreen() {
+    const request = simulatorElement.requestFullscreen ?? simulatorElement.webkitRequestFullscreen;
+    return Promise.resolve(request?.call(simulatorElement)).catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
+}
 function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else simulatorElement.requestFullscreen().catch((error) => console.error(error));
+    if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+    else requestFullscreen();
+}
+const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
+if (!simulatorElement.requestFullscreen && !simulatorElement.webkitRequestFullscreen) for (const button of fullscreenButtons) button.hidden = true;
+for (const button of fullscreenButtons) {
+    if (button === fullscreenButton || button.id === 'reglages-plein-ecran') continue;   // (déjà branchés plus bas)
+    button.addEventListener('click', (event) => {
+        toggleFullscreen();
+        event.currentTarget.blur();
+    });
 }
 fullscreenButton.addEventListener('click', (event) => {
     toggleFullscreen();
@@ -1067,24 +1083,26 @@ window.addEventListener('keydown', (event) => {
 function enterFullscreenOnce(event) {
     window.removeEventListener('pointerdown', enterFullscreenOnce, true);
     window.removeEventListener('keydown', enterFullscreenOnce, true);
-    if (document.fullscreenElement || event.code === 'KeyF' || event.key === 'Escape') return;   // F : géré par la touche
-    simulatorElement.requestFullscreen().catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
+    if (fullscreenElement() || event.code === 'KeyF' || event.key === 'Escape') return;   // F : géré par la touche
+    if (event.target instanceof Element && event.target.closest('[data-plein-ecran]')) return;   // le bouton s'en charge
+    requestFullscreen();
 }
 window.addEventListener('pointerdown', enterFullscreenOnce, true);
 window.addEventListener('keydown', enterFullscreenOnce, true);
 const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 settingsFullscreenButton.addEventListener('click', toggleFullscreen);
-document.addEventListener('fullscreenchange', () => {
-    const label = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
-    fullscreenButton.textContent = label;
-    settingsFullscreenButton.textContent = label;
+function onFullscreenChange() {
+    const label = fullscreenElement() ? 'Quitter le plein écran' : 'Plein écran';
+    for (const button of fullscreenButtons) (button.querySelector('.libelle') ?? button).textContent = label;
     // La fenêtre Paramètres passerait sous l'écran plein : on la rouvre par-dessus
     const dialog = document.getElementById('reglages-dialog');
     if (dialog.open) {
         dialog.close();
         dialog.showModal();
     }
-});
+}
 
 // Volets : le bouton sort un cran (rentre tout après le dernier), touches G / T
 const flapsButton = document.getElementById('volets');
@@ -1744,7 +1762,9 @@ const photoButton = document.getElementById('mode-photo');
 function setPhotoMode(on) {
     simulatorElement.classList.toggle('photo', on);
     photoButton.classList.toggle('actif', on);
-    photoButton.textContent = on ? 'Quitter le mode photo' : 'Mode photo';
+    // (« mode » caché sur écran étroit, voir .long dans style.css)
+    photoButton.innerHTML = on ? '<span class="long">Quitter le mode photo</span><span class="court">Quitter photo</span>'
+        : '<span class="long">Mode photo</span><span class="court">Photo</span>';
 }
 photoButton.addEventListener('click', (event) => {
     event.currentTarget.blur();
@@ -2047,7 +2067,7 @@ const atcTransponder = document.getElementById('atc-xpdr');
 const atcSquawk = document.getElementById('atc-code-demande');
 const ATC_SHORT = { ground: 'SOL', tower: 'TOUR', approach: 'APP', info: 'INFO' };
 document.getElementById('atc-indicatif').textContent = atc.registration;
-atcButton.textContent = `Tour · ${airport.aerodrome.frequencies.tower}`;
+setAtcButtonLabel('Tour', airport.aerodrome.frequencies.tower);
 window.speechSynthesis?.getVoices();   // charge la liste des voix à l'avance
 
 function toggleAtc(open = atcPanel.hidden) {
@@ -2179,10 +2199,18 @@ atcTransponder.addEventListener('keydown', (event) => {
     atcPersons.value = String(atc.persons);
 }
 
+// Case de la barre : « Tour · 118.300 » (fréquence cachée sur écran étroit, voir .long)
+function setAtcButtonLabel(station, frequency) {
+    const long = document.createElement('span');
+    long.className = 'long';
+    long.textContent = ` · ${frequency}`;
+    atcButton.replaceChildren(station, long);
+}
+
 function renderAtc() {
     const { icao, name, frequencies } = airport.aerodrome;
     const station = atc.stations.find((st) => st.id === atc.freq);
-    atcButton.textContent = `${station.name.split(' ').slice(1).join(' ')} · ${frequencies[atc.freq]}`;
+    setAtcButtonLabel(station.label, frequencies[atc.freq]);
     if (atcPanel.hidden) return;
     document.getElementById('atc-titre').textContent = `${icao} · ${station.name}`;
     document.getElementById('atc-frequence').textContent = frequencies[atc.freq];
@@ -2963,6 +2991,24 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
 });
 if (touchControls.enabled) escapeHint.textContent = '☰ Menus : afficher les menus';
 
+// Collision avec les autres avions : garés (aérodromes) et ceux des autres joueurs, à leur forme (voir PlaneCollision.js)
+const _unitScale = new THREE.Vector3(1, 1, 1);
+const otherPlanes = [], remoteMatrices = [];   // (matrices des autres joueurs réutilisées d'une image à l'autre)
+function checkPlaneCollisions() {
+    if (choosingSpawn || controls.isCrashed()) return;
+    otherPlanes.length = 0;
+    otherPlanes.push(...airport.parkedPlanes);
+    if (multiplayer.code) {
+        let i = 0;
+        for (const player of remotePlayers.list()) {
+            if (player.offline || player.crashed || !player.quaternion) continue;
+            const matrix = remoteMatrices[i++] ??= new THREE.Matrix4();
+            otherPlanes.push(matrix.compose(player.position, player.quaternion, _unitScale));
+        }
+    }
+    if (planesCollide(aircraft, otherPlanes)) controls.collide('Collision avec un autre avion');
+}
+
 let initiationErrorShown = false;
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
@@ -2980,6 +3026,7 @@ renderer.setAnimationLoop((time)=>{
     wind.update();
     controls.model.wind.copy(wind.vector);
     if (!choosingSpawn) controls.update( delta );
+    checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);

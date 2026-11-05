@@ -148,6 +148,7 @@ class RemotePlayers extends EventTarget {
                 name: state.name,
                 color: RemotePlayers.color(state.livery),
                 position: plane.group.position,
+                quaternion: plane.group.quaternion,
                 heading: (Math.atan2(_forward.x, -_forward.z) * 180 / Math.PI + 360) % 360,
                 altitude: (plane.group.position.y - this.altitudeOffset) / FT,
                 crashed: state.crashed,
