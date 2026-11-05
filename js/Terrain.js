@@ -27,7 +27,8 @@ const TILE = 1000;
 const LOD_DISTANCES = [1600, 3200, 6000];
 const MIN_SEGMENTS = 4;
 const SKIRT = 25;
-const BUILD_PER_FRAME = 3;   // dalles (re)construites au plus par image : pas d'à-coup en vol
+const BUILD_PER_FRAME = 3;
+const BUILD_AT_ONCE = 9;     // reconstruction complète (départ, saut de caméra) : dalles faites en entier tout de suite   // dalles (re)construites au plus par image : pas d'à-coup en vol
 // Lacs : rive à 1,4 × le rayon au plus (sol relevé au-dessus de l'eau entre 1,25 et 1,4) ; profondeur au centre (m)
 const LAKE_RIM = 1.4;
 const LAKE_DEPTH = 8;   // (assez creux : vu de loin, la précision de profondeur ne confond pas le fond et l'eau)
@@ -132,7 +133,7 @@ class Terrain {
         this._viewer.copy(viewer);
         this._range = range;
         this._pending = false;
-        let budget = all ? Infinity : BUILD_PER_FRAME;
+        let budget = all ? BUILD_AT_ONCE : BUILD_PER_FRAME;
         // Les plus proches d'abord (la dalle sous l'avion est prête en premier)
         const order = this._tiles.map((t) => [t, this._distance(t, viewer)]).sort((a, b) => a[1] - b[1]);
         for (const [t, d] of order) {
@@ -147,8 +148,13 @@ class Terrain {
                 if (budget <= 0) {
                     this._pending = true;   // à finir aux images suivantes
                     if (t.level < 0) {
-                        const any = [...t.cache.keys()].sort((a, b) => b - a)[0];
-                        if (any !== undefined) this._show(t, any);
+                        // Rien d'affiché : la version la plus grossière (vite faite), plutôt qu'un trou dans le sol
+                        let any = [...t.cache.keys()].sort((a, b) => b - a)[0];
+                        if (any === undefined) {
+                            any = LOD_DISTANCES.length;
+                            t.cache.set(any, this._createTile(t, Math.max(MIN_SEGMENTS, this._fullSegments >> any)));
+                        }
+                        this._show(t, any);
                     }
                     continue;
                 }

@@ -173,8 +173,12 @@ class Scenery {
         const rnd = random(1729);
         const villages = this._placeVillages(rnd);
         const [{ Tree }, houseModels] = await Promise.all([import(EZ_TREE_URL), this._loadHouses()]);
+        // Construction par morceaux, en rendant la main au navigateur entre chacun : la page ne fige pas (portables)
+        const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
         this._buildHouses(villages, houseModels, rnd);
+        await breathe();
         const trees = this._placeTrees(rnd, villages);
+        await breathe();
         for (const [index, def] of SPECIES.entries()) {
             const source = new Tree();
             source.loadPreset(def.preset);
@@ -188,6 +192,7 @@ class Scenery {
             o.leaves.size *= 1.8;
             o.leaves.alphaTest = Math.min(o.leaves.alphaTest, 0.3);
             source.generate();
+            await breathe();
             // Feuillage : éclairage Lambert (bien moins coûteux que Phong, des milliers de feuilles se recouvrent), vent conservé
             const phong = source.leavesMesh.material;
             const leaves = new MeshLambertMaterial({ name: 'leaves', map: phong.map, color: phong.color.clone().multiplyScalar(1.35),
@@ -197,6 +202,7 @@ class Scenery {
             this._instancedLeaves(leaves);
             await this._texturesLoaded(source);
             this.species.push(this._makeSpecies(source, def, trees.filter((t) => t.species === index)));
+            await breathe();
         }
         this.ready = true;
         this._lastLayout = null;

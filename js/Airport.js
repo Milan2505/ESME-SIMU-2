@@ -114,7 +114,13 @@ function canvasTexture(width, height, draw, { repeat = null, anisotropy = 8 } = 
 
 // Grain d'enrobé / de béton : petits points de 1 à 3 pixels, plus clairs ou plus foncés. Calculé directement sur
 // les pixels (le même grain dessiné point par point avec fillRect prenait ~0,5 s au chargement)
+const speckles = new Map();   // grain déjà calculé, par réglage (recopié tel quel)
 function speckle(ctx, width, height, base, amount, count) {
+    const key = `${width}|${height}|${base}|${amount}|${count}`;
+    if (speckles.has(key)) {
+        ctx.putImageData(speckles.get(key), 0, 0);
+        return;
+    }
     ctx.fillStyle = base;
     ctx.fillRect(0, 0, width, height);
     const image = ctx.getImageData(0, 0, width, height);
@@ -133,6 +139,7 @@ function speckle(ctx, width, height, base, amount, count) {
         }
     }
     ctx.putImageData(image, 0, 0);
+    speckles.set(key, image);
 }
 
 // Marquages OACI (piste de 30 m) : seuil "piano" de 8 bandes centrées, numéros 36 / 18,

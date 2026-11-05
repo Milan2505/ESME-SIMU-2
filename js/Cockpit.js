@@ -602,7 +602,10 @@ class Cockpit {
         this.group.updateWorldMatrix(true, true);
         const toHull = reference.matrixWorld.clone().invert();
         const CELL = 0.03, MARGIN = 0.015;
-        const cellKey = (y, z) => `${Math.round(y / CELL)} ${Math.round(z / CELL)}`;
+        // Clé numérique d'une case (y, z en cases, |y|, |z| < 2000) : plus rapide qu'une chaîne pour des dizaines de
+        // milliers de sommets
+        const cellIndex = (cy, cz) => (cy + 2048) * 4096 + cz + 2048;
+        const cellKey = (y, z) => cellIndex(Math.round(y / CELL), Math.round(z / CELL));
         const half = new Map();
         const v = new Vector3();
         for (const name of skinNames) {
@@ -616,19 +619,24 @@ class Cockpit {
                 half.set(key, Math.max(half.get(key) ?? 0, Math.abs(v.x)));
             }
         }
-        // Largeur en (y, z) : la case, sinon la plus proche autour (trous des fenêtres) ; null hors de la carrosserie
+        // Largeur en (y, z) : la case, sinon la plus proche autour (trous des fenêtres) ; null hors de la carrosserie.
+        // Ne dépend que de la case : calculée une fois par case (gardée dans limits)
+        const limits = new Map();
         const limitAt = (y, z) => {
-            const cy = Math.round(y / CELL), cz = Math.round(z / CELL);
-            for (let r = 0; r <= 4; r++) {
+            const cy = Math.round(y / CELL), cz = Math.round(z / CELL), key = cellIndex(cy, cz);
+            if (limits.has(key)) return limits.get(key);
+            let limit = null;
+            for (let r = 0; r <= 4 && limit === null; r++) {
                 let best = null;
                 for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
                     if (Math.max(Math.abs(dy), Math.abs(dz)) !== r) continue;
-                    const w = half.get(`${cy + dy} ${cz + dz}`);
+                    const w = half.get(cellIndex(cy + dy, cz + dz));
                     if (w !== undefined) best = best === null ? w : Math.min(best, w);
                 }
-                if (best !== null) return best - MARGIN;
+                if (best !== null) limit = best - MARGIN;
             }
-            return null;
+            limits.set(key, limit);
+            return limit;
         };
         // Géométries de l'avion (l'envers de la carrosserie les partage) et déjà ramenées : on n'y touche pas
         const done = new Set();

@@ -105,6 +105,7 @@ const view = document.getElementById('ecran');
 const camera = new THREE.PerspectiveCamera(CAM_FOV, view.clientWidth / view.clientHeight, CAM_NEAR, CAM_FAR);
 
 const scene = new THREE.Scene();
+let shaderWarmup = null, sceneObjects = -1, warmCheckUntil = 0, nextWarmCheck = 0;   // voir checkNewShaders
 // Pas d'anticrénelage sur le canvas : il est fait dans les textures du post-traitement (Graphics.js). Le canvas ne
 // reçoit qu'une copie de l'image finale ; l'anticréneler calculait 4 échantillons par pixel pour rien (coûteux en plein écran)
 const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: false });
@@ -787,8 +788,9 @@ function resize() {
     graphics.setSize(width, height);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    // Le canvas redimensionné est vide : on redessine tout de suite (sinon éclair noir jusqu'à l'image suivante)
-    if (weather) graphics.render();
+    // Le canvas redimensionné est vide : on redessine tout de suite (sinon éclair noir jusqu'à l'image suivante). Pas
+    // avant la première compilation des shaders en arrière-plan (voir checkNewShaders), ni pendant
+    if (weather && sceneObjects >= 0 && !shaderWarmup) graphics.render();
 }
 new ResizeObserver(resize).observe(view);
 resize();
@@ -1400,6 +1402,7 @@ function runwayFlaps() {
 controls.addEventListener('reset', runwayFlaps);
 
 function spawnAt(spawn) {
+    watchNewShaders();
     currentSpawn = spawn;
     aircraft.position.set(spawn.x, 0, spawn.z);
     aircraft.rotation.set(0, spawn.heading, 0);
@@ -2096,7 +2099,7 @@ atcFields.replaceChildren(...airport.list.map((field) => {
 }));
 const renderAtcFields = () => airport.list.forEach((field, i) => atcFields.children[i].classList.toggle('actif', field === airport.current));
 renderAtcStations();
-airport.addEventListener('change', () => { atc.cutAtis(); renderAtcStations(); renderAtcFields(); renderAtc(); });
+airport.addEventListener('change', () => { watchNewShaders(); atc.cutAtis(); renderAtcStations(); renderAtcFields(); renderAtc(); });
 renderAtcFields();
 
 // Personnes à bord (annoncées au premier contact)
@@ -2807,6 +2810,7 @@ const settingsDialog = document.getElementById('reglages-dialog');
 let fpsLimit = 0;   // 0 = pas de limite (fréquence de l'écran)
 
 function applySettings(values) {
+    watchNewShaders();
     fpsLimit = values.fps;
     graphics.targetFps = values.fps || 60;
     graphics.setResolution(values.resolution);
@@ -2886,6 +2890,31 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('keyup', (event) => {
     if (event.code === 'KeyL') panelLightsKey = 0;
 });
+
+// Shaders compilés en arrière-plan (compileAsync, KHR_parallel_shader_compile) quand de nouveaux objets arrivent dans la
+// scène : sinon, la première image qui les montre fige la page le temps de les compiler (plusieurs secondes sur un
+// portable). Pendant les phases de chargement (lancement, départ, autre aérodrome, réglages), une fois par seconde :
+// nombre d'objets changé -> compilation ; l'image n'est pas redessinée tant qu'elle dure (8 s au plus)
+function watchNewShaders(seconds = 30) {
+    warmCheckUntil = Math.max(warmCheckUntil, performance.now() + seconds * 1000);
+}
+function checkNewShaders(now) {
+    if (shaderWarmup || now > warmCheckUntil || now < nextWarmCheck) return;
+    nextWarmCheck = now + 1000;
+    let objects = 0;
+    scene.traverse((o) => { if (o.isMesh || o.isPoints || o.isLine || o.isSprite) objects++; });
+    if (objects === sceneObjects) return;
+    sceneObjects = objects;
+    const timeout = new Promise((resolve) => setTimeout(resolve, 8000));
+    // Compilés pour la cible où la scène est vraiment dessinée (post-traitement, voir Graphics) : sinon, autre variante
+    // des shaders (espace de couleur, tone mapping), recompilée quand même à la première image
+    const previous = renderer.getRenderTarget();
+    renderer.setRenderTarget(graphics.composer.renderTarget1);
+    const compiling = renderer.compileAsync(scene, camera);
+    renderer.setRenderTarget(previous);
+    shaderWarmup = Promise.race([compiling, timeout]).catch(() => {}).finally(() => { shaderWarmup = null; });
+}
+watchNewShaders(120);
 
 let initiationErrorShown = false;
 renderer.setAnimationLoop((time)=>{
@@ -3012,6 +3041,7 @@ renderer.setAnimationLoop((time)=>{
     shadowCenter.copy(aircraft.position);
     graphics.update( shadowCenter, !chaseView, decorShadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
-    graphics.render();
+    checkNewShaders(performance.now());
+    if (!shaderWarmup) graphics.render();
     updatePerf(performance.now() - frameStart);
 });

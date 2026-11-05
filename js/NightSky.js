@@ -51,12 +51,10 @@ const fragmentShader = /* glsl */`
 
 class NightSky {
     constructor({ radius = 2400 } = {}) {
-        const map = new TextureLoader().load(NIGHT_SKY);
-        map.colorSpace = SRGBColorSpace;
-
+        // Carte des étoiles (1,2 Mo) : téléchargée la première fois qu'il fait nuit (voir setVisibility), pas au lancement
         this.material = new ShaderMaterial({
             uniforms: {
-                uMap: { value: map },
+                uMap: { value: null },
                 uHorizon: { value: new Color(0x0b1a2e) },
                 uBrightness: { value: 0.85 },
                 uOpacity: { value: 1 },
@@ -77,6 +75,11 @@ class NightSky {
 
     // visibility : 0 = invisible (jour), 1 = nuit claire
     setVisibility(visibility, horizonColor) {
+        if (visibility > 0 && !this.material.uniforms.uMap.value) {
+            const map = new TextureLoader().load(NIGHT_SKY);
+            map.colorSpace = SRGBColorSpace;
+            this.material.uniforms.uMap.value = map;
+        }
         this.mesh.visible = visibility > 0;
         this.material.uniforms.uOpacity.value = visibility;
         if (horizonColor !== undefined) this.material.uniforms.uHorizon.value.set(horizonColor);

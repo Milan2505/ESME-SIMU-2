@@ -418,13 +418,23 @@ function setLiveryColor(model, color) {
     repaint(model);
 }
 
+// Peinture refaite aux images suivantes, une texture par tranche de calcul (voir schedule) : immatriculation et couleur
+// réglées l'une après l'autre ne la font faire qu'une fois, et le chargement (avions garés) ne fige plus la page
 function repaint(model) {
-    const { registration, liveryColor, textureSize } = model.userData;
     if (!ownMaterials.has(model)) ownMaterials.set(model, new Set());
+    if (model.userData.repaintQueued) return;
+    model.userData.repaintQueued = true;
+    schedule(repaintJob(model));
+}
+
+function* repaintJob(model) {
+    model.userData.repaintQueued = false;
+    const { registration, liveryColor, textureSize } = model.userData;
     const own = ownMaterials.get(model);
-    model.traverse((child) => {
-        const kind = child.isMesh && child.material.userData.kind;
-        if (!kind || !BASE_IMAGES[kind]) return;
+    const meshes = [];
+    model.traverse((child) => { if (child.isMesh && BASE_IMAGES[child.material.userData.kind]) meshes.push(child); });
+    for (const child of meshes) {
+        const kind = child.material.userData.kind;
         if (!own.has(child.material)) {
             child.material = child.material.clone();
             ambient(child.material);
@@ -432,9 +442,12 @@ function repaint(model) {
         }
         const text = REGISTRATION_AREAS[kind] ? registration : null;
         const key = `${kind}|${text}|${liveryColor}|${textureSize}`;
-        if (!painted.has(key)) painted.set(key, paintTexture(kind, text, liveryColor, textureSize));
+        if (!painted.has(key)) {
+            painted.set(key, paintTexture(kind, text, liveryColor, textureSize));
+            yield;
+        }
         child.material.map = child.material.emissiveMap = painted.get(key);
-    });
+    }
 }
 
 function paintTexture(kind, registration, color, size) {
@@ -818,20 +831,21 @@ function sunVisors(roofLine, surfaces) {
         hinge.add(visor, arm, groove, knob);
         // Angle rabattu : de la verticale vers l'avant, jusqu'à SUN_VISOR_MAX au plus, tant que tout le volet reste
         // SUN_VISOR_GAP sous la vitre
-        let down = Math.PI / 2;
-        for (let angle = Math.PI / 2; angle <= SUN_VISOR_MAX; angle += 0.01) {
-            let clear = true;
+        // (recherche par pas de 0,05 rad, puis affinée au centième : cinq fois moins de lancers de rayons au chargement)
+        const clearAt = (angle) => {
             for (const u of [-0.48, 0, 0.48]) {
                 for (const d of [0.04, 0.09, L]) {
                     point.set(x + u * W, hinge.position.y - d * Math.sin(angle) + T, hinge.position.z + d * Math.cos(angle));
                     raycaster.set(point, up);
                     const hit = raycaster.intersectObjects(surfaces, false)[0];
-                    if (hit && hit.distance < SUN_VISOR_GAP) clear = false;
+                    if (hit && hit.distance < SUN_VISOR_GAP) return false;
                 }
             }
-            if (!clear) break;
-            down = angle;
-        }
+            return true;
+        };
+        let down = Math.PI / 2;
+        while (down + 0.05 <= SUN_VISOR_MAX && clearAt(down + 0.05)) down += 0.05;
+        while (down + 0.01 <= SUN_VISOR_MAX && clearAt(down + 0.01)) down += 0.01;
         hinge.userData.downAngle = down;
         group.add(hinge);
         // Bloc de pivot (fixe) au bout côté porte, dans l'encoche du volet
