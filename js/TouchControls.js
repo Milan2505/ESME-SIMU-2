@@ -23,6 +23,7 @@ class TouchControls {
         this.enabled = isTablet();
         this.stick = { x: 0, y: 0 };
         this._brake = 0;
+        this.holdBrake = false;   // freins tenus depuis l'interface tablette (tuile FREINS)
         this._trim = 0;
         this._shown = null;
         this.inset = { left: 0, right: 0 };   // hauteur occupée en bas, à gauche et à droite (px) : jauges du HUD au-dessus
@@ -128,7 +129,7 @@ class TouchControls {
         }
         const roll = -curve(this.stick.x), pitch = curve(this.stick.y);
         // Au sol, le manche oriente aussi la roulette de nez (palonnier) ; en vol, il ne commande que les ailerons
-        this.controls.setTouchInput({ pitch, roll, yaw: this.controls.isOnGround() ? roll : 0, brake: this._brake, trim: this._trim });
+        this.controls.setTouchInput({ pitch, roll, yaw: this.controls.isOnGround() ? roll : 0, brake: Math.max(this._brake, this.holdBrake ? 1 : 0), trim: this._trim });
         if (shown && performance.now() > this._insetAt) {
             this._insetAt = performance.now() + 500;
             const bottom = this.root.getBoundingClientRect().bottom;

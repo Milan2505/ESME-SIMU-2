@@ -3107,3 +3107,195 @@ html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) {
   font-size: 10px;
   color: #46697A;
 }
+
+/* Interface tablette (TabletPanels.js) : colonne de boutons principaux à droite, en haut ; panneaux déplaçables au doigt
+   (glisser leur barre de titre) ; tuiles en grille de 3 colonnes. Sur l'écran de vol, au-dessus des infos de vol */
+#tablette-ui {
+  grid-column: 1 / -1;
+  grid-row: -2;
+  z-index: 4;
+  position: relative;
+  pointer-events: none;
+  font-family: DejaVu Sans Mono, monospace;
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#tablette-ui[hidden] {
+  display: none;
+}
+#tablette-ui button {
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tb-colonne {
+  position: absolute;
+  top: 12px;
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+.tb-principal {
+  min-width: 118px;
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  background: rgba(14, 18, 24, 0.78);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+}
+.tb-principal.actif {
+  background: rgba(30, 110, 200, 0.9);
+  border-color: #8fd3ff;
+}
+.tb-panneau {
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  padding: 0;   /* (règle générale du site : section { padding: 80px 13% 70px }) */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 16px);
+  box-sizing: border-box;
+  background: rgba(14, 18, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.tb-panneau[hidden] {
+  display: none;
+}
+.tb-liste {
+  width: 190px;
+}
+.tb-detail {
+  width: min(480px, calc(100% - 24px));
+}
+.tb-panneau.tb-deplace {
+  opacity: 0.85;
+}
+.tb-panneau-titre {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  cursor: grab;
+  touch-action: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+.tb-panneau-titre h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: #8fd3ff;
+}
+.tb-fermer {
+  width: 36px;
+  height: 32px;
+  font-size: 20px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 8px;
+}
+.tb-panneau-contenu {
+  overflow: auto;
+  padding: 10px;
+}
+.tb-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tb-categorie {
+  min-height: 42px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+.tb-categorie.actif {
+  background: rgba(30, 110, 200, 0.85);
+  border-color: #8fd3ff;
+}
+.tb-grille {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.tb-tuile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 70px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  touch-action: manipulation;
+}
+.tb-nom {
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  color: #c9d3de;
+  overflow-wrap: anywhere;
+}
+.tb-etat {
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+}
+.tb-tuile.tb-on {
+  background: rgba(30, 110, 200, 0.75);
+  border-color: #8fd3ff;
+}
+.tb-tuile.tb-danger {
+  background: rgba(176, 48, 48, 0.85);
+  border-color: #ff8a80;
+}
+.tb-hold .tb-etat {
+  font-size: 10px;
+  color: #aeb6c2;
+}
+.tb-pas {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+.tb-pas button {
+  flex: 1;
+  min-height: 32px;
+  font-size: 18px;
+  font-weight: bold;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+}
+.tb-pas button:active,
+.tb-categorie:active,
+.tb-principal:active,
+button.tb-tuile:active {
+  background: rgba(143, 211, 255, 0.35);
+}
+/* Mode photo : rien par-dessus la vue */
+#simulator.photo > #tablette-ui {
+  display: none;
+}

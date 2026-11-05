@@ -16,7 +16,9 @@ import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
 import { VOR } from './js/VOR.js';
-import { Systems, TANK_CAPACITY } from './js/Systems.js';
+import { Systems, TANK_CAPACITY, MAGNETOS, FUEL_SELECTOR } from './js/Systems.js';
+import { tabletRegistry } from './js/TabletRegistry.js';
+import { TabletPanels } from './js/TabletPanels.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces, Gear } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
@@ -3092,6 +3094,46 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     nav: () => toggleNavPanels(),
 });
 updateNavPanelsButton();
+
+// Interface tablette (boutons SOL / SYSTÈMES, panneaux de tuiles déplaçables) : sur tablette seulement, en vol, en plus de
+// la barre de menus. Le contenu est décrit dans TabletRegistry.js ; tabletApi lui donne accès aux fonctions existantes
+const tabletApi = {
+    systems, controls, vor, atc, MAGNETOS, FUEL_SELECTOR,
+    click: (id) => document.getElementById(id)?.click(),
+    useControl: (control, step, wheel = false) => useControl(control, step, wheel),
+    // Menu de la barre (Profil…) : barre affichée, menu déroulé
+    openBarMenu: (id) => {
+        setMenuBar(true);
+        const title = document.querySelector(`#${id} .menu-titre`);
+        if (title?.getAttribute('aria-expanded') !== 'true') title?.click();
+    },
+    trimDegrees: () => THREE.MathUtils.radToDeg(controls.trim),
+    setBrakes: (on) => { touchControls.holdBrake = on; },
+    toggleNavPanels, navPanelsShown: () => vorShown,
+    toggleIls, ilsLabel: () => (ils.active ? 'RÉGLÉ' : 'NON RÉGLÉ'),
+    toggleMap: () => toggleMap(), mapOpen: () => !mapPanel.hidden,
+    toggleAtc: () => toggleAtc(), atcOpen: () => !atcPanel.hidden,
+    setAtcVoice, setAtcLanguage,
+    setTalking: (on) => radio.setTalking(on),
+    toggleView, recenterCamera, chaseView: () => chaseView,
+    cabinView: () => (chaseView ? '—' : cabinView),
+    stepCabinView: (step) => {
+        const i = VIEW_ORDER.indexOf(cabinView);
+        setCabinViewPreset(chaseView ? 1 : VIEW_ORDER[(i + step + VIEW_ORDER.length) % VIEW_ORDER.length]);
+    },
+    togglePhotoMode: () => setPhotoMode(!simulatorElement.classList.contains('photo')),
+    photoMode: () => simulatorElement.classList.contains('photo'),
+    toggleFullscreen, fullscreen: () => Boolean(fullscreenElement()),
+    setting: (key) => settings.values[key],
+    toggleSetting: (key) => settings.set(key, key === 'hud' ? settings.values.hud === false : !settings.values[key]),
+    weatherLabel: () => WEATHERS[weatherName]?.label ?? weatherName,
+    stepWeather: (step) => {
+        const names = Object.keys(WEATHERS);
+        setWeather(names[(names.indexOf(weatherName) + step + names.length) % names.length]);
+    },
+    openSettings: () => openSettings(),
+};
+const tabletPanels = isTablet() ? new TabletPanels(document.getElementById('tablette-ui'), tabletRegistry(tabletApi)) : null;
 if (touchControls.enabled) escapeHint.textContent = '☰ Menus : afficher les menus';
 
 // Collision avec les autres avions : garés (aérodromes) et ceux des autres joueurs, à leur forme (voir PlaneCollision.js)
@@ -3239,6 +3281,7 @@ renderer.setAnimationLoop((time)=>{
     graphics.update( shadowCenter, !chaseView, decorShadowCenter );
     graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     touchControls.update(!inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
+    tabletPanels?.update(delta, !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
     flightHud.bottomInset = touchControls.inset;   // jauges du HUD au-dessus des commandes tactiles
     checkNewShaders(performance.now());
     if (!shaderWarmup) graphics.render();
