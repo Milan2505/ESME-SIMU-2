@@ -1069,21 +1069,13 @@ function requestFullscreen() {
     const request = simulatorElement.requestFullscreen ?? simulatorElement.webkitRequestFullscreen;
     return Promise.resolve(request?.call(simulatorElement)).catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
 }
-// iPad (Safari, Brave, Chrome…) : pas de plein écran du navigateur. Celui de Safari se quitte d'un simple balayage vers
-// le bas et bloque le clavier (« Il semble que vous saisissiez du texte en plein écran ») : deux protections d'iPadOS
-// qu'une page ne peut pas désactiver. Le vrai plein écran sur iPad : le simulateur ouvert depuis l'écran d'accueil
-// (appli web, voir manifest.webmanifest), sans barre du navigateur, sans ces deux défauts
-function tabletFullscreenGuide() {
-    const NL = String.fromCharCode(10);
-    alert("Plein écran sur iPad" + NL + NL
-        + "Le plein écran du navigateur se quitte au moindre balayage vers le bas et bloque le clavier : il n'est pas utilisé." + NL + NL
-        + "Pour jouer en vrai plein écran : dans Safari, bouton Partager ▸ « Sur l'écran d'accueil », puis ouvrez le simulateur "
-        + "depuis son icône. Il s'ouvre alors sans aucune barre, comme une appli.");
-}
+// iPad (Safari, Brave, Chrome…) : pas de plein écran du navigateur, ni de bouton pour lui. Celui de Safari se quitte d'un
+// simple balayage vers le bas et bloque le clavier (« Il semble que vous saisissiez du texte en plein écran ») : deux
+// protections d'iPadOS qu'une page ne peut pas désactiver. Le vrai plein écran sur iPad : le simulateur ouvert depuis
+// l'écran d'accueil (appli web, voir manifest.webmanifest) ; une ligne de l'accueil l'indique (#mp-astuce-ipad)
 function toggleFullscreen() {
     if (isTablet()) {
         if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
-        else if (!isStandalone()) tabletFullscreenGuide();
         return;
     }
     if (!fullscreenApi) return;
@@ -1092,7 +1084,9 @@ function toggleFullscreen() {
 }
 const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
 const fullscreenApi = Boolean(simulatorElement.requestFullscreen || simulatorElement.webkitRequestFullscreen);
-if (!isTablet() || isStandalone()) for (const button of fullscreenButtons) button.hidden = true;
+// Boutons Plein écran : ni sur ordinateur (touche F, et plein écran au premier clic), ni sur iPad (voir plus haut)
+for (const button of fullscreenButtons) button.hidden = true;
+document.getElementById('mp-astuce-ipad').hidden = !isTablet() || isStandalone();
 // Un bouton par écran : ⛶ de la barre de menus (en vol) et celui du menu principal (au lancement)
 for (const button of fullscreenButtons) {
     button.addEventListener('click', (event) => {
@@ -1108,7 +1102,7 @@ window.addEventListener('keydown', (event) => {
 function enterFullscreenOnce(event) {
     window.removeEventListener('pointerdown', enterFullscreenOnce, true);
     window.removeEventListener('keydown', enterFullscreenOnce, true);
-    if (isTablet()) return;   // iPad : pas de plein écran du navigateur (voir tabletFullscreenGuide)
+    if (isTablet()) return;   // iPad : pas de plein écran du navigateur (voir toggleFullscreen)
     if (fullscreenElement() || event.code === 'KeyF' || event.key === 'Escape') return;   // F : géré par la touche
     if (event.target instanceof Element && event.target.closest('[data-plein-ecran]')) return;   // le bouton s'en charge
     requestFullscreen();

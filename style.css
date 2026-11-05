@@ -1806,10 +1806,11 @@ img{margin: 0px;
   text-align: left;
   color: #b8c6d4;
 }
+/* Pied de page : sous le contenu, sur toute la largeur (avant : épinglé en bas de l'écran, il passait sur la carte
+   MANUEL quand l'écran est bas, ex. iPad avec la barre de Safari) */
 .mp-pied {
-  position: absolute;
-  left: 5vw;
-  bottom: 2vh;
+  grid-column: 1 / -1;
+  align-self: end;
   margin: 0;
   text-indent: 0;
   font-size: 11px;
@@ -2597,8 +2598,14 @@ html.tablette #simulator.jeu > #commandes {
   --hud-u: min(100dvw / 1280, 100dvh / 720);   /* longueur : 1 px de l'écran 1280 × 720 */
 }
 /* Fluidité (touche P) : en haut à droite */
+/* Fluidité (réglage, touche P) : en haut à gauche, sous la rose des caps (en haut à droite, elle passait sous la
+   colonne SOL / SYSTÈMES de l'iPad et sous la fenêtre radio) ; pas à l'accueil (il n'y a pas de vol à mesurer) */
 #simulator.jeu > #perf {
-  justify-self: end;
+  justify-self: start;
+  margin-top: calc(var(--hud-u) * 225);
+}
+#simulator:has(#menu-principal:not([hidden])) > #perf {
+  display: none;
 }
 /* Indicateurs VOR et ILS : une seule zone, en bas au centre, entre les groupes de jauges (300 unités du HUD de chaque
    côté) et entre les commandes tactiles (--tactile-largeur-* : posées par simulator.js). Côte à côte s'il y a la place,
