@@ -62,7 +62,8 @@ const NEAR_MAX = 12;             // arbres complets au plus, par espèce (les pl
 const SHADOW_RANGE = 140;        // m : arbres qui projettent une ombre (au-delà de la zone d'ombres du soleil)
 const SHADOW_MAX = 400;          // par espèce
 const MAX_TILT = 0.7;            // rad : inclinaison des imposteurs vers une caméra placée au-dessus
-const FAR = 2600;                // m : au-delà, plus rien (le brouillard les cache)
+const FAR = 3600;                // m : au-delà, plus rien (brouillard, ou trop petits : imposteurs d'un pixel à cette
+                                 // distance ; la zone décorée s'arrête de toute façon à ~4 km du centre de l'aérodrome)
 const RELAYOUT = 35;             // m de déplacement de la caméra avant de refaire la répartition
 const IMPOSTOR_SIZE = 256;
 const UP = new Vector3(0, 1, 0);

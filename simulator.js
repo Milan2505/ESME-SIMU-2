@@ -1298,7 +1298,12 @@ const ABOVE_CLOUDS_SKY = new THREE.Color(0x6f9fd2), ABOVE_CLOUDS_FOG = new THREE
 const ABOVE_CLOUDS_SUN = 2.0, ABOVE_CLOUDS_HEMI = 1.2;   // plein jour au-dessus de la nappe, même par temps d'orage
 const _sunColor = new THREE.Color(), _white = new THREE.Color(COLOR_LIGHT);
 
+// Distance de vue (réglage) : 3 km = brume d'origine de chaque météo. Plus loin, la brume des météos dégagées (jour,
+// nuageux, nuit : fogFar ≥ 1 km) recule d'autant ; brouillard et tempête restent bouchés
+let viewDistance = 3000;
 function updateFog() {
+    const reach = viewDistance / 3000;
+    const fogScale = weather.fogFar >= 1000 ? reach : 1;
     // Turbulence : au-dessus de la couche nuageuse (tempête, ciel couvert), l'air est calme ; fondu sur les 16 m autour
     // du dessus de la nappe (même réglé sans nappe affichée : les nuages restent là pour la physique)
     const aircraftAbove = cloudLayer.heightAboveTop(aircraft.position);
@@ -1318,8 +1323,8 @@ function updateFog() {
     scene.fog.color.set(weather.atmosphere?.fog ?? weather.sky).lerp(ABOVE_CLOUDS_FOG, above)
         .lerp(cloudFogColor, density).lerp(flashColor, flash * 0.6);
     scene.background.set(weather.sky).lerp(ABOVE_CLOUDS_SKY, above).lerp(flashColor, flash * 0.6);
-    scene.fog.near = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogNear, 600, above), 0, density);
-    scene.fog.far = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogFar, 2800, above), 30, density);
+    scene.fog.near = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogNear * fogScale, 600 * reach, above), 0, density);
+    scene.fog.far = THREE.MathUtils.lerp(THREE.MathUtils.lerp(weather.fogFar * fogScale, 2800 * reach, above), 30, density);
     hemiLight.intensity = THREE.MathUtils.lerp(weather.hemi, ABOVE_CLOUDS_HEMI, above) + flash * 2.5;
     sunLight.intensity = THREE.MathUtils.lerp(weather.sun, ABOVE_CLOUDS_SUN, above);
     sunLight.color.copy(_sunColor.set(weather.sunColor ?? COLOR_LIGHT).lerp(_white, above));
@@ -2159,7 +2164,7 @@ const mapButton = document.getElementById('carte-bouton');
 const mapView = new MapView(document.getElementById('carte-canvas'), {
     heightAt: (x, z) => terrain.heightAt(x, z),
     waterAt: (x, z) => { const lake = terrain.lakeAt(x, z); return Boolean(lake) && terrain.groundAt(x, z, lake) < lake.level; },
-    worldSize: terrain.size,
+    worldSize: 16000,   // (zone des deux aérodromes ; le terrain s'étend plus loin, pour la distance de vue)
     shapes: airport.mapShapes,
     runways: airport.allRunways,
     navaids: airport.vors,
@@ -3071,6 +3076,10 @@ function applySettings(values) {
     clouds.setDetail(values.clouds);
     cloudLayer.setEnabled(values.cloudLayer);
     terrain.setDetail(values.terrain);
+    // Distance de vue : limite de la caméra ; la brume de beau temps s'éloigne d'autant (voir updateFog)
+    viewDistance = values.visibility ?? 3000;
+    camera.far = viewDistance;
+    camera.updateProjectionMatrix();
     decorDensity = values.decor;
     decorStyle = values.decorStyle ?? 'realiste';
     applyDecorDensity();

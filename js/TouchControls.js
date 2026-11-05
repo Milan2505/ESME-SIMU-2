@@ -1,5 +1,5 @@
 // Commandes tactiles (tablettes) : par-dessus l'écran de vol, un manche sous le pouce gauche (tangage et roulis ; au
-// sol, il oriente aussi la roulette de nez), une manette des gaz à droite, et des boutons : freins et trim (tenus),
+// sol, il oriente aussi la roulette de nez) et le palonnier juste dessous (lacet), une manette des gaz à droite, et des boutons : freins et trim (tenus),
 // volets, vue, recentrage, barre de menus. Affichées d'office sur un écran tactile principal (tablette), ou dès que
 // l'écran est touché (ordinateur à écran tactile) ; seulement en vol (pas au menu, au hangar, au choix du départ).
 // Elles s'ajoutent au clavier (voir PlaneControls.setTouchInput).
@@ -22,6 +22,7 @@ class TouchControls {
         this.actions = actions;
         this.enabled = isTablet();
         this.stick = { x: 0, y: 0 };
+        this.rudder = 0;          // palonnier : -1 (pied gauche) à 1 (pied droit)
         this._brake = 0;
         this.holdBrake = false;   // freins tenus depuis l'interface tablette (tuile FREINS)
         this._trim = 0;
@@ -40,6 +41,7 @@ class TouchControls {
         }
         this._setupStick(root.querySelector('#tactile-manche'));
         this._setupThrottle(root.querySelector('#tactile-gaz'));
+        this._setupRudder(root.querySelector('#tactile-palonnier'));
         for (const button of root.querySelectorAll('[data-tactile]')) this._setupButton(button);
     }
 
@@ -69,6 +71,38 @@ class TouchControls {
         base.addEventListener('pointermove', (event) => { if (base.hasPointerCapture(event.pointerId)) move(event); });
         base.addEventListener('pointerup', release);
         base.addEventListener('pointercancel', release);
+    }
+
+    // Palonnier : décalage horizontal du doigt depuis le centre de la barre (demi-largeur = butée), retour au neutre au
+    // lâcher, comme les pieds qu'on relâche
+    _setupRudder(track) {
+        const knob = track.querySelector('span'), fill = track.querySelector('i');
+        const move = (event) => {
+            const r = track.getBoundingClientRect();
+            const half = r.width / 2;
+            const x = Math.max(-1, Math.min(1, (event.clientX - (r.left + half)) / half));
+            this.rudder = x;
+            const travel = half - knob.offsetWidth / 2;
+            knob.style.transform = `translateX(${x * travel}px)`;
+            fill.style.left = x < 0 ? `${50 + x * 50}%` : '50%';
+            fill.style.width = `${Math.abs(x) * 50}%`;
+        };
+        const release = () => {
+            this.rudder = 0;
+            knob.style.transform = '';
+            fill.style.width = '0';
+            track.classList.remove('actif');
+        };
+        track.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            track.setPointerCapture(event.pointerId);
+            track.classList.add('actif');
+            move(event);
+        });
+        track.addEventListener('pointermove', (event) => { if (track.hasPointerCapture(event.pointerId)) move(event); });
+        track.addEventListener('pointerup', release);
+        track.addEventListener('pointercancel', release);
+        this._releaseRudder = release;
     }
 
     // Manette des gaz : le doigt place la manette (haut = plein gaz), elle reste où on la lâche
@@ -125,12 +159,16 @@ class TouchControls {
             this.root.hidden = !shown;
             if (!shown) {
                 this.stick = { x: 0, y: 0 };
+                this._releaseRudder?.();
                 this._brake = this._trim = 0;
             }
         }
         const roll = -curve(this.stick.x), pitch = curve(this.stick.y);
-        // Au sol, le manche oriente aussi la roulette de nez (palonnier) ; en vol, il ne commande que les ailerons
-        this.controls.setTouchInput({ pitch, roll, yaw: this.controls.isOnGround() ? roll : 0, brake: Math.max(this._brake, this.holdBrake ? 1 : 0), trim: this._trim });
+        // Palonnier : lacet (+ = à gauche, d'où le signe). Au sol, le manche oriente aussi la roulette de nez ; en vol, il
+        // ne commande que les ailerons
+        const rudder = -curve(this.rudder);
+        const yaw = Math.max(-1, Math.min(1, rudder + (this.controls.isOnGround() ? roll : 0)));
+        this.controls.setTouchInput({ pitch, roll, yaw, brake: Math.max(this._brake, this.holdBrake ? 1 : 0), trim: this._trim });
         if (shown && performance.now() > this._insetAt) {
             this._insetAt = performance.now() + 500;
             const bottom = this.root.getBoundingClientRect().bottom;

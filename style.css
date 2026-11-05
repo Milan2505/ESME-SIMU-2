@@ -1878,11 +1878,19 @@ body:has(#simulator.jeu) {
 #tactile[hidden] {
   display: none;
 }
-/* Zones sûres d'iOS (coins arrondis, barre d'accueil) : les commandes restent entières et loin des gestes système */
-#tactile-manche {
+/* Zones sûres d'iOS (coins arrondis, barre d'accueil) : les commandes restent entières et loin des gestes système.
+   À gauche : le manche, et le palonnier juste dessous */
+.tactile-gauche {
   position: absolute;
   left: calc(24px + env(safe-area-inset-left, 0px));
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+#tactile-manche {
+  position: relative;
   width: clamp(130px, 22vmin, 190px);
   aspect-ratio: 1;
   border-radius: 50%;
@@ -1903,6 +1911,56 @@ body:has(#simulator.jeu) {
 }
 #tactile-manche.actif {
   border-color: #ffd23c;
+}
+#tactile-palonnier {
+  position: relative;
+  box-sizing: border-box;
+  width: clamp(190px, 30vmin, 260px);
+  height: 46px;
+  border-radius: 23px;
+  background: rgba(15, 18, 22, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  pointer-events: auto;
+  touch-action: none;
+}
+#tactile-palonnier.actif {
+  border-color: #ffd23c;
+}
+/* Part braquée, depuis le centre */
+#tactile-palonnier i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  background: rgba(255, 210, 60, 0.4);
+}
+/* Curseur (au centre au repos) */
+#tactile-palonnier span {
+  position: absolute;
+  top: 5px;
+  left: calc(50% - 16px);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+#tactile-palonnier em {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 11px;
+  font-weight: normal;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 2px black;
+  pointer-events: none;
 }
 .tactile-droite {
   position: absolute;

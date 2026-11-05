@@ -210,26 +210,30 @@ function patchDetailShadow() {
 // n'est plus noyé dans le blanc (avant : 2 km de distance = 2 km de brume, même en regardant vers le bas).
 // Seulement par temps clair (fogFar long) : dans un nuage, par brouillard ou en tempête, le brouillard reste entier à
 // toute altitude (sinon, en altitude, l'intérieur d'un nuage paraissait presque dégagé).
-// Près de la limite de vue de la caméra (3 km), fondu complet : le bord du décor reste caché.
+// Près de la limite de vue de la caméra (camera.far, réglage « Distance de vue »), fondu complet entre 77 et 97 % de
+// cette limite : le bord du décor reste caché. La limite est relue dans la matrice de projection (far = P32 / (P22 + 1)),
+// sans recompiler les shaders quand le réglage change.
 const FOG_SCALE_HEIGHT = 350;
-const FOG_CLIP = [2300, 2900];
 function patchHeightFog() {
     if (ShaderChunk.fog_vertex.includes('vFogWorldY')) return;
     ShaderChunk.fog_pars_vertex = ShaderChunk.fog_pars_vertex.replace('varying float vFogDepth;',
         `varying float vFogDepth;
-	varying float vFogWorldY;`);
+	varying float vFogWorldY;
+	varying float vFogCameraFar;`);
     // Hauteur du point dans le monde, depuis mvPosition (valable aussi pour les instances et les shaders des nuages)
     ShaderChunk.fog_vertex = ShaderChunk.fog_vertex.replace('vFogDepth = - mvPosition.z;',
         `vFogDepth = - mvPosition.z;
-	vFogWorldY = ( transpose( mat3( viewMatrix ) ) * ( mvPosition.xyz - viewMatrix[ 3 ].xyz ) ).y;`);
+	vFogWorldY = ( transpose( mat3( viewMatrix ) ) * ( mvPosition.xyz - viewMatrix[ 3 ].xyz ) ).y;
+	vFogCameraFar = projectionMatrix[ 3 ][ 3 ] == 0.0 ? projectionMatrix[ 3 ][ 2 ] / ( projectionMatrix[ 2 ][ 2 ] + 1.0 ) : 1e9;`);
     ShaderChunk.fog_pars_fragment = ShaderChunk.fog_pars_fragment.replace('varying float vFogDepth;',
         `varying float vFogDepth;
-	varying float vFogWorldY;`);
+	varying float vFogWorldY;
+	varying float vFogCameraFar;`);
     ShaderChunk.fog_fragment = ShaderChunk.fog_fragment.replace('float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );', `
 		float fogH0 = max( cameraPosition.y, 0.0 ) / ${FOG_SCALE_HEIGHT}.0, fogH1 = max( vFogWorldY, 0.0 ) / ${FOG_SCALE_HEIGHT}.0;
 		float fogAir = abs( fogH1 - fogH0 ) < 0.01 ? exp( - fogH0 ) : ( exp( - fogH0 ) - exp( - fogH1 ) ) / ( fogH1 - fogH0 );
 		fogAir = mix( 1.0, fogAir, smoothstep( 400.0, 900.0, fogFar ) );
-		float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth * fogAir ), smoothstep( ${FOG_CLIP[0]}.0, ${FOG_CLIP[1]}.0, vFogDepth ) );`);
+		float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth * fogAir ), smoothstep( vFogCameraFar * 0.77, vFogCameraFar * 0.97, vFogDepth ) );`);
 }
 
 // Résolution adaptative : si l'image ralentit, on calcule moins de pixels (puis on remonte quand ça va mieux)

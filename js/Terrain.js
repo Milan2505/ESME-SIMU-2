@@ -46,7 +46,8 @@ function softMin(a, b, k) {
 // Relief procédural : plaine au centre, collines autour, montagnes au loin ; vallées dégagées autour des pistes
 class Terrain {
     constructor(renderer, {
-        size = 16000,         // côté du terrain (m) : deux aérodromes et leurs vallées
+        size = 26000,         // côté du terrain (m) : deux aérodromes et leurs vallées, et assez de marge autour pour
+                              // ne jamais voir le bord du monde, même à 6 km de distance de vue depuis AIX
         segments = 384,       // finesse : segments pour 6000 m (réglage « Détail du sol », comme avant les dalles)
         flatRadius = 80,      // zone plate au centre (point de départ)
         hillHeight = 15,

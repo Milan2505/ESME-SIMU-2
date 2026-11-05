@@ -224,7 +224,11 @@
 	<div id="astuce-echap" class="cache">Échap : afficher les menus</div>
 	<!-- Commandes tactiles (tablettes, voir TouchControls.js) : manche à gauche, gaz et boutons à droite -->
 	<div id="tactile" hidden>
-		<div id="tactile-manche" title="Manche : tangage et roulis (au sol, oriente aussi la roulette)"><span></span></div>
+		<div class="tactile-gauche">
+			<div id="tactile-manche" title="Manche : tangage et roulis (au sol, oriente aussi la roulette)"><span></span></div>
+			<!-- Palonnier : glisser à gauche ou à droite (lacet ; au sol, roulette de nez), revient au centre au lâcher -->
+			<div id="tactile-palonnier" title="Palonnier : glisser à gauche ou à droite"><i></i><span></span><em><b>◀ Pied g.</b><b>Pied d. ▶</b></em></div>
+		</div>
 		<div class="tactile-droite">
 			<div class="tactile-boutons">
 				<button data-tactile="menu" title="Afficher ou cacher la barre de menus">☰ Menus</button>

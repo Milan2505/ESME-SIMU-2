@@ -19,6 +19,8 @@ const OPTIONS = {
                   choices: [[false, 'Désactivée'], [true, 'Activée']] },
     terrain:    { label: 'Détail du sol', hint: 'Finesse du relief (collines, montagnes)',
                   choices: [[128, 'Bas'], [256, 'Moyen'], [384, 'Haut'], [512, 'Très haut']] },
+    visibility: { label: 'Distance de vue', hint: 'Jusqu’où porte le regard avant la brume (par beau temps). Le relief lointain reste simplifié : peu coûteux',
+                  choices: [[3000, 'Proche (3 km)'], [4500, 'Moyenne (4,5 km)'], [6000, 'Lointaine (6 km)']] },
     decor:      { label: 'Arbres et décor', hint: 'Part des arbres, fleurs, rochers affichés',
                   choices: [[0.25, '25 %'], [0.5, '50 %'], [1, '100 %']] },
     decorStyle: { label: 'Style du décor', hint: "Réaliste : forêts et villages (plus lourd) ; Mixte : avec les arbres stylisés d'origine",
@@ -47,10 +49,10 @@ const OPTIONS = {
 const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
-    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, decor: 0.25, decorStyle: 'classique', bloom: false },
-    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, decor: 0.5,  decorStyle: 'classique', bloom: true },
-    haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, decor: 1,    decorStyle: 'realiste', bloom: true },
-    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   cloudLayer: true,  terrain: 512, decor: 1,    decorStyle: 'realiste', bloom: true },
+    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, visibility: 3000, decor: 0.25, decorStyle: 'classique', bloom: false },
+    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, visibility: 6000, decor: 0.5,  decorStyle: 'classique', bloom: true },
+    haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, visibility: 6000, decor: 1,    decorStyle: 'realiste', bloom: true },
+    ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   cloudLayer: true,  terrain: 512, visibility: 6000, decor: 1,    decorStyle: 'realiste', bloom: true },
 };
 const DEFAULT_PRESET = 'haut';
 const CUSTOM = 'perso';
