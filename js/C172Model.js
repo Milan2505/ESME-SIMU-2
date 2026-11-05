@@ -27,6 +27,7 @@ import {
     Vector3
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { releaseAfterUpload } from './CanvasMemory.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // Cessna 172P du projet FlightGear (équipe c172p, licence GPL-2.0 : asset/c172p-LICENCE.txt), converti en GLB
@@ -464,7 +465,9 @@ function paintTexture(kind, registration, color, size) {
     texture.colorSpace = SRGBColorSpace;
     texture.wrapS = texture.wrapT = RepeatWrapping;
     texture.anisotropy = 8;
+    // Canvas libéré une fois la peinture finie et envoyée à la carte graphique (mémoire des canvas limitée sur iPad)
     if (color !== null && color !== undefined) schedule(recolor(ctx, texture, color));
+    else releaseAfterUpload(texture);
     return texture;
 }
 
@@ -526,6 +529,7 @@ function* recolor(ctx, texture, color) {
         yield;
     }
     texture.needsUpdate = true;
+    releaseAfterUpload(texture);
 }
 
 // Travaux de fond : quelques millisecondes à la fois, entre deux images

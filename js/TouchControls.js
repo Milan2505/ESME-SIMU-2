@@ -4,6 +4,8 @@
 // l'écran est touché (ordinateur à écran tactile) ; seulement en vol (pas au menu, au hangar, au choix du départ).
 // Elles s'ajoutent au clavier (voir PlaneControls.setTouchInput).
 
+import { isTablet } from './Device.js';
+
 const DEAD_ZONE = 0.06;    // part de la course du manche sans effet (le pouce ne reste jamais pile au centre)
 
 // Course du manche -> commande : douce près du centre (corrections fines), entière en butée
@@ -18,7 +20,7 @@ class TouchControls {
         this.root = root;
         this.controls = controls;
         this.actions = actions;
-        this.enabled = matchMedia('(pointer: coarse)').matches;
+        this.enabled = isTablet();
         this.stick = { x: 0, y: 0 };
         this._brake = 0;
         this._trim = 0;

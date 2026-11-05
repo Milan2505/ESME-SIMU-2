@@ -34,6 +34,7 @@ import {
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { flareTexture } from './LightFlare.js';
 import { mergeStatic } from './MergeStatic.js';
+import { releaseAfterUpload } from './CanvasMemory.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
 // Tout est modélisé ici, sauf la tour et l'aérogare (modèles FlightGear, voir BUILDINGS) ; le relief est aplani
@@ -102,7 +103,8 @@ function canvasTexture(width, height, draw, { repeat = null, anisotropy = 8 } = 
     canvas.width = width;
     canvas.height = height;
     draw(canvas.getContext('2d'), width, height);
-    const texture = new CanvasTexture(canvas);
+    // Dessinée une fois : canvas libéré dès l'envoi à la carte graphique (mémoire des canvas limitée sur iPad)
+    const texture = releaseAfterUpload(new CanvasTexture(canvas));
     texture.colorSpace = SRGBColorSpace;
     texture.anisotropy = anisotropy;
     if (repeat) {

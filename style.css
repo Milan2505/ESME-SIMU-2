@@ -737,6 +737,7 @@ img{margin: 0px;
     gap: 0;
     padding: 0;
     height: 100vh;
+    height: 100dvh;   /* hauteur vraiment visible (iPad : 100vh passe sous la barre d'outils de Safari) */
     box-sizing: border-box;
     background: white;
   }
@@ -1656,7 +1657,7 @@ img{margin: 0px;
   grid-template-columns: minmax(320px, 520px) 1fr;
   gap: 40px;
   box-sizing: border-box;
-  padding: 6vh 5vw 8vh;
+  padding: max(6vh, env(safe-area-inset-top, 0px)) max(5vw, env(safe-area-inset-right, 0px)) max(8vh, env(safe-area-inset-bottom, 0px)) max(5vw, env(safe-area-inset-left, 0px));
   overflow: auto;
   color: #fff;
   font-family: Noto Sans, sans-serif;
@@ -1844,8 +1845,9 @@ img{margin: 0px;
   position: fixed;
   inset: 0;
   z-index: 40;
-  width: 100vw;
-  height: 100vh;
+  /* inset: 0 suffit (100vw / 100vh débordaient sur iPad : barre d'outils de Safari, barre de défilement) */
+  width: auto;
+  height: auto;
 }
 #simulator.jeu:not(.barre) > #commandes,
 #simulator.jeu:not(.barre) > #météo,
@@ -1875,10 +1877,11 @@ body:has(#simulator.jeu) {
 #tactile[hidden] {
   display: none;
 }
+/* Zones sûres d'iOS (coins arrondis, barre d'accueil) : les commandes restent entières et loin des gestes système */
 #tactile-manche {
   position: absolute;
-  left: 24px;
-  bottom: 24px;
+  left: calc(24px + env(safe-area-inset-left, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   width: clamp(130px, 22vmin, 190px);
   aspect-ratio: 1;
   border-radius: 50%;
@@ -1902,8 +1905,8 @@ body:has(#simulator.jeu) {
 }
 .tactile-droite {
   position: absolute;
-  right: 24px;
-  bottom: 24px;
+  right: calc(24px + env(safe-area-inset-right, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   display: flex;
   align-items: flex-end;
   gap: 12px;
@@ -1978,7 +1981,7 @@ body:has(#simulator.jeu) {
   align-self: end;
   justify-self: center;
   z-index: 5;
-  margin-bottom: 18px;
+  margin-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   padding: 6px 14px;
   font-family: DejaVu Sans Mono, monospace;
   font-size: 13px;
@@ -2462,50 +2465,66 @@ body:has(#simulator.jeu) {
   display: none !important;
 }
 
-/* Barre du haut sur écran étroit (tablettes) : rien ne passe à la ligne ; textes plus petits, puis libellés courts */
+/* Barre du haut : une case ne rétrécit jamais sous la largeur de son texte (avant, avec overflow: hidden, la grille les
+   rognait quand la place manquait : texte caché sous la case voisine, surtout sur iPad où la police à chasse fixe est
+   plus large). Pour tenir sur toute largeur d'écran, simulator.js (fitMenuBar) mesure la barre et choisit le premier
+   palier où tout tient : libellés complets, libellés courts (barre-courte), puis texte et marges réduits
+   (barre-serree, barre-mini). Rien ne passe à la ligne */
 #simulator.jeu > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre, #masse-bouton, #mode-photo,
   #barre-plein-ecran, #quitter-partie) {
   white-space: nowrap;
-}
-@media (max-width: 1366px) {
-  #simulator.jeu .menu-titre {
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-  #simulator.jeu.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
-    padding: 0 10px;
-    font-size: 12px;
-  }
-  #simulator.jeu > #paramètre {
-    padding: 0 10px;
-  }
-  #simulator.jeu > #paramètre h4 {
-    font-size: 13px;
-  }
+  min-width: max-content;
 }
 #simulator.jeu .court {
   display: none;
 }
-@media (max-width: 1280px) {
-  #simulator.jeu .long {
-    display: none;
-  }
-  #simulator.jeu .court {
-    display: inline;
-  }
-  #simulator.jeu .menu-titre {
-    padding: 6px 8px;
-    font-size: 12px;
-  }
-  #simulator.jeu.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
-    padding: 0 8px;
-  }
-  #simulator.jeu > #paramètre {
-    padding: 0 8px;
-  }
-  #simulator.jeu > #paramètre h4 {
-    font-size: 12px;
-  }
+#simulator.jeu:is(.barre-courte, .barre-serree, .barre-mini) .long {
+  display: none;
+}
+#simulator.jeu:is(.barre-courte, .barre-serree, .barre-mini) .court {
+  display: inline;
+}
+#simulator.jeu.barre-courte .menu-titre {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+#simulator.jeu.barre-courte.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+  padding: 0 10px;
+  font-size: 12px;
+}
+#simulator.jeu.barre-courte > #paramètre {
+  padding: 0 10px;
+}
+#simulator.jeu.barre-courte > #paramètre h4 {
+  font-size: 13px;
+}
+#simulator.jeu.barre-serree .menu-titre {
+  padding: 6px 7px;
+  font-size: 12px;
+}
+#simulator.jeu.barre-serree.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+  padding: 0 7px;
+  font-size: 11px;
+}
+#simulator.jeu.barre-serree > #paramètre {
+  padding: 0 7px;
+}
+#simulator.jeu.barre-serree > #paramètre h4 {
+  font-size: 12px;
+}
+#simulator.jeu.barre-mini .menu-titre {
+  padding: 5px 4px;
+  font-size: 10px;
+}
+#simulator.jeu.barre-mini.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+  padding: 0 4px;
+  font-size: 10px;
+}
+#simulator.jeu.barre-mini > #paramètre {
+  padding: 0 4px;
+}
+#simulator.jeu.barre-mini > #paramètre h4 {
+  font-size: 10px;
 }
 #simulator.jeu.barre > #mode-photo {
   display: block;
@@ -2545,7 +2564,8 @@ body:has(#simulator.jeu) {
 /* Mode jeu : panneaux superposés placés hors des infos de vol (FlightHud.js : rose des caps en haut à gauche, groupes
    de jauges en bas à gauche et en bas à droite, ~250 px de haut à l'échelle de l'écran 1280 × 720) */
 #simulator.jeu {
-  --hud-u: min(100vw / 1280, 100vh / 720);   /* longueur : 1 px de l'écran 1280 × 720 */
+  --hud-u: min(100vw / 1280, 100vh / 720);
+  --hud-u: min(100dvw / 1280, 100dvh / 720);   /* longueur : 1 px de l'écran 1280 × 720 */
 }
 /* Fluidité (touche P) : en haut à droite */
 #simulator.jeu > #perf {

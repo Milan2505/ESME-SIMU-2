@@ -1523,9 +1523,12 @@ class ATC extends EventDispatcher {
         if (message.ticket && message.ticket !== this._atisTicket) return;   // ATIS coupé avant de commencer
         // Multijoueur : les autres joueurs sur la même fréquence entendent l'échange (pas l'ATIS, propre à chacun)
         if (from !== 'atis') this.dispatchEvent({ type: 'broadcast', message: { f: this.freq, w: from, t: message.text, s: message.speech, l: this.lang, r: reply } });
-        this.log.push({ from, text: message.text, station: from === 'atc' ? STATIONS[this.freq].fr.toUpperCase() : null });
+        // Message de l'avion : « VOUS » à l'affichage, sauf si quelqu'un d'autre parle à la place de l'élève (pilotLabel,
+        // ex. le moniteur au niveau 1 de l'Initiation) ; noté au moment de l'émission (le journal le garde ensuite)
+        const label = from === 'pilot' ? this.pilotLabel ?? null : null;
+        this.log.push({ from, text: message.text, station: from === 'atc' ? STATIONS[this.freq].fr.toUpperCase() : label });
         if (this.log.length > 40) this.log.shift();
-        this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: true });
+        this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, label, on: true });
         this._changed();
         this.sounds?.squelch(0.16, 0.08);
         // ATIS : peut être coupé en cours (bouton Passer de l'initiation, autre aérodrome : voir cutAtis)
@@ -1537,7 +1540,7 @@ class ATC extends EventDispatcher {
         await (message.cut ? Promise.race([playing, message.cut]) : playing);
         if (message.cut && message.ticket === this._atisTicket) this._atisCut = this._atisClip = this._atisTicket = null;
         this.sounds?.squelch(0.22, 0.14);
-        this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: false });
+        this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, label, on: false });
     }
 
     _changed() {

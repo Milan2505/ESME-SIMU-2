@@ -116,8 +116,28 @@ async function fetchCached(url, onProgress = null) {
     return blob.arrayBuffer();
 }
 
-// Texte -> phonèmes (espeak-ng, version WebAssembly de Piper) ; module chargé une fois, réutilisé
+// Texte -> phonèmes (espeak-ng, version WebAssembly de Piper).
+// Le module s'use : après ~155 appels, il ne rend plus rien (« aucune phrase lisible » pour toute phrase). En Initiation,
+// moniteur et radio l'atteignaient vers le décollage : le moniteur se taisait pour le reste de la leçon. Il est donc
+// recréé tous les PHONEMIZER_RENEW appels (fichiers déjà dans le cache du navigateur : quelques dizaines de ms), et
+// aussitôt s'il échoue (la phrase est alors réessayée avec le module neuf)
+const PHONEMIZER_RENEW = 100;
+let phonemizerCalls = 0;
 async function phonemize(text, voice) {
+    if (++phonemizerCalls > PHONEMIZER_RENEW) {
+        phonemizerCalls = 1;
+        phonemizerPromise = null;
+    }
+    try {
+        return await phonemizeWith(text, voice);
+    } catch {
+        phonemizerCalls = 1;
+        phonemizerPromise = null;
+        return phonemizeWith(text, voice);
+    }
+}
+
+async function phonemizeWith(text, voice) {
     phonemizerPromise ??= (async () => {
         const { createPiperPhonemize } = await import(PHONEMIZER_URL);
         const state = { ids: null };

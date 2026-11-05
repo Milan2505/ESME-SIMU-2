@@ -13,6 +13,18 @@ const REARM = 40;           // ° : alarme réarmée en dessous
 const MIN_HEIGHT = 30;      // ft au-dessus du sol : pas d'alarme au décollage ni à l'arrondi
 const REPEAT = 3;           // s entre deux annonces tant que l'inclinaison reste excessive
 const CHECK_DELAY = 0.4;    // s entre l'alarme et la réponse du pilote
+const STEEP_PITCH = 60;     // ° : au-delà (nez très haut ou très bas), l'angle de roulis n'a plus de sens
+
+// Inclinaison qui compte pour l'alarme : le roulis seul, jamais le tangage.
+// Le roulis (angle autour de l'axe de l'avion, mesuré par rapport à l'horizon) n'est défini que si le nez n'est pas
+// trop près de la verticale : en piqué ou en montée quasi verticale, il se calcule avec deux quantités presque nulles
+// et saute au hasard (60°, 110°, 180°…) alors que les ailes restent à plat (l'alarme sonnait en piquant du nez).
+// Nez très haut ou très bas : on prend la pente des ailes elle-même (hauteur du bout d'aile droit, nulle tant que les
+// ailes sont à l'horizontale, quel que soit le tangage).
+// roll, pitch : angles (°) ; wingTilt : pente des ailes (°, asin de la composante verticale de l'axe des ailes)
+function alarmBank(roll, pitch, wingTilt) {
+    return Math.abs(pitch) < STEEP_PITCH ? Math.abs(roll) : Math.abs(wingTilt);
+}
 
 class BankAngleWarning {
     constructor({ volume = 0.8 } = {}) {
@@ -91,4 +103,4 @@ class BankAngleWarning {
     }
 }
 
-export { BankAngleWarning };
+export { BankAngleWarning, alarmBank };

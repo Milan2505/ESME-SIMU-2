@@ -21,6 +21,7 @@ import {
     Vector3
 } from 'three';
 import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';
+import { releaseAfterUpload } from './CanvasMemory.js';
 import { XPDR_MODES, DAVTRON_TOP, DAVTRON_BOTTOM, formatCom, formatNav } from './Avionics.js';
 import {
     ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
@@ -282,16 +283,17 @@ class Panel172 {
         this._displayKey = '';
         this._sinceDisplay = Infinity;
 
-        this.atlas = new CanvasTexture(drawAtlas());
+        // Dessinés une fois : canvas libérés dès l'envoi à la carte graphique (mémoire des canvas limitée sur iPad)
+        this.atlas = releaseAfterUpload(new CanvasTexture(drawAtlas()));
         this.atlas.colorSpace = SRGBColorSpace;
         this.atlas.anisotropy = 8;
-        const plates = new CanvasTexture(drawPlates());
+        const plates = releaseAfterUpload(new CanvasTexture(drawPlates()));
         plates.colorSpace = SRGBColorSpace;
         plates.anisotropy = 8;
-        const face = new CanvasTexture(drawFace(LAYOUT));
+        const face = releaseAfterUpload(new CanvasTexture(drawFace(LAYOUT)));
         face.colorSpace = SRGBColorSpace;
         face.anisotropy = 8;
-        const labels = new CanvasTexture(drawLabels(LAYOUT));
+        const labels = releaseAfterUpload(new CanvasTexture(drawLabels(LAYOUT)));
         labels.colorSpace = SRGBColorSpace;
         labels.anisotropy = 8;
         const displayCanvas = document.createElement('canvas');

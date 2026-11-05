@@ -306,6 +306,8 @@ class Initiation {
         this._radioLang = this.atc.lang;
         this.setRadioLanguage?.(this.lang);
         this.voices.preloadInstructor?.(this.lang, this.level === 2);
+        // Niveau 1 : c'est le moniteur qui parle à la radio, l'élève ne dit rien : ses messages sont affichés à son nom
+        this.atc.pilotLabel = this.level === 1 ? this._t('INSTRUCTEUR', 'INSTRUCTOR') : null;
         this._labels();
         this.steps = buildSteps(this.level, this.lang);
         this.index = -1;
@@ -324,6 +326,7 @@ class Initiation {
         this.active = false;
         this.voices.stopInstructor();
         this.voices.student = false;   // hors leçon : voix de pilote habituelle
+        this.atc.pilotLabel = null;     // hors leçon : c'est le joueur qui parle (« VOUS »)
         // Radio rendue dans sa langue d'avant la leçon
         if (this._radioLang && this._radioLang !== this.atc.lang) this.setRadioLanguage?.(this._radioLang);
         this.highlighter.set([]);

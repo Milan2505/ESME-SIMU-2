@@ -33,8 +33,9 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
+import { isTablet } from './js/Device.js';
 import { planesCollide } from './js/PlaneCollision.js';
-import { BankAngleWarning } from './js/BankAngleWarning.js';
+import { BankAngleWarning, alarmBank } from './js/BankAngleWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
@@ -1052,7 +1053,8 @@ updateCamera(0, true);
 const simulatorElement = document.getElementById('simulator');
 const fullscreenButton = document.getElementById('plein-ecran');
 
-// Safari (iPad) : API préfixée webkit ; pas d'API du tout (iPhone) : boutons Plein écran cachés
+// Safari (iPad) : API préfixée webkit ; pas d'API du tout (iPhone, iPad en appli de l'écran d'accueil) : boutons cachés.
+// Boutons Plein écran : seulement sur tablette (sur ordinateur, touche F, et plein écran au premier clic)
 const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
 function requestFullscreen() {
     const request = simulatorElement.requestFullscreen ?? simulatorElement.webkitRequestFullscreen;
@@ -1063,7 +1065,8 @@ function toggleFullscreen() {
     else requestFullscreen();
 }
 const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
-if (!simulatorElement.requestFullscreen && !simulatorElement.webkitRequestFullscreen) for (const button of fullscreenButtons) button.hidden = true;
+const fullscreenApi = Boolean(simulatorElement.requestFullscreen || simulatorElement.webkitRequestFullscreen);
+if (!fullscreenApi || !isTablet()) for (const button of fullscreenButtons) button.hidden = true;
 for (const button of fullscreenButtons) {
     if (button === fullscreenButton || button.id === 'reglages-plein-ecran') continue;   // (déjà branchés plus bas)
     button.addEventListener('click', (event) => {
@@ -1140,12 +1143,17 @@ for (const type of ['keydown', 'pointerdown']) {
     }, { once: true });
 }
 
+const _wingAxis = new THREE.Vector3();
 function updateStallWarning() {
     alarme.classList.toggle('actif', controls.isStalled());
     stallWarning.update(controls.isNearStall());
     const p = aircraft.position;
     const height = (p.y - WHEEL_HEIGHT - terrain.heightAt(p.x, p.z)) / 0.3048;
-    bankAngleWarning.update(THREE.MathUtils.radToDeg(controls.getRoll()), !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn, height);
+    // Roulis seulement (jamais le tangage) : voir alarmBank
+    const deg = THREE.MathUtils.radToDeg;
+    const wingTilt = Math.asin(THREE.MathUtils.clamp(_wingAxis.set(1, 0, 0).applyQuaternion(aircraft.quaternion).y, -1, 1));
+    const bank = alarmBank(deg(controls.getRoll()), deg(Math.atan(controls.getPitchRate())), deg(wingTilt));
+    bankAngleWarning.update(bank, !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn, height);
     bankAlarm.classList.toggle('actif', bankAngleWarning.active);
 }
 
@@ -1559,8 +1567,38 @@ function showEscapeHint() {
 function setMenuBar(visible) {
     simulatorElement.classList.toggle('barre', visible);
     if (!visible) closeMenus();
-    else escapeHint.classList.add('cache');
+    else {
+        escapeHint.classList.add('cache');
+        fitMenuBar();
+    }
 }
+// Barre du haut : premier palier (libellés complets, courts, puis texte réduit) où toutes les cases tiennent dans la
+// largeur de l'écran, sans se chevaucher (voir style.css). Refait au redimensionnement, au changement d'orientation et
+// quand un libellé change (fréquence, nombre de joueurs, météo)
+const MENU_BAR_LEVELS = ['', 'barre-courte', 'barre-serree', 'barre-mini'];
+const menuBarCells = ['commandes', 'météo', 'carte-case', 'atc-case', 'online', 'profil', 'paramètre', 'masse-bouton',
+    'mode-photo', 'barre-plein-ecran', 'quitter-partie'].map((id) => document.getElementById(id));
+function fitMenuBar() {
+    if (!simulatorElement.classList.contains('barre')) return;
+    const width = simulatorElement.clientWidth;
+    for (const level of MENU_BAR_LEVELS) {
+        simulatorElement.classList.remove(...MENU_BAR_LEVELS.filter(Boolean));
+        if (level) simulatorElement.classList.add(level);
+        const right = Math.max(...menuBarCells.map((cell) => cell.getBoundingClientRect().right));
+        if (right <= width + 0.5) return;
+    }
+}
+let menuBarFitQueued = false;
+function queueFitMenuBar() {
+    if (menuBarFitQueued) return;
+    menuBarFitQueued = true;
+    requestAnimationFrame(() => { menuBarFitQueued = false; fitMenuBar(); });
+}
+window.addEventListener('resize', queueFitMenuBar);
+window.addEventListener('orientationchange', queueFitMenuBar);
+document.fonts?.ready.then(queueFitMenuBar);
+const menuBarObserver = new MutationObserver(queueFitMenuBar);
+for (const cell of menuBarCells) menuBarObserver.observe(cell, { childList: true, characterData: true, subtree: true });
 window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.repeat) return;
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
@@ -2225,7 +2263,7 @@ function renderAtc() {
         const item = document.createElement('li');
         item.className = `atc-${from}`;
         const label = document.createElement('b');
-        label.textContent = from === 'pilot' ? 'VOUS' : from === 'atis' ? 'ATIS' : from === 'info' ? 'COM' : who;
+        label.textContent = from === 'pilot' ? who ?? 'VOUS' : from === 'atis' ? 'ATIS' : from === 'info' ? 'COM' : who;
         item.append(label, ' ', text);
         return item;
     }));
@@ -2336,7 +2374,7 @@ let atcSubtitleTimer = 0;
 atc.addEventListener('transmit', ({ from, text, station, label, on }) => {
     clearTimeout(atcSubtitleTimer);
     if (on) {
-        const who = from === 'pilot' ? 'VOUS' : from === 'atis' ? 'ATIS' : from === 'remote' ? label : ATC_SHORT[station];
+        const who = from === 'pilot' ? label ?? 'VOUS' : from === 'atis' ? 'ATIS' : from === 'remote' ? label : ATC_SHORT[station];
         atcSubtitle.textContent = `${who} : ${text}`;
         atcSubtitle.className = `atc-${from}`;
         atcSubtitle.hidden = false;

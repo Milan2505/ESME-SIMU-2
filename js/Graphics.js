@@ -28,6 +28,18 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // dans le shader de la passe finale, et le compilateur peut le supprimer)
 const SANITIZE = 'clamp(%s, 0.0, 64.0)';
 const sanitize = (expr) => SANITIZE.replaceAll('%s', expr);
+// Entrée du halo : NaN et infinis remis à zéro de façon sûre. Sur iPad (GPU Apple, Metal), clamp ne ramène pas un NaN
+// dans les bornes (sous Direct3D, si) et le compilateur, qui suppose qu'il n'y a jamais de NaN, retire aussi isnan ou
+// x != x : le halo étalait alors du noir sur tout le ciel (virage engagé). Test sur les bits du nombre (exposant tout à
+// 1 : NaN ou infini), que le compilateur ne peut pas retirer. Shader du halo en GLSL ES 3.0 (ShaderMaterial, WebGL 2) :
+// floatBitsToUint existe (pas dans la passe finale, en GLSL ES 1.0 : là, clamp comme avant, le halo y arrive propre)
+const SANITIZE_GLSL = /* glsl */`
+    float sanitizeHdr1(float v) {
+        return (floatBitsToUint(v) & 0x7f800000u) == 0x7f800000u ? 0.0 : clamp(v, 0.0, 64.0);
+    }
+    vec3 sanitizeHdr(vec3 c) {
+        return vec3(sanitizeHdr1(c.r), sanitizeHdr1(c.g), sanitizeHdr1(c.b));
+    }`;
 
 // Halo lumineux (bloom) dont le résultat reste dans sa propre texture (quart de résolution) : il est ajouté
 // à l'image dans la passe finale. L'original le recollait dans la texture de la scène (multi-échantillonnée) :
@@ -36,9 +48,10 @@ class BloomPass extends UnrealBloomPass {
     constructor(...args) {
         super(...args);
         const material = this.materialHighPassFilter;
-        material.fragmentShader = material.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );',
+        material.fragmentShader = material.fragmentShader.replace('uniform sampler2D tDiffuse;', `uniform sampler2D tDiffuse;
+            ${SANITIZE_GLSL}`).replace('vec4 texel = texture2D( tDiffuse, vUv );',
             `vec4 texel = texture2D( tDiffuse, vUv );
-            texel.rgb = ${sanitize('texel.rgb')};`);
+            texel.rgb = sanitizeHdr(texel.rgb);`);
         material.needsUpdate = true;
     }
 
@@ -134,7 +147,9 @@ const SkyDomeShader = {
         void main() {
             vDirection = position;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            gl_Position.z = gl_Position.w; // au fond : caché (sans calcul) derrière le relief déjà dessiné
+            // Au fond : caché (sans calcul) derrière le relief déjà dessiné. Juste en deçà du plan lointain, pas dessus :
+            // à z = w exactement, un arrondi du GPU (iPad) suffit à le couper, selon l'orientation de la caméra
+            gl_Position.z = gl_Position.w * 0.9999995;
         }
     `,
     fragmentShader: /* glsl */`
@@ -224,9 +239,14 @@ const MIN_PIXEL_RATIO = 1;
 // Résolution automatique : au plus ~2 millions de pixels calculés par image (Full HD), quelle que soit la taille
 // de l'écran. Sans ce plafond, le plein écran sur un grand écran HD calculait 3 à 4 fois plus de pixels.
 const PIXEL_BUDGET = 2.1e6;
-const PIXEL_RATIO_STEP = 0.2;
-const LOW_FPS = 0.85;           // sous 85 % des i/s visées : on baisse la résolution
-const HIGH_FPS = 0.95;          // au-dessus de 95 % pendant plusieurs secondes : on la remonte
+// Baisse réservée aux vrais ralentissements : l'image moins fine se voit (flou), surtout sur un écran haute définition
+// (iPad). Avant : dès une seule seconde sous 85 % des i/s visées, par crans de 0,2 ; une tablette, qui tient rarement
+// 60 i/s pile, tombait au minimum en quelques secondes et l'image devenait floue en vol, en cabine comme dehors.
+// Maintenant : plusieurs secondes de suite nettement en dessous (saccades), petits crans
+const PIXEL_RATIO_STEP = 0.1;
+const LOW_FPS = 0.7;            // sous 70 % des i/s visées (42 i/s pour 60)…
+const LOW_SECONDS = 4;          // …pendant 4 s de suite : on baisse la résolution
+const HIGH_FPS = 0.9;           // au-dessus de 90 % pendant plusieurs secondes : on la remonte
 
 // Ciel atmosphérique, ombres portées et post-traitement
 class Graphics {
@@ -306,7 +326,7 @@ class Graphics {
         this._cssSize = { width: 1, height: 1 };
         this.autoResolution = true;
         this.targetFps = 60;            // i/s visées (réglage "Images par seconde")
-        this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, holdUntil: 0, raisedAt: -Infinity, noRaiseUntil: 0 };
+        this._quality = { frames: 0, start: performance.now(), goodSeconds: 0, badSeconds: 0, holdUntil: 0, raisedAt: -Infinity, noRaiseUntil: 0 };
     }
 
     // --- Réglages de qualité (menu Paramètres) ---
@@ -361,7 +381,9 @@ class Graphics {
 
         const ratio = this.renderer.getPixelRatio();
         q.goodSeconds = fps > HIGH_FPS * this.targetFps ? q.goodSeconds + 1 : 0;
-        if (fps < LOW_FPS * this.targetFps && ratio > this._autoMinRatio() + 0.01) {
+        q.badSeconds = fps < LOW_FPS * this.targetFps ? q.badSeconds + 1 : 0;
+        if (q.badSeconds >= LOW_SECONDS && ratio > this._autoMinRatio() + 0.01) {
+            q.badSeconds = 0;
             this.setPixelRatio(Math.max(this._autoMinRatio(), ratio - PIXEL_RATIO_STEP));
             q.holdUntil = now + 2000;       // laisse le temps de mesurer le nouvel état
             // Remontée qui a fait rechuter les i/s : on ne réessaie pas avant 30 s (évite le yo-yo de résolution)
