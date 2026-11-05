@@ -2326,6 +2326,7 @@ var initiation = new Initiation({
         panel: $('moniteur'), phase: $('moniteur-phase'), count: $('moniteur-compte'), progress: $('moniteur-progression'),
         title: $('moniteur-titre'), text: $('moniteur-texte'), why: $('moniteur-pourquoi'), hint: $('moniteur-souffle'),
         advice: $('moniteur-conseil'), praise: $('moniteur-bravo'), next: $('moniteur-continuer'),
+        buttons: { next: $('moniteur-continuer'), repeat: $('moniteur-repeter'), show: $('moniteur-montrer'), skipSpeech: $('moniteur-couper'), quit: $('moniteur-quitter') },
     },
     // Leçon en anglais : contrôleurs en anglais aussi (phraséologie OACI) ; langue d'avant rétablie à la fin
     setRadioLanguage: (lang) => setAtcLanguage(lang),
@@ -2347,7 +2348,8 @@ var initiation = new Initiation({
     focusCabin,
     pilotView: () => setCabinViewPreset(1),
     openAtc: (open) => { if (atcPanel.hidden === open) toggleAtc(open); },
-    onChange: () => updateModes(),
+    // Pendant la leçon : vent sans dérive lente, la piste en service reste celle de l'ATIS (Tour, anneaux, moniteur)
+    onChange: () => { wind.setHold(initiation.active); updateModes(); },
 });
 const initiationDialog = $('initiation-dialog');
 function openInitiation() {
@@ -2385,6 +2387,7 @@ const keepFocus = (handler) => () => { handler(); view.focus(); };
 $('moniteur-continuer').addEventListener('click', keepFocus(() => initiation.continue()));
 $('moniteur-repeter').addEventListener('click', keepFocus(() => initiation.repeat()));
 $('moniteur-montrer').addEventListener('click', keepFocus(() => initiation.show()));
+$('moniteur-couper').addEventListener('click', keepFocus(() => initiation.skipSpeech()));
 $('moniteur-quitter').addEventListener('click', keepFocus(() => {
     const message = initiation.lang === 'en' ? 'Quit the lesson? The aeroplane stays where it is, in solo mode.' : 'Quitter l\'initiation ? L\'avion reste où il est, en solo.';
     if (confirm(message)) initiation.stop();

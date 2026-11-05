@@ -437,6 +437,7 @@ const AIRPORTS = {
         hangars: ['ESME AÉRO-CLUB', 'HANGAR 2'],
         parked: [['origine', 'F-GKTA'], ['vert', 'F-HBLU'], ['orange', 'F-GMOZ']],
         lakes: [{ x: -150, z: -1100, radius: 210 }, { x: 680, z: 980, radius: 170 }],
+        circuitSide: -1,   // tour de piste du côté opposé aux bâtiments (repère de l'aérodrome : x < 0, à l'ouest)
         description: 'Aérodrome de l\'école, au fond de la vallée',
     },
     montval: {
@@ -448,6 +449,7 @@ const AIRPORTS = {
         hangars: ['AÉRO-CLUB AIX', 'HANGAR 2'],
         parked: [['bleu', 'F-GDVM'], ['jaune', 'F-HMTV'], ['violet', 'F-GJPA']],
         lakes: [{ x: -300, z: -620, radius: 190 }, { x: 640, z: 800, radius: 230 }],
+        circuitSide: -1,   // côté opposé aux bâtiments
         description: 'Terrain de montagne, piste est-ouest',
     },
 };
@@ -485,14 +487,20 @@ class Airport {
             runway.aimPoint = runway.threshold.clone().addScaledVector(runway.direction, AIMING_POINT);
             runway.left = new Vector3(runway.direction.z, 0, -runway.direction.x);
         }
+        // Tour de piste : toujours du même côté du terrain (circuitSide), donc main gauche pour une piste, main droite
+        // pour l'autre
         this.runways = this._localRunways.map((r) => {
             const heading = ((r.heading - this._rotationDeg) % 360 + 360) % 360;
             const direction = this.directionToWorld(r.direction);
+            const left = new Vector3(direction.z, 0, -direction.x);   // à gauche de l'avion qui atterrit
+            const circuit = r.left.x * (config.circuitSide ?? -1) > 0 ? 'left' : 'right';
             return {
                 name: runwayName(heading), heading, airport: this, length: RUNWAY.length, ilsFrequency: config.ils,
                 threshold: vector(r.threshold.x, 0, r.threshold.z), direction,
                 aimPoint: vector(r.aimPoint.x, 0, r.aimPoint.z),
-                left: new Vector3(direction.z, 0, -direction.x),   // à gauche de l'avion qui atterrit
+                left,
+                circuit,                                                       // 'left' (main gauche) ou 'right'
+                circuitSide: left.clone().multiplyScalar(circuit === 'left' ? 1 : -1),   // vers le tour de piste
             };
         });
         this._localRunways.forEach((r, i) => { r.name = this.runways[i].name; });

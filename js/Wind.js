@@ -5,7 +5,8 @@ import { Vector3 } from 'three';
 // ~2 h, avec des allers-retours de quelques dizaines de degrés) : la piste en service finit par changer. 
 // Chaque partie a son vent (setSeed) : direction de départ, force (de 0,5 à 1,6 fois celle de la météo) et moment du
 // cycle tirés d'une graine. En multijoueur, la graine vient du code de la partie et le temps de l'horloge réelle : tous
-// les joueurs d'une même partie ont le même vent.
+// les joueurs d'une même partie ont le même vent. Pendant une leçon d'initiation, la dérive lente est suspendue (setHold) :
+// la piste en service reste celle de l'ATIS du début à la fin.
 const KT = 0.514444;   // nœud -> m/s
 
 class Wind {
@@ -50,6 +51,8 @@ class Wind {
         this.seedDirection = rnd() * 360;
         this.seedStrength = 0.5 + rnd() * 1.1;
         this.seedPhase = rnd() * 7200;
+        this._driftOffset = 0;   // s : retard de la dérive, accumulé pendant les suspensions (voir setHold)
+        this._heldAt = null;
         this._apply();
     }
 
@@ -65,6 +68,17 @@ class Wind {
         this.update();
     }
 
+    // Dérive lente de la direction moyenne suspendue (true) ou reprise là où elle s'était arrêtée (false). Les variations
+    // et rafales continuent
+    setHold(on) {
+        const t = Date.now() / 1000;
+        if (on && this._heldAt === null) this._heldAt = t + this._driftOffset;
+        else if (!on && this._heldAt !== null) {
+            this._driftOffset = this._heldAt - t;
+            this._heldAt = null;
+        }
+    }
+
     get calm() {
         return this.knots < 3;
     }
@@ -77,8 +91,9 @@ class Wind {
 
     update() {
         const t = Date.now() / 1000;
-        // Dérive lente de la direction moyenne : au plus ~10° par minute, souvent bien moins
-        const drift = this.seedDirection + 360 * (t + this.seedPhase) / 7200 + 35 * Math.sin(t * 2 * Math.PI / 3000) + 10 * Math.sin(t * 2 * Math.PI / 1300 + 2.4);
+        // Dérive lente de la direction moyenne : au plus ~10° par minute, souvent bien moins (arrêtée pendant une leçon)
+        const td = this._heldAt ?? t + this._driftOffset;
+        const drift = this.seedDirection + 360 * (td + this.seedPhase) / 7200 + 35 * Math.sin(td * 2 * Math.PI / 3000) + 10 * Math.sin(td * 2 * Math.PI / 1300 + 2.4);
         this.base = ((this.metarBase + drift) % 360 + 360) % 360;
         // Bruits lents (sommes de sinus) : la direction tourne en quelques dizaines de secondes, la force varie
         const turn = Math.sin(t * 0.031) * 0.6 + Math.sin(t * 0.077 + 1.3) * 0.3 + Math.sin(t * 0.19 + 4.1) * 0.1;

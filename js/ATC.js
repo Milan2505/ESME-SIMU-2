@@ -48,7 +48,7 @@ const VFR_SQUAWK = '7000';
 const LABELS = {
     startupFirst: 'Premier contact · mise en route', taxiFirst: 'Premier contact · roulage',
     readyFirst: 'Premier contact · prêt au départ', startup: 'Demande de mise en route', taxi: 'Demande de roulage',
-    readyHold: "Point d'attente · prêt au départ", readyRunway: 'Aligné · prêt au départ', downwind: 'Vent arrière',
+    lineupFirst: "Premier contact · demande d'alignement", lineupHold: "Point d'attente · demande d'alignement", readyRunway: 'Aligné · prêt au départ', downwind: 'Vent arrière',
     finalFull: 'Finale · atterrissage complet', finalTouch: 'Finale · toucher', goAround: 'Remise de gaz',
     leaveCircuit: 'Quitter le circuit', leaveZone: 'Sortie de zone',
     inboundJoin: 'Intégration · vent arrière', inboundStraight: 'Intégration · finale directe',
@@ -61,8 +61,8 @@ const LABELS = {
 };
 const STATUS = {
     idle: 'Pas de contact radio', startup: 'Mise en route approuvée', taxi: "Roulage vers le point d'attente",
-    holding: "Maintien au point d'attente", lineup: "Aligné sur la piste : attendre l'autorisation de décollage", takeoff: 'Autorisé au décollage : décollez, puis rappelez vent arrière',
-    circuit: 'Tour de piste main gauche : rappeler vent arrière', inbound: 'Intégration : rappeler vent arrière',
+    holding: "Maintien au point d'attente", lineup: 'Alignement : une fois aligné, annoncer prêt au départ', takeoff: 'Autorisé au décollage : décollez, puis rappelez vent arrière',
+    circuit: 'Tour de piste : rappeler vent arrière', inbound: 'Intégration : rappeler vent arrière',
     downwind: 'Rappeler en finale', continue: "Continuer l'approche", landing: "Autorisé à l'atterrissage",
     touchgo: 'Autorisé toucher', landed: 'Atterri', vacate: 'Dégager la piste, rappeler piste dégagée',
     toGround: 'Contacter le Sol', taxiIn: 'Roulage vers le parking', leaving: 'Rappeler sortie de zone',
@@ -115,6 +115,7 @@ class ATC extends EventDispatcher {
         this.log = [];
         this.busy = false;
         this.traffic = [];
+        this.standby = false;   // Initiation : le moniteur parle, la Tour attend pour donner ses autorisations
         this.atisIndex = Math.floor(Date.now() / 3600e3) % 6;   // même lettre pour tous les joueurs (change chaque heure)
         this._stampAtis();
         this.metar = { ...METARS.jour, night: false };
@@ -176,7 +177,14 @@ class ATC extends EventDispatcher {
         this._touched = false;
         this._prevZone = null;
         this._clearDelay = 0;
+        this._departureRunway = this._landingRunway = null;   // pistes données au vol précédent
+        this._holdPosition = false;
         this._changed();
+    }
+
+    // Piste du départ : celle donnée par la Tour (alignement, décollage), sinon la piste en service
+    get departureRunway() {
+        return this._departureRunway ?? this._activeRunway();
     }
 
     // Nouvelle partie (retour au menu, leçon) : journal radio vidé
@@ -388,7 +396,7 @@ class ATC extends EventDispatcher {
         return s;
     }
 
-    // Position par rapport aux pistes : aligné (au sol), en finale, en vent arrière main gauche, en montée initiale
+    // Position par rapport aux pistes : aligné (au sol), en finale, en vent arrière (côté du tour de piste), en montée initiale
     _geometry(p, heading, zone, onGround, airborne, agl) {
         const g = { aligned: null, final: null, finalDistance: 0, downwind: false, climbout: null };
         const active = this._activeRunway();
@@ -403,8 +411,9 @@ class ATC extends EventDispatcher {
                 g.finalDistance = -along;
             }
             if (airborne && along > length - 200 && along < length + 2500 && Math.abs(lateral) < 500 && hd < 40 && agl < 1500) g.climbout = rw;
-            // Vent arrière main gauche : à gauche de la piste en service, cap opposé
-            if (rw === active && airborne && lateral > 300 && lateral < 4000 && along > -3000 && along < 2500
+            // Vent arrière : du côté du tour de piste de la piste en service, cap opposé
+            const side = (p.x - rw.threshold.x) * rw.circuitSide.x + (p.z - rw.threshold.z) * rw.circuitSide.z;
+            if (rw === active && airborne && side > 300 && side < 4000 && along > -3000 && along < 2500
                 && headingDiff(heading, rw.heading + 180) < 60) g.downwind = true;
         }
         return g;
@@ -475,8 +484,9 @@ class ATC extends EventDispatcher {
             const short = o.finalDistance < 1500;
             return this._t(() => msg`en ${short ? 'courte ' : ''}finale ${this._rwy(o.final)}${ft}`, () => msg`on ${short ? 'short ' : ''}final ${this._rwy(o.final)}${ft}`);
         }
-        if (o.downwind) return this._t(() => msg`en vent arrière main gauche ${this._rwy(this._activeRunway())}${ft}`,
-            () => msg`on left downwind ${this._rwy(this._activeRunway())}${ft}`);
+        const active = this._activeRunway();
+        if (o.downwind) return this._t(() => msg`en vent arrière ${this._hand(active)} ${this._rwy(active)}${ft}`,
+            () => msg`on ${this._hand(active)} downwind ${this._rwy(active)}${ft}`);
         if (o.climbout) return this._t(() => msg`en montée initiale ${this._rwy(o.climbout)}${ft}`, () => msg`climbing out ${this._rwy(o.climbout)}${ft}`);
         return this._t(() => msg`à ${this._nm(o.distance)} ${this._au(o.bearing)} du terrain${ft}`,
             () => msg`${this._nm(o.distance)} ${CARDINALS.en[this._octant(o.bearing)]} of the field${ft}`);
@@ -659,8 +669,8 @@ class ATC extends EventDispatcher {
             if (this.state === 'touchgo' && this._touched) this.state = 'circuit';
             else if (this.contact && this.state !== 'takeoff' && this.state !== 'touchgo') {
                 this.state = 'circuit';
-                this._say('tower', () => msg`${cs()}, vous avez décollé sans autorisation, rappelez vent arrière main gauche ${this._rwy(s.active)}.`,
-                    () => msg`${cs()}, you took off without clearance, report left downwind ${this._rwy(s.active)}.`,
+                this._say('tower', () => msg`${cs()}, vous avez décollé sans autorisation, rappelez vent arrière ${this._hand(s.active)} ${this._rwy(s.active)}.`,
+                    () => msg`${cs()}, you took off without clearance, report ${this._hand(s.active)} downwind ${this._rwy(s.active)}.`,
                     () => msg`Rappellerons vent arrière, ${cs()}.`, () => msg`Wilco, ${cs()}.`);
             }
             this._changed();
@@ -693,10 +703,10 @@ class ATC extends EventDispatcher {
                 () => msg`Vacating via ${this._twy()}, wilco, ${cs()}.`);
         }
 
-        // Au point d'attente : alignement dès que la piste est libre (personne dessus ni en finale). Sur la piste :
-        // autorisation de décollage une fois l'avion aligné et arrêté, piste toujours libre
+        // « Maintenez point d'attente » : alignement dès que la piste est libre (personne dessus ni en finale).
+        // « Maintenez position » (prêt au départ, mais trafic) : autorisation de décollage dès qu'elle est libre
         const runwayFree = !traffic.onRunway && traffic.onFinal === 0;
-        if ((this.state === 'holding' || this.state === 'lineup') && !this.busy && !this.pending) {
+        if ((this.state === 'holding' || this.state === 'lineup') && !this.busy && !this.pending && !this.standby) {
             this._clearDelay += delta;
             const rw = this._departureRunway ?? s.active;
             const lined = s.onGround && s.zone === 'runway' && headingDiff(s.heading, rw.heading) < 15 && s.speed < 3;
@@ -704,15 +714,16 @@ class ATC extends EventDispatcher {
                 this.state = 'lineup';
                 this._clearDelay = 0;
                 this._say('tower', ...this._lineUpClearance(rw));
-            } else if (this.state === 'lineup' && lined && this._clearDelay > 2 && runwayFree) {
+            } else if (this.state === 'lineup' && this._holdPosition && lined && this._clearDelay > 2 && runwayFree) {
                 this.state = 'takeoff';
+                this._holdPosition = false;
                 this._say('tower', ...this._takeoffClearance(rw));
             }
             if (this.state === 'lineup' && !lined) this._clearDelay = Math.min(this._clearDelay, 0.5);
         }
 
         // Approche : autorisation quand la piste se libère, sinon remise de gaz imposée en courte finale
-        if (this.state === 'continue' && !this.busy && !this.pending) {
+        if (this.state === 'continue' && !this.busy && !this.pending && !this.standby) {
             const rw = this._landingRunway ?? s.active;
             if (!traffic.onRunway) {
                 this.state = this._touchAndGo ? 'touchgo' : 'landing';
@@ -900,21 +911,23 @@ class ATC extends EventDispatcher {
                 });
                 return;
             }
-            if (['holding', 'lineup', 'takeoff', 'landing', 'touchgo', 'toGround', 'taxiIn'].includes(this.state)) return;
+            // Au point d'attente, on demande l'alignement ; le départ, on l'annonce une fois aligné sur la piste
+            if (['holding', 'takeoff', 'landing', 'touchgo', 'toGround', 'taxiIn'].includes(this.state)) return;
+            if (this.state === 'lineup' && this._holdPosition) return;   // « maintenez position » : la Tour rappellera
             const first = !this.contact;
-            if (s.nearHolding) {
-                const call = this._callup('tower');
-                add(first ? 'readyFirst' : 'readyHold', this._t(
-                    () => msg`${call}point d'attente ${this._rwy(rw)}, ${first ? msg`${this._withAtis()}pour un vol local, ` : ''}prêt au départ.`,
-                    () => msg`${call}holding point ${this._rwy(rw)}, ${first ? msg`${this._withAtis()}local flight, ` : ''}ready for departure.`),
-                () => this._departureReply(rw, true));
-            } else if (s.zone === 'runway' && s.aligned && s.speed < 3) {
+            if (s.zone === 'runway' && s.aligned && s.speed < 3) {
                 const here = s.aligned;
                 const call = this._callup('tower');
                 add(first ? 'readyFirst' : 'readyRunway', this._t(
                     () => msg`${call}aligné ${this._rwy(here)}, ${first ? msg`${this._withAtis()}pour un vol local, ` : ''}prêt au départ.`,
                     () => msg`${call}lined up ${this._rwy(here)}, ${first ? msg`${this._withAtis()}local flight, ` : ''}ready for departure.`),
                 () => this._departureReply(here, false));
+            } else if (s.nearHolding && this.state !== 'lineup') {
+                const call = this._callup('tower');
+                add(first ? 'lineupFirst' : 'lineupHold', this._t(
+                    () => msg`${call}point d'attente ${this._rwy(rw)}, ${first ? msg`${this._withAtis()}pour un vol local, ` : ''}demandons l'alignement.`,
+                    () => msg`${call}holding point ${this._rwy(rw)}, ${first ? msg`${this._withAtis()}local flight, ` : ''}request line up.`),
+                () => this._departureReply(rw, true));
             }
             return;
         }
@@ -959,8 +972,8 @@ class ATC extends EventDispatcher {
         let reported = false;
         if (!approach && this.state !== 'downwind' && (s.downwind || (inCircuit && !s.final))) {
             reported = true;
-            add('downwind', this._t(() => msg`${cs()}, vent arrière main gauche ${this._rwy(rw)}.`,
-                () => msg`${cs()}, left downwind ${this._rwy(rw)}.`), () => {
+            add('downwind', this._t(() => msg`${cs()}, vent arrière ${this._hand(rw)} ${this._rwy(rw)}.`,
+                () => msg`${cs()}, ${this._hand(rw)} downwind ${this._rwy(rw)}.`), () => {
                 this.state = 'downwind';
                 const onFinal = this._others().filter((o) => o.final).sort((a, b) => b.finalDistance - a.finalDistance);
                 const number = 1 + Math.max(this._trafficInfo().onFinal, onFinal.length);
@@ -1155,7 +1168,9 @@ class ATC extends EventDispatcher {
         }, this._groundTraffic(this.s));
     }
 
-    // Prêt au départ : la Tour donne le code transpondeur, puis l'autorisation (ou l'attente s'il y a du trafic)
+    // atHolding : demande d'alignement au point d'attente -> « alignez-vous et attendez » (ou « maintenez point
+    // d'attente » s'il y a du trafic). Sinon, prêt au départ, aligné -> autorisé décollage (ou « maintenez position » :
+    // la Tour autorise d'elle-même une fois la piste libre). Le premier appel à la Tour reçoit le code transpondeur
     _departureReply(rw, atHolding) {
         const open = this._opening('tower');
         const code = this._assignSquawk();
@@ -1165,8 +1180,10 @@ class ATC extends EventDispatcher {
         const qnh = this._qnhOnce();
         const traffic = this._trafficInfo();
         this._departureRunway = rw;
+        this._holdPosition = false;
         if (traffic.onRunway || traffic.onFinal > 0) {
             this.state = atHolding ? 'holding' : 'lineup';
+            this._holdPosition = !atHolding;
             this._clearDelay = 0;
             // L'avion qui gêne, nommé (sur la piste ou en finale)
             const blocking = this._others().filter((o) => (o.onGround && o.zone === 'runway') || o.final);
@@ -1197,8 +1214,6 @@ class ATC extends EventDispatcher {
                     () => msg`${sqRb}${first('Holding')} position${qnh}, ${this._abbr()}.`),
             };
         }
-        // Au point d'attente : s'aligner et attendre (l'autorisation de décollage vient une fois aligné, voir
-        // _automation) ; déjà aligné : autorisé décollage
         this.state = atHolding ? 'lineup' : 'takeoff';
         this._clearDelay = 0;
         const [fr, en, rbFr, rbEn] = atHolding ? this._lineUpClearance(rw, { open, sq, sqRb, qnh, code })
@@ -1216,14 +1231,16 @@ class ATC extends EventDispatcher {
         ];
     }
 
-    // Autorisation de décollage : seulement à un avion aligné (voir _automation et _departureReply)
+    // Autorisation de décollage : seulement à un avion aligné qui a annoncé prêt au départ (voir _departureReply) ;
+    // avec le vent du moment et le compte rendu à faire, vent arrière du côté du tour de piste de la piste
     _takeoffClearance(rw, { open = '', sq = '', sqRb = '', qnh = '', code = null } = {}) {
         const first = (word) => code ? word.charAt(0).toLowerCase() + word.slice(1) : word;   // "4621, autorisé…" / "Autorisé…"
+        const hand = this._hand(rw);
         return [
-            () => msg`${this._abbr()}, ${open}${sq}${this._rwy(rw)}, autorisé décollage, ${this._wind()}${qnh}.`,
-            () => msg`${this._abbr()}, ${open}${sq}${this._rwy(rw)}, cleared for take-off, ${this._wind()}${qnh}.`,
-            () => msg`${sqRb}${first('Autorisé')} décollage ${this._rwy(rw)}${qnh}, ${this._abbr()}.`,
-            () => msg`${sqRb}${first('Cleared')} for take-off ${this._rwy(rw)}${qnh}, ${this._abbr()}.`,
+            () => msg`${this._abbr()}, ${open}${sq}${this._rwy(rw)}, autorisé décollage, ${this._wind()}${qnh}, rappelez vent arrière ${hand}.`,
+            () => msg`${this._abbr()}, ${open}${sq}${this._rwy(rw)}, cleared for take-off, ${this._wind()}${qnh}, report ${hand} downwind.`,
+            () => msg`${sqRb}${first('Autorisé')} décollage ${this._rwy(rw)}${qnh}, rappellerons vent arrière ${hand}, ${this._abbr()}.`,
+            () => msg`${sqRb}${first('Cleared')} for take-off ${this._rwy(rw)}${qnh}, wilco ${hand} downwind, ${this._abbr()}.`,
         ];
     }
 
@@ -1291,10 +1308,10 @@ class ATC extends EventDispatcher {
             readback: this._t(() => msg`${sqRb}${first('Rejoignons')} la longue finale ${this._rwy(rw)}, ${qnhPart}rappellerons en finale, ${this._abbr()}.`,
                 () => msg`${sqRb}${first('Join')} long final ${this._rwy(rw)}, ${qnhPart}wilco, ${this._abbr()}.`),
         } : {
-            message: this._t(() => msg`${this._abbr()}, ${open}${sq}rejoignez vent arrière main gauche ${this._rwy(rw)}, ${qnhPart}rappelez vent arrière.`,
-                () => msg`${this._abbr()}, ${open}${sq}join left downwind ${this._rwy(rw)}, ${qnhPart}report downwind.`),
-            readback: this._t(() => msg`${sqRb}${first('Rejoignons')} vent arrière main gauche ${this._rwy(rw)}, ${qnhPart}rappellerons vent arrière, ${this._abbr()}.`,
-                () => msg`${sqRb}${first('Join')} left downwind ${this._rwy(rw)}, ${qnhPart}wilco, ${this._abbr()}.`),
+            message: this._t(() => msg`${this._abbr()}, ${open}${sq}rejoignez vent arrière ${this._hand(rw)} ${this._rwy(rw)}, ${qnhPart}rappelez vent arrière.`,
+                () => msg`${this._abbr()}, ${open}${sq}join ${this._hand(rw)} downwind ${this._rwy(rw)}, ${qnhPart}report downwind.`),
+            readback: this._t(() => msg`${sqRb}${first('Rejoignons')} vent arrière ${this._hand(rw)} ${this._rwy(rw)}, ${qnhPart}rappellerons vent arrière, ${this._abbr()}.`,
+                () => msg`${sqRb}${first('Join')} ${this._hand(rw)} downwind ${this._rwy(rw)}, ${qnhPart}wilco, ${this._abbr()}.`),
         }, this._circuitTraffic());
     }
 
@@ -1347,8 +1364,8 @@ class ATC extends EventDispatcher {
         const time = tok(this.atisTime, this._digits(this.atisTime));
         const rwy = tok(rw.name, this._digits(rw.name));
         return this._t(
-            () => msg`${this._stationName()} information ${L}, enregistrée à ${time} UTC. Piste en service ${rwy}. ${this._capital(this._atisWind())}. Visibilité ${m.vis[0]}. ${this._capital(tok(m.clouds[0]))}. Température ${m.temp}, point de rosée ${m.dew}. ${this._qnh()}. Tour de piste main gauche. Sol ${this._freqTok('ground')}, Tour ${this._freqTok('tower')}. Au premier contact, confirmez avoir reçu l'information ${L}.`,
-            () => msg`${this._stationName()} information ${L}, time ${time}. Runway in use ${rwy}. ${this._capital(this._atisWind())}. Visibility ${m.vis[1]}. ${this._capital(tok(m.clouds[1]))}. Temperature ${m.temp}, dew point ${m.dew}. ${this._qnh()}. Left-hand circuit. Ground ${this._freqTok('ground')}, Tower ${this._freqTok('tower')}. Acknowledge information ${L} on initial contact.`);
+            () => msg`${this._stationName()} information ${L}, enregistrée à ${time} UTC. Piste en service ${rwy}. ${this._capital(this._atisWind())}. Visibilité ${m.vis[0]}. ${this._capital(tok(m.clouds[0]))}. Température ${m.temp}, point de rosée ${m.dew}. ${this._qnh()}. Tour de piste ${this._hand(rw)}. Sol ${this._freqTok('ground')}, Tour ${this._freqTok('tower')}. Au premier contact, confirmez avoir reçu l'information ${L}.`,
+            () => msg`${this._stationName()} information ${L}, time ${time}. Runway in use ${rwy}. ${this._capital(this._atisWind())}. Visibility ${m.vis[1]}. ${this._capital(tok(m.clouds[1]))}. Temperature ${m.temp}, dew point ${m.dew}. ${this._qnh()}. ${this._capital(this._hand(rw))}-hand circuit. Ground ${this._freqTok('ground')}, Tower ${this._freqTok('tower')}. Acknowledge information ${L} on initial contact.`);
     }
 
     // --- Émission -------------------------------------------------------------------------------
@@ -1571,6 +1588,12 @@ class ATC extends EventDispatcher {
 
     _greet() {
         return this._t(() => (this.metar.night ? 'bonsoir' : 'bonjour'), () => (this.metar.night ? 'good evening' : 'good day'));
+    }
+
+    // Côté du tour de piste de la piste rw : « main gauche » / « main droite »
+    _hand(rw) {
+        const right = rw.circuit === 'right';
+        return this._t(() => tok(right ? 'main droite' : 'main gauche'), () => tok(right ? 'right' : 'left'));
     }
 
     _rwy(rw) {
