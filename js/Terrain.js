@@ -8,8 +8,7 @@ import {
     SRGBColorSpace,
     Sphere,
     TextureLoader,
-    Vector3,
-    Vector4
+    Vector3
 } from 'three';
 import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
 
@@ -196,11 +195,18 @@ class Terrain {
         const h = (i, j) => heights[(j + 1) * (n + 3) + (i + 1)];
         const vertexCount = side * side + 4 * side;
         const positions = new Float32Array(vertexCount * 3), normals = new Float32Array(vertexCount * 3);
+        // Profondeur d'eau au sommet (m, -1 hors des lacs) : fond de lac (sable, reflets) seulement à l'intérieur de la
+        // vraie rive. Avant, le shader testait un simple cercle autour du lac : un sol plus bas que l'eau à côté du lac
+        // (pente qui descend hors de la cuvette) se couvrait de sable et de reflets, comme une flaque au milieu de l'herbe
+        const lakeDepth = new Float32Array(vertexCount);
         const n3 = new Vector3();
         const put = (index, i, j, y) => {
-            positions[index * 3] = t.x0 + i * step;
+            const x = t.x0 + i * step, z = t.z0 + j * step;
+            positions[index * 3] = x;
             positions[index * 3 + 1] = y;
-            positions[index * 3 + 2] = t.z0 + j * step;
+            positions[index * 3 + 2] = z;
+            const lake = this.lakes.length ? this.lakeAt(x, z) : null;
+            lakeDepth[index] = lake ? lake.level - y : -1;
             n3.set(h(i - 1, j) - h(i + 1, j), 2 * step, h(i, j - 1) - h(i, j + 1)).normalize();
             normals[index * 3] = n3.x;
             normals[index * 3 + 1] = n3.y;
@@ -237,6 +243,7 @@ class Terrain {
         const geometry = new BufferGeometry();
         geometry.setAttribute('position', new BufferAttribute(positions, 3));
         geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+        geometry.setAttribute('aLakeDepth', new BufferAttribute(lakeDepth, 1));
         geometry.setIndex(indices);
         let minY = Infinity, maxY = -Infinity;
         for (let k = 1; k < positions.length; k += 3) { minY = Math.min(minY, positions[k]); maxY = Math.max(maxY, positions[k]); }
@@ -486,9 +493,6 @@ class Terrain {
 
         const material = new MeshStandardMaterial({ roughness: 1 });
         const tint = new Vector3(...[16, 8, 0].map((shift) => ((grassTint >> shift) & 0xff) / 255));
-        // Fond des lacs : (x, z, niveau de l'eau, portée) ; sous l'eau, le sol devient sable et vase (voir plus bas)
-        const lakes = this.lakes.map((lake) => new Vector4(lake.x, lake.z, lake.level, lake.radius * LAKE_RIM * 1.35));
-        if (!lakes.length) lakes.push(new Vector4(0, 0, -1e4, 0));
 
         // Mélange herbe / roche / neige selon la pente et l'altitude
         material.onBeforeCompile = (shader) => {
@@ -499,15 +503,17 @@ class Terrain {
                 uGrassTint: { value: tint },
                 uTile: { value: tile },
                 uSnowHeight: { value: snowHeight },
-                uLakes: { value: lakes },
                 uWaterTime: this._waterTime,
             });
 
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', `#include <common>
+                    attribute float aLakeDepth;
+                    varying float vLakeDepth;
                     varying vec3 vTerrainPos;
                     varying vec3 vTerrainNormal;`)
                 .replace('#include <begin_vertex>', `#include <begin_vertex>
+                    vLakeDepth = aLakeDepth;
                     vTerrainPos = (modelMatrix * vec4(position, 1.0)).xyz;
                     vTerrainNormal = normalize(mat3(modelMatrix) * normal);`);
 
@@ -519,8 +525,8 @@ class Terrain {
                     uniform vec3 uGrassTint;
                     uniform float uTile;
                     uniform float uSnowHeight;
-                    uniform vec4 uLakes[${lakes.length}];
                     uniform float uWaterTime;
+                    varying float vLakeDepth;
                     varying vec3 vTerrainPos;
                     varying vec3 vTerrainNormal;
 
@@ -571,11 +577,7 @@ class Terrain {
 
                     // Fond des lacs : sable et vase, taches d'algues, reflets ondulants de la lumière à travers les vagues ;
                     // plus sombre et bleu-vert avec la profondeur
-                    float lakeDepth = -1.0;
-                    for (int i = 0; i < ${lakes.length}; i++) {
-                        vec2 d = vTerrainPos.xz - uLakes[i].xy;
-                        if (dot(d, d) < uLakes[i].w * uLakes[i].w) lakeDepth = max(lakeDepth, uLakes[i].z - vTerrainPos.y);
-                    }
+                    float lakeDepth = vLakeDepth;   // (calculée par sommet, dans la vraie rive : voir _createTile)
                     float underwater = smoothstep(-0.3, 0.5, lakeDepth);
                     if (underwater > 0.0) {
                         float grain = dot(terrainSample(tGrass, terrainUv * 0.7, uvDx * 0.7, uvDy * 0.7), vec3(0.33));
