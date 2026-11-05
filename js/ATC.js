@@ -61,7 +61,7 @@ const LABELS = {
 };
 const STATUS = {
     idle: 'Pas de contact radio', startup: 'Mise en route approuvée', taxi: "Roulage vers le point d'attente",
-    holding: "Maintien au point d'attente", lineup: 'Maintien sur la piste', takeoff: 'Autorisé au décollage : décollez, puis rappelez vent arrière',
+    holding: "Maintien au point d'attente", lineup: "Aligné sur la piste : attendre l'autorisation de décollage", takeoff: 'Autorisé au décollage : décollez, puis rappelez vent arrière',
     circuit: 'Tour de piste main gauche : rappeler vent arrière', inbound: 'Intégration : rappeler vent arrière',
     downwind: 'Rappeler en finale', continue: "Continuer l'approche", landing: "Autorisé à l'atterrissage",
     touchgo: 'Autorisé toucher', landed: 'Atterri', vacate: 'Dégager la piste, rappeler piste dégagée',
@@ -176,6 +176,12 @@ class ATC extends EventDispatcher {
         this._touched = false;
         this._prevZone = null;
         this._clearDelay = 0;
+        this._changed();
+    }
+
+    // Nouvelle partie (retour au menu, leçon) : journal radio vidé
+    clearLog() {
+        this.log = [];
         this._changed();
     }
 
@@ -533,12 +539,14 @@ class ATC extends EventDispatcher {
         return reply;
     }
 
-    // Piste en service de l'aérodrome contacté : face au vent moyen au départ (vent calme : la première), puis gardée
-    // tant que le vent ne la prend pas nettement par l'arrière (voir _updateRunwayInUse)
+    // Piste en service de l'aérodrome contacté : face au vent moyen au départ (vent calme : tirée au sort avec le vent
+    // de la partie), puis gardée tant que le vent ne la prend pas nettement par l'arrière (voir _updateRunwayInUse)
     _activeRunway() {
         const runways = this.airport.runways;
         this._inUse ??= new Map();
-        if (!this._inUse.has(runways[0])) this._inUse.set(runways[0], this._intoWind() ?? runways[0]);
+        if (!this._inUse.has(runways[0])) {
+            this._inUse.set(runways[0], this._intoWind() ?? runways[Math.floor(this.wind.seedDirection / 180) % runways.length]);
+        }
         return this._inUse.get(runways[0]);
     }
 
@@ -685,15 +693,22 @@ class ATC extends EventDispatcher {
                 () => msg`Vacating via ${this._twy()}, wilco, ${cs()}.`);
         }
 
-        // Attente au point d'attente / sur la piste : autorisation dès que la piste est libre
+        // Au point d'attente : alignement dès que la piste est libre (personne dessus ni en finale). Sur la piste :
+        // autorisation de décollage une fois l'avion aligné et arrêté, piste toujours libre
+        const runwayFree = !traffic.onRunway && traffic.onFinal === 0;
         if ((this.state === 'holding' || this.state === 'lineup') && !this.busy && !this.pending) {
             this._clearDelay += delta;
-            if (this._clearDelay > 4 && !traffic.onRunway && traffic.onFinal === 0) {
-                const rw = this._departureRunway ?? s.active;
-                const lineUp = this.state === 'holding';
+            const rw = this._departureRunway ?? s.active;
+            const lined = s.onGround && s.zone === 'runway' && headingDiff(s.heading, rw.heading) < 15 && s.speed < 3;
+            if (this.state === 'holding' && this._clearDelay > 4 && runwayFree) {
+                this.state = 'lineup';
+                this._clearDelay = 0;
+                this._say('tower', ...this._lineUpClearance(rw));
+            } else if (this.state === 'lineup' && lined && this._clearDelay > 2 && runwayFree) {
                 this.state = 'takeoff';
-                this._say('tower', ...this._takeoffClearance(rw, lineUp));
+                this._say('tower', ...this._takeoffClearance(rw));
             }
+            if (this.state === 'lineup' && !lined) this._clearDelay = Math.min(this._clearDelay, 0.5);
         }
 
         // Approche : autorisation quand la piste se libère, sinon remise de gaz imposée en courte finale
@@ -722,7 +737,7 @@ class ATC extends EventDispatcher {
 
         // Point d'attente franchi sans autorisation (incursion sur piste)
         if (this.contact && s.onGround && this._prevZone === 'taxiway' && (s.zone === 'entry' || s.zone === 'runway')
-            && this.state !== 'takeoff' && !this.warned.incursion) {
+            && this.state !== 'takeoff' && this.state !== 'lineup' && !this.warned.incursion) {
             this.warned.incursion = true;
             this._say(this.freq, () => msg`${cs()}, arrêtez immédiatement, vous n'êtes pas autorisé sur la piste.`,
                 () => msg`${cs()}, stop immediately, you are not cleared onto the runway.`,
@@ -1182,19 +1197,29 @@ class ATC extends EventDispatcher {
                     () => msg`${sqRb}${first('Holding')} position${qnh}, ${this._abbr()}.`),
             };
         }
-        this.state = 'takeoff';
-        const [fr, en, rbFr, rbEn] = this._takeoffClearance(rw, atHolding, { open, sq, sqRb, qnh, code });
+        // Au point d'attente : s'aligner et attendre (l'autorisation de décollage vient une fois aligné, voir
+        // _automation) ; déjà aligné : autorisé décollage
+        this.state = atHolding ? 'lineup' : 'takeoff';
+        this._clearDelay = 0;
+        const [fr, en, rbFr, rbEn] = atHolding ? this._lineUpClearance(rw, { open, sq, sqRb, qnh, code })
+            : this._takeoffClearance(rw, { open, sq, sqRb, qnh, code });
         return this._addTraffic({ message: this._t(fr, en), readback: this._t(rbFr, rbEn) }, this._circuitTraffic('final'));
     }
 
-    _takeoffClearance(rw, lineUp, { open = '', sq = '', sqRb = '', qnh = '', code = null } = {}) {
+    _lineUpClearance(rw, { open = '', sq = '', sqRb = '', qnh = '', code = null } = {}) {
         const first = (word) => code ? word.charAt(0).toLowerCase() + word.slice(1) : word;   // "4621, alignons…" / "Alignons…"
-        return lineUp ? [
-            () => msg`${this._abbr()}, ${open}${sq}alignez-vous ${this._rwy(rw)}, autorisé décollage, ${this._wind()}${qnh}.`,
-            () => msg`${this._abbr()}, ${open}${sq}line up ${this._rwy(rw)}, cleared for take-off, ${this._wind()}${qnh}.`,
-            () => msg`${sqRb}${first('Alignons')} ${this._rwy(rw)}, autorisé décollage${qnh}, ${this._abbr()}.`,
-            () => msg`${sqRb}${first('Lining')} up ${this._rwy(rw)}, cleared for take-off${qnh}, ${this._abbr()}.`,
-        ] : [
+        return [
+            () => msg`${this._abbr()}, ${open}${sq}alignez-vous et attendez ${this._rwy(rw)}${qnh}.`,
+            () => msg`${this._abbr()}, ${open}${sq}line up and wait ${this._rwy(rw)}${qnh}.`,
+            () => msg`${sqRb}${first('Alignons')}-nous et attendons ${this._rwy(rw)}${qnh}, ${this._abbr()}.`,
+            () => msg`${sqRb}${first('Lining')} up and waiting ${this._rwy(rw)}${qnh}, ${this._abbr()}.`,
+        ];
+    }
+
+    // Autorisation de décollage : seulement à un avion aligné (voir _automation et _departureReply)
+    _takeoffClearance(rw, { open = '', sq = '', sqRb = '', qnh = '', code = null } = {}) {
+        const first = (word) => code ? word.charAt(0).toLowerCase() + word.slice(1) : word;   // "4621, autorisé…" / "Autorisé…"
+        return [
             () => msg`${this._abbr()}, ${open}${sq}${this._rwy(rw)}, autorisé décollage, ${this._wind()}${qnh}.`,
             () => msg`${this._abbr()}, ${open}${sq}${this._rwy(rw)}, cleared for take-off, ${this._wind()}${qnh}.`,
             () => msg`${sqRb}${first('Autorisé')} décollage ${this._rwy(rw)}${qnh}, ${this._abbr()}.`,

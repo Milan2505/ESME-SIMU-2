@@ -287,9 +287,12 @@ class PlaneControls extends Controls {
 	}
 }
 
-// Vrai quand le joueur tape dans un champ (pseudo, code de partie…)
+// Vrai quand le joueur tape dans un champ (pseudo, code de partie…). Une case à cocher, un curseur ou une liste restés
+// sélectionnés après un clic ne comptent pas : sinon le clavier ne pilotait plus l'avion
+const _TEXT_INPUTS = new Set( [ 'text', 'search', 'email', 'password', 'tel', 'url', 'number' ] );
 function isTyping( event ) {
-	return event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
+	const target = event.target;
+	return ( target instanceof HTMLInputElement && _TEXT_INPUTS.has( target.type ) ) || target instanceof HTMLTextAreaElement;
 }
 
 function onKeyDown( event ) {

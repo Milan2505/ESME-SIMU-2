@@ -433,7 +433,7 @@ viewButton.addEventListener('click', (event) => {
     event.currentTarget.blur(); // garde le clavier pour le pilotage
 });
 window.addEventListener('keydown', (event) => {
-    if (event.target instanceof HTMLInputElement || event.repeat) return;
+    if (isTypingTarget(event.target) || event.repeat) return;
     if (event.code === 'KeyV') toggleView();
     if (event.code === 'KeyC') recenterCamera();
 });
@@ -1027,7 +1027,7 @@ fullscreenButton.addEventListener('click', (event) => {
     event.currentTarget.blur(); // garde le clavier pour le pilotage
 });
 window.addEventListener('keydown', (event) => {
-    if (event.code === 'KeyF' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleFullscreen();
+    if (event.code === 'KeyF' && !event.repeat && !isTypingTarget(event.target)) toggleFullscreen();
 });
 const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
 settingsFullscreenButton.addEventListener('click', toggleFullscreen);
@@ -1618,6 +1618,12 @@ document.getElementById('hangar-partir').addEventListener('click', () => {
 const mainMenu = document.getElementById('menu-principal');
 function openMainMenu() {
     if (initiation?.active) initiation.stop();
+    // Le menu ne garde rien du vol : fenêtre radio fermée, contrôleurs remis à zéro (émission coupée), journal vidé
+    atc.reset();
+    atc.clearLog();
+    document.getElementById('atc').hidden = true;
+    document.getElementById('atc-bouton').setAttribute('aria-pressed', 'false');
+    document.getElementById('atc-sous-titre').hidden = true;
     inHangar = false;
     hangarPanel.hidden = true;
     airportPanel.hidden = true;
@@ -1877,9 +1883,25 @@ function updateRadioIndicator() {
     radioIndicator.hidden = !radio.talking && !names.length;
 }
 
+// Champ où l'on tape du texte (pseudo, code, transpondeur…) : les touches ne pilotent pas. Une case à cocher, un curseur,
+// une liste ou un bouton restés sélectionnés après un clic ne bloquent pas le clavier (voir ci-dessous)
+const TEXT_INPUTS = new Set(['text', 'search', 'email', 'password', 'tel', 'url', 'number']);
 function isTypingTarget(target) {
-    return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
+    return (target instanceof HTMLInputElement && TEXT_INPUTS.has(target.type)) || target instanceof HTMLTextAreaElement;
 }
+// Touche de pilotage pendant qu'une commande de la page a le focus (bouton, case, curseur, liste) : le focus retourne
+// à la vue, sans que la touche agisse sur la commande (Espace ne re-clique pas un bouton, une lettre ne change pas la
+// liste des voix, les flèches ne bougent pas un curseur)
+window.addEventListener('keydown', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target === view || isTypingTarget(target) || target.isContentEditable) return;
+    if (!/^(Key|Digit)|^(Space|ControlLeft|ShiftLeft|Arrow)/.test(event.code) || event.altKey || event.metaKey) return;
+    if (!target.matches('button, select, input, [tabindex]') || target.closest('dialog[open]')) return;
+    if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden) return;   // écrans sans pilotage : clavier libre
+    if (event.code === 'Space' || target instanceof HTMLSelectElement || target instanceof HTMLInputElement) event.preventDefault();
+    target.blur();
+    view.focus();
+}, true);
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyN' && !event.repeat && !isTypingTarget(event.target)) radio.setTalking(true);
 });
@@ -2239,7 +2261,7 @@ atc.addEventListener('transmit', ({ from, text, station, label, on }) => {
         atcSubtitle.hidden = false;
     } else {
         atcSubtitleTimer = setTimeout(() => { atcSubtitle.hidden = true; }, 1500);
-        if (from === 'atc' && atcPanel.hidden && atc.pending) toggleAtc(true);
+        if (from === 'atc' && atcPanel.hidden && atc.pending && !inMenu) toggleAtc(true);
     }
 });
 
@@ -2299,6 +2321,8 @@ var initiation = new Initiation({
     // Départ : avion éteint au parking N4, en solo, vue cabine
     startCold: () => {
         multiplayer.leave();
+        newWind(Math.floor(Math.random() * 2 ** 32));   // chaque leçon : nouveau vent, donc piste en service tirée à nouveau
+        atc.clearLog();
         selectAirport(airport.main);   // les leçons ont lieu à ESME
         airportPanel.hidden = true;
         const spawn = airport.spawns.find((sp) => sp.id === 'stand4') ?? airport.spawns.find((sp) => sp.cold);
@@ -2602,7 +2626,7 @@ ilsButton.addEventListener('click', (event) => {
     event.currentTarget.blur(); // garde le clavier pour le pilotage
 });
 window.addEventListener('keydown', (event) => {
-    if (event.code === 'KeyI' && !event.repeat && !(event.target instanceof HTMLInputElement)) toggleIls();
+    if (event.code === 'KeyI' && !event.repeat && !isTypingTarget(event.target)) toggleIls();
 });
 
 // Commande de la cabine sous le pointeur : { id, side, vertical } (voir Cockpit.controlAt)
@@ -2760,7 +2784,7 @@ const perfPanel = document.getElementById('perf');
 const perf = { frames: 0, time: 0, cpu: 0, calls: 0, triangles: 0, last: performance.now() };
 renderer.info.autoReset = false; // le post-traitement dessine en plusieurs passes : on compte l'image entière
 window.addEventListener('keydown', (event) => {
-    if (event.code === 'KeyP' && !event.repeat && !(event.target instanceof HTMLInputElement)) settings.set('perf', !settings.values.perf);
+    if (event.code === 'KeyP' && !event.repeat && !isTypingTarget(event.target)) settings.set('perf', !settings.values.perf);
 });
 
 // Paramètres graphiques : menu ouvert depuis la case "Paramètre" du bandeau ou le bouton ⚙ Qualité
