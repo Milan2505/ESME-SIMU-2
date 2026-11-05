@@ -3446,8 +3446,12 @@ html.tablette #simulator.jeu.photo > #photo-sortie {
 /* Barre de menus de l'ordinateur : mêmes cases et mêmes menus, au design des panneaux de la tablette (fond sombre,
    cases arrondies, bleu = ouvert ou actif, rouge = Quitter). L'iPad n'a pas de barre (voir plus haut) */
 html:not(.tablette) #simulator.jeu::before {
-  background: rgba(14, 18, 24, 0.92);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgb(14, 18, 24);
+  border-bottom: none;
+}
+/* (fond sombre sous la barre et l'écran de vol : pas de liseré blanc entre eux, même avec les arrondis d'un écran HD) */
+html:not(.tablette) #simulator.jeu {
+  background-color: rgb(14, 18, 24);
 }
 html:not(.tablette) #simulator.jeu:not(#_) > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre,
   #masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
@@ -3545,4 +3549,20 @@ html:not(.tablette) #simulator.jeu .menu-contenu :is(select, input:not([type="ra
 }
 html:not(.tablette) #simulator.jeu .menu-contenu option {
   color: #000;
+}
+/* Contenu des menus déroulants : retour à la ligne normal (les cases de la barre sont en nowrap) et largeur limitée ;
+   sinon une longue note (Profil) étirait le menu hors de l'écran. L'aide clavier garde ses lignes entières */
+html:not(.tablette) #simulator.jeu .menu-contenu {
+  white-space: normal;
+  width: max-content;
+  max-width: min(380px, calc(100vw - 24px));
+}
+html:not(.tablette) #simulator.jeu #commandes .menu-contenu {
+  max-width: min(640px, calc(100vw - 24px));
+}
+html:not(.tablette) #simulator.jeu #commandes .aide td:last-child {
+  white-space: normal;   /* (description longue : sur plusieurs lignes ; la touche reste sur une ligne) */
+}
+html:not(.tablette) #simulator.jeu #profil .menu-contenu {
+  width: 320px;
 }
