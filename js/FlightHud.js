@@ -8,6 +8,8 @@
 const KT = 1.943844;          // m/s -> nœuds
 const FT = 1 / 0.3048;        // m -> pieds
 const REFRESH = 0.05;         // s
+const HUD_GAP = 8;            // écart minimal entre deux jauges (unités de l'écran 1280 × 720)
+const HUD_CENTER_GAP = 40;    // passage minimal entre les jauges de gauche et celles de droite
 // Arcs de l'anémomètre du Cessna 172 (kt) : blanc (volets), vert (normal), jaune (prudence), trait rouge (VNE)
 const ARCS = { white: [33, 85], green: [44, 129], yellow: [129, 163], vne: 163 };
 const RPM_MAX = 3000, RPM_RED = 2700;
@@ -92,31 +94,46 @@ class FlightHud {
         }
         this._compass(cx, cy, 70, d.heading, d.windDirection, d.windSpeed);
 
-        // Bas gauche
-        let x = m;
-        this._speedTape(x, bottomLeft - 210, 62, 210, d.speed * KT, d.tas * KT);
-        x += 70;
-        this._rpm(x, bottomLeft - 110, 90, 110, d.rpm);
-        x += 98;
-        this._bar(x, bottomLeft - 110, 44, 110, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
-            [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]]);
-        x += 52;
+        // Jauges du bas : deux rangées de blocs (gauche, droite), posées côte à côte avec un écart minimal garanti.
+        // Chaque rangée tient dans sa moitié de l'écran (moins un passage central) : si la place manque (écran étroit,
+        // portrait), elle est réduite d'un bloc, sans qu'aucune jauge en recouvre une autre
         const aoa = d.stallAlpha > 0 ? Math.max(0, Math.min(1, d.alpha / d.stallAlpha)) : 0;
-        this._bar(x, bottomLeft - 110, 44, 110, 'AOA', aoa, `${Math.round(d.alpha)}°`,
-            [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]]);
-
-        // Bas droite
-        let r = W - m;
-        r -= 54;
-        this._vsTape(r, bottomRight - 210, 54, 210, d.verticalSpeed * FT * 60);
-        r -= 8 + 76;
-        this._altitudeTape(r, bottomRight - 210, 76, 210, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro);
-        r -= 8 + 44;
-        this._trim(r, bottomRight - 110, 44, 110, d);
-        r -= 8 + 44;
         const flaps = d.flapMax > 0 ? d.flaps / d.flapMax : 0;
-        this._bar(r, bottomRight - 110, 44, 110, 'FLAPS', 1 - flaps, `${Math.round(d.flaps)}°`, null, true,
-            d.flapMax > 0 ? 1 - d.flapTarget / d.flapMax : 1);
+        const left = [
+            [62, 210, (x, y, w, h) => this._speedTape(x, y, w, h, d.speed * KT, d.tas * KT)],
+            [90, 110, (x, y, w, h) => this._rpm(x, y, w, h, d.rpm)],
+            [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
+                [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]])],
+            [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'AOA', aoa, `${Math.round(d.alpha)}°`,
+                [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]])],
+        ];
+        const right = [
+            [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FLAPS', 1 - flaps, `${Math.round(d.flaps)}°`, null, true,
+                d.flapMax > 0 ? 1 - d.flapTarget / d.flapMax : 1)],
+            [44, 110, (x, y, w, h) => this._trim(x, y, w, h, d)],
+            [76, 210, (x, y, w, h) => this._altitudeTape(x, y, w, h, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro)],
+            [54, 210, (x, y, w, h) => this._vsTape(x, y, w, h, d.verticalSpeed * FT * 60)],
+        ];
+        const half = (W - 2 * m - HUD_CENTER_GAP) / 2;
+        this._row(left, m, bottomLeft, half, 'left');
+        this._row(right, W - m, bottomRight, half, 'right');
+    }
+
+    // Rangée de blocs [largeur, hauteur, dessin(x, y, w, h)] alignés en bas sur bottom, séparés de HUD_GAP ; ancrée à
+    // gauche (x = bord gauche) ou à droite (x = bord droit) ; réduite si elle dépasse la largeur disponible
+    _row(blocks, x, bottom, available, anchor) {
+        const { ctx } = this;
+        const total = blocks.reduce((sum, [w]) => sum + w, 0) + HUD_GAP * (blocks.length - 1);
+        const k = Math.min(1, available / total);
+        ctx.save();
+        ctx.translate(x, bottom);
+        ctx.scale(k, k);
+        let left = anchor === 'left' ? 0 : -total;
+        for (const [w, h, draw] of blocks) {
+            draw(left, -h, w, h);
+            left += w + HUD_GAP;
+        }
+        ctx.restore();
     }
 
     // --- Pièces ------------------------------------------------------------------------------------------------
@@ -130,13 +147,19 @@ class FlightHud {
         if (!title) return y;
         ctx.fillStyle = COLORS.header;
         ctx.fillRect(x, y, w, 18);
-        this._text(title, x + w / 2, y + 9, 11, COLORS.text, 'center', 'bold');
+        this._text(title, x + w / 2, y + 9, 11, COLORS.text, 'center', 'bold', w - 4);
         return y + 18;
     }
 
-    _text(text, x, y, size, color = COLORS.text, align = 'left', weight = '') {
+    // maxWidth : largeur à ne pas dépasser (sa case) : le texte est rapetissé s'il est plus large (police de
+    // remplacement plus large sur tablette : il débordait sur la jauge voisine)
+    _text(text, x, y, size, color = COLORS.text, align = 'left', weight = '', maxWidth = 0) {
         const { ctx } = this;
         ctx.font = `${weight} ${size}px "DejaVu Sans Mono", Consolas, monospace`;
+        if (maxWidth > 0) {
+            const width = ctx.measureText(text).width;
+            if (width > maxWidth) ctx.font = `${weight} ${size * maxWidth / width}px "DejaVu Sans Mono", Consolas, monospace`;
+        }
         ctx.fillStyle = color;
         ctx.textAlign = align;
         ctx.textBaseline = 'middle';
@@ -151,7 +174,7 @@ class FlightHud {
         ctx.strokeStyle = COLORS.white;
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, w, h);
-        this._text(text, x + w / 2, y + h / 2 + 1, size, color, 'center', 'bold');
+        this._text(text, x + w / 2, y + h / 2 + 1, size, color, 'center', 'bold', w - 6);
     }
 
     // Rose des caps : graduations tous les 10°, lettres N E S W et 3 / 6 / 12…, avion fixe au centre
@@ -293,7 +316,7 @@ class FlightHud {
         ctx.restore();
         const color = kt > ARCS.vne ? COLORS.red : kt > ARCS.yellow[0] ? COLORS.yellow : COLORS.text;
         this._valueBox(x + 2, mid - 12, w - 12, 24, String(Math.max(0, Math.round(kt))), color, 17);
-        this._text(`TAS ${Math.round(Math.max(0, tasKt))}KT`, x + w / 2, y + h - 11, 10, COLORS.dim, 'center', 'bold');
+        this._text(`TAS ${Math.round(Math.max(0, tasKt))}KT`, x + w / 2, y + h - 11, 10, COLORS.dim, 'center', 'bold', w - 4);
     }
 
     _altitudeTape(x, y, w, h, ft, baro) {
@@ -302,7 +325,7 @@ class FlightHud {
         const { mid } = this._tape(x + 8, tapeY, w - 8, tapeH, ft, 300, 20, 100, (v) => String(v), 'left');
         this._valueBox(x + 10, mid - 12, w - 14, 24, String(Math.round(ft / 10) * 10), COLORS.text, 15);
         const inHg = baro * 0.02953;
-        this._text(`${inHg.toFixed(2)}IN`, x + w / 2, y + h - 11, 10, COLORS.accent, 'center', 'bold');
+        this._text(`${inHg.toFixed(2)}IN`, x + w / 2, y + h - 11, 10, COLORS.accent, 'center', 'bold', w - 4);
     }
 
     _vsTape(x, y, w, h, fpm) {

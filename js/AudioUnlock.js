@@ -8,10 +8,17 @@
 //   arrive : il n'était jamais repris.
 // Ici, chaque geste (toucher relâché, clic, touche) et chaque retour sur la page relance le contexte s'il ne tourne pas,
 // et joue un son vide d'un échantillon (nécessaire sur iOS pour vraiment ouvrir la sortie audio).
+// Mode silencieux de l'iPad / de l'iPhone : par défaut, iOS classe le son Web Audio d'une page comme « ambiant », coupé
+// par le mode silencieux (alors qu'une vidéo, elle, joue) : alarmes et moteur muets. Safari 17+ (iPadOS 17) permet de
+// le déclarer comme « lecture » (navigator.audioSession), comme une vidéo : il joue alors même en mode silencieux.
+// Plus ancien : pas de moyen fiable, le mode silencieux coupe le son. Le volume de l'appareil reste, lui, toujours respecté
 let context = null;
 
 function sharedAudioContext() {
-    context ??= new AudioContext();
+    if (!context) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* non pris en charge */ }
+        context = new AudioContext();
+    }
     return context;
 }
 

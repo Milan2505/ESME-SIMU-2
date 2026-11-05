@@ -18,9 +18,18 @@ class StallWarning {
         this._step = 0;
     }
 
-    // Le navigateur n'autorise le son qu'après une action du joueur (touche, clic)
-    async unlock() {
-        if (this._audio) return;
+    // Le navigateur n'autorise le son qu'après une action du joueur (touche, clic). Appelé à chaque geste : si le
+    // chargement des sons a échoué (réseau), il est refait au geste suivant (avant : muet pour toute la session)
+    unlock() {
+        if (this._buffers) return Promise.resolve();
+        this._loading ??= this._load().catch((error) => {
+            this._loading = null;
+            throw error;
+        });
+        return this._loading;
+    }
+
+    async _load() {
         this._audio = sharedAudioContext();
         this._gain = this._audio.createGain();
         this._gain.gain.value = this.volume;

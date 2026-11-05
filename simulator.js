@@ -34,6 +34,8 @@ import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
 import { isTablet, isStandalone } from './js/Device.js';
+// Tablette : marque sur la page (bande de la barre d'état d'iOS en plein écran, voir style.css)
+document.documentElement.classList.toggle('tablette', isTablet());
 import { planesCollide } from './js/PlaneCollision.js';
 import { BankAngleWarning, alarmBank } from './js/BankAngleWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
@@ -1587,21 +1589,42 @@ function setMenuBar(visible) {
         fitMenuBar();
     }
 }
-// Barre du haut : premier palier (libellés complets, courts, puis texte réduit) où toutes les cases tiennent dans la
-// largeur de l'écran, sans se chevaucher (voir style.css). Refait au redimensionnement, au changement d'orientation et
-// quand un libellé change (fréquence, nombre de joueurs, météo)
-const MENU_BAR_LEVELS = ['', 'barre-courte', 'barre-serree', 'barre-mini'];
+// Barre du haut : la même que sur ordinateur (mêmes cases, libellés et couleurs). Si elle dépasse la largeur de
+// l'écran, texte et marges de toutes les cases sont réduits d'un même facteur jusqu'à ce qu'elle tienne (voir
+// style.css). Si le texte devenait trop petit pour être lu (tablette en portrait), la barre passe sur deux lignes
+// (rien n'est masqué ni regroupé). Refait au redimensionnement, au changement d'orientation et quand un libellé change
+// (fréquence, nombre de joueurs, météo)
+const MENU_BAR_READABLE = 0.7;   // en dessous (texte < ~10 px), deux lignes plutôt qu'une
+const MENU_BAR_MIN_SCALE = 0.45;
 const menuBarCells = ['commandes', 'météo', 'carte-case', 'atc-case', 'online', 'profil', 'paramètre', 'masse-bouton',
     'mode-photo', 'barre-plein-ecran', 'quitter-partie'].map((id) => document.getElementById(id));
+// Facteur de réduction pour que la barre tienne dans la largeur (dans sa disposition actuelle)
+function shrinkMenuBar() {
+    const style = simulatorElement.style;
+    const box = simulatorElement.getBoundingClientRect();
+    const limit = box.right - (parseFloat(getComputedStyle(simulatorElement).paddingRight) || 0);
+    const span = () => {
+        const cells = menuBarCells.filter((cell) => cell.offsetWidth > 0).map((cell) => cell.getBoundingClientRect());
+        return { left: Math.min(...cells.map((r) => r.left)), right: Math.max(...cells.map((r) => r.right)) };
+    };
+    let scale = 1;
+    style.setProperty('--barre-echelle', '1');
+    for (let i = 0; i < 6; i++) {
+        const { left, right } = span();
+        if (right <= limit + 0.5) break;
+        // Les bordures ne rétrécissent pas : on vise un peu plus bas que la simple règle de trois
+        scale = Math.max(MENU_BAR_MIN_SCALE, scale * ((limit - left) / (right - left)) * 0.98);
+        style.setProperty('--barre-echelle', scale.toFixed(3));
+        if (scale === MENU_BAR_MIN_SCALE) break;
+    }
+    return scale;
+}
 function fitMenuBar() {
     if (!simulatorElement.classList.contains('barre')) return;
-    const width = simulatorElement.clientWidth;
-    for (const level of MENU_BAR_LEVELS) {
-        simulatorElement.classList.remove(...MENU_BAR_LEVELS.filter(Boolean));
-        if (level) simulatorElement.classList.add(level);
-        const right = Math.max(...menuBarCells.map((cell) => cell.getBoundingClientRect().right));
-        if (right <= width + 0.5) return;
-    }
+    simulatorElement.classList.remove('barre-2-lignes');
+    if (shrinkMenuBar() >= MENU_BAR_READABLE) return;
+    simulatorElement.classList.add('barre-2-lignes');
+    shrinkMenuBar();
 }
 let menuBarFitQueued = false;
 function queueFitMenuBar() {
@@ -2686,11 +2709,36 @@ const vor2 = new VOR(airport.vor);       // NAV 2 (même balise, son propre OBS)
 const vorPanel = document.getElementById('vor-panneau');
 const vorCanvas = document.getElementById('vor-canvas');
 let vorShown = false, vorTimer = 0;
+// Indicateurs VOR et ILS en vue extérieure : affichés ou masqués ensemble par le bouton « VOR / ILS » (menu Commandes,
+// commandes tactiles : sur tablette, sans clavier, le VOR n'était accessible qu'avec la touche O) ; touche O : VOR seul.
+// L'ILS n'apparaît que réglé sur la NAV 1 (bouton « ILS disponible », touche I)
+let ilsShown = true;
+const navPanelsButton = document.getElementById('nav-panneaux');
+// État du bouton : celui du VOR (masqué au départ ; l'ILS, lui, s'affiche d'office dès qu'il est réglé)
+function updateNavPanelsButton() {
+    const shown = vorShown;
+    navPanelsButton.textContent = `VOR / ILS : ${shown ? 'affichés' : 'masqués'}`;
+    navPanelsButton.classList.toggle('actif', shown);
+    document.querySelector('[data-tactile="nav"]')?.classList.toggle('allume', shown);
+}
+function toggleNavPanels() {
+    const show = !vorShown;
+    vorShown = ilsShown = show;
+    vorTimer = ilsTimer = 0;
+    updateNavPanelsButton();
+}
+navPanelsButton.addEventListener('click', (event) => {
+    toggleNavPanels();
+    event.currentTarget.blur(); // garde le clavier pour le pilotage
+});
 window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target)) return;
     if (event.code === 'KeyJ' || event.code === 'KeyK') vor.turnCourse((event.code === 'KeyJ' ? -1 : 1) * (event.shiftKey ? 10 : 1));
     if (event.code === 'KeyH' && !event.repeat) vor.centerTo();
-    if (event.code === 'KeyO' && !event.repeat) vorShown = !vorShown;
+    if (event.code === 'KeyO' && !event.repeat) {
+        vorShown = !vorShown;
+        updateNavPanelsButton();
+    }
 });
 
 // Boutons du panneau VOR en vue extérieure
@@ -2743,7 +2791,7 @@ function updateIls(delta = 0) {
     ilsButton.classList.toggle('actif', ils.active);
     if (showButton) ilsButton.textContent = ils.active ? `ILS ${state.runway} ✓` : `ILS ${state.runway} disponible`;
 
-    ilsPanel.hidden = !(chaseView && ils.active);
+    ilsPanel.hidden = !(chaseView && ils.active && ilsShown);
     if (ilsPanel.hidden || (ilsTimer -= delta) > 0) return;
     ilsTimer = 0.1;
     // Même indicateur que le VOR (touche O), route de la piste en haut, aiguille de pente en plus
@@ -3041,7 +3089,9 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     recenter: () => recenterCamera(),
     menu: () => setMenuBar(!simulatorElement.classList.contains('barre')),
     flaps: (step) => controls.setFlapLevel(controls.getFlapLevel() + step),
+    nav: () => toggleNavPanels(),
 });
+updateNavPanelsButton();
 if (touchControls.enabled) escapeHint.textContent = '☰ Menus : afficher les menus';
 
 // Collision avec les autres avions : garés (aérodromes) et ceux des autres joueurs, à leur forme (voir PlaneCollision.js)

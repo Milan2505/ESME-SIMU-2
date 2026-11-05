@@ -822,7 +822,7 @@ img{margin: 0px;
   #simulator:is(:fullscreen, .jeu) > #atc,
   #simulator:is(:fullscreen, .jeu) > #atc-sous-titre {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   }
   /* Barre du haut en plein écran : fond blanc derrière toute la largeur */
   #simulator:is(:fullscreen, .jeu)::before {
@@ -970,7 +970,7 @@ img{margin: 0px;
   }
   #simulator:is(:fullscreen, .jeu) > #vor-panneau {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   }
 
   /* Choix du point de départ */
@@ -998,7 +998,7 @@ img{margin: 0px;
   }
   #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau, #simulator:is(:fullscreen, .jeu) > #aerodrome-panneau {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   }
   #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
     margin-top: 0;
@@ -1405,7 +1405,7 @@ img{margin: 0px;
   }
   #simulator:is(:fullscreen, .jeu) > #contexte-perdu {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   }
 
 
@@ -1501,7 +1501,7 @@ img{margin: 0px;
 #simulator:is(:fullscreen, .jeu) > #moniteur,
 #simulator:is(:fullscreen, .jeu) > #initiation-dialog {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
 }
 #moniteur header {
   display: flex;
@@ -1866,7 +1866,7 @@ body:has(#simulator.jeu) {
 /* Commandes tactiles (tablettes) : sur l'écran de vol ; le doigt ailleurs tourne toujours la caméra */
 #tactile {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   z-index: 3;
   position: relative;
   pointer-events: none;
@@ -1929,6 +1929,11 @@ body:has(#simulator.jeu) {
   pointer-events: auto;
   touch-action: none;
 }
+/* Bascule allumée (VOR / ILS affichés) */
+.tactile-boutons button.allume {
+  border-color: #5ec8ff;
+  color: #d8f2ff;
+}
 .tactile-boutons button.actif,
 .tactile-boutons button:active {
   border-color: #ffd23c;
@@ -1977,7 +1982,7 @@ body:has(#simulator.jeu) {
 
 #astuce-echap {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   align-self: end;
   justify-self: center;
   z-index: 5;
@@ -2406,7 +2411,7 @@ body:has(#simulator.jeu) {
 /* Informations de vol en vue extérieure (FlightHud.js) : calque transparent sur tout l'écran de vol */
 #hud {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   z-index: 3;
   width: 100%;
   height: 100%;
@@ -2465,11 +2470,54 @@ body:has(#simulator.jeu) {
   display: none !important;
 }
 
-/* Barre du haut : une case ne rétrécit jamais sous la largeur de son texte (avant, avec overflow: hidden, la grille les
-   rognait quand la place manquait : texte caché sous la case voisine, surtout sur iPad où la police à chasse fixe est
-   plus large). Pour tenir sur toute largeur d'écran, simulator.js (fitMenuBar) mesure la barre et choisit le premier
-   palier où tout tient : libellés complets, libellés courts (barre-courte), puis texte et marges réduits
-   (barre-serree, barre-mini). Rien ne passe à la ligne */
+/* Barre du haut : la même que sur ordinateur sur tout écran (mêmes cases, même ordre, mêmes libellés, mêmes couleurs).
+   Une case ne rétrécit jamais sous la largeur de son texte (avant, avec overflow: hidden, la grille les rognait quand la
+   place manquait : texte caché sous la case voisine). Si la largeur manque, simulator.js (fitMenuBar) réduit texte et
+   marges de toutes les cases d'un même facteur (--barre-echelle), jusqu'à ce que tout tienne. Rien ne passe à la ligne */
+#simulator.jeu {
+  --barre-echelle: 1;
+}
+
+/* iPad : la barre d'état du système (heure, batterie) reste par-dessus la page en plein écran et dans l'appli de l'écran
+   d'accueil (viewport-fit=cover), et iOS garde pour ses gestes les touchers sur cette bande (heure : retour en haut ;
+   glisser : centre de contrôle) : la barre blanche, collée en haut, était masquée et ne réagissait plus au doigt.
+   Tout l'écran de vol descend sous cette bande (zones sûres d'iOS, et au moins 28 px en plein écran sur tablette, où
+   Safari ne les indique pas toujours) ; la bande elle-même reste sombre, sous l'heure et la batterie */
+#simulator.jeu {
+  --haut-systeme: env(safe-area-inset-top, 0px);
+  padding: var(--haut-systeme) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+  box-sizing: border-box;
+  background: linear-gradient(#0b1320, #0b1320) top / 100% var(--haut-systeme) no-repeat, white;
+}
+/* Écran étroit (tablette en portrait) : la barre complète ne tiendrait qu'avec un texte illisible. Elle passe sur
+   deux lignes (classe barre-2-lignes, voir fitMenuBar), sans rien masquer ni regrouper : Commandes à Profil en haut,
+   Paramètre à Quitter la partie en dessous. L'écran de vol prend la dernière ligne de la grille (grid-row: -2) */
+#simulator.jeu.barre.barre-2-lignes {
+  grid-template-columns: repeat(6, auto) 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+#simulator.jeu.barre.barre-2-lignes::before {
+  grid-row: 1 / 3;
+}
+#simulator.jeu.barre.barre-2-lignes > #commandes { grid-column: 1; grid-row: 1; }
+#simulator.jeu.barre.barre-2-lignes > #météo { grid-column: 2; grid-row: 1; }
+#simulator.jeu.barre.barre-2-lignes > #carte-case { grid-column: 3; grid-row: 1; }
+#simulator.jeu.barre.barre-2-lignes > #atc-case { grid-column: 4; grid-row: 1; }
+#simulator.jeu.barre.barre-2-lignes > #online { grid-column: 5; grid-row: 1; }
+#simulator.jeu.barre.barre-2-lignes > #profil { grid-column: 6; grid-row: 1; }
+#simulator.jeu.barre.barre-2-lignes > #paramètre { grid-column: 1; grid-row: 2; }
+#simulator.jeu.barre.barre-2-lignes > #masse-bouton { grid-column: 2; grid-row: 2; }
+#simulator.jeu.barre.barre-2-lignes > #mode-photo { grid-column: 3; grid-row: 2; }
+#simulator.jeu.barre.barre-2-lignes > #barre-plein-ecran { grid-column: 4; grid-row: 2; }
+#simulator.jeu.barre.barre-2-lignes > #quitter-partie { grid-column: 5; grid-row: 2; }
+#simulator.jeu.barre.barre-2-lignes > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre,
+  #masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+  border-left: none;
+  border-right: 2px solid black;
+}
+html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) {
+  --haut-systeme: max(env(safe-area-inset-top, 0px), 28px);
+}
 #simulator.jeu > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre, #masse-bouton, #mode-photo,
   #barre-plein-ecran, #quitter-partie) {
   white-space: nowrap;
@@ -2478,53 +2526,20 @@ body:has(#simulator.jeu) {
 #simulator.jeu .court {
   display: none;
 }
-#simulator.jeu:is(.barre-courte, .barre-serree, .barre-mini) .long {
-  display: none;
+#simulator.jeu > :is(.menu, #carte-case, #atc-case) > .menu-titre {
+  padding: calc(8px * var(--barre-echelle)) calc(18px * var(--barre-echelle));
+  font-size: calc(14px * var(--barre-echelle));
 }
-#simulator.jeu:is(.barre-courte, .barre-serree, .barre-mini) .court {
-  display: inline;
+/* (:not(#_) : passe devant les règles propres à chaque bouton, plus bas) */
+#simulator.jeu.barre:not(#_) > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+  padding: 0 calc(18px * var(--barre-echelle));
+  font-size: calc(13px * var(--barre-echelle));
 }
-#simulator.jeu.barre-courte .menu-titre {
-  padding: 6px 10px;
-  font-size: 13px;
+#simulator.jeu > #paramètre {
+  padding: 0 calc(18px * var(--barre-echelle));
 }
-#simulator.jeu.barre-courte.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
-  padding: 0 10px;
-  font-size: 12px;
-}
-#simulator.jeu.barre-courte > #paramètre {
-  padding: 0 10px;
-}
-#simulator.jeu.barre-courte > #paramètre h4 {
-  font-size: 13px;
-}
-#simulator.jeu.barre-serree .menu-titre {
-  padding: 6px 7px;
-  font-size: 12px;
-}
-#simulator.jeu.barre-serree.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
-  padding: 0 7px;
-  font-size: 11px;
-}
-#simulator.jeu.barre-serree > #paramètre {
-  padding: 0 7px;
-}
-#simulator.jeu.barre-serree > #paramètre h4 {
-  font-size: 12px;
-}
-#simulator.jeu.barre-mini .menu-titre {
-  padding: 5px 4px;
-  font-size: 10px;
-}
-#simulator.jeu.barre-mini.barre > :is(#masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
-  padding: 0 4px;
-  font-size: 10px;
-}
-#simulator.jeu.barre-mini > #paramètre {
-  padding: 0 4px;
-}
-#simulator.jeu.barre-mini > #paramètre h4 {
-  font-size: 10px;
+#simulator.jeu > #paramètre h4 {
+  font-size: calc(16px * var(--barre-echelle));
 }
 #simulator.jeu.barre > #mode-photo {
   display: block;
