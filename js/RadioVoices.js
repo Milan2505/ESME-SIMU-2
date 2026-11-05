@@ -5,6 +5,8 @@
 // radio (bande étroite, saturation légère, souffle). Si les voix réalistes sont indisponibles : voix de
 // l'ordinateur (synthèse vocale du navigateur). Chaque rôle garde toujours la même voix.
 
+import { sharedAudioContext } from './AudioUnlock.js';
+
 const VOICES_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/';
 const MODELS = {
     'fr_FR-tom-medium': 'fr/fr_FR/tom/medium/fr_FR-tom-medium',
@@ -425,7 +427,7 @@ class RadioVoices extends EventTarget {
     }
 
     _context() {
-        this._ctx ??= new AudioContext();
+        this._ctx ??= sharedAudioContext();
         if (this._ctx.state === 'suspended') this._ctx.resume();
         return this._ctx;
     }

@@ -3,6 +3,8 @@
 // (8 000 échantillons par seconde, codage G.711 µ-law, ~8 ko/s), envoyé en paquets de 125 ms.
 // À l'écoute : filtre de bande "radio", légère saturation et souffle discret, petit "pschht" en fin de message.
 
+import { sharedAudioContext } from './AudioUnlock.js';
+
 const RATE = 8000;              // échantillons par seconde envoyés
 const CHUNK = 1000;             // échantillons par paquet (125 ms)
 const RELEASE_TAIL = 0.15;      // on capte encore 0,15 s après avoir lâché la touche (fin de mot non coupée)
@@ -93,7 +95,7 @@ class Radio extends EventTarget {
     // Son de l'écoute : le navigateur ne l'autorise qu'après une action du joueur
     unlock() {
         if (this._audio) return;
-        const audio = this._audio = new AudioContext();
+        const audio = this._audio = sharedAudioContext();
         // Chaîne "radio" : bande 350-3000 Hz, saturation douce, volume
         this._input = new GainNode(audio, { gain: 1.6 });
         const highpass = new BiquadFilterNode(audio, { type: 'highpass', frequency: 350, Q: 0.7 });

@@ -3,6 +3,8 @@
 // Sources et licences : asset/sounds/LICENSE.txt
 // Fournit aussi le moteur des avions des autres joueurs, placé dans l'espace (distance, gauche/droite).
 
+import { sharedAudioContext } from './AudioUnlock.js';
+
 // Boucles : régime auquel chacune a été enregistrée (mesuré sur l'enregistrement) et niveau relatif (dB)
 const LAYERS = [
     { name: 'idle', url: 'asset/sounds/c172-cabin-idle.wav', rpm: 1083, level: -7 },
@@ -117,10 +119,19 @@ class EngineSound {
         this._listenerPosition = [0, 0, 0];
     }
 
-    // Le navigateur n'autorise le son qu'après une action du joueur (touche, clic)
-    async unlock() {
-        if (this._audio) return;
-        this._audio = new AudioContext();
+    // Le navigateur n'autorise le son qu'après une action du joueur (touche, clic). Appelé à chaque geste : si le
+    // chargement des sons a échoué (réseau), il est refait au geste suivant (avant, le moteur restait muet pour la session)
+    unlock() {
+        if (this._buffers) return Promise.resolve();
+        this._loading ??= this._load().catch((error) => {
+            this._loading = null;
+            throw error;
+        });
+        return this._loading;
+    }
+
+    async _load() {
+        this._audio = sharedAudioContext();
         this._master = this._audio.createGain();
         this._master.gain.value = this.volume;
         // Les enregistrements de cabine sont surtout des graves (80-90 % de l'énergie sous 200 Hz), presque inaudibles

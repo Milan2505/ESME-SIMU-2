@@ -1,0 +1,16 @@
+{
+  "name": "ESME flight simulator",
+  "short_name": "ESME Simu",
+  "description": "Simulateur de vol Cessna 172",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#081220",
+  "theme_color": "#081220",
+  "icons": [
+    { "src": "ESME_LOGO_BASELINE_QUADRI_2021.png", "sizes": "1772x1772", "type": "image/png", "purpose": "any" }
+  ]
+}

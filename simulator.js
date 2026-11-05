@@ -33,7 +33,7 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
-import { isTablet } from './js/Device.js';
+import { isTablet, isStandalone } from './js/Device.js';
 import { planesCollide } from './js/PlaneCollision.js';
 import { BankAngleWarning, alarmBank } from './js/BankAngleWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
@@ -1053,20 +1053,33 @@ updateCamera(0, true);
 const simulatorElement = document.getElementById('simulator');
 const fullscreenButton = document.getElementById('plein-ecran');
 
-// Safari (iPad) : API préfixée webkit ; pas d'API du tout (iPhone, iPad en appli de l'écran d'accueil) : boutons cachés.
-// Boutons Plein écran : seulement sur tablette (sur ordinateur, touche F, et plein écran au premier clic)
+// Boutons Plein écran : seulement sur tablette (sur ordinateur : touche F, et plein écran au premier clic), sauf si le
+// site est ouvert depuis l'écran d'accueil (déjà en plein écran). Safari (iPad) : API préfixée webkit. Chrome, Firefox
+// et les navigateurs intégrés aux applis, sur iPad, n'ont pas d'API plein écran (Apple ne la leur donne pas) : le bouton
+// explique alors comment l'avoir (Safari, ou ajout à l'écran d'accueil : voir manifest.webmanifest)
 const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
 function requestFullscreen() {
     const request = simulatorElement.requestFullscreen ?? simulatorElement.webkitRequestFullscreen;
     return Promise.resolve(request?.call(simulatorElement)).catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
 }
 function toggleFullscreen() {
+    if (!fullscreenApi) {
+        if (isTablet() && !isStandalone()) {
+            // Brave, Chrome, Firefox… sur iPad : Apple ne leur donne pas le plein écran ; l'ajout à l'écran d'accueil, si
+            const NL = String.fromCharCode(10);
+            alert("Ce navigateur (Brave, Chrome, Firefox… sur iPad) ne permet pas le plein écran : c'est une limite d'Apple." + NL + NL
+                + "Pour jouer en plein écran : bouton Partager ▸ « Sur l'écran d'accueil », puis lancez le simulateur depuis son icône "
+                + "(il s'ouvre alors sans barre du navigateur)." + NL + NL
+                + "Ou ouvrez le simulateur dans Safari et touchez ⛶ Plein écran.");
+        }
+        return;
+    }
     if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
     else requestFullscreen();
 }
 const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
 const fullscreenApi = Boolean(simulatorElement.requestFullscreen || simulatorElement.webkitRequestFullscreen);
-if (!fullscreenApi || !isTablet()) for (const button of fullscreenButtons) button.hidden = true;
+if (!isTablet() || isStandalone()) for (const button of fullscreenButtons) button.hidden = true;
 for (const button of fullscreenButtons) {
     if (button === fullscreenButton || button.id === 'reglages-plein-ecran') continue;   // (déjà branchés plus bas)
     button.addEventListener('click', (event) => {
@@ -1133,15 +1146,17 @@ const alarme = document.getElementById('alarme');
 const bankAlarm = document.getElementById('alarme-inclinaison');
 
 // Le navigateur n'autorise le son qu'après une action du joueur
-for (const type of ['keydown', 'pointerdown']) {
-    window.addEventListener(type, () => {
-        radio.unlock();
-        stallWarning.unlock().catch((error) => console.error(error));
-        bankAngleWarning.unlock().catch((error) => console.error(error));
-        engineSound.unlock().catch((error) => console.error(error));
-        sounds.unlock().catch((error) => console.error(error));
-    }, { once: true });
+// À chaque geste, pas seulement au premier : sur iPad, seul un toucher relâché ou un clic autorise le son, et un son
+// dont le chargement a échoué est rechargé (chaque unlock ne fait rien une fois prêt). Un seul contexte audio pour
+// tout le simulateur, relancé à chaque geste et au retour sur la page (voir AudioUnlock.js)
+function unlockSounds() {
+    radio.unlock();
+    stallWarning.unlock().catch((error) => console.error(error));
+    bankAngleWarning.unlock().catch((error) => console.error(error));
+    engineSound.unlock().catch((error) => console.error(error));
+    sounds.unlock().catch((error) => console.error(error));
 }
+for (const type of ['keydown', 'pointerdown', 'touchend', 'click']) window.addEventListener(type, unlockSounds, true);
 
 const _wingAxis = new THREE.Vector3();
 function updateStallWarning() {
