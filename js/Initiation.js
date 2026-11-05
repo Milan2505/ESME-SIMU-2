@@ -306,6 +306,7 @@ class Initiation {
         this.steps = buildSteps(this.level, this.lang);
         this.index = -1;
         this._runway = null;   // piste du décollage, fixée à l'alignement : tout le tour de piste s'y rapporte
+        this._owed = [];       // messages radio d'étapes passées sans avoir été faits (voir _owe)
         this.startedAt = performance.now();
         this.stats = { advice: 0 };
         this.startCold();
@@ -340,7 +341,6 @@ class Initiation {
         set(b.next, 'Terminer ▸', 'Finish ▸');
         set(b.repeat, 'Répéter', 'Repeat');
         set(b.show, 'Montrer', 'Show');
-        set(b.skip, 'Passer', 'Skip');
         set(b.quit, 'Quitter', 'Quit');
     }
 
@@ -352,6 +352,7 @@ class Initiation {
     _next() {
         // Étape de roulage finie : ses anneaux restants disparaissent (sauf si la suivante en pose d'autres)
         const previous = this.step;
+        if (previous) this._owe(previous, this._context());
         if (this._state?.glanceUntil && this.cameraGuide) this.pilotView();   // coup d'œil en cours : on revient dehors
         this.index++;
         if (previous?.guide && !this.step?.guide) this.guide.clear();
@@ -363,6 +364,41 @@ class Initiation {
         if (step.guide) this.guide.set(step.guide(this._context()));
         if (step.clearGuide) this.guide.clear();
         this._render();   // le moniteur parle quand le moment de l'étape arrive (voir update)
+    }
+
+    // Étape quittée avant que son message radio soit fait (en vol, l'avion arrive déjà à l'étape suivante) : le message
+    // reste dû. Niveau 1 : le moniteur le fait dès que possible ; niveau 2 : il clignote dans le panneau radio
+    _owe(step, c) {
+        if (!step?.radio?.ids.length || this._owed.some((o) => o.step === step)) return;
+        let said = false;
+        try { said = step.radio.until(c); } catch { /* situation incomplète : pas encore fait */ }
+        if (!said) this._owed.push({ step, missing: 0 });
+    }
+
+    // Messages dus encore à faire : fait, ou plus proposé par la radio depuis 3 s (la phase est passée) -> oublié
+    _updateOwed(c, delta) {
+        const atc = this.atc;
+        const usable = atc.radioOk && !atc.busy && !atc.pending && !atc.blockedBy;
+        this._owed = this._owed.filter((o) => {
+            try { if (o.step.radio.until(c)) return false; } catch { /* pas encore */ }
+            if (usable) o.missing = atc.options.some((option) => o.step.radio.ids.includes(option.id)) ? 0 : o.missing + delta;
+            return o.missing < 3;
+        });
+    }
+
+    // Message radio à faire maintenant : celui de l'étape en cours, sinon le plus ancien message dû
+    _dueRadio(step, c) {
+        const atc = this.atc;
+        const list = [];
+        let current = false;
+        try { current = Boolean(step.radio?.ids.length) && this._state.spoken && !step.radio.until(c); } catch { /* pas encore */ }
+        if (current) list.push({ step, owed: false });
+        for (const o of this._owed) list.push({ step: o.step, owed: true });
+        for (const due of list) {
+            const option = atc.options.find((o) => due.step.radio.ids.includes(o.id));
+            if (option) return { ...due, option };
+        }
+        return null;
     }
 
     _enter() {
@@ -450,10 +486,6 @@ class Initiation {
         else this.pilotView();
     }
 
-    skip() {
-        if (this.active) this._next();
-    }
-
     // Situation pour les conditions des étapes
     _context() {
         const s = this.atc.s;
@@ -492,6 +524,7 @@ class Initiation {
             this._runway = this.atc.airport.runways.reduce((a, b) => (headingDiff(h, b.heading) < headingDiff(h, a.heading) ? b : a));
         }
         const c = this._context();
+        this._updateOwed(c, delta);
         // En vol (décollage -> atterrissage) : les cadres de tout le tour de piste, main gauche, devant l'avion aligné
         if (step.flight && !this.path.shown && c.runway) this.path.set(c.runway, c.along);
         else if (!step.flight && this.path.shown) this.path.clear();
@@ -506,6 +539,7 @@ class Initiation {
                 const later = this.steps[this.index + k];
                 if (!later?.flight) break;
                 if (later.hasWait && safe(() => later.wait(c))) {
+                    for (let j = this.index; j < this.index + k; j++) this._owe(this.steps[j], c);
                     this.index += k - 1;
                     this._next();
                     return;
@@ -546,8 +580,11 @@ class Initiation {
         // Étape faite (et le moniteur a fini sa phrase, sauf urgence en vol)
         const done = step.done ? safe(() => step.done(c, this._state.flags, delta)) : Boolean(step.radio);
         // Voix réaliste encore en téléchargement (premier lancement) : on n'attend pas qu'il ait parlé, juste le temps
-        // de lire la consigne
-        const reading = this.voices.status?.state === 'loading' && this._time - (this._state.spokenAt ?? 0) > 2 + (this.ui.text.textContent.length * 0.05);
+        // de lire la consigne. Et quelle que soit la voix, jamais plus que le temps de dire la phrase (son bloqué par le
+        // navigateur, calcul de la voix en retard : la leçon ne reste pas figée)
+        const length = this.ui.text.textContent.length;
+        const elapsed = this._time - (this._state.spokenAt ?? 0);
+        const reading = (this.voices.status?.state === 'loading' && elapsed > 2 + length * 0.05) || elapsed > 4 + length * 0.08;
         const talked = !this._state.speaking || reading || (step.urgent && this._time - this._state.entered > 2.5);
         const radioDone = !step.radio || (safe(() => step.radio.until(c)) && !this.atc.busy && !this.atc.pending);
         // Explication sans action : l'étape suivante vient seule, une fois la consigne dite et le temps de la lire
@@ -605,12 +642,13 @@ class Initiation {
             atc.setFrequency(atc.suggestion);
             return;
         }
-        if (!step.radio || !this._state.spoken || this._state.speaking) return;
-        if (step.radio.until(c)) return;
-        const option = atc.options.find((o) => step.radio.ids.includes(o.id));
-        if (option && this._time - (this._state.lastSend ?? -99) > 8) {
-            this._state.lastSend = this._time;
-            atc.choose(option.id);
+        const due = this._dueRadio(step, c);
+        // Message d'une étape passée : la radio d'abord, le moniteur s'interrompt pour le faire
+        if (!due || (this._state.speaking && !due.owed)) return;
+        if (due && this._time - (this._lastSend ?? -99) > 8) {
+            if (this._state.speaking) this.voices.stopInstructor();
+            this._lastSend = this._time;
+            atc.choose(due.option.id);
         }
     }
 
@@ -646,12 +684,19 @@ class Initiation {
                 this._say(this._t(`Le contrôleur vous a donné un code transpondeur : ${[...atc.squawk].join(' ')}. Tapez-le dans la case Transpondeur du panneau radio, puis Entrée. Il permet au radar de vous identifier.`,
                     `The controller gave you a transponder code: ${[...atc.squawk].join(' ')}. Type it in the Transponder box of the radio panel, then press Enter. It lets the radar identify you.`));
             }
-        } else if (step.radio && this._state.spoken && !step.radio.until(c)) {
-            const option = atc.options.find((o) => step.radio.ids.includes(o.id));
-            if (option) {
-                hints.push(`radio:${option.id}`);
-                line = this._t(`Dites : « ${option.message.text} »`, `Say: "${option.message.text}"`);
-            } else if (atc.busy) line = this._t('Écoutez la réponse…', 'Listen to the answer…');
+        } else {
+            const due = this._dueRadio(step, c);
+            if (due) {
+                hints.push(`radio:${due.option.id}`);
+                line = this._t(`Dites : « ${due.option.message.text} »`, `Say: "${due.option.message.text}"`);
+                // Message oublié d'une étape passée : le moniteur le rappelle, une fois
+                if (due.owed && this._owedHint !== due.step) {
+                    this._owedHint = due.step;
+                    this.openAtc(true);
+                    this._say(this._t(`N'oubliez pas le message radio « ${due.step.title} » : il clignote dans le panneau radio.`,
+                        `Don't forget the "${due.step.title}" radio call: it is flashing in the radio panel.`));
+                }
+            } else if (step.radio && atc.busy) line = this._t('Écoutez la réponse…', 'Listen to the answer…');
         }
         this.ui.hint.textContent = line;
         this.ui.hint.hidden = !line;
@@ -724,6 +769,19 @@ class Initiation {
     }
 }
 
+// Anneaux de roulage du point d'attente à l'alignement : entrée sur la piste en service par la voie du milieu, virage
+// vers le sens du décollage, arrêt sur l'axe
+function lineUpGuide(c) {
+    const rw = c.s?.active;
+    if (!rw) return [];
+    const center = rw.threshold.clone().addScaledVector(rw.direction, rw.length / 2);
+    // Côté de la piste où se trouve l'avion (celui de la voie de circulation)
+    const side = (c.position.x - center.x) * rw.left.x + (c.position.z - center.z) * rw.left.z > 0 ? 1 : -1;
+    const at = (along, lateral) => [center.x + rw.direction.x * along + rw.left.x * lateral * side,
+        center.z + rw.direction.z * along + rw.left.z * lateral * side];
+    return [at(0, 22), at(18, 7), at(45, 0)];
+}
+
 // --- Le programme : de l'avion éteint au parking à l'arrêt moteur après un tour de piste ----------------------------
 // Étape : { phase, title, say (texte ou fonction), why, target (commande(s), 'inst:…', 'html:…', 'radio:…'),
 //   camera ('pilot' | 'none'), done (c, flags, delta), wait (c) : moment où le moniteur parle, next (explication sans
@@ -787,8 +845,8 @@ function buildSteps(level, lang = 'fr') {
         say: T("Allumez l'avionique : la moitié gauche de l'interrupteur blanc AVIONICS, marquée BUS 1. Elle alimente la radio et le transpondeur.",
             'Switch on the avionics: the left half of the white AVIONICS switch, marked BUS 1. It powers the radio and the transponder.') });
     add(P, { title: T('Afficher la radio', 'Show the radio'), target: 'html:#atc-bouton', camera: 'none', done: (c) => c.atcOpen,
-        say: T("Affichez le panneau radio : appuyez sur Échap pour faire apparaître la barre de menus en haut, puis cliquez sur Tour, encadré en jaune. Les messages échangés avec le contrôleur s'y affichent.",
-            'Show the radio panel: press Escape to bring up the menu bar at the top, then click Tour, framed in yellow. The messages exchanged with the controller appear there.'),
+        say: T("Affichez le panneau radio : dans la barre de menus en haut, cliquez sur Tour, encadré en jaune. Les messages échangés avec le contrôleur s'y affichent. Si la barre est cachée, la touche Échap la fait réapparaître.",
+            'Show the radio panel: in the menu bar at the top, click Tour, framed in yellow. The messages exchanged with the controller appear there. If the bar is hidden, the Escape key brings it back.'),
         why: T('Le panneau radio garde la trace écrite de chaque message : utile si on a mal entendu.', 'The radio panel keeps a written record of every message: useful if you missed something.') });
     if (L1) {
         add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), camera: 'pilot', afterSay: (c) => c.atc.playAtis(), praise: false,
@@ -818,12 +876,11 @@ function buildSteps(level, lang = 'fr') {
     add(P, { title: T('Mixture plein riche', 'Mixture rich'), target: 'mixture', done: (c) => c.sys.mixture >= 0.95,
         say: T('Poussez la mixture à fond : la manette rouge. Cliquez sur sa moitié haute, ou appuyez plusieurs fois sur U.', 'Push the mixture fully in: the red knob. Click its upper half, or press U several times.'),
         why: T('Mixture : le dosage air-essence. Plein riche pour démarrer et au sol.', 'The mixture sets the fuel-air ratio. Full rich for starting and on the ground.') });
-    add(P, { title: T('Amorçage : pompe électrique', 'Priming: fuel pump'), target: 'switch:fuelPump', done: (c) => c.sys.switches.fuelPump && c.sys.prime >= 2,
-        say: T("Allumez la pompe électrique, FUEL PUMP, et laissez-la tourner trois secondes : elle envoie de l'essence dans les cylindres.",
-            'Switch on the electric FUEL PUMP and let it run for three seconds: it sends fuel into the cylinders.'),
-        why: T('Un moteur amorcé démarre du premier coup.', 'A primed engine starts first time.') });
-    add(P, { title: T('Pompe coupée', 'Fuel pump off'), target: 'switch:fuelPump', done: (c) => !c.sys.switches.fuelPump,
-        say: T("C'est amorcé : coupez la pompe.", "It's primed: switch the pump off.") });
+    add(P, { title: T('Pompe électrique', 'Fuel pump'), target: 'switch:fuelPump', done: (c) => c.sys.switches.fuelPump && c.sys.prime >= 2,
+        say: T("Allumez la pompe électrique, FUEL PUMP, et attendez trois secondes : elle envoie de l'essence dans les cylindres. Elle reste allumée jusqu'à 900 pieds en montée.",
+            'Switch on the electric FUEL PUMP and wait three seconds: it sends fuel into the cylinders. It stays on until 900 feet in the climb.'),
+        why: T("Un moteur amorcé démarre du premier coup. Ensuite, la pompe électrique double la pompe du moteur pendant le roulage, le décollage et la montée initiale : si celle-ci lâchait près du sol, le moteur resterait alimenté.",
+            'A primed engine starts first time. Then the electric pump backs up the engine-driven pump during taxi, take-off and the initial climb: if that one failed close to the ground, the engine would still get fuel.') });
     add(P, { title: T('Gaz : un centimètre', 'Throttle: open slightly'), target: 'throttle', done: (c) => c.throttle >= 0.05 && c.throttle <= 0.35,
         say: T('Ouvrez un peu les gaz : un clic sur le haut de la manette noire, ou la barre Espace un court instant.', 'Open the throttle slightly: one click on the top of the black knob, or a short press on the space bar.'),
         why: T("Un filet de gaz aide le moteur à partir, sans qu'il s'emballe.", 'A little throttle helps the engine start without racing.') });
@@ -893,12 +950,10 @@ function buildSteps(level, lang = 'fr') {
             'Check the trim: the small wheel on the pedestal, between the seats. Its pointer must be on the TAKE OFF mark. W and X keys to adjust it, or the mouse wheel on the trim wheel.'),
         why: T("Le trim règle la vitesse que l'avion garde manche lâché. Au repère décollage, il monte tout seul vers la bonne vitesse après l'envol.",
             'The trim sets the speed the aeroplane holds hands-off. On the take-off mark, it climbs at the right speed on its own after lift-off.') });
-    add(P, { title: T('Phare, strobes et pompe', 'Lights and fuel pump'), parts: [['switch:land', (c) => c.sys.switches.land], ['switch:strobe', (c) => c.sys.switches.strobe], ['switch:fuelPump', (c) => c.sys.switches.fuelPump]],
+    add(P, { title: T('Phare et strobes', 'Landing light and strobes'), parts: [['switch:land', (c) => c.sys.switches.land], ['switch:strobe', (c) => c.sys.switches.strobe], ['switch:fuelPump', (c) => c.sys.switches.fuelPump]],
         done: (c) => c.sys.switches.land && c.sys.switches.strobe && c.sys.switches.fuelPump,
-        say: T("Allumez le phare d'atterrissage, LAND, et les feux à éclats, STROBE : on doit nous voir de loin. Puis la pompe électrique, FUEL PUMP.",
-            'Switch on the LAND light and the STROBE lights: we must be seen from far away. Then the electric FUEL PUMP.'),
-        why: T("La pompe électrique double la pompe du moteur : si celle-ci lâchait au décollage, près du sol, le moteur resterait alimenté.",
-            'The electric pump backs up the engine-driven pump: if that one failed during take-off, close to the ground, the engine would still get fuel.') });
+        say: T("Allumez le phare d'atterrissage, LAND, et les feux à éclats, STROBE : on doit nous voir de loin. La pompe électrique, FUEL PUMP, est toujours allumée.",
+            'Switch on the LAND light and the STROBE lights: we must be seen from far away. The electric FUEL PUMP is still on.') });
     radio(P, { title: T('Prêt au départ', 'Ready for departure'), ids: ['readyHold', 'readyFirst'], until: (c) => ['holding', 'lineup', 'takeoff'].includes(c.atc.state),
         why: T("Au point d'attente, on appelle la Tour : elle gère la piste et le tour de piste.", 'At the holding point, we call the Tower: it controls the runway and the circuit.'),
         say1: T("J'annonce à la Tour que nous sommes prêts au départ. Écoutons sa réponse.", "I'm telling the Tower we are ready for departure. Let's listen to the answer."),
@@ -909,10 +964,10 @@ function buildSteps(level, lang = 'fr') {
         done: (c) => ['lineup', 'takeoff'].includes(c.atc.state) && !c.atc.pending && !c.atc.busy,
         say: T("La Tour nous autorise à nous aligner et attendre : on entre sur la piste, mais on ne décolle pas encore.",
             'The Tower clears us to line up and wait: we enter the runway, but we do not take off yet.') });
-    add(P, { title: T('Frein desserré, alignement', 'Line up'), target: 'brake', lookOutWhen: (c) => !c.controls.parkingBrake,
+    add(P, { title: T('Frein desserré, alignement', 'Line up'), target: 'brake', lookOutWhen: (c) => !c.controls.parkingBrake, guide: lineUpGuide,
         done: (c) => !c.controls.parkingBrake && c.s?.zone === 'runway' && headingDiff(c.heading, c.s.active.heading) < 15 && c.groundKt < 5,
-        say: (c) => T(`Desserrez le frein, entrez sur la piste et alignez-vous face au cap ${capSay(c.s?.active?.heading ?? 0)}, sur l'axe. Arrêtez-vous une fois aligné : freins avec B.`,
-            `Release the brake, enter the runway and line up on the centre line, heading ${capSay(c.s?.active?.heading ?? 0)}. Stop once lined up: brakes with B.`),
+        say: (c) => T(`Desserrez le frein, puis suivez les anneaux jaunes : entrez sur la piste et alignez-vous sur l'axe, face au cap ${capSay(c.s?.active?.heading ?? 0)}. Arrêtez-vous au dernier anneau : freins avec B.`,
+            `Release the brake, then follow the yellow rings: enter the runway and line up on the centre line, heading ${capSay(c.s?.active?.heading ?? 0)}. Stop at the last ring: brakes with B.`),
         why: T("S'aligner bien droit évite de partir de travers en prenant de la vitesse.", 'Lining up straight keeps us from veering off as we pick up speed.') });
     radio(P, { title: T('Autorisation de décollage', 'Take-off clearance'), ids: [], camera: 'pilot',
         until: (c) => c.atc.state === 'takeoff', done: (c) => c.atc.state === 'takeoff' && !c.atc.pending,

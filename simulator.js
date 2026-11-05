@@ -1029,6 +1029,16 @@ fullscreenButton.addEventListener('click', (event) => {
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyF' && !event.repeat && !isTypingTarget(event.target)) toggleFullscreen();
 });
+// En arrivant sur le simulateur : plein écran dès le premier clic ou la première touche (le navigateur refuse le plein
+// écran sans geste du joueur). Une seule fois : quitté ensuite, il n'est plus imposé
+function enterFullscreenOnce(event) {
+    window.removeEventListener('pointerdown', enterFullscreenOnce, true);
+    window.removeEventListener('keydown', enterFullscreenOnce, true);
+    if (document.fullscreenElement || event.code === 'KeyF' || event.key === 'Escape') return;   // F : géré par la touche
+    simulatorElement.requestFullscreen().catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
+}
+window.addEventListener('pointerdown', enterFullscreenOnce, true);
+window.addEventListener('keydown', enterFullscreenOnce, true);
 const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
 settingsFullscreenButton.addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', () => {
@@ -1473,11 +1483,11 @@ function chooseSpawn(spawn) {
     closeSpawnDialog();
     spawnAt(spawn);
     view.focus();
-    showEscapeHint();
+    setMenuBar(true);
 }
 
-// Barre de menus (Commandes, Météo, Carte, Tour, En ligne, Profil, Paramètres) : cachée pendant le vol, Échap l'affiche
-// ou la cache. Pas pendant le menu principal, au hangar, au choix du départ, ni quand une fenêtre est ouverte (Échap
+// Barre de menus (Commandes, Météo, Carte, Tour, En ligne, Profil, Paramètres) : affichée en début de partie, Échap la
+// cache ou la réaffiche. Pas pendant le menu principal, au hangar, au choix du départ, ni quand une fenêtre est ouverte (Échap
 // la ferme) ; un menu déroulé est d'abord refermé (voir closeMenus)
 const escapeHint = document.getElementById('astuce-echap');
 let escapeHintTimer = 0;
@@ -1496,7 +1506,9 @@ window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.repeat) return;
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
     if (menus.some((menu) => !menu.querySelector('.menu-contenu').hidden)) return;   // Échap referme d'abord le menu
-    setMenuBar(!simulatorElement.classList.contains('barre'));
+    const visible = !simulatorElement.classList.contains('barre');
+    setMenuBar(visible);
+    if (!visible) showEscapeHint();   // barre cachée : rappel pour la retrouver
 }, true);
 
 view.addEventListener('pointermove', (event) => {
@@ -2314,7 +2326,6 @@ var initiation = new Initiation({
         panel: $('moniteur'), phase: $('moniteur-phase'), count: $('moniteur-compte'), progress: $('moniteur-progression'),
         title: $('moniteur-titre'), text: $('moniteur-texte'), why: $('moniteur-pourquoi'), hint: $('moniteur-souffle'),
         advice: $('moniteur-conseil'), praise: $('moniteur-bravo'), next: $('moniteur-continuer'),
-        buttons: { next: $('moniteur-continuer'), repeat: $('moniteur-repeter'), show: $('moniteur-montrer'), skip: $('moniteur-passer'), quit: $('moniteur-quitter') },
     },
     // Leçon en anglais : contrôleurs en anglais aussi (phraséologie OACI) ; langue d'avant rétablie à la fin
     setRadioLanguage: (lang) => setAtcLanguage(lang),
@@ -2331,6 +2342,7 @@ var initiation = new Initiation({
         if (choosingSpawn) closeSpawnDialog();
         spawnAt(spawn);
         setCabinViewPreset(1);
+        setMenuBar(true);
     },
     focusCabin,
     pilotView: () => setCabinViewPreset(1),
@@ -2373,7 +2385,6 @@ const keepFocus = (handler) => () => { handler(); view.focus(); };
 $('moniteur-continuer').addEventListener('click', keepFocus(() => initiation.continue()));
 $('moniteur-repeter').addEventListener('click', keepFocus(() => initiation.repeat()));
 $('moniteur-montrer').addEventListener('click', keepFocus(() => initiation.show()));
-$('moniteur-passer').addEventListener('click', keepFocus(() => initiation.skip()));
 $('moniteur-quitter').addEventListener('click', keepFocus(() => {
     const message = initiation.lang === 'en' ? 'Quit the lesson? The aeroplane stays where it is, in solo mode.' : 'Quitter l\'initiation ? L\'avion reste où il est, en solo.';
     if (confirm(message)) initiation.stop();
