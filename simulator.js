@@ -19,6 +19,7 @@ import { VOR } from './js/VOR.js';
 import { Systems, TANK_CAPACITY, MAGNETOS, FUEL_SELECTOR } from './js/Systems.js';
 import { tabletRegistry } from './js/TabletRegistry.js';
 import { TabletPanels } from './js/TabletPanels.js';
+import { makeDraggable } from './js/Draggable.js';
 import { CrashEffect } from './js/CrashEffect.js';
 import { ControlSurfaces, Gear } from './js/ControlSurfaces.js';
 import { Settings } from './js/Settings.js';
@@ -1109,6 +1110,15 @@ function enterFullscreenOnce(event) {
 }
 window.addEventListener('pointerdown', enterFullscreenOnce, true);
 window.addEventListener('keydown', enterFullscreenOnce, true);
+// iPad : Safari interdit toute saisie au clavier en plein écran (protection contre les faux claviers) et affiche alors
+// « Il semble que vous saisissiez du texte en plein écran ». Une case de texte touchée (transpondeur, immatriculation,
+// pseudo…) fait donc d'abord quitter le plein écran : le clavier s'ouvre normalement, le bouton ⛶ le remet ensuite
+document.addEventListener('focusin', (event) => {
+    const field = event.target;
+    const typing = field instanceof HTMLTextAreaElement
+        || (field instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'range', 'submit', 'color', 'file'].includes(field.type));
+    if (typing && isTablet() && fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+});
 const settingsFullscreenButton = document.getElementById('reglages-plein-ecran');
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -2133,6 +2143,8 @@ window.addEventListener('keydown', (event) => {
 // --- Contrôle aérien : fenêtre (bouton "Tour" du bandeau), fréquences Sol / Tour / Approche, messages au choix
 // selon la phase du vol, personnes à bord, transpondeur ------------------------------------------------------
 const atcPanel = document.getElementById('atc');
+// Fenêtre radio : déplaçable n'importe où sur l'écran (glisser sa barre de titre), position gardée
+makeDraggable(atcPanel, atcPanel.querySelector('.carte-entete'), 'esme-fenetre-radio');
 const atcButton = document.getElementById('atc-bouton');
 const atcJournal = document.getElementById('atc-journal');
 const atcChoices = document.getElementById('atc-choix');
@@ -2974,7 +2986,8 @@ window.addEventListener('keydown', (event) => {
 });
 
 // Paramètres graphiques : menu ouvert depuis la case "Paramètre" du bandeau ou le bouton ⚙ Qualité
-const settings = new Settings();
+// Tablette : qualité « Moyen » par défaut (« Haut » faisait chuter les images par seconde en vol sur iPad)
+const settings = new Settings({ defaultPreset: isTablet() ? 'moyen' : 'haut' });
 const settingsDialog = document.getElementById('reglages-dialog');
 let fpsLimit = 0;   // 0 = pas de limite (fréquence de l'écran)
 
@@ -3155,6 +3168,7 @@ function checkPlaneCollisions() {
 }
 
 let initiationErrorShown = false;
+let lastTouchInset = '';
 renderer.setAnimationLoop((time)=>{
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
     if (fpsLimit > 0) {
@@ -3283,6 +3297,13 @@ renderer.setAnimationLoop((time)=>{
     touchControls.update(!inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
     tabletPanels?.update(delta, !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
     flightHud.bottomInset = touchControls.inset;   // jauges du HUD au-dessus des commandes tactiles
+    // Bouton et panneau ILS (bas gauche) : au-dessus des jauges, qui montent elles-mêmes au-dessus du manche tactile
+    const insetKey = `${touchControls.inset.left}/${touchControls.inset.right}`;
+    if (insetKey !== lastTouchInset) {
+        lastTouchInset = insetKey;
+        simulatorElement.style.setProperty('--tactile-gauche', `${touchControls.inset.left}px`);
+        simulatorElement.style.setProperty('--tactile-droite', `${touchControls.inset.right}px`);
+    }
     checkNewShaders(performance.now());
     if (!shaderWarmup) graphics.render();
     updatePerf(performance.now() - frameStart);

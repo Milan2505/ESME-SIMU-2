@@ -17,7 +17,8 @@ let context = null;
 function sharedAudioContext() {
     if (!context) {
         try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* non pris en charge */ }
-        context = new AudioContext();
+        // (iPadOS < 14.5 : seulement le nom préfixé webkitAudioContext)
+        context = new (window.AudioContext ?? window.webkitAudioContext)();
     }
     return context;
 }

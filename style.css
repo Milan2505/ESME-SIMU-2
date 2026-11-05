@@ -2515,8 +2515,10 @@ body:has(#simulator.jeu) {
   border-left: none;
   border-right: 2px solid black;
 }
-html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) {
-  --haut-systeme: max(env(safe-area-inset-top, 0px), 28px);
+/* Plein écran sur iPad : Safari masque l'heure mais pose sa croix de sortie dans le coin haut-gauche (~90 × 60 px) ; ses
+   touchers vont à Safari. La première case de la barre (Commandes) commence à sa droite */
+html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) > #commandes {
+  margin-left: 96px;
 }
 #simulator.jeu > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre, #masse-bouton, #mode-photo,
   #barre-plein-ecran, #quitter-partie) {
@@ -2592,16 +2594,19 @@ html.tablette #simulator.jeu:is(:fullscreen, :-webkit-full-screen) {
   margin: 12px;
 }
 /* ILS : bouton au-dessus des jauges de gauche, panneau au-dessus de celles de droite */
+/* (--tactile-gauche : hauteur du manche tactile, sous les jauges ; posée par simulator.js) */
 #simulator.jeu > #ils-bouton {
-  margin-bottom: calc(var(--hud-u) * 250);
+  margin-bottom: calc(var(--hud-u) * 250 + var(--tactile-gauche, 0px));
 }
 #simulator.jeu > #ils-panneau {
-  margin-bottom: calc(var(--hud-u) * 250);
+  margin-bottom: calc(var(--hud-u) * 250 + var(--tactile-droite, 0px));
 }
-/* Infos de vol masquées (réglage, vue cabine) : panneaux à leur place habituelle */
-#simulator.jeu.sans-hud > #ils-bouton,
+/* Infos de vol masquées (réglage, vue cabine) : panneaux à leur place habituelle (au-dessus des commandes tactiles) */
+#simulator.jeu.sans-hud > #ils-bouton {
+  margin-bottom: calc(12px + var(--tactile-gauche, 0px));
+}
 #simulator.jeu.sans-hud > #ils-panneau {
-  margin-bottom: 12px;
+  margin-bottom: calc(12px + var(--tactile-droite, 0px));
 }
 
 /* Masse et centrage (WeightBalance.js) : chargement à gauche, graphique à droite, thème du menu principal */

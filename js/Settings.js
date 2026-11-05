@@ -56,10 +56,12 @@ const DEFAULT_PRESET = 'haut';
 const CUSTOM = 'perso';
 
 class Settings extends EventTarget {
-    constructor() {
+    // defaultPreset : préréglage tant que le joueur n'a rien choisi (tablette : « moyen »)
+    constructor({ defaultPreset = DEFAULT_PRESET } = {}) {
         super();
-        this.preset = DEFAULT_PRESET;
-        this.values = { ...PRESETS[DEFAULT_PRESET], perf: false, ...FLIGHT_DEFAULTS };
+        const preset = PRESETS[defaultPreset] ? defaultPreset : DEFAULT_PRESET;
+        this.preset = preset;
+        this.values = { ...PRESETS[preset], perf: false, ...FLIGHT_DEFAULTS };
         delete this.values.label;
         this._load();
         this._selects = {};
