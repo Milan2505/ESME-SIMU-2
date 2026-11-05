@@ -116,7 +116,8 @@ class RadioVoices extends EventTarget {
         return PILOT_RATES[hash % PILOT_RATES.length];
     }
 
-    // Prépare un message (calcul de la voix pendant que l'autre parle) ; renvoie un objet { play() }.
+    // Prépare un message (calcul de la voix pendant que l'autre parle) ; renvoie un objet { play(), cancel() } (cancel :
+    // lecture arrêtée, morceaux suivants compris).
     // Autre joueur (multijoueur) : role 'otherPilot', seed = son identifiant, lang = la langue de son message.
     // Chaque rôle garde toujours la même voix : voix réaliste dans toutes les langues ; un calcul raté est refait
     // (pas de voix de l'ordinateur pour un seul message) ; la voix de l'ordinateur ne sert que si les voix réalistes
@@ -135,20 +136,35 @@ class RadioVoices extends EventTarget {
             audios.forEach((a) => a.catch(() => {}));
             try {
                 await audios[0];
+                let cancelled = false;
                 return {
                     play: async () => {
                         for (const audio of audios) {
                             const data = await audio.catch(() => null);   // morceau perdu : on passe au suivant, même voix
+                            if (cancelled) return;
                             if (data) await this._play(data, role, audio === audios[audios.length - 1], rate);
                         }
+                    },
+                    cancel: () => {
+                        cancelled = true;
+                        this._stopRole(role);
                     },
                 };
             } catch (error) {
                 this._failed(error);
-                if (this.status.state !== 'error') return { play: () => wait(300) };   // message perdu, voix inchangée
+                if (this.status.state !== 'error') return { play: () => wait(300), cancel: () => {} };   // message perdu, voix inchangée
             }
         }
-        return { play: () => this._speakSystem(spoken, role === 'otherPilot' ? 'pilot' : role, language) };
+        return { play: () => this._speakSystem(spoken, role === 'otherPilot' ? 'pilot' : role, language), cancel: () => window.speechSynthesis?.cancel() };
+    }
+
+    // Lectures en cours d'un rôle arrêtées (ATIS coupé, voir ATC.skipAtis)
+    _stopRole(role) {
+        for (const finish of [...this._playing]) {
+            if (finish.role !== role) continue;
+            try { finish.source.stop(); } catch { /* déjà arrêtée */ }
+            finish();
+        }
     }
 
     // Calcul refait jusqu'à deux fois (le fil de calcul planté est recréé entre-temps)

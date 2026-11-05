@@ -358,6 +358,18 @@ class ATC extends EventDispatcher {
         });
     }
 
+    // Initiation, bouton Passer : l'ATIS en cours est coupé ; pas encore écouté, il est seulement écrit dans le journal
+    skipAtis() {
+        if (this._atisCut) {
+            this._atisClip?.cancel?.();
+            this._atisCut();
+            return;
+        }
+        if (this.log.some((l) => l.from === 'atis')) return;
+        this.log.push({ from: 'atis', text: this._atisMessage().text, station: null });
+        this._changed();
+    }
+
     playAtis() {
         if (this.busy) return;
         const gen = this._gen;
@@ -1221,8 +1233,17 @@ class ATC extends EventDispatcher {
         return this._addTraffic({ message: this._t(fr, en), readback: this._t(rbFr, rbEn) }, this._circuitTraffic('final'));
     }
 
+    // Alignement : l'avion est au point d'attente du milieu de la piste -> il remonte la piste jusqu'au seuil
     _lineUpClearance(rw, { open = '', sq = '', sqRb = '', qnh = '', code = null } = {}) {
         const first = (word) => code ? word.charAt(0).toLowerCase() + word.slice(1) : word;   // "4621, alignons…" / "Alignons…"
+        const p = this.s?.position;
+        const along = p ? (p.x - rw.threshold.x) * rw.direction.x + (p.z - rw.threshold.z) * rw.direction.z : 0;
+        if (along > 200) return [
+            () => msg`${this._abbr()}, ${open}${sq}remontez ${this._rwy(rw)}, alignez-vous et attendez${qnh}.`,
+            () => msg`${this._abbr()}, ${open}${sq}backtrack ${this._rwy(rw)}, line up and wait${qnh}.`,
+            () => msg`${sqRb}${first('Remontons')} ${this._rwy(rw)}, alignons-nous et attendons${qnh}, ${this._abbr()}.`,
+            () => msg`${sqRb}${first('Backtracking')} ${this._rwy(rw)}, lining up and waiting${qnh}, ${this._abbr()}.`,
+        ];
         return [
             () => msg`${this._abbr()}, ${open}${sq}alignez-vous et attendez ${this._rwy(rw)}${qnh}.`,
             () => msg`${this._abbr()}, ${open}${sq}line up and wait ${this._rwy(rw)}${qnh}.`,
@@ -1494,8 +1515,12 @@ class ATC extends EventDispatcher {
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: true });
         this._changed();
         this.sounds?.squelch(0.16, 0.08);
-        if (clip && this.voice) await clip.play();
-        else await wait((0.8 + message.text.length * 0.065) * 1000);
+        // ATIS : peut être coupé en cours (bouton Passer de l'initiation, voir skipAtis)
+        const cut = from === 'atis' ? new Promise((resolve) => { this._atisCut = resolve; }) : null;
+        this._atisClip = from === 'atis' ? clip : this._atisClip;
+        const playing = clip && this.voice ? clip.play() : wait((0.8 + message.text.length * 0.065) * 1000);
+        await (cut ? Promise.race([playing, cut]) : playing);
+        if (cut) this._atisCut = this._atisClip = null;
         this.sounds?.squelch(0.22, 0.14);
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: false });
     }

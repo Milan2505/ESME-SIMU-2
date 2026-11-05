@@ -492,6 +492,11 @@ class Initiation {
         this.voices.stopInstructor();
         this._state.speaking = false;
         this._state.skipped = true;
+        // ATIS : coupé (ou, pas encore lancé, seulement écrit dans le journal radio) ; l'étape passe dès la fin
+        if (step.atis) {
+            this._state.afterDone = true;
+            this.atc.skipAtis();
+        }
         if (step.next) this._next();
     }
 
@@ -790,18 +795,23 @@ class Initiation {
     }
 }
 
-// Anneaux de roulage du point d'attente à l'alignement : entrée sur la piste en service par la voie du milieu, virage
-// vers le sens du décollage, arrêt sur l'axe
+// Anneaux de roulage du point d'attente à l'alignement : la voie de circulation rejoint la piste en son milieu ; on entre
+// sur la piste, on la remonte jusqu'au seuil de la piste en service (à côté de l'axe), demi-tour, arrêt aligné sur l'axe
+const LINEUP_PATH = [[500, 22], [470, 8], [370, 8], [270, 8], [170, 8], [80, 10], [40, 10], [22, 0], [40, -10], [70, 0]];
+const LINEUP_AT = 70;   // m : point d'alignement, après le seuil
 function lineUpGuide(c) {
     const rw = c.s ? c.atc.departureRunway : null;
     if (!rw) return [];
-    const center = rw.threshold.clone().addScaledVector(rw.direction, rw.length / 2);
     // Côté de la piste où se trouve l'avion (celui de la voie de circulation)
-    const side = (c.position.x - center.x) * rw.left.x + (c.position.z - center.z) * rw.left.z > 0 ? 1 : -1;
-    const at = (along, lateral) => [center.x + rw.direction.x * along + rw.left.x * lateral * side,
-        center.z + rw.direction.z * along + rw.left.z * lateral * side];
-    return [at(0, 22), at(18, 7), at(45, 0)];
+    const side = (c.position.x - rw.threshold.x) * rw.left.x + (c.position.z - rw.threshold.z) * rw.left.z > 0 ? 1 : -1;
+    return LINEUP_PATH.map(([along, lateral]) => [rw.threshold.x + rw.direction.x * along + rw.left.x * lateral * side,
+        rw.threshold.z + rw.direction.z * along + rw.left.z * lateral * side]);
 }
+// Distance au seuil de la piste du départ, le long de l'axe (m)
+const alongDeparture = (c) => {
+    const rw = c.atc.departureRunway;
+    return (c.position.x - rw.threshold.x) * rw.direction.x + (c.position.z - rw.threshold.z) * rw.direction.z;
+};
 
 // --- Le programme : de l'avion éteint au parking à l'arrêt moteur après un tour de piste ----------------------------
 // Étape : { phase, title, say (texte ou fonction), why, target (commande(s), 'inst:…', 'html:…', 'radio:…'),
@@ -877,12 +887,12 @@ function buildSteps(level, lang = 'fr') {
             'Show the radio panel: in the menu bar at the top, click Tour, framed in yellow. The messages exchanged with the controller appear there. If the bar is hidden, the Escape key brings it back.'),
         why: T('Le panneau radio garde la trace écrite de chaque message : utile si on a mal entendu.', 'The radio panel keeps a written record of every message: useful if you missed something.') });
     if (L1) {
-        add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), camera: 'pilot', afterSay: (c) => c.atc.playAtis(), praise: false,
+        add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), camera: 'pilot', afterSay: (c) => c.atc.playAtis(), praise: false, atis: true,
             done: (c) => c.atc.log.some((l) => l.from === 'atis') && !c.atc.busy,
             say: T("Avant d'appeler, on écoute l'ATIS : le bulletin météo enregistré de l'aérodrome. Il donne la piste en service, le vent et le calage altimétrique. Écoutez bien.",
                 'Before calling, we listen to the ATIS: the recorded weather broadcast of the airfield. It gives the runway in use, the wind and the altimeter setting. Listen carefully.') });
     } else {
-        add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), target: 'html:#atc-atis', enter: (c, t) => t.openAtc(true),
+        add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), target: 'html:#atc-atis', enter: (c, t) => t.openAtc(true), atis: true,
             done: (c) => c.atc.log.some((l) => l.from === 'atis') && !c.atc.busy,
             say: T("Avant d'appeler, on écoute l'ATIS : le bulletin météo enregistré. Dans le panneau radio, cliquez sur Écouter l'ATIS. Retenez sa lettre : vous la donnerez au contrôleur.",
                 'Before calling, we listen to the ATIS: the recorded weather broadcast. In the radio panel, click the ATIS button. Remember its letter: you will give it to the controller.') });
@@ -993,13 +1003,15 @@ function buildSteps(level, lang = 'fr') {
         wait: (c) => c.atc.state !== 'holding', waiting: T("La Tour nous fait attendre au point d'attente : du trafic utilise la piste. Restez arrêté.",
             'The Tower is holding us short: there is traffic using the runway. Stay where you are.'),
         done: (c) => ['lineup', 'takeoff'].includes(c.atc.state) && !c.atc.pending && !c.atc.busy,
-        say: T("La Tour nous autorise à nous aligner et attendre : on entre sur la piste, mais on ne décolle pas encore.",
-            'The Tower clears us to line up and wait: we enter the runway, but we do not take off yet.') });
+        say: T("La Tour nous autorise à remonter la piste et à nous aligner : on entre sur la piste, on va jusqu'au seuil, mais on ne décolle pas encore.",
+            'The Tower clears us to backtrack and line up: we enter the runway and go to the threshold, but we do not take off yet.') });
     add(P, { title: T('Frein desserré, alignement', 'Line up'), target: 'brake', lookOutWhen: (c) => !c.controls.parkingBrake, guide: lineUpGuide,
-        done: (c) => !c.controls.parkingBrake && c.s?.zone === 'runway' && headingDiff(c.heading, c.atc.departureRunway.heading) < 15 && c.groundKt < 5,
-        say: (c) => T(`Desserrez le frein, puis suivez les anneaux jaunes : entrez sur la piste et alignez-vous sur l'axe, face au cap ${capSay(c.atc.departureRunway.heading)}, ${rwySay(c.atc.departureRunway)}. Arrêtez-vous au dernier anneau : freins avec B.`,
-            `Release the brake, then follow the yellow rings: enter the runway and line up on the centre line, heading ${capSay(c.atc.departureRunway.heading)}, ${rwySay(c.atc.departureRunway)}. Stop at the last ring: brakes with B.`),
-        why: T("S'aligner bien droit évite de partir de travers en prenant de la vitesse.", 'Lining up straight keeps us from veering off as we pick up speed.') });
+        done: (c) => !c.controls.parkingBrake && c.s?.zone === 'runway' && headingDiff(c.heading, c.atc.departureRunway.heading) < 15 && c.groundKt < 5
+            && alongDeparture(c) < LINEUP_AT + 80,
+        say: (c) => T(`Desserrez le frein, puis suivez les anneaux jaunes : entrez sur la piste et remontez-la, doucement, jusqu'au seuil de la ${rwySay(c.atc.departureRunway)}. Là, demi-tour, et alignez-vous sur l'axe, face au cap ${capSay(c.atc.departureRunway.heading)}. Arrêtez-vous au dernier anneau : freins avec B.`,
+            `Release the brake, then follow the yellow rings: enter the runway and backtrack, slowly, to the threshold of ${rwySay(c.atc.departureRunway)}. There, turn around and line up on the centre line, heading ${capSay(c.atc.departureRunway.heading)}. Stop at the last ring: brakes with B.`),
+        why: T("La voie de circulation arrive au milieu de la piste : on remonte jusqu'au seuil pour avoir toute la longueur de piste devant soi au décollage. S'aligner bien droit évite de partir de travers en prenant de la vitesse.",
+            'The taxiway joins the middle of the runway: we backtrack to the threshold to have the whole runway length ahead for take-off. Lining up straight keeps us from veering off as we pick up speed.') });
     radio(P, { title: T('Prêt au départ', 'Ready for departure'), ids: ['readyRunway', 'readyFirst'], camera: 'pilot',
         until: (c) => c.atc.state === 'takeoff', done: (c) => c.atc.state === 'takeoff' && !c.atc.pending,
         why: T("Aligné, on annonce prêt au départ. La Tour n'autorise le décollage que si la piste est libre et que personne n'est en finale ; elle donne le vent et le compte rendu à faire : vent arrière, main gauche ou main droite selon la piste.",
