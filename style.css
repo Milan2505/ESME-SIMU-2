@@ -3442,3 +3442,107 @@ html.tablette #simulator.jeu.photo > #photo-sortie {
   gap: 4px;
   margin-bottom: 8px;
 }
+
+/* Barre de menus de l'ordinateur : mêmes cases et mêmes menus, au design des panneaux de la tablette (fond sombre,
+   cases arrondies, bleu = ouvert ou actif, rouge = Quitter). L'iPad n'a pas de barre (voir plus haut) */
+html:not(.tablette) #simulator.jeu::before {
+  background: rgba(14, 18, 24, 0.92);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+html:not(.tablette) #simulator.jeu:not(#_) > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre,
+  #masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie) {
+  margin: 5px 3px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  box-sizing: border-box;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+}
+html:not(.tablette) #simulator.jeu:not(#_) > #commandes {
+  margin-left: 6px;
+}
+html:not(.tablette) #simulator.jeu:not(#_) > #quitter-partie {
+  margin-right: 6px;
+  background: rgba(176, 48, 48, 0.85);
+  border-color: #ff8a80;
+}
+html:not(.tablette) #simulator.jeu .menu-titre,
+html:not(.tablette) #simulator.jeu #paramètre h4 {
+  color: #fff;
+  background: transparent;
+  border-radius: 9px;
+  letter-spacing: inherit;
+}
+/* Survol, menu ouvert, fenêtre ouverte, mode photo actif */
+html:not(.tablette) #simulator.jeu:not(#_) > :is(#paramètre, #masse-bouton, #mode-photo, #barre-plein-ecran):hover,
+html:not(.tablette) #simulator.jeu .menu-titre:hover {
+  background: rgba(143, 211, 255, 0.22);
+}
+html:not(.tablette) #simulator.jeu:not(#_) > #quitter-partie:hover {
+  background: rgba(208, 64, 64, 0.95);
+}
+html:not(.tablette) #simulator.jeu:not(#_) > :is(.menu:has(.menu-titre[aria-expanded="true"]), #carte-case:has([aria-pressed="true"]),
+  #atc-case:has([aria-pressed="true"]), #mode-photo.actif) {
+  background: rgba(30, 110, 200, 0.85);
+  border-color: #8fd3ff;
+}
+html:not(.tablette) #simulator.jeu .menu-titre:is([aria-expanded="true"], [aria-pressed="true"]) {
+  background: transparent;
+}
+/* Menus déroulants : panneaux sombres, boutons en tuiles */
+html:not(.tablette) #simulator.jeu .menu-contenu {
+  top: calc(100% + 6px);
+  left: 0;
+  color: #fff;
+  background: rgba(14, 18, 24, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  font-weight: normal;
+  letter-spacing: 0;
+}
+html:not(.tablette) #simulator.jeu :is(#météo, #online, #profil) .menu-contenu {
+  left: auto;
+  right: 0;
+}
+html:not(.tablette) #simulator.jeu .menu-contenu .menu-boutons button {
+  font-weight: bold;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+}
+html:not(.tablette) #simulator.jeu .menu-contenu .menu-boutons button:hover {
+  background: rgba(143, 211, 255, 0.22);
+}
+html:not(.tablette) #simulator.jeu .menu-contenu .menu-boutons button:is(.actif, [aria-pressed="true"]) {
+  background: rgba(30, 110, 200, 0.85);
+  border-color: #8fd3ff;
+  border-width: 1px;
+}
+html:not(.tablette) #simulator.jeu .menu-contenu :is(.menu-note, label, #couverture, .joueur-info) {
+  color: #c9d3de;
+}
+html:not(.tablette) #simulator.jeu .menu-contenu .aide th {
+  color: #8fd3ff;
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+html:not(.tablette) #simulator.jeu .menu-contenu .aide td {
+  color: #e6edf3;
+}
+html:not(.tablette) #simulator.jeu #online-liste li {
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+html:not(.tablette) #simulator.jeu .menu-contenu :is(select, input:not([type="range"])) {
+  padding: 4px 6px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+}
+html:not(.tablette) #simulator.jeu .menu-contenu option {
+  color: #000;
+}
