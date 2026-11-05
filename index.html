@@ -540,6 +540,27 @@
 		</div>
 	</dialog>
 
+	<!-- iPad : le vrai plein écran = le simulateur ouvert depuis son icône sur l'écran d'accueil (une page web ne peut pas
+	     l'installer elle-même : Apple l'interdit). Guide en 3 touchers, la flèche montre le bouton Partager -->
+	<dialog id="plein-ecran-dialog">
+		<div class="pe-fleche" aria-hidden="true">
+			<svg viewBox="0 0 24 24" width="30" height="30"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 11v9h14v-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			<span>Partager</span>
+		</div>
+		<h3>Plein écran</h3>
+		<p class="pe-intro">Sur iPad, le simulateur passe en plein écran une fois installé comme une appli. À faire une seule fois, ensuite il s'ouvre toujours en plein écran.</p>
+		<ol class="pe-etapes">
+			<li><span class="pe-num">1</span><span>Touchez <strong>Partager</strong> <svg viewBox="0 0 24 24" width="18" height="18" aria-label="(icône Partager)"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 11v9h14v-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> en haut à droite de l'écran.</span></li>
+			<li><span class="pe-num">2</span><span>Choisissez <strong>« Sur l'écran d'accueil »</strong> (faites défiler la liste si besoin), puis <strong>Ajouter</strong>.</span></li>
+			<li><span class="pe-num">3</span><span>Ouvrez <strong>ESME Simu</strong> depuis son icône sur l'écran d'accueil.</span></li>
+		</ol>
+		<p class="pe-note">Chrome, Brave, Edge : même chose, le bouton Partager est dans la barre d'adresse.</p>
+		<div class="pe-boutons">
+			<label class="pe-plus"><input type="checkbox" id="pe-ne-plus"> Ne plus afficher au lancement</label>
+			<button id="pe-fermer" type="button">Compris</button>
+		</div>
+	</dialog>
+
 	<dialog id="multi-dialog">
 		<h3>Multijoueur</h3>
 		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>

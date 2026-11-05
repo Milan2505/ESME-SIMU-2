@@ -13,4 +13,10 @@ function isStandalone() {
     return navigator.standalone === true || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
 }
 
-export { isTablet, isStandalone };
+// iPad / iPhone (tous navigateurs : sur iOS, ce sont tous des Safari déguisés) : écran tactile et « Macintosh », « iPad »
+// ou « iPhone » dans l'user agent. Le plein écran du navigateur y est inutilisable (voir simulator.js)
+function isIOS() {
+    return (navigator.maxTouchPoints ?? 0) > 1 && /Macintosh|iPad|iPhone/.test(navigator.userAgent);
+}
+
+export { isTablet, isStandalone, isIOS };

@@ -3589,3 +3589,161 @@ html:not(.tablette) #simulator.jeu #profil .menu-contenu {
 .mp-etapes strong {
   color: #fff;
 }
+
+/* Tablette : pas de zoom au double toucher (Safari ignore « user-scalable=no ») ni de sélection de texte, de loupe ou
+   de menu « Copier » sous un doigt posé sur les commandes. :where() = aucune priorité : les zones qui demandent
+   touch-action: none (vue 3D, manche, gaz) le gardent. Les cases de saisie restent sélectionnables (voir simulator.js) */
+:where(html.tablette, html.tablette *) {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+:where(html.tablette) :is(input:not([type="range"], [type="checkbox"], [type="radio"], [type="button"]), textarea, select, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* iPad : guide « Plein écran » (installer sur l'écran d'accueil), au thème du menu principal */
+#plein-ecran-dialog {
+  box-sizing: border-box;
+  width: min(560px, 92vw);
+  max-height: 86vh;
+  padding: 24px 28px 20px;
+  overflow: auto;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#plein-ecran-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.6);
+  backdrop-filter: blur(2px);
+}
+#plein-ecran-dialog h3 {
+  margin: 0 0 6px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 22px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#plein-ecran-dialog p {
+  margin: 0 0 14px;
+  text-indent: 0;
+  text-align: left;
+  font-size: 14px;
+  color: #9fb2c4;
+}
+#plein-ecran-dialog .pe-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+.pe-etapes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pe-etapes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #d6e0ea;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+.pe-etapes strong {
+  color: #fff;
+}
+.pe-etapes svg {
+  vertical-align: -3px;
+  color: #8fd3ff;
+}
+.pe-num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  font-weight: bold;
+  color: #081220;
+  background: #8fd3ff;
+  border-radius: 50%;
+}
+.pe-boutons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+.pe-plus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #9fb2c4;
+}
+.pe-plus input {
+  width: 20px;
+  height: 20px;
+}
+#pe-fermer {
+  min-width: 130px;
+  padding: 12px 22px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  background: #1d6fb8;
+  border: 1px solid #3d8fd6;
+  border-radius: 6px;
+}
+/* Flèche vers le bouton Partager de Safari (en haut à droite de l'écran, juste au-dessus de la page) */
+.pe-fleche {
+  position: fixed;
+  top: 12px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 6px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #081220;
+  background: #8fd3ff;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  animation: pe-rebond 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+.pe-fleche::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  margin-left: -8px;
+  border: 8px solid transparent;
+  border-top: 0;
+  border-bottom-color: #8fd3ff;
+}
+@keyframes pe-rebond {
+  50% { transform: translateY(-6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pe-fleche { animation: none; }
+}

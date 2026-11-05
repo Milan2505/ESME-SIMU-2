@@ -36,9 +36,43 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
-import { isTablet, isStandalone } from './js/Device.js';
+import { isTablet, isStandalone, isIOS } from './js/Device.js';
 // Tablette : marque sur la page (bande de la barre d'état d'iOS en plein écran, voir style.css)
 document.documentElement.classList.toggle('tablette', isTablet());
+// Tablette : ni zoom de la page, ni sélection de texte. Safari (iPad) ignore « user-scalable=no » du viewport : deux
+// touchers rapides sur un bouton zoomaient la page, et un doigt posé un peu longtemps (freins, manche, gaz) sélectionnait
+// le texte voisin (loupe, poignées bleues, menu Copier). En plus des règles de style.css (touch-action, user-select) :
+// - pincement à deux doigts : les « gesture » de Safari sont annulés (le zoom de la caméra, lui, lit les pointeurs) ;
+// - double toucher : le 2e toucher rapide est annulé (sinon zoom) et son clic rejoué à la main, pour que deux touchers
+//   rapides sur un bouton (volets, trim…) comptent bien deux fois ;
+// - appui long : ni menu contextuel, ni sélection. Les cases de saisie (immatriculation, transpondeur…) restent normales.
+if (isTablet()) {
+    const textField = (target) => target instanceof Element
+        && Boolean(target.closest('input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable="true"]'));
+    for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+        document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+    }
+    let lastTapEnd = 0, tapStart = null;
+    document.addEventListener('touchstart', (event) => {
+        tapStart = event.touches.length === 1 ? { target: event.target, x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+    }, { passive: true, capture: true });
+    document.addEventListener('touchend', (event) => {
+        const now = performance.now();
+        const quick = now - lastTapEnd < 400;
+        lastTapEnd = now;
+        if (!quick || event.touches.length > 0 || textField(event.target)) return;
+        event.preventDefault();   // pas de zoom au double toucher
+        // Toucher sur place (pas un glissé) : le clic que Safari n'enverra plus est rejoué
+        const touch = event.changedTouches[0];
+        if (tapStart && touch && tapStart.target === event.target
+            && Math.hypot(touch.clientX - tapStart.x, touch.clientY - tapStart.y) < 12) {
+            const clickable = event.target instanceof Element ? event.target.closest('button, a, label, summary, [role="button"], input, select') : null;
+            clickable?.click();
+        }
+    }, { passive: false, capture: true });
+    document.addEventListener('contextmenu', (event) => { if (!textField(event.target)) event.preventDefault(); });
+    document.addEventListener('selectstart', (event) => { if (!textField(event.target)) event.preventDefault(); });
+}
 import { planesCollide } from './js/PlaneCollision.js';
 import { BankAngleWarning, alarmBank } from './js/BankAngleWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
@@ -1060,33 +1094,59 @@ updateCamera(0, true);
 // Plein écran : tout le cockpit (écran de vol + panneaux), bouton ou touche F
 const simulatorElement = document.getElementById('simulator');
 
-// Boutons Plein écran : seulement sur tablette (sur ordinateur : touche F, et plein écran au premier clic), sauf si le
-// site est ouvert depuis l'écran d'accueil (déjà en plein écran). Safari (iPad) : API préfixée webkit. Chrome, Firefox
-// et les navigateurs intégrés aux applis, sur iPad, n'ont pas d'API plein écran (Apple ne la leur donne pas) : le bouton
-// explique alors comment l'avoir (Safari, ou ajout à l'écran d'accueil : voir manifest.webmanifest)
+// Plein écran selon l'appareil :
+// - ordinateur : plein écran du navigateur, au premier clic et touche F (pas de bouton) ;
+// - tablette Android : plein écran du navigateur, au premier toucher et bouton ⛶ ;
+// - iPad, dans le navigateur : pas de plein écran du navigateur. Celui de Safari se quitte d'un simple balayage vers le
+//   bas et bloque le clavier (« Il semble que vous saisissiez du texte en plein écran »), deux protections d'iPadOS
+//   qu'une page ne peut pas désactiver ; Chrome, Brave… ne l'ont pas du tout. Le vrai plein écran : le simulateur ouvert
+//   depuis son icône sur l'écran d'accueil (appli web, voir manifest.webmanifest). Le bouton ⛶ ouvre le guide pour
+//   l'installer (#plein-ecran-dialog), affiché aussi tout seul au premier lancement ;
+// - iPad, depuis l'écran d'accueil : déjà en plein écran, pas de bouton.
 const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
 function requestFullscreen() {
     const request = simulatorElement.requestFullscreen ?? simulatorElement.webkitRequestFullscreen;
     return Promise.resolve(request?.call(simulatorElement)).catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
 }
-// iPad (Safari, Brave, Chrome…) : pas de plein écran du navigateur, ni de bouton pour lui. Celui de Safari se quitte d'un
-// simple balayage vers le bas et bloque le clavier (« Il semble que vous saisissiez du texte en plein écran ») : deux
-// protections d'iPadOS qu'une page ne peut pas désactiver. Le vrai plein écran sur iPad : le simulateur ouvert depuis
-// l'écran d'accueil (appli web, voir manifest.webmanifest) ; une carte de l'accueil l'explique (#mp-astuce-ipad)
+const exitFullscreen = () => (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+const fullscreenApi = Boolean(simulatorElement.requestFullscreen || simulatorElement.webkitRequestFullscreen);
+const iosBrowser = isIOS() && !isStandalone();   // iPad dans le navigateur : guide d'installation
+const fullscreenGuide = document.getElementById('plein-ecran-dialog');
+const guideOptOut = document.getElementById('pe-ne-plus');
+function openFullscreenGuide() {
+    if (fullscreenGuide.open) return;
+    try { guideOptOut.checked = localStorage.getItem('guide-plein-ecran') === '0'; } catch { /* stockage indisponible */ }
+    fullscreenGuide.showModal();
+}
+document.getElementById('pe-fermer').addEventListener('click', () => fullscreenGuide.close());
+fullscreenGuide.addEventListener('click', (event) => { if (event.target === fullscreenGuide) fullscreenGuide.close(); });   // toucher à côté
+guideOptOut.addEventListener('change', () => {
+    try { localStorage.setItem('guide-plein-ecran', guideOptOut.checked ? '0' : '1'); } catch { /* stockage indisponible */ }
+});
+// Premier affichage du menu sur iPad (navigateur) : le guide s'ouvre seul, une fois par visite, sauf « Ne plus afficher »
+let guideShown = false;
+function showFullscreenGuideOnce() {
+    if (!iosBrowser || guideShown) return;
+    guideShown = true;
+    try { if (localStorage.getItem('guide-plein-ecran') === '0') return; } catch { /* stockage indisponible */ }
+    openFullscreenGuide();
+}
 function toggleFullscreen() {
-    if (isTablet()) {
-        if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+    if (isIOS()) {
+        if (fullscreenElement()) exitFullscreen();
+        else if (iosBrowser) openFullscreenGuide();
         return;
     }
     if (!fullscreenApi) return;
-    if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+    if (fullscreenElement()) exitFullscreen();
     else requestFullscreen();
 }
 const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
-const fullscreenApi = Boolean(simulatorElement.requestFullscreen || simulatorElement.webkitRequestFullscreen);
-// Boutons Plein écran : ni sur ordinateur (touche F, et plein écran au premier clic), ni sur iPad (voir plus haut)
-for (const button of fullscreenButtons) button.hidden = true;
-document.getElementById('mp-astuce-ipad').hidden = !isTablet() || isStandalone();
+// Boutons ⛶ : sur tablette seulement (Android : plein écran ; iPad dans le navigateur : guide). Sur iPad, le libellé
+// annonce le guide
+const showButtons = isTablet() && (isIOS() ? iosBrowser : fullscreenApi);
+for (const button of fullscreenButtons) button.hidden = !showButtons;
+document.getElementById('mp-astuce-ipad').hidden = !iosBrowser;
 // Un bouton par écran : ⛶ de la barre de menus (en vol) et celui du menu principal (au lancement)
 for (const button of fullscreenButtons) {
     button.addEventListener('click', (event) => {
@@ -1102,7 +1162,7 @@ window.addEventListener('keydown', (event) => {
 function enterFullscreenOnce(event) {
     window.removeEventListener('pointerdown', enterFullscreenOnce, true);
     window.removeEventListener('keydown', enterFullscreenOnce, true);
-    if (isTablet()) return;   // iPad : pas de plein écran du navigateur (voir toggleFullscreen)
+    if (isIOS()) return;   // iPad : pas de plein écran du navigateur (voir plus haut)
     if (fullscreenElement() || event.code === 'KeyF' || event.key === 'Escape') return;   // F : géré par la touche
     if (event.target instanceof Element && event.target.closest('[data-plein-ecran]')) return;   // le bouton s'en charge
     requestFullscreen();
@@ -1116,7 +1176,7 @@ document.addEventListener('focusin', (event) => {
     const field = event.target;
     const typing = field instanceof HTMLTextAreaElement
         || (field instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'range', 'submit', 'color', 'file'].includes(field.type));
-    if (typing && isTablet() && fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+    if (typing && isIOS() && fullscreenElement()) exitFullscreen();
 });
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -1788,6 +1848,7 @@ function openMainMenu() {
     choosingSpawn = inMenu = true;
     aircraft.visible = false;
     mainMenu.hidden = false;
+    showFullscreenGuideOnce();
     setMenuBar(false);
     setPhotoMode(false);
     document.getElementById('mp-multi-detail').textContent = multiplayer.code
