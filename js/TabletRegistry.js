@@ -12,7 +12,8 @@
 //   type 'toggle' : action(), value() -> booléen  appui = bascule ; affiche ON / OFF (ou states: [texte off, texte on])
 //   type 'value'  : value() -> texte              step(sens) facultatif : boutons − / + ; action() facultatif : appui
 //   type 'hold'   : press(), release()            agit tant que le doigt reste posé (parler à la radio, freins)
-// Catégorie : { id, label, tiles: [...] } ; bouton principal : { id, label, categories: [...] }
+// Catégorie : { id, label, tiles: [...] }, ou { id, label, element() } : contenu existant du simulateur affiché tel quel
+// (menus Météo, Profil, En ligne : leurs réglages ne sont écrits qu'une fois) ; bouton principal : { id, label, categories }
 
 const pct = (v) => `${Math.round(v * 100)} %`;
 
@@ -21,11 +22,9 @@ function tabletRegistry(sim) {
     const cockpit = (id, step = 1) => () => sim.useControl({ id }, step);
     const sw = (id, label) => ({ id: `switch-${id}`, label, type: 'toggle', action: cockpit(`switch:${id}`), value: () => systems.switches[id] });
 
-    // Un seul emplacement par fonction sur iPad : ne figure ici que ce qui n'est ni dans la barre de menus (Météo, Carte,
-    // Tour et sa fenêtre radio, En ligne, Profil, Paramètre, Masse et centrage, Mode photo, Plein écran, Quitter), ni sur
-    // les commandes tactiles (Menus, Vue, Centrer, Volets, Trim, Freins), ni dans les panneaux de l'écran de vol (VOR :
-    // OBS et « Vers balise » ; bouton « ILS disponible »). Le menu Commandes de la barre est masqué sur iPad : ses
-    // fonctions sans autre place (Réinitialiser, Changer de départ, VOR / ILS) sont ici
+    // Interface iPad : pas de barre de menus en haut (elle faisait doublon avec ces panneaux). Tout ce qu'elle proposait
+    // est ici, une seule fois ; le reste est sur les commandes tactiles (Vue, Centrer, Volets, Trim, Freins) ou dans les
+    // panneaux de l'écran de vol (VOR : OBS et « Vers balise » ; bouton « ILS disponible »)
     return [
         {
             id: 'sol', label: 'SOL', categories: [
@@ -34,8 +33,15 @@ function tabletRegistry(sim) {
                         { id: 'reset', label: 'RÉINITIALISER', type: 'button', action: () => sim.click('reset') },
                         { id: 'changer-depart', label: 'CHANGER DE DÉPART', type: 'button', action: () => sim.click('depart') },
                         { id: 'frein-parking', label: 'FREIN DE PARKING', type: 'toggle', action: cockpit('brake'), value: () => controls.parkingBrake, states: ['DESSERRÉ', 'SERRÉ'] },
+                        { id: 'quitter', label: 'QUITTER LA PARTIE', type: 'button', action: () => sim.click('quitter-partie'), danger: true },
                     ],
                 },
+                {
+                    id: 'avion', label: 'AVION', tiles: [
+                        { id: 'masse', label: 'MASSE ET CENTRAGE', type: 'button', action: () => sim.click('masse-bouton') },
+                    ],
+                },
+                { id: 'profil', label: 'LIVRÉE ET IMMAT.', element: () => sim.menuContent('profil') },
             ],
         },
         {
@@ -73,7 +79,31 @@ function tabletRegistry(sim) {
                     id: 'nav', label: 'NAV ET VUE', tiles: [
                         { id: 'vor-ils', label: 'VOR / ILS', type: 'toggle', action: () => sim.toggleNavPanels(), value: () => sim.navPanelsShown(), states: ['MASQUÉS', 'AFFICHÉS'] },
                         { id: 'camera', label: 'CAMÉRA CABINE', type: 'value', value: () => String(sim.cabinView()), step: (s) => sim.stepCabinView(s) },
-                        { id: 'parler', label: 'PARLER (RADIO)', type: 'hold', press: () => sim.setTalking(true), release: () => sim.setTalking(false) },
+                    ],
+                },
+            ],
+        },
+        {
+            id: 'radio', label: 'RADIO', categories: [
+                {
+                    id: 'tour', label: 'TOUR', tiles: [
+                        { id: 'fenetre-radio', label: 'FENÊTRE RADIO', type: 'toggle', action: () => sim.toggleAtc(), value: () => sim.atcOpen(), states: ['FERMÉE', 'OUVERTE'] },
+                        { id: 'frequence', label: 'FRÉQUENCE', type: 'value', value: () => sim.atcStation() },
+                        { id: 'parler', label: 'PARLER (JOUEURS)', type: 'hold', press: () => sim.setTalking(true), release: () => sim.setTalking(false) },
+                    ],
+                },
+                { id: 'en-ligne', label: 'EN LIGNE', element: () => sim.menuContent('online') },
+            ],
+        },
+        {
+            id: 'affichage', label: 'AFFICHAGE', categories: [
+                { id: 'meteo', label: 'MÉTÉO', element: () => sim.menuContent('météo') },
+                {
+                    id: 'ecran', label: 'ÉCRAN', tiles: [
+                        { id: 'carte', label: 'CARTE', type: 'toggle', action: () => sim.toggleMap(), value: () => sim.mapOpen(), states: ['FERMÉE', 'OUVERTE'] },
+                        { id: 'photo', label: 'MODE PHOTO', type: 'button', action: () => sim.togglePhotoMode() },
+                        { id: 'parametres', label: 'PARAMÈTRES', type: 'button', action: () => sim.openSettings() },
+                        { id: 'plein-ecran', label: 'PLEIN ÉCRAN', type: 'button', action: () => sim.toggleFullscreen() },
                     ],
                 },
             ],

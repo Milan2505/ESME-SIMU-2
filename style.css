@@ -3359,3 +3359,86 @@ button.tb-tuile:active {
 #simulator.photo > #tablette-ui {
   display: none;
 }
+
+/* Interface iPad : pas de barre de menus en haut ni de bouton « Menus » (tout est dans les panneaux SOL, SYSTÈMES, RADIO,
+   AFFICHAGE : TabletRegistry.js), pas de rappel « Échap » */
+html.tablette #simulator.jeu > :is(#commandes, #météo, #carte-case, #atc-case, #online, #profil, #paramètre, #masse-bouton,
+  #mode-photo, #barre-plein-ecran, #quitter-partie, #astuce-echap),
+html.tablette #simulator.jeu::before,
+html.tablette .tactile-boutons [data-tactile="menu"] {
+  display: none !important;
+}
+/* Menus de la barre affichés dans un panneau (Météo, Livrée et immat., En ligne) : sur fond sombre */
+.tb-contenu .menu-contenu {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  color: #fff;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.tb-contenu .menu-contenu :is(p, label, li, span) {
+  color: #e6edf3;
+}
+.tb-contenu .menu-contenu :is(select, input) {
+  font-size: 16px;   /* (16 px : Safari ne zoome pas la page en touchant le champ) */
+}
+.tb-contenu .menu-contenu button {
+  min-height: 40px;
+}
+/* Mode photo sur iPad : seul un bouton pour en sortir reste à l'écran */
+#photo-sortie {
+  display: none;
+}
+html.tablette #simulator.jeu.photo > #photo-sortie {
+  display: block;
+  grid-column: 1 / -1;
+  grid-row: -2;
+  align-self: start;
+  justify-self: end;
+  z-index: 8;
+  margin: 12px calc(12px + env(safe-area-inset-right, 0px)) 0 0;
+  min-height: 44px;
+  padding: 8px 14px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  background: rgba(14, 18, 24, 0.78);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+}
+/* (boutons, listes et champs de ces menus : au style des tuiles) */
+.tb-contenu .menu-contenu .menu-boutons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#tablette-ui .tb-contenu .menu-contenu button {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+}
+#tablette-ui .tb-contenu .menu-contenu button.actif {
+  background: rgba(30, 110, 200, 0.85);
+  border-color: #8fd3ff;
+}
+#tablette-ui .tb-contenu .menu-contenu :is(select, input:not([type="range"])) {
+  padding: 6px 8px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+}
+#tablette-ui .tb-contenu .menu-contenu label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}

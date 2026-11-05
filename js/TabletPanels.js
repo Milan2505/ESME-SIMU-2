@@ -137,6 +137,7 @@ class TabletPanels {
         for (const main of registry) {
             const button = element('button', 'tb-principal', main.label);
             button.type = 'button';
+            button.dataset.principal = main.id;
             button.addEventListener('click', () => {
                 button.blur();
                 if (this.list.open && this.list.key === `principal:${main.id}`) this.list.hide();
@@ -182,12 +183,24 @@ class TabletPanels {
     openCategory(category) {
         run(this.onOpen);
         this._category = category.id;
-        const grid = element('div', 'tb-grille');
-        this._updaters = category.tiles.map((tile) => {
-            const { node, update } = this._tile(tile);
-            grid.append(node);
-            return update;
-        });
+        let grid;
+        if (category.element) {
+            // Contenu existant du simulateur (menu Météo, Profil, En ligne…) affiché tel quel dans le panneau
+            grid = element('div', 'tb-contenu');
+            const node = run(category.element);
+            if (node) {
+                node.hidden = false;
+                grid.append(node);
+            }
+            this._updaters = [];
+        } else {
+            grid = element('div', 'tb-grille');
+            this._updaters = category.tiles.map((tile) => {
+                const { node, update } = this._tile(tile);
+                grid.append(node);
+                return update;
+            });
+        }
         // Largeur : celle qui reste entre ce qui occupe le haut à gauche et la liste (au moins 340 px : 3 colonnes lisibles)
         const listNode = this.list.open ? this.list.node : null;
         const free = (listNode ? listNode.offsetLeft - 10 : this.root.clientWidth - 140) - this.leftReserve();
@@ -255,6 +268,7 @@ class TabletPanels {
     // Tuile selon son type (voir TabletRegistry.js) : { node, update() }
     _tile(tile) {
         const node = element(tile.type === 'value' && tile.step && !tile.action ? 'div' : 'button', `tb-tuile tb-${tile.type}`);
+        node.dataset.tuile = tile.id;
         if (node.tagName === 'BUTTON') node.type = 'button';
         if (tile.danger) node.classList.add('tb-danger');
         const name = element('span', 'tb-nom', tile.label);

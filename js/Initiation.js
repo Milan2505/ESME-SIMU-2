@@ -16,6 +16,7 @@ import {
     Vector3
 } from 'three';
 import { PANEL_LAYOUT, panelPoint, panelLength } from './Panel172.js';
+import { isTablet } from './Device.js';
 
 // Mode Initiation : un moniteur accompagne l'élève de l'avion éteint au parking jusqu'à l'arrêt moteur après un tour de
 // piste. À chaque étape, il dit quoi faire et pourquoi (voix + texte), la commande ou l'instrument concerné clignote et
@@ -936,9 +937,14 @@ function buildSteps(level, lang = 'fr') {
     add(P, { title: T('Avionique', 'Avionics'), target: 'switch:avionics', done: (c) => c.sys.switches.avionics,
         say: T("Allumez l'avionique : la moitié gauche de l'interrupteur blanc AVIONICS, marquée BUS 1. Elle alimente la radio et le transpondeur.",
             'Switch on the avionics: the left half of the white AVIONICS switch, marked BUS 1. It powers the radio and the transponder.') });
-    add(P, { title: T('Afficher la radio', 'Show the radio'), target: 'html:#atc-bouton', camera: 'none', done: (c) => c.atcOpen, act: (c, t) => t.openAtc(true),
-        say: T("Affichez le panneau radio : dans la barre de menus en haut, cliquez sur Tour, encadré en jaune. Les messages échangés avec le contrôleur s'y affichent. Si la barre est cachée, la touche Échap la fait réapparaître.",
-            'Show the radio panel: in the menu bar at the top, click Tour, framed in yellow. The messages exchanged with the controller appear there. If the bar is hidden, the Escape key brings it back.'),
+    // iPad : pas de barre de menus, la fenêtre radio s'ouvre par le bouton RADIO (panneaux de la tablette)
+    const tablet = isTablet();
+    add(P, { title: T('Afficher la radio', 'Show the radio'), target: tablet ? 'html:.tb-principal[data-principal="radio"], [data-tuile="fenetre-radio"]' : 'html:#atc-bouton', camera: 'none', done: (c) => c.atcOpen, act: (c, t) => t.openAtc(true),
+        say: tablet
+            ? T("Affichez le panneau radio : touchez RADIO en haut à droite, encadré en jaune, puis TOUR et FENÊTRE RADIO. Les messages échangés avec le contrôleur s'y affichent.",
+                'Show the radio panel: tap RADIO at the top right, framed in yellow, then TOUR and FENÊTRE RADIO. The messages exchanged with the controller appear there.')
+            : T("Affichez le panneau radio : dans la barre de menus en haut, cliquez sur Tour, encadré en jaune. Les messages échangés avec le contrôleur s'y affichent. Si la barre est cachée, la touche Échap la fait réapparaître.",
+                'Show the radio panel: in the menu bar at the top, click Tour, framed in yellow. The messages exchanged with the controller appear there. If the bar is hidden, the Escape key brings it back.'),
         why: T('Le panneau radio garde la trace écrite de chaque message : utile si on a mal entendu.', 'The radio panel keeps a written record of every message: useful if you missed something.') });
     if (L1) {
         add(P, { title: T("Écouter l'ATIS", 'Listen to the ATIS'), camera: 'pilot', afterSay: (c) => c.atc.playAtis(), praise: false, atis: true,

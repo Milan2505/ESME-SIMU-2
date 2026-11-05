@@ -985,11 +985,14 @@ function setWeather(name) {
 
 // Menus du bandeau (Commandes, Météo) : un clic sur la case déroule son contenu ; clic ailleurs ou Échap : fermé
 const menus = [...document.querySelectorAll('.menu')];
+// Contenu déroulant de chaque menu, gardé ici : sur iPad, il est affiché dans un panneau (TabletRegistry.js), hors du menu
+const menuContent = new Map(menus.map((menu) => [menu, menu.querySelector('.menu-contenu')]));
 function closeMenus(except = null) {
     for (const menu of menus) {
         if (menu === except) continue;
         menu.querySelector('.menu-titre').setAttribute('aria-expanded', 'false');
-        menu.querySelector('.menu-contenu').hidden = true;
+        const content = menuContent.get(menu);
+        if (menu.contains(content)) content.hidden = true;   // (affiché dans un panneau de l'iPad : il y reste)
     }
 }
 for (const menu of menus) {
@@ -998,7 +1001,7 @@ for (const menu of menus) {
         const open = title.getAttribute('aria-expanded') !== 'true';
         closeMenus(menu);
         title.setAttribute('aria-expanded', String(open));
-        menu.querySelector('.menu-contenu').hidden = !open;
+        menuContent.get(menu).hidden = !open;
         title.blur(); // garde le clavier pour le pilotage
     });
 }
@@ -1066,18 +1069,24 @@ function requestFullscreen() {
     const request = simulatorElement.requestFullscreen ?? simulatorElement.webkitRequestFullscreen;
     return Promise.resolve(request?.call(simulatorElement)).catch(() => { /* refusé par le navigateur : on reste en fenêtre */ });
 }
+// iPad (Safari, Brave, Chrome…) : pas de plein écran du navigateur. Celui de Safari se quitte d'un simple balayage vers
+// le bas et bloque le clavier (« Il semble que vous saisissiez du texte en plein écran ») : deux protections d'iPadOS
+// qu'une page ne peut pas désactiver. Le vrai plein écran sur iPad : le simulateur ouvert depuis l'écran d'accueil
+// (appli web, voir manifest.webmanifest), sans barre du navigateur, sans ces deux défauts
+function tabletFullscreenGuide() {
+    const NL = String.fromCharCode(10);
+    alert("Plein écran sur iPad" + NL + NL
+        + "Le plein écran du navigateur se quitte au moindre balayage vers le bas et bloque le clavier : il n'est pas utilisé." + NL + NL
+        + "Pour jouer en vrai plein écran : dans Safari, bouton Partager ▸ « Sur l'écran d'accueil », puis ouvrez le simulateur "
+        + "depuis son icône. Il s'ouvre alors sans aucune barre, comme une appli.");
+}
 function toggleFullscreen() {
-    if (!fullscreenApi) {
-        if (isTablet() && !isStandalone()) {
-            // Brave, Chrome, Firefox… sur iPad : Apple ne leur donne pas le plein écran ; l'ajout à l'écran d'accueil, si
-            const NL = String.fromCharCode(10);
-            alert("Ce navigateur (Brave, Chrome, Firefox… sur iPad) ne permet pas le plein écran : c'est une limite d'Apple." + NL + NL
-                + "Pour jouer en plein écran : bouton Partager ▸ « Sur l'écran d'accueil », puis lancez le simulateur depuis son icône "
-                + "(il s'ouvre alors sans barre du navigateur)." + NL + NL
-                + "Ou ouvrez le simulateur dans Safari et touchez ⛶ Plein écran.");
-        }
+    if (isTablet()) {
+        if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+        else if (!isStandalone()) tabletFullscreenGuide();
         return;
     }
+    if (!fullscreenApi) return;
     if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
     else requestFullscreen();
 }
@@ -1099,6 +1108,7 @@ window.addEventListener('keydown', (event) => {
 function enterFullscreenOnce(event) {
     window.removeEventListener('pointerdown', enterFullscreenOnce, true);
     window.removeEventListener('keydown', enterFullscreenOnce, true);
+    if (isTablet()) return;   // iPad : pas de plein écran du navigateur (voir tabletFullscreenGuide)
     if (fullscreenElement() || event.code === 'KeyF' || event.key === 'Escape') return;   // F : géré par la touche
     if (event.target instanceof Element && event.target.closest('[data-plein-ecran]')) return;   // le bouton s'en charge
     requestFullscreen();
@@ -1645,7 +1655,7 @@ for (const cell of menuBarCells) menuBarObserver.observe(cell, { childList: true
 window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.repeat) return;
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
-    if (menus.some((menu) => !menu.querySelector('.menu-contenu').hidden)) return;   // Échap referme d'abord le menu
+    if (menus.some((menu) => menu.contains(menuContent.get(menu)) && !menuContent.get(menu).hidden)) return;   // Échap referme d'abord le menu
     const visible = !simulatorElement.classList.contains('barre');
     setMenuBar(visible);
     if (!visible) showEscapeHint();   // barre cachée : rappel pour la retrouver
@@ -1846,6 +1856,11 @@ photoButton.addEventListener('click', (event) => {
     const on = !simulatorElement.classList.contains('photo');
     setPhotoMode(on);
     if (on) setMenuBar(false);
+});
+// iPad (pas de barre de menus) : seul bouton à l'écran en mode photo, pour en sortir
+document.getElementById('photo-sortie').addEventListener('click', (event) => {
+    event.currentTarget.blur();
+    setPhotoMode(false);
 });
 
 // Barre de menus (Échap) : « Quitter la partie » arrête le vol (et quitte la partie multijoueur en cours), puis
@@ -3107,6 +3122,9 @@ updateNavPanelsButton();
 const tabletApi = {
     systems, controls, vor, atc, MAGNETOS, FUEL_SELECTOR,
     click: (id) => document.getElementById(id)?.click(),
+    // Contenu d'un menu de la barre (Météo, Profil, En ligne), affiché dans un panneau sur iPad
+    menuContent: (id) => menuContent.get(document.getElementById(id)),
+    atcStation: () => atcButton.textContent.toUpperCase(),
     useControl: (control, step, wheel = false) => useControl(control, step, wheel),
     // Menu de la barre (Profil…) : barre affichée, menu déroulé
     openBarMenu: (id) => {
@@ -3128,7 +3146,10 @@ const tabletApi = {
         const i = VIEW_ORDER.indexOf(cabinView);
         setCabinViewPreset(chaseView ? 1 : VIEW_ORDER[(i + step + VIEW_ORDER.length) % VIEW_ORDER.length]);
     },
-    togglePhotoMode: () => setPhotoMode(!simulatorElement.classList.contains('photo')),
+    togglePhotoMode: () => {
+        tabletPanels?.closeAll();
+        setPhotoMode(!simulatorElement.classList.contains('photo'));
+    },
     photoMode: () => simulatorElement.classList.contains('photo'),
     toggleFullscreen, fullscreen: () => Boolean(fullscreenElement()),
     setting: (key) => settings.values[key],
@@ -3281,7 +3302,7 @@ renderer.setAnimationLoop((time)=>{
     // Liste "En ligne" ouverte : distances et altitudes mises à jour chaque seconde
     if ((onlineTimer -= delta) <= 0) {
         onlineTimer = 1;
-        if (!onlineMenu.querySelector('.menu-contenu').hidden) updateOnlineList();
+        if (!menuContent.get(onlineMenu).hidden) updateOnlineList();
     }
     clouds.update( camera );
     cloudLayer.update( delta, camera, weather.wind );
