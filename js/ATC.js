@@ -138,7 +138,8 @@ class ATC extends EventDispatcher {
     }
 
     get stations() {
-        return Object.keys(STATIONS).map((id) => ({ id, name: `${this.aerodrome.name} ${STATIONS[id].fr}`, frequency: this.aerodrome.frequencies[id] }));
+        return Object.keys(STATIONS).map((id) => ({ id, name: `${this.aerodrome.name} ${STATIONS[id].fr}`, label: STATIONS[id].fr,
+            frequency: this.aerodrome.frequencies[id] }));
     }
 
     get status() {
@@ -358,14 +359,19 @@ class ATC extends EventDispatcher {
         });
     }
 
+    // Autre aérodrome contacté : l'ATIS de l'ancien, s'il était en cours, est coupé
+    cutAtis() {
+        this._atisTicket = null;
+        this.voices.cancelRequests(this._atisIds);
+        this._atisClip?.cancel?.();
+        this._atisCut?.();
+    }
+
     // Initiation, bouton Passer : l'ATIS en cours est coupé ; pas encore écouté, il est seulement écrit dans le journal
     skipAtis() {
-        if (this._atisCut) {
-            this._atisClip?.cancel?.();
-            this._atisCut();
-            return;
-        }
-        if (this.log.some((l) => l.from === 'atis')) return;
+        const pending = Boolean(this._atisTicket) && !this._atisStarted;   // demandé, pas encore commencé
+        this.cutAtis();
+        if (!pending && this.log.some((l) => l.from === 'atis')) return;
         this.log.push({ from: 'atis', text: this._atisMessage().text, station: null });
         this._changed();
     }
@@ -374,6 +380,11 @@ class ATC extends EventDispatcher {
         if (this.busy) return;
         const gen = this._gen;
         const message = this._atisMessage();
+        // Annulable par cutAtis à tout moment : pendant le calcul de sa voix (calculs retirés de la file) ou sa lecture
+        message.ticket = this._atisTicket = {};
+        this._atisStarted = false;
+        message.ids = this._atisIds = [];
+        message.cut = new Promise((resolve) => { this._atisCut = resolve; });
         this._queue(() => this._transmit('atis', message, gen, this._prepare('atis', message)));
     }
 
@@ -1498,7 +1509,7 @@ class ATC extends EventDispatcher {
     // Voix d'un message (calculée à l'avance) ; null si la lecture à voix haute est coupée
     _prepare(role, message) {
         if (!this.voice) return null;
-        const clip = this.voices.prepare(message.speech, role);
+        const clip = this.voices.prepare(message.speech, role, { ids: message.ids ?? null });
         clip.catch(() => {});
         return clip;
     }
@@ -1506,8 +1517,10 @@ class ATC extends EventDispatcher {
     async _transmit(from, message, gen, prepared = null, reply = false) {
         if (gen !== this._gen) return;
         const role = from === 'pilot' ? 'pilot' : from === 'atis' ? 'atis' : this.freq;
-        const clip = await (prepared ?? this._prepare(role, message));
+        const preparing = prepared ?? this._prepare(role, message);
+        const clip = await (message.cut ? Promise.race([preparing, message.cut.then(() => null)]) : preparing);
         if (gen !== this._gen) return;
+        if (message.ticket && message.ticket !== this._atisTicket) return;   // ATIS coupé avant de commencer
         // Multijoueur : les autres joueurs sur la même fréquence entendent l'échange (pas l'ATIS, propre à chacun)
         if (from !== 'atis') this.dispatchEvent({ type: 'broadcast', message: { f: this.freq, w: from, t: message.text, s: message.speech, l: this.lang, r: reply } });
         this.log.push({ from, text: message.text, station: from === 'atc' ? STATIONS[this.freq].fr.toUpperCase() : null });
@@ -1515,12 +1528,14 @@ class ATC extends EventDispatcher {
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: true });
         this._changed();
         this.sounds?.squelch(0.16, 0.08);
-        // ATIS : peut être coupé en cours (bouton Passer de l'initiation, voir skipAtis)
-        const cut = from === 'atis' ? new Promise((resolve) => { this._atisCut = resolve; }) : null;
-        this._atisClip = from === 'atis' ? clip : this._atisClip;
+        // ATIS : peut être coupé en cours (bouton Passer de l'initiation, autre aérodrome : voir cutAtis)
+        if (message.cut) {
+            this._atisClip = clip;
+            this._atisStarted = true;
+        }
         const playing = clip && this.voice ? clip.play() : wait((0.8 + message.text.length * 0.065) * 1000);
-        await (cut ? Promise.race([playing, cut]) : playing);
-        if (cut) this._atisCut = this._atisClip = null;
+        await (message.cut ? Promise.race([playing, message.cut]) : playing);
+        if (message.cut && message.ticket === this._atisTicket) this._atisCut = this._atisClip = this._atisTicket = null;
         this.sounds?.squelch(0.22, 0.14);
         this.dispatchEvent({ type: 'transmit', from, text: message.text, station: this.freq, on: false });
     }

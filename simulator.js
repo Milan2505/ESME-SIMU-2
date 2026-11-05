@@ -2067,12 +2067,12 @@ radioVoices.addEventListener('status', renderVoiceStatus);
 // Radio COM : une case par fréquence ; on écoute et on parle sur celle qui est affichée (refaites quand on change
 // d'aérodrome : fréquences différentes)
 function renderAtcStations() {
-atcCom.replaceChildren(...atc.stations.map(({ id, name, frequency }) => {
+atcCom.replaceChildren(...atc.stations.map(({ id, name, label: word, frequency }) => {
     const button = document.createElement('button');
     button.dataset.station = id;
     button.title = `Afficher ${name} sur la radio`;
     const label = document.createElement('strong');
-    label.textContent = name.split(' ').slice(1).join(' ');
+    label.textContent = word;   // « Sol », « Tour »… (le nom de l'aérodrome est dans le titre de la fenêtre)
     const value = document.createElement('span');
     value.textContent = frequency;
     button.append(label, value);
@@ -2096,7 +2096,7 @@ atcFields.replaceChildren(...airport.list.map((field) => {
 }));
 const renderAtcFields = () => airport.list.forEach((field, i) => atcFields.children[i].classList.toggle('actif', field === airport.current));
 renderAtcStations();
-airport.addEventListener('change', () => { renderAtcStations(); renderAtcFields(); renderAtc(); });
+airport.addEventListener('change', () => { atc.cutAtis(); renderAtcStations(); renderAtcFields(); renderAtc(); });
 renderAtcFields();
 
 // Personnes à bord (annoncées au premier contact)

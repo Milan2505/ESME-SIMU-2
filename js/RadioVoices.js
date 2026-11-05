@@ -122,17 +122,24 @@ class RadioVoices extends EventTarget {
     // Chaque rôle garde toujours la même voix : voix réaliste dans toutes les langues ; un calcul raté est refait
     // (pas de voix de l'ordinateur pour un seul message) ; la voix de l'ordinateur ne sert que si les voix réalistes
     // sont abandonnées pour toute la session, ou choisies dans les réglages
-    async prepare(text, role, { lang = this.lang, seed = '' } = {}) {
+    // ids : liste où noter les numéros des calculs demandés (cancelRequests les annule, même pas encore commencés)
+    async prepare(text, role, { lang = this.lang, seed = '', ids = null } = {}) {
         const language = CAST[lang] ? lang : this.lang;
         const spoken = language === 'fr' ? text.replace(/\b(Alpha|Charlie|Echo|Foxtrot|Hotel|India|Juliett|Mike|November|Quebec|Romeo|Sierra|Uniform|Whiskey|X-ray|Yankee|Zulu)\b/g, (w) => PHONETIC_FR[w]) : text;
         if (this.mode === 'neural' && this.status.state !== 'error') {
             const pilot = role === 'pilot' || role === 'otherPilot';
             const cast = pilot ? CAST[language][role === 'pilot' && this.student ? 'student' : 'pilot'] : CAST[language][role] ?? CAST[language].tower;
+            // Voix pas encore téléchargée (premier lancement) : message muet, le temps de le lire (sous-titre et journal) ;
+            // la radio n'attend pas la fin du téléchargement. Même voix pour ce rôle dès qu'elle est là
+            if (!this._loaded.has(cast.model)) {
+                this._load(cast.model).catch(() => {});
+                return this._silent(spoken);
+            }
             const rate = pilot ? this._pilotRate(role === 'pilot' ? this.playerId : seed) : cast.rate ?? 1;
             // Pilote : message découpé aux virgules, la suite se calcule pendant qu'il parle (il commence tout de
             // suite) ; ATIS : phrase par phrase ; contrôleurs : message entier (calculé pendant leur temps de réaction)
             const parts = pilot ? this._chunks(spoken) : role === 'atis' ? spoken.split(/(?<=[.])\s+/) : [spoken];
-            const audios = parts.map((part) => this._synthesizeRetry(cast, part));
+            const audios = parts.map((part) => this._synthesizeRetry(cast, part, ids, role === 'atis' ? 0 : 1));
             audios.forEach((a) => a.catch(() => {}));
             try {
                 await audios[0];
@@ -158,6 +165,23 @@ class RadioVoices extends EventTarget {
         return { play: () => this._speakSystem(spoken, role === 'otherPilot' ? 'pilot' : role, language), cancel: () => window.speechSynthesis?.cancel() };
     }
 
+    // Calculs demandés pour un message abandonné (ATIS coupé) : retirés de la file du fil de calcul
+    cancelRequests(ids) {
+        if (ids?.length && this._voiceWorker) this._voiceWorker.postMessage({ type: 'cancel', ids });
+    }
+
+    // Message sans voix : durée de lecture du texte (arrêtable)
+    _silent(text) {
+        let finish = null;
+        return {
+            play: () => new Promise((resolve) => {
+                finish = resolve;
+                setTimeout(resolve, (0.8 + text.length * 0.065) * 1000);
+            }),
+            cancel: () => finish?.(),
+        };
+    }
+
     // Lectures en cours d'un rôle arrêtées (ATIS coupé, voir ATC.skipAtis)
     _stopRole(role) {
         for (const finish of [...this._playing]) {
@@ -168,10 +192,10 @@ class RadioVoices extends EventTarget {
     }
 
     // Calcul refait jusqu'à deux fois (le fil de calcul planté est recréé entre-temps)
-    async _synthesizeRetry(cast, text, ids = null) {
+    async _synthesizeRetry(cast, text, ids = null, priority = 1) {
         for (let attempt = 0; ; attempt++) {
             try {
-                return await this._synthesize(cast, text, ids);
+                return await this._synthesize(cast, text, ids, priority);
             } catch (error) {
                 if (attempt >= 2 || /annulé/.test(error.message)) throw error;
                 await wait(300);
@@ -265,11 +289,11 @@ class RadioVoices extends EventTarget {
         return this._models.get(model);
     }
 
-    // Les calculs passent un par un dans le fil de calcul (dans l'ordre des demandes)
-    // ids : liste où noter le numéro de la demande (pour l'annuler, voir stopInstructor)
-    async _synthesize(cast, text, ids = null) {
+    // Les calculs passent un par un dans le fil de calcul, par priorité (moniteur 2, radio 1, ATIS 0)
+    // ids : liste où noter le numéro de la demande (pour l'annuler, voir stopInstructor et cancelRequests)
+    async _synthesize(cast, text, ids = null, priority = 1) {
         const { samples, sampleRate } = await this._ask({ type: 'synth', model: cast.model, base: VOICES_URL + MODELS[cast.model],
-            text, speaker: cast.speaker ?? 0, lengthScale: cast.lengthScale ?? 1 }, ids);
+            text, speaker: cast.speaker ?? 0, lengthScale: cast.lengthScale ?? 1, priority }, ids);
         this._loaded.add(cast.model);
         this._failures = 0;
         this._worked = true;
@@ -347,10 +371,15 @@ class RadioVoices extends EventTarget {
         const token = this._instructorToken = {};
         const spoken = text.replace(/«|»/g, '');
         if (this.mode === 'neural' && this.status.state !== 'error') {
+            // Voix du moniteur pas encore téléchargée : il se tait, sa consigne reste affichée (la leçon continue)
+            if (!this._loaded.has(CAST[this.lang].instructor.model)) {
+                this._load(CAST[this.lang].instructor.model).catch(() => {});
+                return;
+            }
             try {
                 const cast = CAST[this.lang].instructor;
                 token.ids = [];
-                const audios = this._chunks(spoken).map((part) => this._synthesizeRetry(cast, part, token.ids));
+                const audios = this._chunks(spoken).map((part) => this._synthesizeRetry(cast, part, token.ids, 2));
                 audios.forEach((a) => a.catch(() => {}));
                 let spokenAny = false;
                 for (const audio of audios) {

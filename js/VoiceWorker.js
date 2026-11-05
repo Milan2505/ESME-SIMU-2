@@ -12,7 +12,10 @@ const CACHE_NAME = 'esme-voix-radio-v1';
 const models = new Map();      // modèle -> Promise<{ session, config }>
 let ortPromise = null;
 let phonemizerPromise = null;
-let chain = Promise.resolve(); // un calcul à la fois
+// Un calcul à la fois, par priorité (data.priority) : moniteur 2, messages radio 1, ATIS 0 ; dans l'ordre d'arrivée à
+// priorité égale. Le moniteur n'attend pas derrière les phrases d'un long ATIS
+const queue = [];
+let running = false;
 
 const cancelled = new Set();   // demandes annulées avant leur tour (phrase du moniteur interrompue)
 
@@ -21,8 +24,24 @@ self.onmessage = ({ data }) => {
         for (const id of data.ids) cancelled.add(id);
         return;
     }
-    chain = chain.then(() => handle(data)).catch(() => {});
+    // Téléchargement d'un modèle : hors de la file des calculs (sinon une phrase d'une voix déjà prête attendait la fin du
+    // téléchargement des autres voix)
+    if (data.type === 'load') {
+        handle(data);
+        return;
+    }
+    const priority = data.priority ?? 1;
+    const at = queue.findIndex((other) => (other.priority ?? 1) < priority);
+    queue.splice(at < 0 ? queue.length : at, 0, data);
+    pump();
 };
+
+async function pump() {
+    if (running) return;
+    running = true;
+    while (queue.length) await handle(queue.shift()).catch(() => {});
+    running = false;
+}
 
 async function handle(data) {
     const { id, type } = data;
