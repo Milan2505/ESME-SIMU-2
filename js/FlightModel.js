@@ -23,6 +23,7 @@ const CG_STABILITY = 2.5;                        // -25 % de stabilité pour 10 
 const _up = new Vector3( 0, 1, 0 );
 const _front = new Vector3( 0, 0, - 1 );
 const _xAxis = new Vector3( 1, 0, 0 );
+const _zAxis = new Vector3( 0, 0, 1 );
 const _tmpQuaternion = new Quaternion();
 const _gustTarget = new Vector3();
 const _normal = new Vector3();
@@ -36,6 +37,12 @@ const _force = new Vector3();
 const _basis = new Matrix4();
 const _pathAxis = new Vector3();
 
+// Toucher des roues : l'aile et le nez se posent en douceur (constante de temps), les amortisseurs du train encaissent
+// la vitesse de descente (ressort amorti : pulsation, amortissement, course)
+const SETTLE_TIME = 0.3;            // s
+const GEAR_OMEGA = 11;              // rad/s
+const GEAR_DAMPING = 0.75;
+const GEAR_TRAVEL = [ - 0.18, 0.05 ];   // m : enfoncement max, détente max
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
 const DRIFT_RATE = 2;               // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
 
@@ -100,6 +107,10 @@ class FlightModel extends EventDispatcher {
 		this._pathRate = 0;
 		this._groundYaw = 0;             // cap au sol (rad, + = vers la gauche)
 		this._groundPitch = 0;           // cabré au sol (rad), 0 = roulette avant posée
+		this._settleRoll = 0;            // après le toucher : inclinaison et assiette qui restent à résorber (rad)
+		this._settlePitch = 0;
+		this._gear = 0;                  // enfoncement des amortisseurs (m, < 0 = écrasés) et sa vitesse (m/s)
+		this._gearSpeed = 0;
 		this.beta = 0;                   // dérapage (rad, + = vent relatif venant de la droite : nez à gauche de la trajectoire)
 		this.sideAcceleration = 0;       // accélération latérale ressentie (m/s², + = vers la droite), voir _updateAir
 	}
@@ -109,6 +120,7 @@ class FlightModel extends EventDispatcher {
 		const front = _forward.copy( _front ).applyQuaternion( this.object.quaternion );
 		this._groundYaw = Math.atan2( - front.x, - front.z );
 		this._groundPitch = 0;
+		this._settleRoll = this._settlePitch = this._gear = this._gearSpeed = 0;
 		this.onGround = true;
 		this.throttle = 0;
 		this.airspeed = 0;
@@ -125,6 +137,7 @@ class FlightModel extends EventDispatcher {
 		this.velocity.copy( front ).multiplyScalar( this.airspeed );
 		this._groundYaw = Math.atan2( - front.x, - front.z );
 		this._groundPitch = 0;
+		this._settleRoll = this._settlePitch = this._gear = this._gearSpeed = 0;
 		this._wind.set( 0, 0, 0 );
 		this._gustRoll = 0;
 		this._angularVelocity.set( 0, 0, 0 );
@@ -468,9 +481,16 @@ class FlightModel extends EventDispatcher {
 		} else if ( this.assists.rotation && Math.abs( input.pitch ) < 0.05 && air > this.rotateSpeed && this._groundPitch < trimPitch ) {
 			this._groundPitch = Math.min( trimPitch, this._groundPitch + 0.06 * dt );
 		} else {
-			this._groundPitch -= ( input.pitch < 0 ? 0.6 : 0.25 ) * ( 0.3 + 0.7 * wheelLoad ) * dt;
+			this._groundPitch -= ( input.pitch < 0 ? 0.6 : 0.12 ) * ( 0.3 + 0.7 * wheelLoad ) * dt;   // ~5°/s manche relâché
 		}
 		this._groundPitch = MathUtils.clamp( this._groundPitch, 0, A.maxGroundPitch );
+
+		// Après le toucher : inclinaison et assiette de l'arrivée résorbées en douceur, amortisseurs (ressort amorti)
+		const settle = Math.exp( - dt / SETTLE_TIME );
+		this._settleRoll *= settle;
+		this._settlePitch *= settle;
+		this._gearSpeed += ( - GEAR_OMEGA * GEAR_OMEGA * this._gear - 2 * GEAR_DAMPING * GEAR_OMEGA * this._gearSpeed ) * dt;
+		this._gear = MathUtils.clamp( this._gear + this._gearSpeed * dt, GEAR_TRAVEL[ 0 ], GEAR_TRAVEL[ 1 ] );
 
 		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
 		object.position.addScaledVector( _forward, speed * dt );
@@ -479,6 +499,8 @@ class FlightModel extends EventDispatcher {
 		// Décollage : la portance dépasse le poids, l'avion quitte le sol le long de la piste, nez levé
 		if ( wheelLoad <= 0 ) {
 			this.onGround = false;
+			object.position.y -= this._gear;   // rebond : repart du sol, sans l'enfoncement des amortisseurs
+			this._settleRoll = this._settlePitch = this._gear = this._gearSpeed = 0;
 			this._groundNormal( object.position.x, object.position.z, _normal );
 			_forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize();
 			this.velocity.copy( _forward ).multiplyScalar( speed );
@@ -495,7 +517,7 @@ class FlightModel extends EventDispatcher {
 	// Avion posé sur ses roues : altitude du sol, assiette suivant la pente du terrain
 	_alignToGround() {
 		const object = this.object;
-		object.position.y = this.groundHeight( object.position.x, object.position.z ) + this.minAltitude;
+		object.position.y = this.groundHeight( object.position.x, object.position.z ) + this.minAltitude + this._gear;
 		this._groundNormal( object.position.x, object.position.z, _normal );
 
 		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
@@ -503,7 +525,8 @@ class FlightModel extends EventDispatcher {
 		_right.crossVectors( _forward, _normal ).normalize();
 		_back.copy( _forward ).negate();
 		object.quaternion.setFromRotationMatrix( _basis.makeBasis( _right, _normal, _back ) );
-		object.quaternion.multiply( _tmpQuaternion.setFromAxisAngle( _xAxis, this._groundPitch ) );
+		object.quaternion.multiply( _tmpQuaternion.setFromAxisAngle( _xAxis, this._groundPitch + this._settlePitch ) );
+		if ( this._settleRoll ) object.quaternion.multiply( _tmpQuaternion.setFromAxisAngle( _zAxis, this._settleRoll ) );
 	}
 
 	// Contact avec le sol en vol : atterrissage si l'avion arrive doucement, à plat et sur ses roues
@@ -536,10 +559,15 @@ class FlightModel extends EventDispatcher {
 			return;
 		}
 
-		// Atterrissage : l'avion continue de rouler à sa vitesse horizontale
+		// Atterrissage : l'avion continue de rouler à sa vitesse horizontale ; l'inclinaison et l'assiette de l'arrivée se
+		// résorbent en quelques dixièmes de seconde, les amortisseurs encaissent la vitesse de descente (voir _updateGround)
 		this.onGround = true;
 		this._groundYaw = Math.atan2( - _forward.x, - _forward.z );
 		this._groundPitch = MathUtils.clamp( pitch, 0, A.maxGroundPitch );
+		this._settlePitch = pitch - this._groundPitch;
+		this._settleRoll = bank;
+		this._gear = 0;
+		this._gearSpeed = - Math.max( 0, impact );
 		this.airspeed = Math.max( 0, this.velocity.dot( _forward.setY( 0 ).normalize() ) );
 		this.velocity.set( 0, 0, 0 );
 		this._angularVelocity.set( 0, 0, 0 );
