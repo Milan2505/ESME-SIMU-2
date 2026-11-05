@@ -3573,3 +3573,19 @@ html:not(.tablette) #simulator.jeu #commandes .aide td:last-child {
 html:not(.tablette) #simulator.jeu #profil .menu-contenu {
   width: 320px;
 }
+/* Accueil, iPad : étapes pour jouer en plein écran (appli de l'écran d'accueil) */
+.mp-etapes {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  color: #b8c6d4;
+}
+.mp-etapes li {
+  margin: 3px 0;
+  color: #b8c6d4;
+}
+.mp-etapes strong {
+  color: #fff;
+}

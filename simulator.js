@@ -1072,7 +1072,7 @@ function requestFullscreen() {
 // iPad (Safari, Brave, Chrome…) : pas de plein écran du navigateur, ni de bouton pour lui. Celui de Safari se quitte d'un
 // simple balayage vers le bas et bloque le clavier (« Il semble que vous saisissiez du texte en plein écran ») : deux
 // protections d'iPadOS qu'une page ne peut pas désactiver. Le vrai plein écran sur iPad : le simulateur ouvert depuis
-// l'écran d'accueil (appli web, voir manifest.webmanifest) ; une ligne de l'accueil l'indique (#mp-astuce-ipad)
+// l'écran d'accueil (appli web, voir manifest.webmanifest) ; une carte de l'accueil l'explique (#mp-astuce-ipad)
 function toggleFullscreen() {
     if (isTablet()) {
         if (fullscreenElement()) (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
