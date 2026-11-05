@@ -33,6 +33,7 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
+import { BankAngleWarning } from './js/BankAngleWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
@@ -133,6 +134,7 @@ const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
 const stallWarning = new StallWarning();
+const bankAngleWarning = new BankAngleWarning();
 const engineSound = new EngineSound();
 const sounds = new SoundEffects();
 const storm = new Storm({ groundHeight: (x, z) => terrain.heightAt(x, z), sounds });
@@ -1104,14 +1106,17 @@ document.getElementById('reset').addEventListener('click', (event) => {
     event.currentTarget.blur(); // garde le clavier pour le pilotage
 });
 
-// Alarme de décrochage : bandeau à l'écran + alarme sonore Airbus ("STALL" + cricket)
+// Alarme de décrochage : bandeau à l'écran + alarme sonore Airbus ("STALL" + cricket) ; alarme d'inclinaison
+// (« BANK ANGLE », puis le pilote : « Bank angle, check! »), voir BankAngleWarning.js
 const alarme = document.getElementById('alarme');
+const bankAlarm = document.getElementById('alarme-inclinaison');
 
 // Le navigateur n'autorise le son qu'après une action du joueur
 for (const type of ['keydown', 'pointerdown']) {
     window.addEventListener(type, () => {
         radio.unlock();
         stallWarning.unlock().catch((error) => console.error(error));
+        bankAngleWarning.unlock().catch((error) => console.error(error));
         engineSound.unlock().catch((error) => console.error(error));
         sounds.unlock().catch((error) => console.error(error));
     }, { once: true });
@@ -1120,6 +1125,10 @@ for (const type of ['keydown', 'pointerdown']) {
 function updateStallWarning() {
     alarme.classList.toggle('actif', controls.isStalled());
     stallWarning.update(controls.isNearStall());
+    const p = aircraft.position;
+    const height = (p.y - WHEEL_HEIGHT - terrain.heightAt(p.x, p.z)) / 0.3048;
+    bankAngleWarning.update(THREE.MathUtils.radToDeg(controls.getRoll()), !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn, height);
+    bankAlarm.classList.toggle('actif', bankAngleWarning.active);
 }
 
 // Sol : crissement des pneus au toucher, secousses, crash

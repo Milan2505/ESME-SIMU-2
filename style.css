@@ -556,7 +556,7 @@ img{margin: 0px;
   #nom-vue.visible {
     opacity: 1;
   }
-  #alarme {
+  #alarme, #alarme-inclinaison {
     grid-column: 4/15;
     grid-row: 10/17;
     align-self: start;
@@ -573,9 +573,14 @@ img{margin: 0px;
     pointer-events: none;
     visibility: hidden;
   }
-  #alarme.actif {
+  #alarme.actif, #alarme-inclinaison.actif {
     visibility: visible;
     animation: clignote 0.5s steps(1) infinite;
+  }
+  /* Inclinaison excessive : sous le bandeau de décrochage (les deux peuvent s'afficher ensemble) */
+  #alarme-inclinaison {
+    margin-top: 62px;
+    background: #b9770e;
   }
   #crash {
     grid-column: 4/15;
@@ -805,6 +810,7 @@ img{margin: 0px;
   /* Écran de vol et éléments superposés : toute la largeur, sous la barre */
   #simulator:is(:fullscreen, .jeu) > #ecran,
   #simulator:is(:fullscreen, .jeu) > #alarme,
+  #simulator:is(:fullscreen, .jeu) > #alarme-inclinaison,
   #simulator:is(:fullscreen, .jeu) > #nom-vue,
   #simulator:is(:fullscreen, .jeu) > #crash,
   #simulator:is(:fullscreen, .jeu) > #perf,

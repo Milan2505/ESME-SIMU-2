@@ -21,6 +21,11 @@ Source : projet FlightGear c182s (Cessna 182S)
 https://github.com/HHS81/c182s (Sounds/)
 
 Licence de ces fichiers : GNU General Public License v2.0 (GPL-2.0)
+
+bank_angle_voice.wav (« Bank angle. Bank angle. ») et bank_angle_check.wav (« Bank angle, check! »)
+Calculés pour ce projet avec les voix Piper (https://huggingface.co/rhasspy/piper-voices) :
+en_GB-northern_english_male-medium (CC BY-SA 4.0) pour l'alarme, en_GB-alan-medium (voir sa fiche) pour le pilote.
+Ils suivent la licence de la voix qui les a produits.
 https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 
 Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.
