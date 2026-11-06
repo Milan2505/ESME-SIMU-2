@@ -7,6 +7,8 @@ Licence : GNU General Public License v2.0 (GPL-2.0), https://www.gnu.org/license
 Fichiers de ce dossier, convertis pour le simulateur par asset/blender/build_f15.py (Blender 4.2) :
 - f15.glb : extérieur (sans armement ni réservoirs ; tuyères nozzleL.ac / nozzleR.ac comprises) ;
 - f15-cockpit.glb : cockpit (all-interior.ac, poste avant) ;
+- f15-mobile.glb, f15-cockpit-mobile.glb, liveries/mobile/ : les mêmes, textures réduites pour iPhone et iPad
+  (asset/blender/shrink_glb.py) ;
 - liveries/*.jpg : six livrées (AF80-0007, Aggressor Desert, Regal Eagle, NASA, Tiger AF90-250, IAF 69 Sqn Hammers).
 
 Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.

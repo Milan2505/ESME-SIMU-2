@@ -12,6 +12,7 @@ import {
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeStatic } from './MergeStatic.js';
 import { JET_MIL } from './JetSystems.js';
+import { isTablet } from './Device.js';
 
 // Cockpit du F-15C (FlightGear, cockpit photo de geneb : asset/f15/f15-cockpit.glb, voir F15Model.js), comme Cockpit.js
 // pour le Cessna : même interface pour le simulateur (group, eye, clickables, controlAt, update, setExterior…).
@@ -24,7 +25,10 @@ import { JET_MIL } from './JetSystems.js';
 // collimateur (échelle d'assiette, vecteur vitesse, cap, vitesse, altitude, Mach, g, incidence).
 // Repère : celui de l'avion (le cockpit est à sa place dans le modèle, à taille réelle).
 
-const COCKPIT_URL = 'asset/f15/f15-cockpit.glb';
+// Appareils tactiles (iPhone, iPad) : photo du cockpit en 2048 × 2048 au lieu de 4096 (~21 Mo de mémoire graphique au
+// lieu de ~85 : en pleine définition, Safari fermait l'onglet), voir asset/blender/shrink_glb.py
+const LOW_MEMORY = isTablet();
+const COCKPIT_URL = LOW_MEMORY ? 'asset/f15/f15-cockpit-mobile.glb' : 'asset/f15/f15-cockpit.glb';
 const EYE = new Vector3(0, 1.40, -5.0);
 const KT = 1.94384, FT = 3.28084;
 const deg = MathUtils.degToRad;

@@ -16,6 +16,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeStatic } from './MergeStatic.js';
+import { isTablet } from './Device.js';
 
 // F-15C Eagle du projet FlightGear (Richard Harrison ; modèle extérieur d'Enrique Laso « flying_toaster », cockpit
 // photo de geneb ; licence GPL-2.0), converti par asset/blender/build_f15.py : asset/f15/f15.glb (extérieur),
@@ -28,8 +29,12 @@ import { mergeStatic } from './MergeStatic.js';
 // qui se replient, trappes, roulette de nez orientable, roues qui roulent), tuyères à pétales (ouvertes au ralenti et
 // en postcombustion, fermées plein gaz sec), soufflante des réacteurs ; flammes de postcombustion.
 
-const MODEL_URL = 'asset/f15/f15.glb';
-const LIVERY_URL = (id) => `asset/f15/liveries/${id}.jpg`;
+// Appareils tactiles (iPhone, iPad, tablettes) : textures réduites (livrée en 1024 au lieu de 2048, voir
+// asset/blender/shrink_glb.py). Safari ferme l'onglet sans prévenir quand la page dépasse sa mémoire : le F-15 en pleine
+// définition (plus de 120 Mo de textures en mémoire graphique, cockpit compris) faisait planter iPhone et iPad
+const LOW_MEMORY = isTablet();
+const MODEL_URL = LOW_MEMORY ? 'asset/f15/f15-mobile.glb' : 'asset/f15/f15.glb';
+const LIVERY_URL = (id) => `asset/f15/liveries/${LOW_MEMORY ? 'mobile/' : ''}${id}.jpg`;
 const BASE_LIVERY_IMAGE = 'livery.AF80-0007';
 
 // Livrées : textures du fuselage (FlightGear), couleur de l'étiquette des autres joueurs
@@ -319,8 +324,16 @@ function prepare(scene) {
     for (const f of flames) animated.add(f);
     mergeStatic(scene, (o) => animated.has(o));
 
+    // Livrée d'origine du modèle (embarquée) : sert telle quelle, sans être rechargée
+    let embedded = null;
+    scene.traverse((m) => { if (m.isMesh && m.material?.userData.livery) embedded ??= m.material.map; });
+    if (embedded && !liveryTextures.has(F15_DEFAULT_LIVERY)) {
+        embedded.anisotropy = 4;
+        liveryTextures.set(F15_DEFAULT_LIVERY, embedded);
+    }
+    liveryUsers.set(F15_DEFAULT_LIVERY, (liveryUsers.get(F15_DEFAULT_LIVERY) ?? 0) + 1);
     root.userData = {
-        livery: null,
+        livery: F15_DEFAULT_LIVERY,
         parts: { ...p, noseGear, noseSteer, noseSpin, left, right, doors, fans, nozzles, flames, burners, wheelRadius, mainRadius },
     };
     return root;
@@ -366,6 +379,7 @@ function flameMaterial(color, alpha, length) {
 
 // Livrée : texture du fuselage remplacée (chargée une fois)
 const liveryTextures = new Map();
+const liveryUsers = new Map();   // livrée -> nombre d'avions qui la portent (une livrée plus portée est libérée)
 function liveryTexture(id) {
     if (!liveryTextures.has(id)) {
         const texture = new TextureLoader().load(LIVERY_URL(id));
@@ -378,8 +392,19 @@ function liveryTexture(id) {
 }
 function paintF15(model, id) {
     const livery = isF15Livery(id) ? id : F15_DEFAULT_LIVERY;
-    if (model.userData.livery === livery) return;
+    const previous = model.userData.livery;
+    if (previous === livery) return;
     model.userData.livery = livery;
+    liveryUsers.set(livery, (liveryUsers.get(livery) ?? 0) + 1);
+    // Ancienne livrée plus portée par aucun avion : texture rendue (mémoire graphique)
+    if (previous) {
+        const users = (liveryUsers.get(previous) ?? 1) - 1;
+        liveryUsers.set(previous, users);
+        if (users <= 0 && previous !== F15_DEFAULT_LIVERY) {
+            liveryTextures.get(previous)?.dispose();
+            liveryTextures.delete(previous);
+        }
+    }
     const texture = liveryTexture(livery);
     model.traverse((m) => {
         if (m.isMesh && m.material?.userData.livery) {
