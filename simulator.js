@@ -514,9 +514,12 @@ function updateJet(delta) {
     // Verrière : la commande suit l'interrupteur des systèmes (ouverte au parking) ; refermée en roulant vite
     jetCanopyOpen = jetSystems.switches.canopy;
     if (jetCanopyOpen && (!controls.isOnGround() || controls.getSpeed() > 20)) jetSystems.switches.canopy = jetCanopyOpen = false;
+    // Hangar, menu, choix du départ, arrivée sur le départ (son qui monte) : verrière, train et aérofrein prennent
+    // directement leur position, sans bruit (avant : à l'arrivée au hangar, la verrière s'ouvrait en jouant le vérin)
+    const quiet = choosingSpawn || inMenu || spawnFade < 1 || controls.isCrashed();
     const canopyBefore = jetCanopy;
-    jetCanopy = THREE.MathUtils.clamp(jetCanopy + (jetCanopyOpen ? 1 : -1) * delta / CANOPY_TIME, 0, 1);
-    const volume = chaseView ? 0.8 : 0.6;
+    jetCanopy = quiet ? (jetCanopyOpen ? 1 : 0) : THREE.MathUtils.clamp(jetCanopy + (jetCanopyOpen ? 1 : -1) * delta / CANOPY_TIME, 0, 1);
+    const volume = quiet ? 0 : chaseView ? 0.8 : 0.6;
     if ((canopyBefore === 0 && jetCanopy > 0) || (canopyBefore === 1 && jetCanopy < 1)) jetSound.play('canopy-trans', volume * 0.6);
     if (canopyBefore > 0 && jetCanopy === 0) jetSound.play('canopy-close2', volume);
     // Train : bruit de la manœuvre, puis des trappes ; les phares suivent (sur la jambe avant)
@@ -531,6 +534,7 @@ function updateJet(delta) {
         jetSpeedbrakeWas = model.speedbrakeOut;
         jetSound.play('air-brakes', volume * 0.7);
     }
+    if (quiet) model.speedbrake = model.speedbrakeOut ? 1 : 0;
     if (!jetModel) return;
     const inputs = controls.getInputs();
     animateF15(jetModel, {
