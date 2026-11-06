@@ -10,6 +10,7 @@ import { EngineSound } from './js/EngineSound.js';
 import { SoundEffects } from './js/SoundEffects.js';
 import { Graphics } from './js/Graphics.js';
 import { Multiplayer, cleanRegistration } from './js/Multiplayer.js';
+import { Chat } from './js/Chat.js';
 import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
 import { AirportNetwork } from './js/Airport.js';
 import { NightSky } from './js/NightSky.js';
@@ -1455,6 +1456,17 @@ document.getElementById('multi-copier').addEventListener('click', async (event) 
 
 window.addEventListener('pagehide', () => multiplayer.leave());
 
+// Tchat de la partie : messages affichés sur l'écran de vol chez tous les joueurs (voir Chat.js). Entrée pour écrire,
+// sauf dans un écran sans pilotage (menu, hangar, choix du départ) ou une fenêtre ouverte
+const chat = new Chat({
+    multiplayer,
+    root: document.getElementById('tchat'),
+    canType: (event) => !isTypingTarget(event.target) && !document.querySelector('dialog[open]')
+        && !event.target.closest?.('button, a, select, [role=button]')   // Entrée sur un bouton : le bouton seul
+        && !inMenu && !inHangar && spawnDialog.hidden && airportPanel.hidden,
+    onClose: () => view.focus(),   // le clavier repart au pilotage
+});
+
 // --- Choix du point de départ ---------------------------------------------------------------
 // Au lancement (et bouton "Changer de départ") : carte de l'aérodrome, seuils de piste (prêt à décoller) et places
 // de parking libres (avion éteint)
@@ -1752,6 +1764,7 @@ const menuBarObserver = new MutationObserver(queueFitMenuBar);
 for (const cell of menuBarCells) menuBarObserver.observe(cell, { childList: true, characterData: true, subtree: true });
 window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.repeat) return;
+    if (event.target?.id === 'tchat-saisie') return;   // Échap ferme le champ du tchat (voir Chat.js)
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
     if (menus.some((menu) => menu.contains(menuContent.get(menu)) && !menuContent.get(menu).hidden)) return;   // Échap referme d'abord le menu
     const visible = !simulatorElement.classList.contains('barre');

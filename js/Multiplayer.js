@@ -31,6 +31,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_PATTERN = /^[A-Z2-9]{6}$/;
 const ID_PATTERN = /^[a-z0-9]{8,32}$/;
 const MAX_VOICE = 4000;         // taille max d'un paquet de voix (caractères base64, ~0,3 s de son)
+const MAX_CHAT = 200;           // taille max d'un message du tchat (caractères)
 
 function randomString(chars, length) {
     return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -214,6 +215,13 @@ class Multiplayer extends EventTarget {
         if (this._joined) this._publish({ atc: message });
     }
 
+    // Message du tchat, affiché chez tous les joueurs de la partie ; false si on n'est pas (encore) dans une partie
+    sendChat(text) {
+        if (!this._joined) return false;
+        this._publish({ chat: String(text).slice(0, MAX_CHAT) });
+        return true;
+    }
+
     // Paquet de voix de la radio (texte base64) ; part tout de suite, sans attendre l'état
     sendVoice(data, end = false) {
         if (this._joined) this._publish({ voice: data, end });
@@ -320,7 +328,8 @@ class Multiplayer extends EventTarget {
             return;
         }
         if (data.leave) {
-            this._lastSeq.delete(id);
+            // (son dernier numéro est gardé : une copie en retard d'un de ses messages, reçue par un autre relais, ne le
+            // fait pas réapparaître ; s'il revient, ses numéros continuent de croître)
             if (this.players.delete(id)) this._emitPlayers();
             return;
         }
@@ -337,6 +346,13 @@ class Multiplayer extends EventTarget {
             if (this.players.has(id) && data.voice.length <= MAX_VOICE) {
                 this.dispatchEvent(new CustomEvent('voice', { detail: { id, data: data.voice, end: data.end === true } }));
             }
+            return;
+        }
+        // Tchat : message écrit d'un joueur de la partie (texte seul : affiché tel quel, jamais comme du HTML)
+        if (typeof data.chat === 'string') {
+            const player = this.players.get(id);
+            const text = data.chat.replace(/[ -]/g, ' ').trim().slice(0, MAX_CHAT);
+            if (player && text) this.dispatchEvent(new CustomEvent('chat', { detail: { id, name: player.name, text } }));
             return;
         }
         // Contrôle aérien : message d'un joueur ou de son contrôleur

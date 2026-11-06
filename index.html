@@ -55,6 +55,7 @@
 	<link rel="modulepreload" href="js/CloudLayer.js">
 	<link rel="modulepreload" href="js/StallWarning.js">
 	<link rel="modulepreload" href="js/TerrainWarning.js">
+	<link rel="modulepreload" href="js/Chat.js">
 	<link rel="modulepreload" href="js/EngineSound.js">
 	<link rel="modulepreload" href="js/SoundEffects.js">
 	<link rel="modulepreload" href="js/Graphics.js">
@@ -253,6 +254,12 @@
 	<div id="alarme">DÉCROCHAGE</div>
 	<div id="alarme-inclinaison">BANK ANGLE</div>
 	<div id="alarme-terrain">PULL UP</div>
+	<!-- Tchat multijoueur : messages affichés sur l'écran de vol chez tous les joueurs (voir Chat.js) -->
+	<div id="tchat" hidden>
+		<div class="tchat-fil" aria-live="polite"></div>
+		<form hidden><input id="tchat-saisie" type="text" autocomplete="off" enterkeyhint="send" placeholder="Message à la partie (Entrée : envoyer, Échap : annuler)"></form>
+		<button class="tchat-ecrire" type="button" title="Écrire un message à tous les joueurs (touche Entrée)">💬 Écrire</button>
+	</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
 	<button id="ils-bouton" hidden title="Guidage ILS (touche I)">ILS</button>

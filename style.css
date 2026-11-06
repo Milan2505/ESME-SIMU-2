@@ -820,6 +820,8 @@ img{margin: 0px;
   #simulator:is(:fullscreen, .jeu) > #ecran,
   #simulator:is(:fullscreen, .jeu) > #alarme,
   #simulator:is(:fullscreen, .jeu) > #alarme-inclinaison,
+  #simulator:is(:fullscreen, .jeu) > #alarme-terrain,
+  #simulator:is(:fullscreen, .jeu) > #tchat,
   #simulator:is(:fullscreen, .jeu) > #nom-vue,
   #simulator:is(:fullscreen, .jeu) > #crash,
   #simulator:is(:fullscreen, .jeu) > #perf,
@@ -2834,8 +2836,104 @@ html.tablette #simulator.jeu > #commandes {
 #simulator.photo > #astuce-echap,
 #simulator.photo > #perf,
 #simulator.photo > #radio-indicateur,
-#simulator.photo > #atc-sous-titre {
+#simulator.photo > #atc-sous-titre,
+#simulator.photo > #tchat {
   display: none !important;
+}
+#simulator:has(#menu-principal:not([hidden])) > #tchat {
+  display: none;
+}
+
+/* Tchat multijoueur : à gauche, entre la rose des caps (en haut) et les jauges (en bas) ; les messages ne captent pas
+   le toucher (le pilotage continue dessous), seuls le bouton et le champ le font */
+#tchat {
+  grid-column: 4/15;
+  grid-row: 10/17;
+  align-self: start;
+  justify-self: start;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: min(380px, calc(100% - 24px));
+  margin: 12px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  pointer-events: none;
+}
+#simulator.jeu > #tchat {
+  margin-top: calc(var(--hud-u) * 255);
+  margin-left: max(12px, env(safe-area-inset-left, 0px));
+}
+#tchat[hidden] {
+  display: none;
+}
+.tchat-fil {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 100%;
+}
+.tchat-fil p {
+  margin: 0;
+  text-indent: 0;
+  text-align: left;
+  padding: 3px 8px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #fff;
+  background: rgba(10, 16, 26, 0.72);
+  border-radius: 4px;
+  transition: opacity 1s;
+}
+.tchat-fil b {
+  color: #ffb000;
+}
+.tchat-fil p.tchat-info {
+  font-style: italic;
+  color: #c8d4e0;
+}
+.tchat-fil p.efface {
+  opacity: 0;
+}
+/* Champ ouvert : tout le fil reste lisible */
+#tchat.ouvert .tchat-fil p.efface {
+  opacity: 1;
+}
+#tchat form {
+  width: 100%;
+  pointer-events: auto;
+}
+#tchat form[hidden] {
+  display: none;
+}
+#tchat input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 16px;   /* iPad / iPhone : pas de zoom automatique sur le champ */
+  color: #fff;
+  background: rgba(10, 16, 26, 0.88);
+  border: 2px solid #ffb000;
+  border-radius: 5px;
+  outline: none;
+}
+.tchat-ecrire {
+  pointer-events: auto;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(10, 16, 26, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.tchat-ecrire[hidden] {
+  display: none;
 }
 
 /* Mode jeu : panneaux superposés placés hors des infos de vol (FlightHud.js : rose des caps en haut à gauche, groupes
@@ -2895,7 +2993,7 @@ html.tablette #simulator.jeu > #commandes {
   width: min(92%, 58vh, max(240px, calc(100dvh - 430px)));
 }
 /* Alarmes (décrochage, BANK ANGLE) : toujours visibles, par-dessus toute fenêtre ; elles ne captent pas le toucher */
-#simulator.jeu > :is(#alarme, #alarme-inclinaison) {
+#simulator.jeu > :is(#alarme, #alarme-inclinaison, #alarme-terrain) {
   z-index: 7;
 }
 /* iPad : la colonne SOL / SYSTÈMES occupe le haut à droite et les jauges montent au-dessus des commandes tactiles.
