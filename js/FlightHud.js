@@ -72,8 +72,9 @@ class FlightHud {
         const { ctx, canvas } = this;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        // Unité : tout est dessiné pour un écran de 1280 × 720, puis mis à l'échelle (sans dépasser)
-        const u = Math.min(canvas.width / 1280, canvas.height / 720);
+        // Unité : tout est dessiné pour un écran de 1280 × 720, puis mis à l'échelle (sans dépasser). designWidth : largeur
+        // de référence (téléphone : 760, voir simulator.js ; en portrait, 1280 rendait les jauges illisibles, 0,3 ×)
+        const u = Math.min(canvas.width / (this.designWidth ?? 1280), canvas.height / 720);
         if (u <= 0) return;
         ctx.setTransform(u, 0, 0, u, 0, 0);
         const W = canvas.width / u, H = canvas.height / u;

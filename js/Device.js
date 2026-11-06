@@ -8,6 +8,12 @@ function isTablet() {
     return touchPoints > 0 && (matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches);
 }
 
+// Téléphone (iPhone, Android) : tablette par son écran tactile, mais petit écran (moins de 600 px de petit côté,
+// quelle que soit l'orientation). Même interface tactile qu'une tablette, en plus compact (voir html.telephone dans style.css)
+function isPhone() {
+    return isTablet() && Math.min(screen.width, screen.height) < 600;
+}
+
 // Site ouvert depuis l'écran d'accueil (appli web) : déjà en plein écran, sans barre du navigateur
 function isStandalone() {
     return navigator.standalone === true || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
@@ -19,4 +25,4 @@ function isIOS() {
     return (navigator.maxTouchPoints ?? 0) > 1 && /Macintosh|iPad|iPhone/.test(navigator.userAgent);
 }
 
-export { isTablet, isStandalone, isIOS };
+export { isTablet, isPhone, isStandalone, isIOS };

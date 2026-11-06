@@ -36,10 +36,11 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
-import { isTablet, isStandalone, isIOS } from './js/Device.js';
+import { isTablet, isPhone, isStandalone, isIOS } from './js/Device.js';
 import { track, task, progress, LoadingScreen } from './js/Loading.js';
 // Tablette : marque sur la page (bande de la barre d'état d'iOS en plein écran, voir style.css)
 document.documentElement.classList.toggle('tablette', isTablet());
+document.documentElement.classList.toggle('telephone', isPhone());   // (téléphone : interface tactile compacte)
 // Tablette : ni zoom de la page, ni sélection de texte. Safari (iPad) ignore « user-scalable=no » du viewport : deux
 // touchers rapides sur un bouton zoomaient la page, et un doigt posé un peu longtemps (freins, manche, gaz) sélectionnait
 // le texte voisin (loupe, poignées bleues, menu Copier). En plus des règles de style.css (touch-action, user-select) :
@@ -1167,6 +1168,11 @@ const fullscreenButtons = [...document.querySelectorAll('[data-plein-ecran]')];
 const showButtons = isTablet() && (isIOS() ? iosBrowser : fullscreenApi);
 for (const button of fullscreenButtons) button.hidden = !showButtons;
 document.getElementById('mp-astuce-ipad').hidden = !iosBrowser;
+// iPhone : même marche à suivre, mais le bouton Partager de Safari est dans sa barre du bas (en haut en paysage)
+if (isPhone()) {
+    for (const span of document.querySelectorAll('[data-appareil]')) span.textContent = 'iPhone';
+    for (const span of document.querySelectorAll('[data-partager]')) span.textContent = "dans la barre de Safari, en bas ou en haut selon le sens de l'écran";
+}
 // Un bouton par écran : ⛶ de la barre de menus (en vol) et celui du menu principal (au lancement)
 for (const button of fullscreenButtons) {
     button.addEventListener('click', (event) => {
@@ -2689,6 +2695,8 @@ document.getElementById('masse-bouton').addEventListener('click', (event) => {
 // Informations de vol en vue extérieure (vitesse, moteur, carburant, incidence, volets, trim, altitude, vario, cap),
 // comme dans les simulateurs grand public ; cachées en cabine, au menu, au choix du départ et après un crash
 const flightHud = new FlightHud(document.getElementById('hud'));
+// Téléphone en portrait : jauges dimensionnées sur la largeur de l'écran (chaque rangée tient dans sa moitié : voir _row)
+if (isPhone()) flightHud.designWidth = 760;
 flightHud.avoid = document.getElementById('moniteur');
 function updateHud(delta) {
     const visible = chaseView && !choosingSpawn && !controls.isCrashed() && settings.values.hud !== false;

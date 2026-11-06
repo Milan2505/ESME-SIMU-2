@@ -2721,7 +2721,13 @@ body:has(#simulator.jeu) {
   --haut-systeme: env(safe-area-inset-top, 0px);
   padding: var(--haut-systeme) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
   box-sizing: border-box;
-  background: linear-gradient(#0b1320, #0b1320) top / 100% var(--haut-systeme) no-repeat, white;
+  /* Bandes des zones sûres à gauche et à droite (encoche de l'iPhone en paysage) : sombres, comme celle du haut (blanches,
+     elles encadraient la vue d'un liseré blanc) ; la barre de menus, elle, reste blanche */
+  background:
+    linear-gradient(#0b1320, #0b1320) top / 100% var(--haut-systeme) no-repeat,
+    linear-gradient(#0b1320, #0b1320) left / env(safe-area-inset-left, 0px) 100% no-repeat,
+    linear-gradient(#0b1320, #0b1320) right / env(safe-area-inset-right, 0px) 100% no-repeat,
+    white;
 }
 /* Écran étroit (tablette en portrait) : la barre complète ne tiendrait qu'avec un texte illisible. Elle passe sur
    deux lignes (classe barre-2-lignes, voir fitMenuBar), sans rien masquer ni regrouper : Commandes à Profil en haut,
@@ -3979,4 +3985,212 @@ html:not(.tablette) #simulator.jeu #profil .menu-contenu {
 }
 @media (prefers-reduced-motion: reduce) {
   .pe-fleche { animation: none; }
+}
+
+/* --- Téléphone (html.telephone : écran tactile de moins de 600 px de petit côté, voir Device.js isPhone) --------------
+   Même interface tactile que sur tablette, en compact. Avant, sur un iPhone en paysage (390 px de haut), les commandes à
+   la taille de l'iPad prenaient presque toute la hauteur : la colonne SOL / SYSTÈMES / RADIO / AFFICHAGE recouvrait les
+   boutons et la manette des gaz, et les jauges du HUD (posées au-dessus des commandes) sortaient par le haut ou
+   passaient sous la rose des caps. Cibles au doigt d'au moins 32 px */
+html.telephone .pe-fleche {
+  display: none;   /* (flèche vers le bouton Partager de l'iPad, en haut à droite : ailleurs sur iPhone) */
+}
+html.telephone .tactile-gauche {
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+html.telephone .tactile-droite {
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  gap: 8px;
+}
+html.telephone #tactile-manche {
+  width: clamp(96px, 27vmin, 124px);
+}
+html.telephone .tactile-colonne {
+  gap: 6px;
+}
+html.telephone .tactile-boutons {
+  gap: 5px;
+}
+html.telephone .tactile-boutons button {
+  min-width: 58px;
+  min-height: 32px;
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+html.telephone #tactile-palonnier {
+  min-width: 124px;
+  height: 34px;
+  border-radius: 17px;
+}
+html.telephone #tactile-palonnier span {
+  top: 3px;
+  left: calc(50% - 12px);
+  width: 24px;
+  height: 24px;
+}
+html.telephone #tactile-palonnier em {
+  padding: 0 10px;
+  font-size: 10px;
+}
+html.telephone #tactile-gaz {
+  width: 46px;
+  height: clamp(120px, 40vmin, 170px);
+}
+html.telephone #tactile-gaz em {
+  font-size: 10px;
+}
+/* Colonne de la tablette : bandeau en haut à droite (au-dessus des jauges du HUD et des commandes) */
+html.telephone .tb-colonne {
+  top: 6px;
+  flex-direction: row;
+  gap: 5px;
+}
+html.telephone .tb-principal {
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 9px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+/* Panneaux de la tablette (SOL › DÉPART, SYSTÈMES › ÉLECTRIQUE…) : sur téléphone, ni déplaçables ni superposés. Un seul
+   à la fois, ancré entre le manche et les commandes de droite (largeurs réservées par TouchControls), sous le bandeau :
+   avant, la liste et les tuiles se posaient l'une sur l'autre et sur le manche et les boutons (pilotage impossible).
+   Ouvrir une catégorie remplace la liste ; fermer ses tuiles (×) fait revenir la liste */
+html.telephone .tb-panneau {
+  left: var(--tactile-largeur-gauche, 160px) !important;
+  right: var(--tactile-largeur-droite, 240px) !important;
+  top: 46px !important;
+  width: auto !important;
+  max-height: calc(100% - 54px - env(safe-area-inset-bottom, 0px));
+  border-radius: 10px;
+}
+/* Portrait : commandes en bas, rien sur les côtés ; le panneau prend la largeur, au-dessus des commandes */
+@media (orientation: portrait) {
+  html.telephone .tb-panneau {
+    left: calc(8px + env(safe-area-inset-left, 0px)) !important;
+    right: calc(8px + env(safe-area-inset-right, 0px)) !important;
+    max-height: calc(100% - 54px - max(var(--tactile-gauche, 0px), var(--tactile-droite, 0px)));
+  }
+}
+html.telephone .tb-panneau-titre {
+  padding: 4px 4px 4px 10px;
+  cursor: default;
+}
+html.telephone .tb-panneau-titre h3 {
+  font-size: 11px;
+}
+html.telephone .tb-fermer {
+  width: 32px;
+  height: 32px;
+}
+html.telephone #tablette-ui:has(.tb-detail:not([hidden])) .tb-liste {
+  display: none;
+}
+html.telephone .tb-panneau-contenu {
+  padding: 6px;
+}
+html.telephone .tb-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 5px;
+}
+html.telephone .tb-categorie {
+  min-height: 34px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+html.telephone .tb-grille {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 5px;
+}
+html.telephone .tb-tuile {
+  min-height: 46px;
+  padding: 4px 7px;
+  gap: 2px;
+}
+html.telephone .tb-nom {
+  font-size: 9px;
+}
+html.telephone .tb-etat {
+  font-size: 12px;
+}
+
+/* --- Écrans peu hauts (téléphone en paysage, petite fenêtre) : menu principal et écran de chargement tiennent sans
+   défiler (avant : seuls « Vol libre » et « Multijoueur » étaient visibles, « Commencer » sous le bord) */
+@media (max-height: 500px) {
+  #menu-principal {
+    grid-template-columns: minmax(300px, 1.3fr) minmax(220px, 1fr);
+    gap: 20px;
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+      max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  }
+  .mp-gauche {
+    justify-content: flex-start;
+  }
+  .mp-logo {
+    display: none;
+  }
+  .mp-titre {
+    font-size: 26px;
+  }
+  .mp-titre span {
+    margin-top: 2px;
+  }
+  .mp-sous-titre {
+    margin: 4px 0 10px;
+    font-size: 12px;
+  }
+  .mp-boutons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .mp-bouton {
+    padding: 7px 10px;
+  }
+  .mp-bouton strong {
+    font-size: 14px;
+  }
+  .mp-bouton small {
+    font-size: 10px;
+  }
+  .mp-bouton:hover,
+  .mp-bouton:focus-visible {
+    transform: none;
+  }
+  .mp-droite {
+    justify-content: flex-start;
+    padding-top: 58px;   /* (sous le bouton Plein écran : 18 px du haut, ~40 px de haut) */
+  }
+  .mp-pied {
+    font-size: 10px;
+  }
+  #chargement .ch-boite {
+    gap: 6px;
+    width: min(640px, 100%);
+  }
+  #chargement .ch-logo,
+  #chargement .ch-astuce {
+    display: none;
+  }
+  #chargement-titre {
+    font-size: 20px;
+  }
+  #chargement-etape {
+    font-size: 14px;
+  }
+  #chargement-etapes {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 2px 12px;
+    font-size: 12px;
+  }
+  .ch-commencer {
+    min-height: 44px;
+    margin-top: 2px;
+    font-size: 17px;
+  }
 }
