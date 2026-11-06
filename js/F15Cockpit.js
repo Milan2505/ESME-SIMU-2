@@ -1,10 +1,13 @@
 import {
+    Box3,
     AdditiveBlending,
     CanvasTexture,
     Group,
     MathUtils,
     Mesh,
     MeshBasicMaterial,
+    MeshStandardMaterial,
+    DoubleSide,
     PlaneGeometry,
     RepeatWrapping,
     Vector3,
@@ -13,6 +16,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeStatic } from './MergeStatic.js';
 import { JET_MIL } from './JetSystems.js';
 import { isTablet } from './Device.js';
+import { F15Displays } from './F15Displays.js';
 
 // Cockpit du F-15C (FlightGear, cockpit photo de geneb : asset/f15/f15-cockpit.glb, voir F15Model.js), comme Cockpit.js
 // pour le Cessna : même interface pour le simulateur (group, eye, clickables, controlAt, update, setExterior…).
@@ -173,6 +177,7 @@ class F15Cockpit {
         this._smooth = { pitch: 0, roll: 0, yaw: 0, vs: 0, g: 1, slip: 0 };
         this._caution = false;
         this._cautionAck = '';
+        this.displays = new F15Displays();   // VSD (radar), TEWS (alerte radar), MPCD (armement)
         this.hud = new F15Hud();
         this.hud.mesh.position.set(0.0095, 1.386, -5.70);   // sur le verre du collimateur (deux vitres : y 1,25 -> 1,52)
         this.group.add(this.hud.mesh);
@@ -200,7 +205,22 @@ class F15Cockpit {
         });
         const get = (name) => byName.get(name.replace(/\s/g, '_').replace(/[[\]\.:/]/g, ''));
         // Images du HUD et des écrans du modèle (transparentes) : cachées, le HUD est dessiné à part
-        for (const name of ['HUDImage1', 'HUDImage2', 'HUDImageBevels']) { const o = get(name); if (o) o.visible = false; }
+        // Verre du collimateur : les vitres du modèle (forme et inclinaison réelles), en verre teinté visible (leur image
+        // d'origine était transparente : on ne voyait pas le verre) ; chants sombres. La symbologie est dessinée à part
+        const glass = new MeshStandardMaterial({
+            color: 0x6f9c8c, transparent: true, opacity: 0.11, roughness: 0.08, metalness: 0.6, depthWrite: false, side: DoubleSide,
+        });
+        // (jonction des deux vitres : translucide, sous la symbologie, qui reste lisible par-dessus)
+        const bevel = new MeshStandardMaterial({
+            color: 0x23302f, transparent: true, opacity: 0.35, roughness: 0.4, metalness: 0.3, depthWrite: false, side: DoubleSide,
+        });
+        for (const name of ['HUDImage1', 'HUDImage2', 'HUDImageBevels']) {
+            get(name)?.traverse((m) => {
+                if (!m.isMesh) return;
+                m.material = name === 'HUDImageBevels' ? bevel : glass;
+                m.renderOrder = 5;
+            });
+        }
         scene.updateMatrixWorld(true);
         const keep = new Set();
         // Rotations : pivots emboîtés dans l'ordre FlightGear (inner : à l'intérieur du pivot précédent des mêmes pièces)
@@ -262,6 +282,17 @@ class F15Cockpit {
         }
         for (const name of ['HUDImage1', 'HUDImage2', 'HUDImageBevels']) { const o = get(name); if (o) keep.add(o); }
         // Le reste (des centaines de pièces fixes) fusionné par matériau
+        // Écrans : surfaces du modèle remplacées par les écrans dessinés en direct (F15Displays.js)
+        const surface = (name) => {
+            const o = get(name);
+            if (!o) return null;
+            o.visible = false;
+            const box = new Box3().setFromObject(o);
+            const size = box.getSize(new Vector3());
+            return { center: box.getCenter(new Vector3()), width: size.x, height: size.y };
+        };
+        const vsd = surface('VSDImage'), tews = surface('TEWSImage'), mpcd = surface('MPCDImage');
+        if (vsd && tews && mpcd) this.clickables.push(...this.displays.build(this.group, { vsd, tews, mpcd }));
         mergeStatic(scene, (o) => keep.has(o));
         this.group.add(scene);
         this.ready = true;
@@ -374,6 +405,14 @@ class F15Cockpit {
         }
         for (const flag of this._flags) flag.visible = !powered;
         for (const p of this._pedals) p.o.position.z = p.z - p.side * s.yaw * 0.07;
+        const radar = jet.radar;
+        if (radar) {
+            this.displays.update({
+                time: this._time, delta, powered, radarPower: powered && sys.generatorOn, onGround: state.onGround,
+                own: { position: radar.position, heading: state.heading, pitchDeg: state.pitchDeg, rollDeg: MathUtils.radToDeg(state.roll), altitudeFt: v.ft },
+                targets: radar.targets, sites: radar.sites, gun: 940, masterArm: false, fuelLb: v.fuelLb,
+            });
+        }
         this.hud.update(this._time, { ...v, powered, speedKt: state.speed * KT, alpha: jet.alpha ?? 0, beta: jet.beta ?? 0, gear: jet.gear ?? 1, ab: Math.max(...(ab.length ? ab : [0])), throttle });
     }
 
@@ -386,7 +425,7 @@ class F15Cockpit {
 
 // HUD : symbologie verte sur le verre du collimateur, à 69 cm de l'œil : les angles sont convertis en distances sur
 // le verre (repère de l'œil), l'horizon dessiné recouvre donc le vrai horizon vu à travers
-const HUD_SIZE = [0.19, 0.27];          // m (largeur, hauteur du verre)
+const HUD_SIZE = [0.17, 0.27];          // m (largeur entre les montants, hauteur du verre)
 const HUD_DISTANCE = 0.69;              // m de l'œil
 const HUD_CENTER_ABOVE_EYE = -0.014;    // m : centre du verre sous l'axe de l'œil
 const HUD_PX = 512;
@@ -421,19 +460,26 @@ class F15Hud {
         }
         const green = 'rgba(80,255,120,0.95)';
         ctx.strokeStyle = ctx.fillStyle = green;
-        ctx.lineWidth = 3;
-        ctx.font = 'bold 17px monospace';
+        ctx.lineWidth = 2.5;
         ctx.textBaseline = 'middle';
+        // Zone utile : à l'intérieur du verre, entre les montants (rien ne déborde, tout est découpé à ce cadre)
+        const L = 12, R = W - 12, T = 6, B = H - 10;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(L, T, R - L, B - T);
+        ctx.clip();
         const cx = W / 2, cy = H / 2 + HUD_CENTER_ABOVE_EYE / HUD_SIZE[1] * H;   // axe de l'avion (point visé à l'infini)
         // Repère de l'avion (W)
         ctx.beginPath();
-        ctx.moveTo(cx - 22, cy); ctx.lineTo(cx - 12, cy); ctx.lineTo(cx - 6, cy + 8); ctx.lineTo(cx, cy);
-        ctx.lineTo(cx + 6, cy + 8); ctx.lineTo(cx + 12, cy); ctx.lineTo(cx + 22, cy);
+        ctx.moveTo(cx - 20, cy); ctx.lineTo(cx - 11, cy); ctx.lineTo(cx - 5, cy + 7); ctx.lineTo(cx, cy);
+        ctx.lineTo(cx + 5, cy + 7); ctx.lineTo(cx + 11, cy); ctx.lineTo(cx + 20, cy);
         ctx.stroke();
-        // Échelle d'assiette : tourne avec l'inclinaison, barreaux tous les 5° (pleins au-dessus, tirets en dessous)
+        // Échelle d'assiette : tourne avec l'inclinaison, barreaux tous les 5° (pleins au-dessus, tirets en dessous) ;
+        // dans la colonne du milieu, sans passer sous les cases de vitesse et d'altitude
+        ctx.font = 'bold 14px monospace';
         ctx.save();
         ctx.beginPath();
-        ctx.rect(8, 40, W - 16, H - 80);
+        ctx.rect(L + 58, 48, R - L - 116, B - 48 - 34);
         ctx.clip();
         ctx.translate(cx, cy);
         ctx.rotate(deg(s.rollDeg));   // inclinaison à droite (roll < 0) : l'horizon tourne dans l'autre sens
@@ -443,68 +489,80 @@ class F15Hud {
             if (p === 0) {
                 ctx.setLineDash([]);
                 ctx.beginPath();
-                ctx.moveTo(-W, y); ctx.lineTo(-30, y); ctx.moveTo(30, y); ctx.lineTo(W, y);
+                ctx.moveTo(-W, y); ctx.lineTo(-26, y); ctx.moveTo(26, y); ctx.lineTo(W, y);
                 ctx.stroke();
                 continue;
             }
-            ctx.setLineDash(p < 0 ? [8, 6] : []);
+            ctx.setLineDash(p < 0 ? [7, 5] : []);
             ctx.beginPath();
-            const tick = p > 0 ? 8 : -8;
-            ctx.moveTo(-60, y + tick); ctx.lineTo(-60, y); ctx.lineTo(-25, y);
-            ctx.moveTo(25, y); ctx.lineTo(60, y); ctx.lineTo(60, y + tick);
+            const tick = p > 0 ? 7 : -7;
+            ctx.moveTo(-52, y + tick); ctx.lineTo(-52, y); ctx.lineTo(-22, y);
+            ctx.moveTo(22, y); ctx.lineTo(52, y); ctx.lineTo(52, y + tick);
             ctx.stroke();
             ctx.setLineDash([]);
             ctx.textAlign = 'right';
-            ctx.fillText(String(Math.abs(p)), -64, y);
+            ctx.fillText(String(Math.abs(p)), -55, y);
             ctx.textAlign = 'left';
-            ctx.fillText(String(Math.abs(p)), 64, y);
+            ctx.fillText(String(Math.abs(p)), 55, y);
         }
         ctx.restore();
         ctx.setLineDash([]);
-        // Vecteur vitesse (où va l'avion) : incidence sous le repère, dérapage de côté
-        const fx = cx - this._px(s.beta), fy = cy + this._px(s.alpha);
+        // Vecteur vitesse (où va l'avion) : incidence sous le repère, dérapage de côté. Hors du verre, il reste au bord,
+        // barré d'une croix (comme sur un vrai HUD : symbole « limité »)
         if (s.speedKt > 30) {
+            const rawX = cx - this._px(s.beta), rawY = cy + this._px(s.alpha);
+            const fx = MathUtils.clamp(rawX, L + 70, R - 70), fy = MathUtils.clamp(rawY, 56, B - 44);
             ctx.beginPath();
-            ctx.arc(fx, fy, 7, 0, Math.PI * 2);
-            ctx.moveTo(fx - 18, fy); ctx.lineTo(fx - 7, fy); ctx.moveTo(fx + 7, fy); ctx.lineTo(fx + 18, fy);
-            ctx.moveTo(fx, fy - 7); ctx.lineTo(fx, fy - 15);
+            ctx.arc(fx, fy, 6, 0, Math.PI * 2);
+            ctx.moveTo(fx - 16, fy); ctx.lineTo(fx - 6, fy); ctx.moveTo(fx + 6, fy); ctx.lineTo(fx + 16, fy);
+            ctx.moveTo(fx, fy - 6); ctx.lineTo(fx, fy - 13);
+            if (fx !== rawX || fy !== rawY) {
+                ctx.moveTo(fx - 9, fy - 9); ctx.lineTo(fx + 9, fy + 9);
+                ctx.moveTo(fx + 9, fy - 9); ctx.lineTo(fx - 9, fy + 9);
+            }
             ctx.stroke();
         }
-        // Cap (bande en haut)
+        // Cap (bande en haut), resserrée au milieu
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(L + 40, T, R - L - 80, 50);
+        ctx.clip();
         ctx.textAlign = 'center';
         const hdg = s.heading;
         for (let h = Math.ceil((hdg - 15) / 5) * 5; h <= hdg + 15; h += 5) {
             const x = cx + this._px(h - hdg);
             const major = ((h % 10) + 10) % 10 === 0;
             ctx.beginPath();
-            ctx.moveTo(x, 30); ctx.lineTo(x, major ? 18 : 24);
+            ctx.moveTo(x, 34); ctx.lineTo(x, major ? 22 : 28);
             ctx.stroke();
-            if (major) ctx.fillText(String(((Math.round(h) % 360) + 360) % 360 / 10 | 0).padStart(2, '0'), x, 10);
+            if (major) ctx.fillText(String(((Math.round(h) % 360) + 360) % 360 / 10 | 0).padStart(2, '0'), x, 14);
         }
+        ctx.restore();
         ctx.beginPath();
-        ctx.moveTo(cx, 32); ctx.lineTo(cx - 5, 40); ctx.lineTo(cx + 5, 40); ctx.closePath();
+        ctx.moveTo(cx, 36); ctx.lineTo(cx - 5, 44); ctx.lineTo(cx + 5, 44); ctx.closePath();
         ctx.stroke();
         // Vitesse (gauche), altitude (droite), en cases
-        const box = (x, y, w, text, align) => {
+        ctx.font = 'bold 15px monospace';
+        const box = (x, y, w, text) => {
             ctx.strokeRect(x, y - 11, w, 22);
-            ctx.textAlign = align;
-            ctx.fillText(text, align === 'right' ? x + w - 4 : x + 4, y + 1);
+            ctx.textAlign = 'right';
+            ctx.fillText(text, x + w - 4, y + 1);
         };
-        box(6, cy - 40, 52, String(Math.round(s.speedKt)), 'right');
-        const alt = Math.round(s.ft / 10) * 10;
-        box(W - 66, cy - 40, 60, String(alt), 'right');
-        ctx.textAlign = 'left';
-        ctx.font = 'bold 13px monospace';
-        ctx.fillText(`M ${s.mach.toFixed(2)}`, 6, cy + 60);
-        ctx.fillText(`G ${s.g.toFixed(1)}`, 6, cy + 78);
-        ctx.fillText(`α ${s.alpha.toFixed(1)}`, 6, cy + 96);
+        box(L + 2, cy - 40, 48, String(Math.round(s.speedKt)));
+        box(R - 58, cy - 40, 56, String(Math.round(s.ft / 10) * 10));
+        ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`${s.fpm >= 0 ? '+' : ''}${Math.round(s.fpm / 10) * 10}`, W - 6, cy - 14);
-        if (s.ab > 0.05) ctx.fillText('AB', W - 6, cy + 60);
-        if (s.gear > 0.99) ctx.fillText('GEAR', W - 6, cy + 78);
-        else if (s.gear > 0.01) ctx.fillText('GEAR …', W - 6, cy + 78);
+        ctx.fillText(`${s.fpm >= 0 ? '+' : ''}${Math.round(s.fpm / 10) * 10}`, R - 2, cy - 16);
+        if (s.ab > 0.05) ctx.fillText('AB', R - 2, cy + 62);
+        if (s.gear > 0.99) ctx.fillText('GEAR', R - 2, cy + 78);
+        else if (s.gear > 0.01) ctx.fillText('GEAR…', R - 2, cy + 78);
+        ctx.textAlign = 'left';
+        ctx.fillText(`M ${s.mach.toFixed(2)}`, L + 2, cy + 62);
+        ctx.fillText(`G ${s.g.toFixed(1)}`, L + 2, cy + 78);
+        ctx.fillText(`α ${s.alpha.toFixed(1)}`, L + 2, cy + 94);
         ctx.textAlign = 'center';
-        ctx.fillText(`${Math.round(s.throttle * 100)} %`, cx, H - 20);
+        ctx.fillText(`${Math.round(s.throttle * 100)} %`, cx, B - 44);   // (au-dessus de l'auvent, qui cache le bas du verre)
+        ctx.restore();
         this.texture.needsUpdate = true;
     }
 }

@@ -20,11 +20,14 @@ const FT = 0.3048;
 const MIN_HEIGHT = 30;          // ft : en dessous, plus d'alarme (arrondi, toucher)
 const MODE1_MAX = 2450;         // ft : plafond du mode 1
 const MODE2_MAX = 1650;         // ft : plafond du mode 2
-const LOOK_AHEAD = 25;          // s de trajectoire examinés (TAWS)
-const LOOK_STEP = 1;            // s entre deux points examinés
-const CLEARANCE = 100;          // ft : marge sous la trajectoire prévue
-const RISE = 150;               // ft : le relief devant doit monter d'autant (pas d'alarme en finale sur terrain plat)
-const CLOSURE_SMOOTH = 0.6;     // s : lissage du taux de rapprochement du sol
+// (réglages adoucis : avant, 25 s d'anticipation, 100 ft de marge et 150 ft de relief suffisaient, l'alarme sonnait
+// trop souvent en volant dans les vallées)
+const LOOK_AHEAD = 15;          // s de trajectoire examinés (TAWS)
+const LOOK_STEP = 0.5;          // s entre deux points examinés
+const CLEARANCE = 50;           // ft : marge sous la trajectoire prévue
+const RISE = 300;               // ft : le relief devant doit monter d'autant (pas d'alarme en finale sur terrain plat)
+const CLOSURE_SMOOTH = 1.5;     // s : lissage du taux de rapprochement du sol (bosses du relief)
+const CONFIRM = 1.0;            // s : la situation doit durer pour déclencher l'alarme (pas sur une simple bosse)
 const GAP = 0.08;               // s entre deux annonces enchaînées
 const HOLD = 1.5;               // s : l'alarme continue un peu après la sortie de l'enveloppe (pas de hachage)
 
@@ -79,7 +82,8 @@ class TerrainWarning {
         }
         // Rapprochement du sol : baisse de la hauteur au-dessus du sol (descente + relief qui monte), lissée
         if (this._lastHeight !== null && dt > 0) {
-            const rate = (this._lastHeight - height) / dt * 60;
+            // (borné : une marche du relief entre deux images ne compte pas comme un rapprochement de 100 000 ft/min)
+            const rate = Math.max(-12000, Math.min(12000, (this._lastHeight - height) / dt * 60));
             this._closure += (rate - this._closure) * Math.min(1, dt / CLOSURE_SMOOTH);
         }
         this._lastHeight = height;
@@ -88,6 +92,14 @@ class TerrainWarning {
         let mode = null;
         if (height < MODE1_MAX && sink > sinkLimit(height)) mode = sink > pullUpLimit(height) ? 'pull' : 'sink';
         if (height < mode2Ceiling(this._closure) || this._ahead(position, velocity, ground, offset)) mode = 'terrain';
+        // Confirmation : une alarme ne démarre (ou ne s'aggrave) que si la situation dure CONFIRM s
+        if (mode && mode !== this._mode) {
+            if (mode !== this._candidate) {
+                this._candidate = mode;
+                this._candidateSince = now;
+            }
+            if (now - this._candidateSince < CONFIRM) mode = this._mode;   // pas encore confirmée : on garde l'état actuel
+        } else this._candidate = null;
         this._set(mode, now, false);
         this._play();
     }

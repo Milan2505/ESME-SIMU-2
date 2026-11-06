@@ -576,6 +576,11 @@ function jetCommand(name, step = 1) {
         Object.assign(sys.switches, !land && !taxi ? { taxi: true, land: false } : taxi && !land ? { taxi: false, land: true } : { taxi: false, land: false });
         sys.toggle('_');   // (prévient les feux)
     } else if (name === 'caution') jetCockpit.acknowledgeCaution();
+    else if (name === 'vsdRange') {
+        // Écran radar : moitié gauche = échelle plus courte, droite = plus longue
+        jetCockpit.displays.stepRange(step < 0 ? -1 : 1);
+        showViewLabel(`Radar : ${[10, 20, 40, 80, 160][jetCockpit.displays.range]} NM`);
+    }
     else if (name === 'strobe') {
         sys.switches.beacon = !sys.switches.strobe;
         sys.toggle('strobe');
@@ -3082,6 +3087,12 @@ function cockpitState() {
             beta: THREE.MathUtils.radToDeg(controls.model.beta),
             gear: controls.model.gearPosition,
             canopy: jetCanopy,
+            // Écrans : autres avions de la partie (radar, alerte radar), radars des aérodromes
+            radar: {
+                position: aircraft.position,
+                targets: remotePlayers.list().filter((p) => !p.crashed && !p.offline),
+                sites: airport.list.map((field) => ({ x: field.center.x, z: field.center.z })),
+            },
             fuelFlowKgH: jetSystems.engines.map((e) => (e.running ? jetSystems.fuelFlow / Math.max(1, jetSystems.engines.filter((x) => x.running).length) : 0)),
         } : null,
     };
