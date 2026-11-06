@@ -69,6 +69,8 @@ function cleanState(state) {
         registration: cleanRegistration(state.g),                  // '' : celle tirée de son identifiant
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
+        // Nombre d'apparitions (départ choisi, touche R, retour après un crash) ; absent (ancienne version) : null
+        spawns: Number.isFinite(state.s) ? Math.max(0, Math.floor(state.s)) : null,
         away: state.h === 1,                                       // page du simulateur cachée (hors ligne)
         owner: state.o === 1,                                      // créateur de la partie (lui seul peut la fermer)
         // Feux allumés (bits : 1 phare, 2 navigation, 4 anticollision, 8 strobes) ; absent : tous sauf le phare
@@ -85,7 +87,7 @@ class Multiplayer extends EventTarget {
         this.registration = '';       // immatriculation choisie ('' : celle tirée de l'identifiant)
         this.code = null;
         this.isHost = false;            // créateur de la partie en cours
-        this.players = new Map();     // id -> { name, p, q, v, t, livery, crashes, crashed, receivedAt } (sans le joueur local)
+        this.players = new Map();     // id -> { name, p, q, v, t, livery, crashes, crashed, spawns, receivedAt } (sans le joueur local)
         this.latency = 0.1;           // délai d'un message (s), ajouté à la prédiction des mouvements
         this._clients = [];           // connexions aux relais (connectées ou en cours de reconnexion)
         this._connecting = null;
@@ -172,7 +174,7 @@ class Multiplayer extends EventTarget {
     }
 
     // À appeler à chaque image avec l'objet piloté, la position des gaz et l'état de crash
-    update(object, throttle, { crashed = false, crashes = 0, lights = null, rpm = null, weather = null } = {}) {
+    update(object, throttle, { crashed = false, crashes = 0, spawns = 0, lights = null, rpm = null, weather = null } = {}) {
         if (!this.code) return;
         const now = performance.now();
 
@@ -200,6 +202,7 @@ class Multiplayer extends EventTarget {
             g: this.registration || undefined,
             x: crashes,
             k: crashed ? 1 : 0,
+            s: spawns,   // apparitions : les autres ne nous percutent pas si l'on apparaît sur eux (voir simulator.js)
             l: lights ? (lights.land || lights.taxi ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
             o: this.isHost ? 1 : undefined,
         };

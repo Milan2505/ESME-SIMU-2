@@ -3285,17 +3285,59 @@ if (touchControls.enabled) escapeHint.textContent = '☰ Menus : afficher les me
 // Collision avec les autres avions : garés (aérodromes) et ceux des autres joueurs, à leur forme (voir PlaneCollision.js)
 const _unitScale = new THREE.Vector3(1, 1, 1);
 const otherPlanes = [], remoteMatrices = [];   // (matrices des autres joueurs réutilisées d'une image à l'autre)
+// Deux joueurs qui apparaissent l'un sur l'autre (même départ choisi, touche R, retour au départ après un crash) :
+// avant, ils s'écrasaient tous les deux à l'instant même. Un joueur qui apparaît en touchant déjà l'autre devient
+// traversable pour lui ; la collision revient dès qu'ils ne se touchent plus. Même règle des deux côtés :
+// - nous apparaissons : remise au départ (événement reset) ;
+// - un autre joueur apparaît : son compteur d'apparitions change (envoyé avec sa position, voir Multiplayer.js). Son
+//   avion peut glisser quelques images jusqu'à sa nouvelle place (RemotePlayers ne le replace d'un coup qu'au-delà de
+//   60 m) : l'apparition compte pendant APPEAR_WINDOW. Joueur d'une ancienne version (sans compteur) : un saut de plus
+//   de PLAYER_JUMP d'une image à l'autre compte comme une apparition
+// Un avion qui nous rattrape ou nous percute en vol n'est jamais concerné : il n'apparaît pas, il arrive
+const APPEAR_WINDOW = 1500;                 // ms
+const PLAYER_JUMP = 30;                     // m (en vol : ~1 m par image au plus)
+const ghostPlayers = new Set();             // joueurs traversables tant qu'ils nous touchent (identifiants)
+const playerTrack = new Map();              // identifiant -> { position, spawns, appearUntil } au dernier contrôle
+const _oneMatrix = [];
+let spawnCount = 0, ownAppearUntil = 0;
+controls.addEventListener('reset', () => {
+    spawnCount++;
+    ownAppearUntil = performance.now() + APPEAR_WINDOW;
+});
 function checkPlaneCollisions() {
     if (choosingSpawn || controls.isCrashed()) return;
     otherPlanes.length = 0;
     otherPlanes.push(...airport.parkedPlanes);
     if (multiplayer.code) {
+        const now = performance.now();
         let i = 0;
         for (const player of remotePlayers.list()) {
-            if (player.offline || player.crashed || !player.quaternion) continue;
+            if (player.offline || player.crashed || !player.quaternion) {
+                playerTrack.delete(player.id);   // (son retour sera une apparition)
+                ghostPlayers.delete(player.id);
+                continue;
+            }
             const matrix = remoteMatrices[i++] ??= new THREE.Matrix4();
-            otherPlanes.push(matrix.compose(player.position, player.quaternion, _unitScale));
+            matrix.compose(player.position, player.quaternion, _unitScale);
+            _oneMatrix[0] = matrix;
+            const touching = planesCollide(aircraft, _oneMatrix);
+            const spawns = multiplayer.players.get(player.id)?.spawns ?? null;
+            let seen = playerTrack.get(player.id);
+            if (!seen) {
+                seen = { position: player.position.clone(), spawns, appearUntil: now + APPEAR_WINDOW };
+                playerTrack.set(player.id, seen);
+            } else if (spawns !== seen.spawns || seen.position.distanceTo(player.position) > PLAYER_JUMP) {
+                seen.appearUntil = now + APPEAR_WINDOW;
+            }
+            seen.spawns = spawns;
+            seen.position.copy(player.position);
+            if (touching && (now < seen.appearUntil || now < ownAppearUntil)) ghostPlayers.add(player.id);
+            else if (!touching) ghostPlayers.delete(player.id);
+            if (!ghostPlayers.has(player.id)) otherPlanes.push(matrix);
         }
+    } else {
+        ghostPlayers.clear();
+        playerTrack.clear();
     }
     if (planesCollide(aircraft, otherPlanes)) controls.collide('Collision avec un autre avion');
 }
@@ -3564,7 +3606,7 @@ renderer.setAnimationLoop((time)=>{
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
     updateHud(delta);
-    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName } );
+    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName } );
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
     wind.setShared(host?.weather ? METARS[host.weather] ?? null : null);
