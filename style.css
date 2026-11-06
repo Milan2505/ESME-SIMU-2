@@ -556,7 +556,7 @@ img{margin: 0px;
   #nom-vue.visible {
     opacity: 1;
   }
-  #alarme, #alarme-inclinaison {
+  #alarme, #alarme-inclinaison, #alarme-terrain {
     grid-column: 4/15;
     grid-row: 10/17;
     align-self: start;
@@ -573,7 +573,7 @@ img{margin: 0px;
     pointer-events: none;
     visibility: hidden;
   }
-  #alarme.actif, #alarme-inclinaison.actif {
+  #alarme.actif, #alarme-inclinaison.actif, #alarme-terrain.actif {
     visibility: visible;
     animation: clignote 0.5s steps(1) infinite;
   }
@@ -581,6 +581,14 @@ img{margin: 0px;
   #alarme-inclinaison {
     margin-top: 62px;
     background: #b9770e;
+  }
+  /* Proximité du sol : SINK RATE (orange) puis PULL UP (rouge, comme sur le PFD Airbus), sous les deux autres */
+  #alarme-terrain {
+    margin-top: 109px;
+    background: #b9770e;
+  }
+  #alarme-terrain.pull-up {
+    background: #c0392b;
   }
   #crash {
     grid-column: 4/15;

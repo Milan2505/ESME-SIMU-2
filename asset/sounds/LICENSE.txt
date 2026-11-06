@@ -26,6 +26,9 @@ bank-angle.wav (annonce « BANK ANGLE » de l'EGPWS Honeywell MK VIII, celle des
 Source : projet FlightGear A310 (https://github.com/FGMEMBERS/A310, Sounds/mk-viii/), aussi dans FlightGear fgdata
 (Sounds/mk-viii/) ; licence GNU General Public License v2.0 (GPL-2.0)
 
+pull-up.wav, terrain.wav, sink-rate.wav (annonces « PULL UP », « TERRAIN », « SINK RATE » de l'EGPWS Honeywell MK VIII)
+Même source : projet FlightGear A310 (https://github.com/FGMEMBERS/A310, Sounds/mk-viii/) ; licence GPL-2.0
+
 bank_angle_check.wav (le pilote : « Bank angle, check! »)
 Calculé pour ce projet avec la voix Piper en_GB-alan-medium (https://huggingface.co/rhasspy/piper-voices, voir sa
 fiche) ; il suit la licence de cette voix.

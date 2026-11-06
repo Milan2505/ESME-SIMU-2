@@ -77,6 +77,7 @@ if (isTablet()) {
 }
 import { planesCollide } from './js/PlaneCollision.js';
 import { BankAngleWarning, alarmBank } from './js/BankAngleWarning.js';
+import { TerrainWarning } from './js/TerrainWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
 
@@ -178,6 +179,7 @@ const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
 const stallWarning = new StallWarning();
 const bankAngleWarning = new BankAngleWarning();
+const terrainWarning = new TerrainWarning();
 const engineSound = new EngineSound();
 const sounds = new SoundEffects();
 const storm = new Storm({ groundHeight: (x, z) => terrain.heightAt(x, z), sounds });
@@ -1241,6 +1243,7 @@ document.getElementById('reset').addEventListener('click', (event) => {
 // (« BANK ANGLE », puis le pilote : « Bank angle, check! »), voir BankAngleWarning.js
 const alarme = document.getElementById('alarme');
 const bankAlarm = document.getElementById('alarme-inclinaison');
+const terrainAlarm = document.getElementById('alarme-terrain');   // « SINK RATE » / « PULL UP », voir TerrainWarning.js
 
 // Le navigateur n'autorise le son qu'après une action du joueur
 // À chaque geste, pas seulement au premier : sur iPad, seul un toucher relâché ou un clic autorise le son, et un son
@@ -1250,13 +1253,14 @@ function unlockSounds() {
     radio.unlock();
     stallWarning.unlock().catch((error) => console.error(error));
     bankAngleWarning.unlock().catch((error) => console.error(error));
+    terrainWarning.unlock().catch((error) => console.error(error));
     engineSound.unlock().catch((error) => console.error(error));
     sounds.unlock().catch((error) => console.error(error));
 }
 for (const type of ['keydown', 'pointerdown', 'touchend', 'click']) window.addEventListener(type, unlockSounds, true);
 
 const _wingAxis = new THREE.Vector3();
-function updateStallWarning() {
+function updateStallWarning(delta) {
     alarme.classList.toggle('actif', controls.isStalled());
     stallWarning.update(controls.isNearStall());
     const p = aircraft.position;
@@ -1267,6 +1271,15 @@ function updateStallWarning() {
     const bank = alarmBank(deg(controls.getRoll()), deg(Math.atan(controls.getPitchRate())), deg(wingTilt));
     bankAngleWarning.update(bank, !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn, height);
     bankAlarm.classList.toggle('actif', bankAngleWarning.active);
+    // Proximité du sol (EGPWS) : SINK RATE, TERRAIN TERRAIN, PULL UP
+    terrainWarning.update(delta, {
+        airborne: !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn,
+        position: p, velocity: controls.model.velocity, height,
+        ground: (x, z) => terrain.heightAt(x, z), offset: WHEEL_HEIGHT,
+    });
+    terrainAlarm.classList.toggle('actif', terrainWarning.level !== null);
+    terrainAlarm.classList.toggle('pull-up', terrainWarning.level === 'pull');
+    terrainAlarm.textContent = terrainWarning.level === 'sink' ? 'SINK RATE' : 'PULL UP';
 }
 
 // Sol : crissement des pneus au toucher, secousses, crash
@@ -3358,7 +3371,7 @@ function checkPlaneCollisions() {
 // de 130 à 270 ms en vol (vue cabine, décollage), sons (18 Mo) téléchargés seulement au premier clic
 
 // Sons : téléchargés et décodés tout de suite (contexte audio encore suspendu : il démarre au premier geste)
-for (const sound of [stallWarning, bankAngleWarning, engineSound, sounds]) sound.unlock().catch(() => { /* refait au prochain geste */ });
+for (const sound of [stallWarning, bankAngleWarning, terrainWarning, engineSound, sounds]) sound.unlock().catch(() => { /* refait au prochain geste */ });
 // Ciel étoilé : chargé d'avance (avant : au premier passage à la nuit, en vol)
 nightSky.preload();
 
@@ -3658,7 +3671,7 @@ renderer.setAnimationLoop((time)=>{
     // Instruments et manches animés en cabine, et en vue extérieure quand on est assez près pour les voir
     if (!chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
     updateFog();
-    updateStallWarning();
+    updateStallWarning(delta);
 
     // Ombres : zone centrée sur l'avion (elle s'étend dans l'axe du soleil : l'ombre de l'avion au sol y reste, même en
     // vol) ; en cabine, zone resserrée (ombres fines dans l'habitacle)
