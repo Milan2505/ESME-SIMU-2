@@ -65,12 +65,12 @@ const F15 = {
 	stallLift: 0.85,
 	stallRecovery: deg( 3 ),
 	lowSpeedStability: 0.15,
-	elevatorUp: deg( 8 ),
-	elevatorDown: deg( 12 ),
-	pitchRateMax: 0.45,               // ~26°/s
+	elevatorUp: deg( 12 ),            // (plus d'autorité en tangage : avant 8°)
+	elevatorDown: deg( 18 ),          // (avant 12°)
+	pitchRateMax: 0.65,               // ~37°/s (avant 26°/s)
 	phugoidDamping: 1.5,
 	phugoidFilter: 30,
-	elevatorLimit: deg( 4 ),
+	elevatorLimit: deg( 6 ),
 	elevatorLimitProtected: deg( - 2 ),
 
 	// Volets (deux positions : rentrés, sortis à 30°)

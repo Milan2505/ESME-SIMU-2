@@ -1,5 +1,8 @@
 import {
     Box3,
+    CylinderGeometry,
+    Raycaster,
+    SphereGeometry,
     AdditiveBlending,
     CanvasTexture,
     Group,
@@ -32,6 +35,7 @@ import { F15Displays } from './F15Displays.js';
 // Appareils tactiles (iPhone, iPad) : photo du cockpit en 2048 × 2048 au lieu de 4096 (~21 Mo de mémoire graphique au
 // lieu de ~85 : en pleine définition, Safari fermait l'onglet), voir asset/blender/shrink_glb.py
 const LOW_MEMORY = isTablet();
+const STICK_URL = 'asset/f15/f15-stick.glb';
 const COCKPIT_URL = LOW_MEMORY ? 'asset/f15/f15-cockpit-mobile.glb' : 'asset/f15/f15-cockpit.glb';
 const EYE = new Vector3(0, 1.40, -5.0);
 const KT = 1.94384, FT = 3.28084;
@@ -161,6 +165,135 @@ const CONTROLS = {
     'master-caution-button': 'jet:caution', 'master-caution-button-on': 'jet:caution',
 };
 
+// Manche : la poignée d'origine (très simple) est remplacée par celle de mrhers2 (Thingiverse, CC BY), posée sur la
+// colonne du modèle comme sur le vrai F-15C : bague argentée moletée, poignée noire, et sur sa tête le bouton rouge de
+// largage (à gauche), le commutateur « castle » (au milieu) et le chapeau de trim (à droite). L'ensemble suit le
+// manche (tangage et roulis) : il est rangé dans le pivot qui portait l'ancienne poignée.
+// gripScene : poignée en mm, base en y = 0, doigts vers -z ; mast : colonne ; old : pièces remplacées ; owner : pièce ->
+// pivot qui la porte (voir ROTATIONS)
+const GRIP_SCALE = 0.00108;    // mm -> m (poignée de ~20 cm, comme le modèle d'origine)
+const COLLAR_HEIGHT = 0.045;
+function mountGrip(gripScene, mast, old, owner) {
+    if (!mast) return;
+    // Axe de la colonne : du centre de sa base au centre de son sommet (repère du cockpit)
+    mast.updateWorldMatrix(true, true);
+    const points = [];
+    mast.traverse((m) => {
+        if (!m.isMesh) return;
+        const p = m.geometry.attributes.position;
+        for (let i = 0; i < p.count; i++) points.push(new Vector3().fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld));
+    });
+    const top = Math.max(...points.map((p) => p.y)), bottom = Math.min(...points.map((p) => p.y));
+    const average = (list) => list.reduce((sum, p) => sum.add(p), new Vector3()).divideScalar(Math.max(1, list.length));
+    const head = average(points.filter((p) => p.y > top - 0.012));
+    const foot = average(points.filter((p) => p.y < bottom + 0.03));
+    const axis = head.clone().sub(foot).normalize();
+    // Poignée : base ramenée à l'origine (centre de l'anneau du bas), échelle, matériau noir
+    let source = null;
+    gripScene.traverse((m) => { if (m.isMesh && !source) source = m; });
+    if (!source) return;
+    const geometry = source.geometry.clone();
+    geometry.computeBoundingBox();
+    const pos = geometry.attributes.position;
+    const base = [];
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) < geometry.boundingBox.min.y + 4) base.push(new Vector3().fromBufferAttribute(pos, i));
+    const baseCenter = average(base);
+    geometry.translate(-baseCenter.x, -geometry.boundingBox.min.y, -baseCenter.z);
+    geometry.scale(GRIP_SCALE, GRIP_SCALE, GRIP_SCALE);
+    geometry.computeVertexNormals();
+    const black = new MeshStandardMaterial({ color: 0x18191b, roughness: 0.62, metalness: 0.05 });
+    const handle = new Mesh(geometry, black);
+    handle.name = 'f15-grip';
+    handle.position.y = COLLAR_HEIGHT;
+    // Bague moletée (argent) entre la colonne et la poignée
+    const collar = new Mesh(new CylinderGeometry(0.019, 0.021, COLLAR_HEIGHT, 48, 1), new MeshStandardMaterial({
+        color: 0xe2e5ea, metalness: 0.35, roughness: 0.38, map: knurlTexture(),   // (peu métallique : sans reflets autour, un métal pur paraît noir)
+    }));
+    collar.position.y = COLLAR_HEIGHT / 2;
+    const group = new Group();
+    group.name = 'f15-stick';
+    group.add(collar, handle);
+    // Boutons de la tête : posés sur sa face supérieure (rayons lancés d'en haut, un peu de l'arrière)
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox, raycaster = new Raycaster();
+    const dark = new MeshStandardMaterial({ color: 0x2a2b2e, roughness: 0.45, metalness: 0.2 });
+    const red = new MeshStandardMaterial({ color: 0xc8261e, roughness: 0.35, emissive: 0x300404 });
+    const buttons = [
+        { x: -0.32, make: () => cylinder(0.0055, 0.004, red) },                     // largage d'armement (rouge)
+        { x: 0.0, make: () => hat(0.0035, 0.009, dark) },                            // commutateur « castle »
+        { x: 0.3, make: () => cylinder(0.0075, 0.006, dark, true) },                 // chapeau de trim
+    ];
+    handle.updateMatrixWorld(true);
+    const local = new Mesh(geometry, black);   // (poignée seule, à l'origine : rayons dans son repère)
+    for (const b of buttons) {
+        const x = box.min.x + (box.max.x - box.min.x) * (0.5 + b.x);
+        const origin = new Vector3(x, box.max.y + 0.05, box.max.z + 0.03);
+        const target = new Vector3(x, box.max.y - 0.025, (box.min.z + box.max.z) / 2);
+        raycaster.set(origin, target.sub(origin).normalize());
+        const hit = raycaster.intersectObject(local, false)[0];
+        if (!hit) continue;
+        const button = b.make();
+        const normal = hit.face.normal.clone();
+        button.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), normal);
+        button.position.copy(hit.point).addScaledVector(normal, 0.0005);
+        handle.add(button);
+    }
+    // Mise en place sur le sommet de la colonne, dans son axe, puis rangement dans le pivot du roulis (sans bouger)
+    group.position.copy(head);
+    group.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), axis);
+    const pivot = owner.get(old[0]) ?? mast.parent;
+    let root = mast;
+    while (root.parent) root = root.parent;
+    root.add(group);
+    root.updateMatrixWorld(true);
+    pivot.attach(group);
+    for (const o of old) if (o) o.visible = false;
+}
+function cylinder(radius, height, material, ridged = false) {
+    const g = new Group();
+    const body = new Mesh(new CylinderGeometry(radius, radius * 1.05, height, 24), material);
+    body.position.y = height / 2;
+    g.add(body);
+    if (ridged) {
+        // Chapeau de trim : croix en relief
+        for (const r of [0, Math.PI / 2]) {
+            const bar = new Mesh(new CylinderGeometry(radius * 0.18, radius * 0.18, radius * 1.7, 8), material);
+            bar.rotation.set(Math.PI / 2, 0, r);
+            bar.position.y = height + radius * 0.12;
+            g.add(bar);
+        }
+    }
+    return g;
+}
+function hat(radius, height, material) {
+    const g = new Group();
+    const stem = new Mesh(new CylinderGeometry(radius * 0.45, radius * 0.6, height, 12), material);
+    stem.position.y = height / 2;
+    const knob = new Mesh(new SphereGeometry(radius, 16, 12), material);
+    knob.position.y = height;
+    g.add(stem, knob);
+    return g;
+}
+// Moletage de la bague : stries fines (texture dessinée une fois)
+function knurlTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#d6d9de';
+    ctx.fillRect(0, 0, 256, 64);
+    ctx.strokeStyle = 'rgba(40,42,46,0.55)';
+    ctx.lineWidth = 1.2;
+    for (let x = -64; x < 320; x += 6) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 64, 64); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 64, 0); ctx.lineTo(x, 64); ctx.stroke();
+    }
+    const texture = new CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = RepeatWrapping;
+    texture.repeat.set(3, 1);
+    return texture;
+}
+
 class F15Cockpit {
     constructor() {
         this.group = new Group();
@@ -184,7 +317,9 @@ class F15Cockpit {
     }
 
     async load() {
-        const gltf = await new GLTFLoader().loadAsync(COCKPIT_URL);
+        const loader = new GLTFLoader();
+        // Poignée du manche (modèle de mrhers2, voir asset/blender/build_f15_stick.py) : chargée en même temps
+        const [gltf, grip] = await Promise.all([loader.loadAsync(COCKPIT_URL), loader.loadAsync(STICK_URL).catch(() => null)]);
         const scene = gltf.scene;   // (ajouté au groupe après la fusion : le groupe peut être caché, voir mergeStatic)
         const byName = new Map();
         scene.traverse((o) => {
@@ -245,6 +380,7 @@ class F15Cockpit {
             keep.add(pivot);
             this._rotations.push({ pivot, angle: def.angle });
         }
+        if (grip) mountGrip(grip.scene, get('stick-mast'), [get('stick-handle-parts'), get('pickle-button')], owner);
         // Tambours : chaque compteur a sa propre texture décalée
         this._drums = [];
         for (const [name, value, factor, step, offset] of DRUMS) {

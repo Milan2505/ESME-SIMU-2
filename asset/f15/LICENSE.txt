@@ -12,3 +12,9 @@ Fichiers de ce dossier, convertis pour le simulateur par asset/blender/build_f15
 - liveries/*.jpg : six livrées (AF80-0007, Aggressor Desert, Regal Eagle, NASA, Tiger AF90-250, IAF 69 Sqn Hammers).
 
 Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.
+
+f15-stick.glb : poignée du manche
+« F-15 Joystick » par mrhers2, https://www.thingiverse.com/thing:2226639
+Licence : Creative Commons Attribution (CC BY), https://creativecommons.org/licenses/by/4.0/
+Modifications : fichier f15_v1.6.stl allégé (~20 000 triangles) et converti en GLB par asset/blender/build_f15_stick.py ;
+bague, boutons de la tête et matériaux ajoutés dans le simulateur (js/F15Cockpit.js).
