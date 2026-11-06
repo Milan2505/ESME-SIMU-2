@@ -11,6 +11,7 @@ import {
 import { LIVERIES, paintAircraft } from './Liveries.js';
 import { setRegistration } from './C172Model.js';
 import { AircraftLights } from './AircraftLights.js';
+import { cloneF15, paintF15, animateF15, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
 const POSITION_CORRECTION = 3;  // rapidité du recalage sur la position prédite
@@ -99,12 +100,16 @@ class Label {
 // Événement 'crash' { name, position } : un joueur vient de s'écraser.
 class RemotePlayers extends EventTarget {
     // registrationFor(id) : immatriculation peinte sur l'avion d'un joueur
-    constructor(scene, multiplayer, { engineSound = null, altitudeOffset = 0, registrationFor = null } = {}) {
+    // altitudeOffset : hauteur des roues sous l'origine de l'avion, par type ({ c172, f15 }) ; jetSound : réacteurs (F-15)
+    constructor(scene, multiplayer, { engineSound = null, jetSound = null, altitudeOffset = 0, registrationFor = null } = {}) {
         super();
         this.scene = scene;
         this.multiplayer = multiplayer;
         this.engineSound = engineSound;
-        this.altitudeOffset = altitudeOffset;
+        this.jetSound = jetSound;
+        this.altitudeOffsets = typeof altitudeOffset === 'number' ? { c172: altitudeOffset, f15: altitudeOffset } : altitudeOffset;
+        this.jetTemplate = null;       // F-15 (chargé à la demande, voir setJetTemplate)
+        this.onJetNeeded = null;       // appelé quand un autre joueur vole en F-15 et que son modèle n'est pas encore chargé
         this.registrationFor = registrationFor;
         this.showLabels = true;
         this.night = 0;                         // feux des avions : discrets le jour, halos larges la nuit
@@ -125,6 +130,15 @@ class RemotePlayers extends EventTarget {
         this._sync();
     }
 
+    setJetTemplate(model) {
+        this.jetTemplate = model;
+        this._sync();
+    }
+
+    _altitudeOffset(state) {
+        return this.altitudeOffsets[state?.aircraft] ?? this.altitudeOffsets.c172;
+    }
+
     // Ambiance (météo) : feux de navigation, anticollision, strobes et phare des autres avions
     setNight(night) {
         this.night = night;
@@ -133,7 +147,7 @@ class RemotePlayers extends EventTarget {
 
     // Couleur d'affichage d'un joueur (étiquette, carte, liste)
     static color(livery) {
-        return (LIVERIES[livery] ?? LIVERIES.origine).color;
+        return (LIVERIES[livery] ?? F15_LIVERIES[livery] ?? LIVERIES.origine).color;
     }
 
     // Avions affichés : position lissée, cap (degrés), altitude (ft), pour la carte et la liste des joueurs
@@ -146,11 +160,12 @@ class RemotePlayers extends EventTarget {
             result.push({
                 id,
                 name: state.name,
+                type: plane.type,
                 color: RemotePlayers.color(state.livery),
                 position: plane.group.position,
                 quaternion: plane.group.quaternion,
                 heading: (Math.atan2(_forward.x, -_forward.z) * 180 / Math.PI + 360) % 360,
-                altitude: (plane.group.position.y - this.altitudeOffset) / FT,
+                altitude: (plane.group.position.y - this._altitudeOffset(state)) / FT,
                 crashed: state.crashed,
                 offline: this.isOffline(state),
                 speaking: this.speaking.has(id),
@@ -204,14 +219,25 @@ class RemotePlayers extends EventTarget {
             const rpm = state.rpm ?? 800 + 2000 * state.t;
             plane.rpm = plane.rpm === undefined ? rpm : plane.rpm + (rpm - plane.rpm) * Math.min(1, delta * 3);
             if (plane.propeller && !state.crashed) plane.propeller.rotation.z += plane.rpm / 2700 * 100 * delta;
+            // F-15 : train, volets, aérofrein, verrière, postcombustion, tuyères (état transmis par le joueur)
+            if (plane.type === 'f15') {
+                const j = state.jet ?? {};
+                const n2 = plane.rpm / 27, ab = j.ab ?? 0;
+                plane.anim.time += delta;
+                animateF15(plane.model, {
+                    pitch: 0, roll: 0, yaw: 0, flaps: j.flaps ?? 0, speedbrake: j.speedbrake ?? 0, canopy: j.canopy ?? 0,
+                    gear: j.gear ?? 1, steer: 0, wheelSpeed: 0, onGround: false, n2: [n2, n2], ab: [ab, ab], time: plane.anim.time,
+                }, delta);
+            }
 
             // Livrée changée en cours de partie
             if (state.livery !== plane.livery) {
                 plane.livery = state.livery;
-                paintAircraft(plane.model, state.livery);
+                if (plane.type === 'f15') paintF15(plane.model, state.livery);
+                else paintAircraft(plane.model, state.livery);
             }
-            // Immatriculation choisie ou changée en cours de partie
-            if (this.registrationFor) setRegistration(plane.model, this.registrationFor(id));
+            // Immatriculation choisie ou changée en cours de partie (peinte sur le Cessna)
+            if (this.registrationFor && plane.type !== 'f15') setRegistration(plane.model, this.registrationFor(id));
 
             // Crash : explosion à l'endroit de l'impact, l'avion disparaît jusqu'à ce que le joueur reparte
             if (state.crashes > plane.crashes) this.dispatchEvent(new CustomEvent('crash', {
@@ -227,7 +253,7 @@ class RemotePlayers extends EventTarget {
             }
 
             // Moteur (créé dès que le son est débloqué par une action du joueur)
-            plane.engine ??= this.engineSound?.createRemote() ?? null;
+            plane.engine ??= (plane.type === 'f15' ? this.jetSound : this.engineSound)?.createRemote() ?? null;
             plane.engine?.update(group.position, state.t, state.crashed ? 0 : this.engineVolume, delta, state.rpm === null ? null : plane.rpm);
 
             // Étiquette
@@ -236,7 +262,7 @@ class RemotePlayers extends EventTarget {
             label.sprite.visible = this.showLabels && !state.crashed && distance > LABEL_MIN_DISTANCE;
             label.sprite.position.copy(group.position).y += LABEL_OFFSET;
             if (refreshLabels || plane.label._text === '') {
-                const altitude = Math.max(0, (group.position.y - this.altitudeOffset) / FT);
+                const altitude = Math.max(0, (group.position.y - this._altitudeOffset(state)) / FT);
                 const detail = `${formatNM(distance)} NM · `
                     + `${(Math.round(altitude / 10) * 10).toLocaleString('fr-FR')} ft`;
                 label.draw(state.name, detail, RemotePlayers.color(state.livery), this.speaking.has(id), offline);
@@ -280,7 +306,8 @@ class RemotePlayers extends EventTarget {
         const players = this.multiplayer.players;
 
         for (const [id, plane] of this.planes) {
-            if (!players.has(id)) {
+            // Parti, ou passé à un autre avion (Cessna <-> F-15) : son avion est retiré (puis recréé ci-dessous)
+            if (!players.has(id) || (players.get(id).aircraft ?? 'c172') !== plane.type) {
                 this.scene.remove(plane.group, plane.label.sprite);
                 plane.label.dispose();
                 plane.engine?.dispose();
@@ -289,25 +316,33 @@ class RemotePlayers extends EventTarget {
         }
         for (const [id, player] of players) {
             if (this.planes.has(id)) continue;
-            const model = this.template.clone();
+            const type = player.aircraft === 'f15' ? 'f15' : 'c172';
+            if (type === 'f15' && !this.jetTemplate) {
+                this.onJetNeeded?.();   // modèle du F-15 chargé à la demande, l'avion apparaît ensuite
+                continue;
+            }
+            const model = type === 'f15' ? cloneF15(this.jetTemplate) : this.template.clone();
             model.visible = true; // le modèle d'origine est masqué en vue cabine
             model.traverse((child) => {
                 if (child.isMesh) child.castShadow = true;
             });
-            paintAircraft(model, player.livery);
-            if (this.registrationFor) setRegistration(model, this.registrationFor(id));
+            if (type === 'f15') paintF15(model, player.livery);
+            else {
+                paintAircraft(model, player.livery);
+                if (this.registrationFor) setRegistration(model, this.registrationFor(id));
+            }
             const group = new Group();
             group.add(model);
             // Feux : les mêmes que sur notre avion, cachés par leur propre avion quand il est entre eux et nous
             const airframe = new Group();
             group.add(airframe);
-            const lights = new AircraftLights(airframe);
+            const lights = new AircraftLights(airframe, type === 'f15' ? { layout: F15_LIGHT_LAYOUT } : {});
             lights.setOccluder(model);
             lights.setNight(this.night);
             const label = new Label();
             this.scene.add(group, label.sprite);
             this.planes.set(id, {
-                group, model, label,
+                group, model, label, type, anim: { time: 0 },
                 propeller: model.getObjectByName('Propeller_Cone'),
                 engine: null,
                 lights,

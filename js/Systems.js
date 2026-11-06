@@ -254,6 +254,11 @@ class Systems extends EventTarget {
         return (this.singleMagneto ? 0.96 : 1) * this._mixturePower * feed;
     }
 
+    // Carburant restant (0 -> 1), pour la jauge du HUD (comme JetSystems.fuelFraction)
+    get fuelFraction() {
+        return (this.fuel[0] + this.fuel[1]) / (2 * TANK_CAPACITY);
+    }
+
     // Débit carburant (gal/h)
     get fuelFlow() {
         return this.running ? (2.2 + 8.5 * this._throttle) * (0.45 + 0.55 * Math.min(1, this.mixture / 0.8)) : 0;

@@ -18,9 +18,9 @@
 const pct = (v) => `${Math.round(v * 100)} %`;
 
 function tabletRegistry(sim) {
-    const { systems, controls } = sim;
+    const { controls } = sim;
     const cockpit = (id, step = 1) => () => sim.useControl({ id }, step);
-    const sw = (id, label) => ({ id: `switch-${id}`, label, type: 'toggle', action: cockpit(`switch:${id}`), value: () => systems.switches[id] });
+    const sw = (id, label) => ({ id: `switch-${id}`, label, type: 'toggle', action: cockpit(`switch:${id}`), value: () => sim.systems.switches[id] });
 
     // Interface iPad : pas de barre de menus en haut (elle faisait doublon avec ces panneaux). Tout ce qu'elle proposait
     // est ici, une seule fois ; le reste est sur les commandes tactiles (Vue, Centrer, Volets, Trim, Freins) ou dans les
@@ -61,18 +61,32 @@ function tabletRegistry(sim) {
                         sw('taxi', 'TAXI'),
                         sw('nav', 'NAV'),
                         sw('strobe', 'STROBE'),
-                        { id: 'eclairage-instruments', label: 'ÉCLAIRAGE INSTR.', type: 'value', value: () => pct(systems.panelLights), step: (s) => sim.useControl({ id: 'panelLights' }, s) },
-                        { id: 'plafonnier', label: 'PLAFONNIER', type: 'value', value: () => pct(systems.domeLight), step: (s) => sim.useControl({ id: 'domeLight' }, s, true) },
+                        { id: 'eclairage-instruments', label: 'ÉCLAIRAGE INSTR.', type: 'value', value: () => pct(sim.systems.panelLights), step: (s) => sim.useControl({ id: 'panelLights' }, s) },
+                        { id: 'plafonnier', label: 'PLAFONNIER', type: 'value', value: () => pct(sim.systems.domeLight), step: (s) => sim.useControl({ id: 'domeLight' }, s, true) },
                     ],
                 },
                 {
                     id: 'moteur', label: 'MOTEUR', tiles: [
-                        { id: 'magnetos', label: 'MAGNÉTOS', type: 'value', value: () => sim.MAGNETOS[systems.magnetos], step: (s) => sim.useControl({ id: 'mags' }, s) },
-                        { id: 'mixture', label: 'MIXTURE', type: 'value', value: () => pct(systems.mixture), step: (s) => sim.useControl({ id: 'mixture' }, s) },
+                        { id: 'magnetos', label: 'MAGNÉTOS', type: 'value', value: () => sim.MAGNETOS[sim.systems.magnetos], step: (s) => sim.useControl({ id: 'mags' }, s) },
+                        { id: 'mixture', label: 'MIXTURE', type: 'value', value: () => pct(sim.systems.mixture), step: (s) => sim.useControl({ id: 'mixture' }, s) },
                         sw('fuelPump', 'POMPE CARBURANT'),
-                        { id: 'selecteur', label: 'SÉLECTEUR CARB.', type: 'value', value: () => sim.FUEL_SELECTOR[systems.fuelSelector], step: (s) => sim.useControl({ id: 'fuelSelector' }, s) },
-                        { id: 'robinet', label: 'ROBINET CARB.', type: 'toggle', action: cockpit('fuelShutoff'), value: () => !systems.fuelShutoff, states: ['FERMÉ', 'OUVERT'] },
+                        { id: 'selecteur', label: 'SÉLECTEUR CARB.', type: 'value', value: () => sim.FUEL_SELECTOR[sim.systems.fuelSelector], step: (s) => sim.useControl({ id: 'fuelSelector' }, s) },
+                        { id: 'robinet', label: 'ROBINET CARB.', type: 'toggle', action: cockpit('fuelShutoff'), value: () => !sim.systems.fuelShutoff, states: ['FERMÉ', 'OUVERT'] },
                         sw('pitotHeat', 'RÉCHAUF. PITOT'),
+                    ],
+                },
+                {
+                    // F-15 : mise en route (BATT, JFS, ENG MASTER, lancement), train, aérofrein, verrière, phares
+                    id: 'f15', label: 'F-15', tiles: [
+                        ...[['battery', 'BATT'], ['masterL', 'ENG MASTER G'], ['masterR', 'ENG MASTER D'], ['genL', 'GÉNÉ. G'], ['genR', 'GÉNÉ. D']].map(([id, label]) => (
+                            { id: `jet-${id}`, label, type: 'toggle', action: () => sim.jetCommand(id), value: () => sim.jetSystems.switches[id] })),
+                        { id: 'jet-jfs', label: 'JFS', type: 'toggle', action: () => sim.jetCommand('jfs'), value: () => sim.jetSystems.jfsRunning, states: ['ARRÊTÉ', 'EN MARCHE'] },
+                        { id: 'jet-crank-l', label: 'LANCER RÉAC. G', type: 'button', action: () => sim.jetCommand('crankL'), value: () => `${Math.round(sim.jetSystems.engines[0].n2)} %` },
+                        { id: 'jet-crank-r', label: 'LANCER RÉAC. D', type: 'button', action: () => sim.jetCommand('crankR'), value: () => `${Math.round(sim.jetSystems.engines[1].n2)} %` },
+                        { id: 'jet-gear', label: 'TRAIN', type: 'toggle', action: () => sim.jetCommand('gear'), value: () => sim.jetGear(), states: ['RENTRÉ', 'SORTI'] },
+                        { id: 'jet-speedbrake', label: 'AÉROFREIN', type: 'toggle', action: () => sim.jetCommand('speedbrake'), value: () => sim.jetSpeedbrake(), states: ['RENTRÉ', 'SORTI'] },
+                        { id: 'jet-canopy', label: 'VERRIÈRE', type: 'toggle', action: () => sim.jetCommand('canopy'), value: () => sim.jetSystems.switches.canopy, states: ['FERMÉE', 'OUVERTE'] },
+                        { id: 'jet-lights', label: 'PHARES', type: 'button', action: () => sim.jetCommand('lights'), value: () => (sim.jetSystems.switches.land ? 'ATTERR.' : sim.jetSystems.switches.taxi ? 'ROULAGE' : 'ÉTEINTS') },
                     ],
                 },
                 {

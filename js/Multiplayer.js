@@ -13,6 +13,7 @@
 // Radio : la voix passe par les mêmes relais, en petits paquets (voir Radio.js).
 import mqtt from 'mqtt';
 import { DEFAULT_LIVERY, isLivery } from './Liveries.js';
+import { isF15Livery } from './F15Model.js';
 
 const BROKERS = [
     'wss://broker.hivemq.com:8884/mqtt',
@@ -56,6 +57,11 @@ function cleanRegistration(text) {
     return /^[A-Z0-9][A-Z0-9-]{2,6}[A-Z0-9]$/.test(r) ? r : '';
 }
 
+function jetState(j) {
+    const v = numbers(j, 5)?.map((x) => Math.min(1, Math.max(0, x))) ?? [1, 0, 0, 0, 0];
+    return { gear: v[0], speedbrake: v[1], flaps: v[2], ab: v[3], canopy: v[4] };
+}
+
 function cleanState(state) {
     const p = numbers(state?.p, 3), q = numbers(state?.q, 4), v = numbers(state?.v, 3);
     if (!p || !q || !v) return null;
@@ -66,7 +72,11 @@ function cleanState(state) {
         // Régime du moteur (tr/min) ; absent (ancienne version du jeu) : null, déduit des gaz
         rpm: Number.isFinite(state.r) ? Math.min(3000, Math.max(0, state.r)) : null,
         weather: typeof state.w === 'string' ? state.w.slice(0, 20) : null,
-        livery: isLivery(state.c) ? state.c : DEFAULT_LIVERY,
+        // Avion : Cessna 172 (absent : ancienne version du jeu) ou F-15 ; F-15 : train, aérofrein, volets,
+        // postcombustion, verrière (0 -> 1)
+        aircraft: state.a === 'f15' ? 'f15' : 'c172',
+        jet: state.a === 'f15' ? jetState(state.j) : null,
+        livery: isLivery(state.c) || (state.a === 'f15' && isF15Livery(state.c)) ? state.c : DEFAULT_LIVERY,
         registration: cleanRegistration(state.g),                  // '' : celle tirée de son identifiant
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
@@ -85,6 +95,7 @@ class Multiplayer extends EventTarget {
         this.id = randomString('abcdefghijklmnopqrstuvwxyz0123456789', 16);
         this.name = 'Pilote';
         this.livery = DEFAULT_LIVERY;
+        this.aircraft = 'c172';       // avion piloté : 'c172' ou 'f15'
         this.registration = '';       // immatriculation choisie ('' : celle tirée de l'identifiant)
         this.code = null;
         this.isHost = false;            // créateur de la partie en cours
@@ -175,7 +186,8 @@ class Multiplayer extends EventTarget {
     }
 
     // À appeler à chaque image avec l'objet piloté, la position des gaz et l'état de crash
-    update(object, throttle, { crashed = false, crashes = 0, spawns = 0, lights = null, rpm = null, weather = null } = {}) {
+    // jet (F-15) : { gear, speedbrake, flaps, ab, canopy } (0 -> 1)
+    update(object, throttle, { crashed = false, crashes = 0, spawns = 0, lights = null, rpm = null, weather = null, jet = null } = {}) {
         if (!this.code) return;
         const now = performance.now();
 
@@ -206,6 +218,8 @@ class Multiplayer extends EventTarget {
             s: spawns,   // apparitions : les autres ne nous percutent pas si l'on apparaît sur eux (voir simulator.js)
             l: lights ? (lights.land || lights.taxi ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
             o: this.isHost ? 1 : undefined,
+            a: this.aircraft === 'f15' ? 'f15' : undefined,
+            j: this.aircraft === 'f15' && jet ? [jet.gear, jet.speedbrake, jet.flaps, jet.ab, jet.canopy].map((v) => Math.round(v * 100) / 100) : undefined,
         };
         if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
     }

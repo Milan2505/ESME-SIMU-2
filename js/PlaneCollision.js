@@ -18,23 +18,40 @@ const PROBES = [
     [0, 0.3, -5.1], [0, 1.4, -2], [0, 0.6, 0], [0, 1, 4.4], [0, 1.95, 4.2],          // nez, cabine, fuselage, queue, dérive
     [2.05, 0.28, 2.8], [-2.05, 0.28, 2.8],                                           // empennage
 ].map(([x, y, z]) => new Vector3(x, y, z));
-const RANGE = 16;   // m entre les deux avions : au-delà, pas de contact possible (envergure 13,3 m)
+// F-15 (taille réelle, origine du modèle, roues 2,05 m dessous) : aile, fuselage (entrées d'air comprises),
+// stabilisateurs, deux dérives
+const F15_SHAPE = [
+    [-6.3, 6.3, 0.3, 0.9, -0.3, 5.6],
+    [-1.6, 1.6, -0.7, 1.5, -9.8, 9.4],
+    [-4.2, 4.2, -0.05, 0.2, 6.4, 9.7],
+    [-1.85, -1.6, 0.26, 3.5, 5.3, 8.45], [1.6, 1.85, 0.26, 3.5, 5.3, 8.45],
+];
+const F15_PROBES = [
+    [6.2, 0.6, 4.6], [-6.2, 0.6, 4.6], [3.5, 0.6, 2.5], [-3.5, 0.6, 2.5],
+    [0, 0.3, -9.7], [0, 1.6, -4], [0, 0.5, 9.2], [1.75, 3.4, 8.2], [-1.75, 3.4, 8.2], [4.1, 0.05, 9], [-4.1, 0.05, 9],
+].map(([x, y, z]) => new Vector3(x, y, z));
+const SHAPES = { c172: SHAPE, f15: F15_SHAPE };
+const PROBE_SETS = { c172: PROBES, f15: F15_PROBES };
+const RANGE = 26;   // m entre les deux avions : au-delà, pas de contact possible (F-15 : 19,5 m de long)
 
 const _own = new Matrix4();
 const _toOther = new Matrix4();
 const _point = new Vector3();
 const _unit = new Vector3(1, 1, 1);
 
-// own : notre avion (position, quaternion) ; others : matrices monde des autres avions (Matrix4) ; vrai au contact
-function planesCollide(own, others) {
+// own : notre avion (position, quaternion) ; others : matrices monde des autres avions (Matrix4 ; matrix.planeType :
+// 'c172' par défaut, ou 'f15') ; ownType : type de notre avion ; vrai au contact
+function planesCollide(own, others, ownType = 'c172') {
+    const probes = PROBE_SETS[ownType] ?? PROBES;
     _own.compose(own.position, own.quaternion, _unit);
     for (const matrix of others) {
         const e = matrix.elements;
         if (Math.hypot(e[12] - own.position.x, e[13] - own.position.y, e[14] - own.position.z) > RANGE) continue;
         _toOther.copy(matrix).invert().multiply(_own);
-        for (const probe of PROBES) {
+        const shape = SHAPES[matrix.planeType] ?? SHAPE;
+        for (const probe of probes) {
             _point.copy(probe).applyMatrix4(_toOther);
-            for (const [x0, x1, y0, y1, z0, z1] of SHAPE) {
+            for (const [x0, x1, y0, y1, z0, z1] of shape) {
                 if (_point.x > x0 && _point.x < x1 && _point.y > y0 && _point.y < y1 && _point.z > z0 && _point.z < z1) return true;
             }
         }

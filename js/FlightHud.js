@@ -107,7 +107,7 @@ class FlightHud {
         const flaps = d.flapMax > 0 ? d.flaps / d.flapMax : 0;
         const left = [
             [62, 210, (x, y, w, h) => this._speedTape(x, y, w, h, d.speed * KT, d.tas * KT), 'AIRSPEED'],
-            [90, 110, (x, y, w, h) => this._rpm(x, y, w, h, d.rpm), 'ENGINE'],
+            [90, 110, (x, y, w, h) => (d.n2 === undefined ? this._rpm(x, y, w, h, d.rpm) : this._n2(x, y, w, h, d.n2, d.ab)), 'ENGINE'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
                 [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]]), 'FUEL'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'AOA', aoa, `${Math.round(d.alpha)}°`,
@@ -392,6 +392,39 @@ class FlightHud {
         ctx.stroke();
         this._text('RPM', cx, cy + 14, 9, COLORS.dim, 'center', 'bold');
         this._valueBox(x + 8, y + h - 24, w - 16, 20, String(Math.round(rpm)), rpm > RPM_RED ? COLORS.red : COLORS.text, 14);
+    }
+
+    // Réacteurs (F-15) : régime N2 (%) des deux réacteurs, postcombustion
+    _n2(x, y, w, h, n2, ab = 0) {
+        const top = this._box(x, y, w, h, 'ENGINES');
+        const { ctx } = this;
+        const cx = x + w / 2, cy = top + 46, r = 32;
+        const a0 = Math.PI * 0.8, a1 = Math.PI * 2.2;
+        const angle = (v) => a0 + (a1 - a0) * Math.max(0, Math.min(1, v / 110));
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, a0, a1);
+        ctx.stroke();
+        ctx.strokeStyle = COLORS.green;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, angle(65), angle(100));
+        ctx.stroke();
+        ctx.strokeStyle = COLORS.red;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, angle(100), a1);
+        ctx.stroke();
+        ctx.lineWidth = 2.5;
+        n2.forEach((value, i) => {
+            const a = angle(value);
+            ctx.strokeStyle = i ? COLORS.white : 'rgba(255, 255, 255, 0.7)';
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + Math.cos(a) * (r - 4 - i * 6), cy + Math.sin(a) * (r - 4 - i * 6));
+            ctx.stroke();
+        });
+        this._text(ab > 0.05 ? `AB ${Math.round(ab * 5 + 0.49)}` : 'N2 %', cx, cy + 14, 9, ab > 0.05 ? COLORS.red : COLORS.dim, 'center', 'bold');
+        this._valueBox(x + 8, y + h - 24, w - 16, 20, n2.map((v) => Math.round(v)).join(' '), COLORS.text, 13);
     }
 
     // Jauge verticale : value 0 -> 1 (remplie depuis le bas, ou curseur seul) ; zones : [[de, à, couleur]]

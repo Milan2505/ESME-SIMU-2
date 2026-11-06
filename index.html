@@ -56,6 +56,11 @@
 	<link rel="modulepreload" href="js/StallWarning.js">
 	<link rel="modulepreload" href="js/TerrainWarning.js">
 	<link rel="modulepreload" href="js/Chat.js">
+	<link rel="modulepreload" href="js/F15.js">
+	<link rel="modulepreload" href="js/JetSystems.js">
+	<link rel="modulepreload" href="js/F15Model.js">
+	<link rel="modulepreload" href="js/F15Cockpit.js">
+	<link rel="modulepreload" href="js/JetSound.js">
 	<link rel="modulepreload" href="js/EngineSound.js">
 	<link rel="modulepreload" href="js/SoundEffects.js">
 	<link rel="modulepreload" href="js/Graphics.js">
@@ -240,6 +245,8 @@
 					<button data-tactile="volets-moins" title="Rentrer un cran de volets">Volets −</button>
 					<button data-tactile="trim-cabrer" title="Trim à cabrer (tenir)">Trim ▲</button>
 					<button data-tactile="trim-piquer" title="Trim à piquer (tenir)">Trim ▼</button>
+					<button data-tactile="train" data-jet hidden title="Sortir / rentrer le train (F-15, touche Y)">Train</button>
+					<button data-tactile="aerofrein" data-jet hidden title="Aérofrein (F-15, touche U)">Aérofrein</button>
 					<button data-tactile="frein" class="tactile-frein" title="Freins (tenir)">Freins</button>
 				</div>
 				<!-- Palonnier : glisser à gauche ou à droite (lacet ; au sol, roulette de nez), revient au centre au lâcher -->
@@ -357,7 +364,12 @@
 	<!-- Hangar (au lancement, avant le choix du départ) : l'avion présenté au hangar, sa livrée et son immatriculation -->
 	<div id="hangar-panneau" hidden>
 		<h3>Votre avion</h3>
-		<p class="depart-aide">Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.</p>
+		<!-- Choix de l'avion : Cessna 172 de l'aéro-club ou F-15C Eagle (voir simulator.js : setAircraftType) -->
+		<div id="hangar-avions" class="depart-vues" role="group" aria-label="Avion">
+			<button data-avion="c172" class="actif">Cessna 172</button>
+			<button data-avion="f15">F-15C Eagle</button>
+		</div>
+		<p class="depart-aide" id="hangar-description">Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.</p>
 		<label class="profil-livree">Livrée <select id="hangar-livree"></select></label>
 		<label class="profil-livree">Immatriculation <input id="hangar-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
 		<p class="depart-aide">4 à 8 lettres ou chiffres, tiret possible (F-GABC, N172SP). Peinte sur l'avion ; les contrôleurs l'utilisent pour vous appeler.</p>

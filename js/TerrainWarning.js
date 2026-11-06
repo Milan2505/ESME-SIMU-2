@@ -98,7 +98,7 @@ class TerrainWarning {
         const below = ground(position.x, position.z);
         for (let t = LOOK_STEP; t <= LOOK_AHEAD; t += LOOK_STEP) {
             const x = position.x + velocity.x * t, z = position.z + velocity.z * t;
-            const y = position.y - offset + Math.min(0, velocity.y) * t;   // une montée n'est pas comptée
+            const y = position.y - offset + velocity.y * t;   // trajectoire actuelle (une montée franche passe au-dessus)
             const h = ground(x, z);
             if (h - below > RISE * FT && y < h + CLEARANCE * FT) return true;
         }

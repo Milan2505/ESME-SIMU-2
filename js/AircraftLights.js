@@ -44,6 +44,12 @@ const LIGHTS = [
     { kind: 'landing', color: 0xfff4dc, position: [-2.92, 1.143, -2.28],                                size: 3.5, mesh: ['lightlanding'] },
     { kind: 'taxi',    color: 0xfff4dc, position: [-2.807, 1.14, -2.282],                               size: 2.6, mesh: ['lighttaxi'] },
 ];
+// Disposition des feux d'un avion : feux (ci-dessus), agrandissement du modèle, lumière de l'anticollision, faisceaux
+// des phares (position de départ). Celle du Cessna par défaut ; celle du F-15 : voir F15Model.js
+const CESSNA_LAYOUT = {
+    lights: LIGHTS, scale: AIRCRAFT_SCALE, beaconLight: [0, 1.74, 3.27],
+    beam: [-2.92, 1.14, -2.4], taxiBeam: [-2.807, 1.14, -2.4],
+};
 const SECTOR_FADE = deg(4);     // fondu aux limites de secteur, à l'intérieur : rien au-delà de la limite (110° / 140°)
 
 // Verre des feux du modèle : teinté à la couleur du feu (rouge ou vert profond de jour, éclairci il paraissait
@@ -182,16 +188,16 @@ function createBeam(length = 45, radius = 7, tilt = deg(2)) {
 class AircraftLights {
     // castLight : les bouts d'aile éclairent vraiment la scène (seulement pour l'avion du joueur : chaque lumière
     // alourdit le calcul de tous les matériaux)
-    constructor(parent, { castLight = false } = {}) {
+    constructor(parent, { castLight = false, layout = CESSNA_LAYOUT } = {}) {
         this.parent = parent;
         this.group = new Group();
-        this.group.scale.setScalar(AIRCRAFT_SCALE);   // positions ci-dessus : modèle avant agrandissement
+        this.group.scale.setScalar(layout.scale);   // positions : modèle avant agrandissement
         this.night = 0;
         this.landingLight = false;
         this.switches = null;   // interrupteurs (avion du joueur) ; null : tous les feux allumés, phare la nuit
         this.occluder = null;   // modèle de l'avion : un feu caché derrière lui n'a pas de halo
         this._lastTime = 0;
-        this.lights = LIGHTS.map((def) => {
+        this.lights = layout.lights.map((def) => {
             const position = new Vector3(...def.position);
             // Halo optique
             const flare = new Sprite(new SpriteMaterial({
@@ -203,7 +209,7 @@ class AircraftLights {
             const wing = Math.abs(def.position[0]) > 2;
             // glows : matériaux des verres (feux du modèle, voir setOccluder ; strobes : leur propre verre)
             let glows = [];
-            if (def.kind === 'strobe') glows = [strobeFixture(this.group, def.position, Math.sign(def.position[0]))];
+            if (def.kind === 'strobe' && !def.mesh) glows = [strobeFixture(this.group, def.position, Math.sign(def.position[0]))];
             if (def.kind === 'beacon') {
                 this.beaconFixture = beaconFixture(this.group, def.position);
                 glows = this.beaconFixture.glows;
@@ -224,17 +230,17 @@ class AircraftLights {
             return light;
         });
         // Anticollision (avion du joueur, la nuit) : éclair rouge sur la dérive, le dessus du fuselage et le sol
-        this.beaconLight = castLight ? new PointLight(0xff2010, 0, 30, 2) : null;
+        this.beaconLight = castLight && layout.beaconLight ? new PointLight(0xff2010, 0, 30, 2) : null;
         if (this.beaconLight) {
-            this.beaconLight.position.set(0, 1.74, 3.27);
+            this.beaconLight.position.fromArray(layout.beaconLight);
             this.beaconLight.visible = false;
             this.group.add(this.beaconLight);
         }
         // Faisceaux : atterrissage (long, étroit, presque à l'horizontale), roulage (court, large, plongeant)
         this.beam = createBeam();
-        this.beam.position.set(-2.92, 1.14, -2.4);
+        this.beam.position.fromArray(layout.beam);
         this.taxiBeam = createBeam(14, 6, deg(8));
-        this.taxiBeam.position.set(-2.807, 1.14, -2.4);
+        this.taxiBeam.position.fromArray(layout.taxiBeam);
         this.taxiBeam.material.uniforms.uStrength.value = 0.05;
         for (const beam of [this.beam, this.taxiBeam]) {
             beam.visible = false;

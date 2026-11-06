@@ -81,6 +81,12 @@ import { BankAngleWarning, alarmBank } from './js/BankAngleWarning.js';
 import { TerrainWarning } from './js/TerrainWarning.js';
 import { loadAircraft, loadCabinParts, buildCabinShell, setRegistration, setDaylight, GROUND_Y, CABIN_ORIGIN, AIRCRAFT_SCALE } from './js/C172Model.js';
 import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries.js';
+import { CESSNA_172 } from './js/Cessna172.js';
+import { F15 } from './js/F15.js';
+import { JetSystems, JET_MIL } from './js/JetSystems.js';
+import { loadF15, cloneF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT, F15_WHEEL_BOTTOM } from './js/F15Model.js';
+import { F15Cockpit } from './js/F15Cockpit.js';
+import { JetSound } from './js/JetSound.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -92,13 +98,34 @@ const COLOR_GROUND_BOUNCE = 0x5d6450;
 const WORLD_SIZE = 1000;      // zone de placement aléatoire des objets
 const CRASH_RESET_DELAY = 5000; // retour au point de départ après un crash (ms)
 
-// Avion : Cessna 172P du projet FlightGear (C172Model.js, asset/c172p.glb)
-const WHEEL_HEIGHT = -GROUND_Y;                             // origine de l'avion au-dessus du sol, roues posées
-const COCKPIT_POSITION = CABIN_ORIGIN.clone().multiplyScalar(AIRCRAFT_SCALE); // cabine (hauteur des yeux) dans le repère avion
-const COCKPIT_TILT = THREE.MathUtils.degToRad(-6);          // regard à peine baissé : horizon bien dégagé au-dessus du capot, tableau en bas
-const CHASE_DISTANCE = 15.4;                                // caméra extérieure : distance à l'avion
-const CHASE_PITCH = Math.atan2(3.5, 15);                    // … et hauteur (angle au-dessus de l'avion)
-const CHASE_TARGET = new THREE.Vector3(0, 1.5, -8);         // point visé, devant l'avion
+// Avions : Cessna 172P (C172Model.js, asset/c172p.glb) ou F-15C Eagle (F15Model.js, asset/f15/), choisi au hangar
+// (voir setAircraftType). Ce qui dépend de l'avion : fiche AIRCRAFT_PROFILES ; valeurs de l'avion piloté ci-dessous
+const AIRCRAFT_PROFILES = {
+    c172: {
+        label: 'Cessna 172', atcType: 'Cessna 172',
+        wheelHeight: -GROUND_Y,                                          // origine de l'avion au-dessus du sol, roues posées
+        cockpitPosition: CABIN_ORIGIN.clone().multiplyScalar(AIRCRAFT_SCALE),   // cabine (repère avion)
+        cabinScale: AIRCRAFT_SCALE,                                      // cabine agrandie comme le modèle
+        cockpitTilt: THREE.MathUtils.degToRad(-6),                       // regard à peine baissé : horizon dégagé au-dessus du capot
+        chaseDistance: 15.4, chasePitch: Math.atan2(3.5, 15), chaseTarget: new THREE.Vector3(0, 1.5, -8),
+    },
+    f15: {
+        label: 'F-15C Eagle', atcType: 'F-15',
+        wheelHeight: -F15_WHEEL_BOTTOM,
+        cockpitPosition: new THREE.Vector3(),                            // cockpit déjà à sa place dans le repère avion
+        cabinScale: 1,
+        cockpitTilt: THREE.MathUtils.degToRad(-9),                       // HUD au milieu, instruments en bas
+        chaseDistance: 31, chasePitch: Math.atan2(5, 30), chaseTarget: new THREE.Vector3(0, 1.2, -16),
+    },
+};
+let aircraftType = 'c172';
+let WHEEL_HEIGHT = AIRCRAFT_PROFILES.c172.wheelHeight;
+let COCKPIT_POSITION = AIRCRAFT_PROFILES.c172.cockpitPosition.clone();
+let CABIN_SCALE = AIRCRAFT_PROFILES.c172.cabinScale;
+let COCKPIT_TILT = AIRCRAFT_PROFILES.c172.cockpitTilt;
+let CHASE_DISTANCE = AIRCRAFT_PROFILES.c172.chaseDistance;   // caméra extérieure : distance à l'avion
+let CHASE_PITCH = AIRCRAFT_PROFILES.c172.chasePitch;         // … et hauteur (angle au-dessus de l'avion)
+const CHASE_TARGET = AIRCRAFT_PROFILES.c172.chaseTarget.clone();   // point visé, devant l'avion
 const CHASE_STIFFNESS = 4;                                  // rapidité avec laquelle la caméra suit
 const ORBIT_SPEED = 0.006;                                  // rotation de la caméra à la souris (rad/pixel)
 
@@ -182,9 +209,12 @@ const stallWarning = new StallWarning();
 const bankAngleWarning = new BankAngleWarning();
 const terrainWarning = new TerrainWarning();
 const engineSound = new EngineSound();
+const jetSound = new JetSound();   // réacteurs du F-15
 const sounds = new SoundEffects();
 const storm = new Storm({ groundHeight: (x, z) => terrain.heightAt(x, z), sounds });
-const cockpit = new Cockpit();
+const cessnaCockpit = new Cockpit();
+const jetCockpit = new F15Cockpit();   // (chargé avec le F-15)
+let cockpit = cessnaCockpit;           // cabine de l'avion piloté
 try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false); } catch { /* stockage indisponible */ }
 const crashEffect = new CrashEffect();
 let weather = null;
@@ -194,7 +224,9 @@ const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);
 const multiplayer = new Multiplayer();
-const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, altitudeOffset: WHEEL_HEIGHT, registrationFor: (id) => registrationFor(id) });
+const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound,
+    altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight }, registrationFor: (id) => registrationFor(id) });
+remotePlayers.onJetNeeded = () => setupJet().catch(() => {});   // un autre joueur vole en F-15
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
@@ -209,7 +241,10 @@ const loader = new Utils3dLoader();
 const aircraft = new THREE.Group();
 const controls = new PlaneControls( aircraft );
 // Systèmes de l'avion (électricité, moteur, carburant, feux) commandés depuis la cabine
-const systems = new Systems();
+const cessnaSystems = new Systems();
+const jetSystems = new JetSystems();
+let systems = cessnaSystems;           // systèmes de l'avion piloté
+const jetFlight = { ...F15 };          // caractéristiques du F-15 pour le modèle de vol (masse : suit le carburant)
 // Radios du tableau (NAV/COM, transpondeur, DME, ADF...), lien avec le contrôle aérien (voir syncRadios)
 const avionics = new Avionics();
 const radioSync = { freq: null, code: null };
@@ -354,43 +389,65 @@ controls.saveState();
 cockpit.group.position.copy(COCKPIT_POSITION);
 cockpit.group.scale.setScalar(AIRCRAFT_SCALE);   // agrandie comme le modèle de l'avion
 aircraft.add(cockpit.group);
+jetCockpit.group.visible = false;
+aircraft.add(jetCockpit.group);   // (dans le repère avion, à taille réelle)
 
 // Feux de navigation (rouge à gauche, vert à droite, blanc à l'arrière), anticollision et phare d'atterrissage
 // Extérieur de l'avion (modèle, feux, phare)
 const airframe = new THREE.Group();
 aircraft.add(airframe);
-const aircraftLights = new AircraftLights(airframe, { castLight: true });
+const cessnaLights = new AircraftLights(airframe, { castLight: true });
+let aircraftLights = cessnaLights;     // feux de l'avion piloté
 // Intensités (cd) : sol éclairé au niveau d'un éclairage de jour (soleil : 2), pas au-delà ; cônes serrés : le bas du
 // faisceau ne touche le sol que loin devant (un cône de 20° l'éclairait à 5 m de l'avion : sol brûlé, pilote ébloui)
 const LANDING_LIGHT = 3000, TAXI_LIGHT = 320;
-const landingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(11), 0.55, 1.6); // phare d'atterrissage
+const cessnaLandingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(11), 0.55, 1.6); // phare d'atterrissage
 // Phare dans le bord d'attaque de l'aile gauche, comme sur un vrai Cessna 172
 // (dans le nez, il éclairait les pales de l'hélice qui passaient devant : flashs blancs)
-landingLight.position.set(-2.92, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
+cessnaLandingLight.position.set(-2.92, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
 // Visé ~2° sous l'horizon (sol éclairé surtout vers 50-120 m) : visible depuis la cabine au-dessus du tableau de bord
-landingLight.target.position.set(-1.2, -1.8, -80);
-airframe.add(landingLight, landingLight.target);
+cessnaLandingLight.target.position.set(-1.2, -1.8, -80);
+airframe.add(cessnaLandingLight, cessnaLandingLight.target);
 // Phare de roulage : à côté, faisceau large et court, plongeant vers le sol devant l'avion (vers 10-25 m), un peu
 // tourné vers l'extérieur : éclaire la voie de circulation et ses bords dans les virages
-const taxiLight = new THREE.SpotLight(0xfff3d6, 0, 120, THREE.MathUtils.degToRad(28), 0.75, 1.6);
-taxiLight.position.set(-2.807, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
-taxiLight.target.position.set(-5, -2.8, -30);
-airframe.add(taxiLight, taxiLight.target);
+const cessnaTaxiLight = new THREE.SpotLight(0xfff3d6, 0, 120, THREE.MathUtils.degToRad(28), 0.75, 1.6);
+cessnaTaxiLight.position.set(-2.807, 1.14, -2.3).multiplyScalar(AIRCRAFT_SCALE);
+cessnaTaxiLight.target.position.set(-5, -2.8, -30);
+airframe.add(cessnaTaxiLight, cessnaTaxiLight.target);
+let landingLight = cessnaLandingLight, taxiLight = cessnaTaxiLight;
+
+// F-15 : extérieur, feux et phares (sur la jambe du train avant), dans son propre groupe, caché en Cessna
+const jetFrame = new THREE.Group();
+jetFrame.visible = false;
+aircraft.add(jetFrame);
+const jetLights = new AircraftLights(jetFrame, { castLight: true, layout: F15_LIGHT_LAYOUT });
+const jetLandingLight = new THREE.SpotLight(0xfff3d6, 0, 500, THREE.MathUtils.degToRad(10), 0.55, 1.6);
+jetLandingLight.position.set(0, -0.82, -3.8);
+jetLandingLight.target.position.set(0, -2.5, -90);
+const jetTaxiLight = new THREE.SpotLight(0xfff3d6, 0, 140, THREE.MathUtils.degToRad(26), 0.75, 1.6);
+jetTaxiLight.position.set(0, -1.0, -3.7);
+jetTaxiLight.target.position.set(0, -3.5, -30);
+jetFrame.add(jetLandingLight, jetLandingLight.target, jetTaxiLight, jetTaxiLight.target);
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
 // verraient pas et chaque lumière alourdit le rendu)
 function applyLights() {
-    const lights = systems.lights;
+    const lights = { ...systems.lights };
+    // F-15 : phares sur la jambe du train avant, éteints train rentré
+    if (aircraftType === 'f15' && controls.model.gearPosition < 0.99) lights.land = lights.taxi = false;
     const dark = (weather?.night ?? 0) >= 0.5;
     aircraftLights.setSwitches(lights);
     landingLight.visible = lights.land && dark;
     taxiLight.visible = lights.taxi && dark;
 }
-systems.addEventListener('change', applyLights);
-// Démarrage raté : message à l'écran (raison et marche à suivre)
-systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.45));
-systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
-systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
+for (const s of [cessnaSystems, jetSystems]) {
+    s.addEventListener('change', () => { if (s === systems) applyLights(); });
+    // Démarrage raté : message à l'écran (raison et marche à suivre)
+    s.addEventListener('startfail', ({ detail }) => { if (s === systems) showRadioMessage(detail); });
+}
+cessnaSystems.addEventListener('start', () => { if (systems === cessnaSystems) engineSound.playStart(chaseView ? 1 : 0.45); });
+cessnaSystems.addEventListener('stop', () => { if (systems === cessnaSystems && !controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
+jetSystems.addEventListener('start', ({ detail }) => { if (systems === jetSystems) showViewLabel(`Réacteur ${detail.side ? 'droit' : 'gauche'} allumé`); });
 
 // Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs (suivi par
 // l'écran de chargement ; un échec du réseau se réessaie)
@@ -410,8 +467,8 @@ function setupAircraft() {
         cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
         setRegistration(model, atc.registration);
         paintAircraft(model, multiplayer.livery);
-        aircraftLights.setOccluder(model);
-        aircraftLights.setRudder(parts.pivots.rudder);
+        cessnaLights.setOccluder(model);
+        cessnaLights.setRudder(parts.pivots.rudder);
         remotePlayers.setTemplate(template);
         airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
             setRegistration(plane, registration);
@@ -421,6 +478,177 @@ function setupAircraft() {
     });
 }
 track('avion', 'Cessna 172 (c172p.glb)', setupAircraft).catch(() => {});
+
+// F-15 : modèle et cockpit chargés à la demande (choix au hangar, ou un autre joueur en F-15) : 11 Mo
+let jetModel = null, jetLoading = null;
+function setupJet() {
+    if (jetModel) return Promise.resolve();
+    jetLoading ??= Promise.all([loadF15(), jetCockpit.load()]).then(([{ model }]) => {
+        jetModel = model;
+        jetFrame.add(model);
+        jetLights.setOccluder(model);
+        paintF15(model, isF15Livery(multiplayer.livery) ? multiplayer.livery : savedJetLivery());
+        remotePlayers.setJetTemplate(cloneF15(model));
+        jetSound.unlock().catch(() => {});
+        jetCockpit.setNight(weather?.night ?? 0);
+        jetCockpit.setExterior(chaseView);
+    }).catch((error) => {
+        jetLoading = null;
+        throw error;
+    });
+    return jetLoading;
+}
+
+// Verrière du F-15 : ouverte (1) ou fermée (0), elle s'ouvre / se ferme en ~5 s (vérin) ; position transmise aux
+// autres joueurs. Ouverte seulement au sol, à moins de 40 kt (au-delà, elle se referme)
+let jetCanopy = 0, jetCanopyOpen = false;
+let jetGearWas = 1, jetSpeedbrakeWas = false;
+const CANOPY_TIME = 5;
+
+// Chaque image, en F-15 : poussée des réacteurs et masse (carburant) pour le modèle de vol, animation de l'avion,
+// verrière, bruits du train et de l'aérofrein
+function updateJet(delta) {
+    const model = controls.model;
+    model.jetThrust = controls.isCrashed() ? 0 : jetSystems.thrust;
+    jetFlight.mass = F15.emptyMass + jetSystems.fuelKg;
+    // Verrière : la commande suit l'interrupteur des systèmes (ouverte au parking) ; refermée en roulant vite
+    jetCanopyOpen = jetSystems.switches.canopy;
+    if (jetCanopyOpen && (!controls.isOnGround() || controls.getSpeed() > 20)) jetSystems.switches.canopy = jetCanopyOpen = false;
+    const canopyBefore = jetCanopy;
+    jetCanopy = THREE.MathUtils.clamp(jetCanopy + (jetCanopyOpen ? 1 : -1) * delta / CANOPY_TIME, 0, 1);
+    const volume = chaseView ? 0.8 : 0.6;
+    if ((canopyBefore === 0 && jetCanopy > 0) || (canopyBefore === 1 && jetCanopy < 1)) jetSound.play('canopy-trans', volume * 0.6);
+    if (canopyBefore > 0 && jetCanopy === 0) jetSound.play('canopy-close2', volume);
+    // Train : bruit de la manœuvre, puis des trappes ; les phares suivent (sur la jambe avant)
+    const gear = model.gearPosition;
+    if ((jetGearWas === 1 && gear < 1) || (jetGearWas === 0 && gear > 0)) jetSound.play('gear-transit', volume);
+    if ((jetGearWas < 1 && gear === 1) || (jetGearWas > 0 && gear === 0)) {
+        jetSound.play('gear-door-close', volume);
+        applyLights();
+    }
+    jetGearWas = gear;
+    if (model.speedbrakeOut !== jetSpeedbrakeWas) {
+        jetSpeedbrakeWas = model.speedbrakeOut;
+        jetSound.play('air-brakes', volume * 0.7);
+    }
+    if (!jetModel) return;
+    const inputs = controls.getInputs();
+    animateF15(jetModel, {
+        pitch: inputs.pitch, roll: inputs.roll, yaw: inputs.yaw, flaps: controls.getFlaps(), speedbrake: model.speedbrake,
+        canopy: jetCanopy, gear, steer: THREE.MathUtils.clamp(inputs.yaw + inputs.roll * 0.5, -1, 1),
+        wheelSpeed: controls.getSpeed(), onGround: controls.isOnGround(),
+        n2: jetSystems.engines.map((e) => e.n2), ab: jetSystems.engines.map((e) => e.ab), time: clock.elapsedTime,
+    }, delta);
+}
+
+// Train (touche Y, poignée du cockpit) ; aérofrein (touche U, bouton de la manette des gaz)
+function toggleGear() {
+    const model = controls.model;
+    if (!model.setGear(!model.gearDown)) {
+        if (model.onGround) showViewLabel('Train : impossible de le rentrer au sol');
+        return;
+    }
+    showViewLabel(model.gearDown ? 'Train : sortie' : 'Train : rentrée');
+}
+function toggleSpeedbrake() {
+    controls.model.speedbrakeOut = !controls.model.speedbrakeOut;
+    showViewLabel(controls.model.speedbrakeOut ? 'Aérofrein sorti' : 'Aérofrein rentré');
+}
+
+// Commandes du cockpit du F-15 (voir F15Cockpit.js : CONTROLS) et de la tablette
+function jetCommand(name, step = 1) {
+    const sys = jetSystems;
+    if (name === 'jfs') sys.pullJfs();
+    else if (name === 'crank') sys.crankEngine(step < 0 ? 0 : 1);
+    else if (name === 'crankL') sys.crankEngine(0);
+    else if (name === 'crankR') sys.crankEngine(1);
+    else if (name === 'gear') toggleGear();
+    else if (name === 'speedbrake') toggleSpeedbrake();
+    else if (name === 'canopy') {
+        if (!sys.switches.canopy && (!controls.isOnGround() || controls.getSpeed() > 20)) {
+            showViewLabel('Verrière : seulement au sol, presque arrêté');
+            return;
+        }
+        sys.toggle('canopy');
+    } else if (name === 'lights') {
+        // Phares (interrupteur à 3 positions) : éteints -> roulage -> atterrissage
+        const { land, taxi } = sys.switches;
+        Object.assign(sys.switches, !land && !taxi ? { taxi: true, land: false } : taxi && !land ? { taxi: false, land: true } : { taxi: false, land: false });
+        sys.toggle('_');   // (prévient les feux)
+    } else if (name === 'caution') jetCockpit.acknowledgeCaution();
+    else if (name === 'strobe') {
+        sys.switches.beacon = !sys.switches.strobe;
+        sys.toggle('strobe');
+    } else sys.toggle(name);
+}
+
+// Livrée du F-15 choisie la dernière fois (mémorisée à part de celle du Cessna)
+function savedJetLivery() {
+    try {
+        const id = localStorage.getItem('livree-f15');
+        return isF15Livery(id) ? id : F15_DEFAULT_LIVERY;
+    } catch {
+        return F15_DEFAULT_LIVERY;
+    }
+}
+
+// Changement d'avion (hangar) : modèle, cabine, systèmes, modèle de vol, sons, caméras, livrée. F-15 : chargé à la
+// première demande. L'avion repart du hangar, éteint (voir openHangar)
+async function setAircraftType(type) {
+    type = type === 'f15' ? 'f15' : 'c172';
+    if (type === 'f15') await setupJet();
+    const jet = type === 'f15';
+    const changed = type !== aircraftType;
+    aircraftType = type;
+    try { localStorage.setItem('avion', type); } catch { /* stockage indisponible */ }
+    const profile = AIRCRAFT_PROFILES[type];
+    airframe.visible = !jet;
+    jetFrame.visible = jet;
+    cessnaCockpit.group.visible = !jet;
+    jetCockpit.group.visible = jet;
+    cockpit = jet ? jetCockpit : cessnaCockpit;
+    systems = jet ? jetSystems : cessnaSystems;
+    aircraftLights = jet ? jetLights : cessnaLights;
+    landingLight = jet ? jetLandingLight : cessnaLandingLight;
+    taxiLight = jet ? jetTaxiLight : cessnaTaxiLight;
+    // Le phare de l'avion caché s'éteint (une lumière allumée, même cachée, compte)
+    for (const light of [cessnaLandingLight, cessnaTaxiLight, jetLandingLight, jetTaxiLight]) light.visible = false;
+    WHEEL_HEIGHT = profile.wheelHeight;
+    controls.minAltitude = WHEEL_HEIGHT;
+    COCKPIT_POSITION.copy(profile.cockpitPosition);
+    CABIN_SCALE = profile.cabinScale;
+    COCKPIT_TILT = profile.cockpitTilt;
+    CHASE_DISTANCE = profile.chaseDistance;
+    CHASE_PITCH = profile.chasePitch;
+    CHASE_TARGET.copy(profile.chaseTarget);
+    // Modèle de vol : caractéristiques de l'avion ; il repart de zéro (volets, trim, train)
+    const model = controls.model;
+    model.aircraft = jet ? jetFlight : CESSNA_172;
+    model.rotateSpeed = model.aircraft.rotateSpeed;
+    model.flapLevel = Math.min(model.flapLevel, model.aircraft.flapLevels.length - 1);
+    model.gearDown = true;
+    model.gearPosition = 1;
+    model.speedbrakeOut = false;
+    model.speedbrake = 0;
+    model.cgOffset = 0;
+    jetGearWas = 1;
+    // Caméras de la cabine
+    CABIN_VIEWS = jet ? F15_VIEWS : CESSNA_VIEWS;
+    VIEW_ORDER = jet ? VIEW_ORDER_F15 : VIEW_ORDER_C172;
+    PILOT_EYE.copy(cockpit.eye);
+    if (changed) recenterCamera();
+    // Contrôleurs, multijoueur, livrée
+    atc.aircraftType = profile.atcType;
+    multiplayer.aircraft = type;
+    refreshLiveryOptions();
+    let saved = null;
+    try { saved = localStorage.getItem(jet ? 'livree-f15' : 'livree'); } catch { /* stockage indisponible */ }
+    setLivery(saved ?? (jet ? F15_DEFAULT_LIVERY : DEFAULT_LIVERY), false);
+    updateView();
+    applyLights();
+    updateAircraftChoice();
+    document.dispatchEvent(new CustomEvent('aircraft-change', { detail: type }));
+}
 
 // Hélice en rotation : les pales s'estompent et un disque flou apparaît (comme vu de la cabine d'un vrai avion,
 // au lieu d'une pale qui saute d'une position à l'autre à chaque image)
@@ -505,7 +733,7 @@ let drag = null;
 // (sinon yaw / pitch : direction du regard) ; fov : champ de vision ; close : caméra rapprochée sur une partie du
 // tableau, comme un pilote qui se penche (manches cachés le temps de la vue)
 const PILOT_EYE = cockpit.eye.clone();
-const CABIN_VIEWS = {
+const CESSNA_VIEWS = {
     1: { label: 'Pilote', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
     2: { label: 'Instruments de vol', eye: [-0.17, -0.02, -0.25], target: [-0.153, -0.23, -0.75], fov: 50, close: true },
     3: { label: 'Magnétos, master et disjoncteurs', eye: [-0.36, -0.12, -0.3], target: [-0.36, -0.43, -0.75], fov: 45, close: true },
@@ -517,7 +745,21 @@ const CABIN_VIEWS = {
     9: { label: 'Sélecteur de réservoir', eye: [-0.05, -0.3, -0.25], target: [0, -0.884, -0.45], fov: 50, close: true },
     0: { label: 'Côté gauche', yaw: 1.0, pitch: 0.25, fov: 75 },
 };
-const VIEW_ORDER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+// F-15 (repère avion, œil du pilote en 0, 1,40, -5,0) : HUD, tableau, consoles gauche (gaz, train) et droite
+// (JFS, réacteurs, génératrices), et regard sur le côté
+const F15_VIEWS = {
+    1: { label: 'Pilote', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
+    2: { label: 'HUD', eye: [0, 1.42, -5.2], target: [0, 1.39, -6.5], fov: 40, close: true },
+    3: { label: 'Instruments de vol (ADI, HSI, badin, altimètre)', eye: [0, 1.15, -5.35], target: [0, 0.94, -5.71], fov: 50, close: true },
+    4: { label: 'Moteurs et carburant', eye: [0.22, 1.12, -5.42], target: [0.27, 0.95, -5.71], fov: 42, close: true },
+    5: { label: 'Console gauche (gaz, train, phares)', eye: [-0.25, 1.15, -5.2], target: [-0.38, 0.72, -5.55], fov: 55, close: true },
+    6: { label: 'Console droite (JFS, réacteurs, génératrices)', eye: [0.25, 1.12, -5.25], target: [0.35, 0.68, -5.66], fov: 50, close: true },
+    7: { label: 'Écrans (radar, contre-mesures)', eye: [0, 1.2, -5.3], target: [0, 1.0, -5.71], fov: 60, close: true },
+    0: { label: 'Côté gauche', yaw: 1.2, pitch: 0.15, fov: 75 },
+};
+let CABIN_VIEWS = CESSNA_VIEWS;
+const VIEW_ORDER_C172 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0], VIEW_ORDER_F15 = [1, 2, 3, 4, 5, 6, 7, 0];
+let VIEW_ORDER = VIEW_ORDER_C172;
 let cabinView = 1;
 let headTarget = null;               // regard en cours de rejointe (glissement doux)
 const eyeTarget = PILOT_EYE.clone(); // l'œil glisse vers sa place
@@ -528,6 +770,7 @@ function setCabinViewPreset(number) {
     if (chaseView) toggleView();
     cabinView = number;
     cockpit.setYokesHiddenByView(Boolean(preset.close));
+    // (F-15 : positions données dans le repère avion, ramenées au repère de la cabine : même chose, échelle 1)
     if (preset.eye) eyeTarget.fromArray(preset.eye);
     else eyeTarget.copy(PILOT_EYE);
     let { yaw, pitch } = preset;
@@ -776,13 +1019,16 @@ function markSpawnView(name) {
 function updateCamera(delta, snap = false) {
     if (inHangar) {
         // Hangar : la caméra tourne lentement autour de l'avion, à hauteur d'homme (cercle de 11 m, dans les murs)
-        const angle = 2.2 + clock.elapsedTime * 0.06;
+        // (F-15, 19,5 m de long : cercle de 13 m, plus haut, champ plus large)
+        const jet = aircraftType === 'f15';
+        const angle = 2.2 + clock.elapsedTime * 0.06, radius = jet ? 13 : 11;
         const p = aircraft.position;
-        camera.position.set(p.x + Math.cos(angle) * 11, p.y + 3, p.z + Math.sin(angle) * 11);
+        camera.position.set(p.x + Math.cos(angle) * radius, p.y + (jet ? 4.5 : 3), p.z + Math.sin(angle) * radius);
         camera.up.set(0, 1, 0);
-        camera.lookAt(p.x, p.y + 1, p.z);
-        if (camera.fov !== CAM_FOV) {
-            camera.fov = CAM_FOV;
+        camera.lookAt(p.x, p.y + (jet ? 0.5 : 1), p.z);
+        const fov = jet ? 72 : CAM_FOV;
+        if (camera.fov !== fov) {
+            camera.fov = fov;
             camera.updateProjectionMatrix();
         }
         return;
@@ -824,7 +1070,7 @@ function updateCamera(delta, snap = false) {
         camera.lookAt(crashCamera.target);
     } else if (!chaseView) {
         // Œil du pilote dans la cabine, la tête peut tourner
-        camera.position.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
+        camera.position.copy(cockpit.eye).multiplyScalar(CABIN_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
         _headQuaternion.setFromEuler(_euler.set(head.pitch + COCKPIT_TILT, head.yaw, 0));
         camera.quaternion.copy(aircraft.quaternion).multiply(_headQuaternion);
     } else {
@@ -1021,7 +1267,9 @@ function setWeather(name) {
     storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false, clouds: w.overcast ?? null });
     cockpit.setNight(w.night);
     airport.setNight(w.night);
-    aircraftLights.setNight(w.night);
+    cessnaLights.setNight(w.night);
+    jetLights.setNight(w.night);
+    jetCockpit.setNight(w.night);
     applyLights();
     remotePlayers.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
@@ -1029,8 +1277,8 @@ function setWeather(name) {
     // Avion éteint au parking : on ne touche à rien, c'est au pilote de tout allumer
     if (systems.running) systems.switches.land = w.night >= 0.5;
     systems.dispatchEvent(new Event('change'));
-    landingLight.intensity = LANDING_LIGHT;
-    taxiLight.intensity = TAXI_LIGHT;
+    for (const light of [cessnaLandingLight, jetLandingLight]) light.intensity = LANDING_LIGHT;
+    for (const light of [cessnaTaxiLight, jetTaxiLight]) light.intensity = TAXI_LIGHT;
 
     for (const button of [...meteoButtons.children, ...(document.getElementById('mp-meteo')?.children ?? [])]) {
         button.classList.toggle('actif', button.dataset.meteo === name);
@@ -1255,6 +1503,7 @@ function unlockSounds() {
     stallWarning.unlock().catch((error) => console.error(error));
     bankAngleWarning.unlock().catch((error) => console.error(error));
     terrainWarning.unlock().catch((error) => console.error(error));
+    if (jetModel) jetSound.unlock().catch((error) => console.error(error));
     engineSound.unlock().catch((error) => console.error(error));
     sounds.unlock().catch((error) => console.error(error));
 }
@@ -1263,14 +1512,15 @@ for (const type of ['keydown', 'pointerdown', 'touchend', 'click']) window.addEv
 const _wingAxis = new THREE.Vector3();
 function updateStallWarning(delta) {
     alarme.classList.toggle('actif', controls.isStalled());
-    stallWarning.update(controls.isNearStall());
+    stallWarning.update(aircraftType === 'c172' && controls.isNearStall());
     const p = aircraft.position;
     const height = (p.y - WHEEL_HEIGHT - terrain.heightAt(p.x, p.z)) / 0.3048;
     // Roulis seulement (jamais le tangage) : voir alarmBank
     const deg = THREE.MathUtils.radToDeg;
     const wingTilt = Math.asin(THREE.MathUtils.clamp(_wingAxis.set(1, 0, 0).applyQuaternion(aircraft.quaternion).y, -1, 1));
     const bank = alarmBank(deg(controls.getRoll()), deg(Math.atan(controls.getPitchRate())), deg(wingTilt));
-    bankAngleWarning.update(bank, !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn, height);
+    // (pas d'alarme d'inclinaison sur le F-15 : un chasseur vire couramment à plus de 45°)
+    bankAngleWarning.update(bank, aircraftType === 'c172' && !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn, height);
     bankAlarm.classList.toggle('actif', bankAngleWarning.active);
     // Proximité du sol (EGPWS) : SINK RATE, TERRAIN TERRAIN, PULL UP
     terrainWarning.update(delta, {
@@ -1591,7 +1841,8 @@ function applySpawnState() {
         // Sur la piste, prêt au décollage : pompe électrique, phare d'atterrissage et de roulage, strobes, anticollision
         // et feux de navigation allumés (volets : voir runwayFlaps)
         controls.parkingBrake = systems.brake = false;
-        Object.assign(systems.switches, { fuelPump: true, land: true, taxi: true, strobe: true, beacon: true, nav: true });
+        Object.assign(systems.switches, aircraftType === 'f15' ? { land: true, taxi: true, strobe: true, beacon: true, nav: true }
+            : { fuelPump: true, land: true, taxi: true, strobe: true, beacon: true, nav: true });
     }
     applyLights();
 }
@@ -1881,6 +2132,40 @@ function leaveHangar() {
         updateView();
     }
 }
+// Choix de l'avion au hangar : Cessna 172 ou F-15C (chargé à la première demande, ~11 Mo)
+const aircraftButtons = [...document.querySelectorAll('#hangar-avions [data-avion]')];
+const HANGAR_DESCRIPTIONS = {
+    c172: "Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.",
+    f15: 'F-15C Eagle, au hangar, éteint et verrière ouverte. Mise en route : BATT, JFS, ENG MASTER, puis lancement de '
+        + 'chaque réacteur (voir le manuel). Train : touche Y, aérofrein : U, postcombustion : gaz au-delà de 85 %.',
+};
+function updateAircraftChoice() {
+    for (const button of aircraftButtons) button.classList.toggle('actif', button.dataset.avion === aircraftType);
+    document.getElementById('hangar-description').textContent = HANGAR_DESCRIPTIONS[aircraftType];
+    // Immatriculation : peinte sur le Cessna ; sur le F-15, le numéro est celui de la livrée (indicatif radio seulement)
+    for (const input of registrationInputs) input.title = aircraftType === 'f15' ? 'Indicatif radio (le numéro peint est celui de la livrée)' : '';
+}
+for (const button of aircraftButtons) {
+    button.addEventListener('click', async () => {
+        const type = button.dataset.avion;
+        if (type === aircraftType) return;
+        const label = button.textContent;
+        for (const b of aircraftButtons) b.disabled = true;
+        if (type === 'f15' && !jetModel) button.textContent = 'Chargement…';
+        try {
+            await setAircraftType(type);
+            if (inHangar) openHangar();   // l'avion choisi, éteint, au milieu du hangar
+        } catch (error) {
+            console.error(error);
+            showRadioMessage('F-15 : chargement impossible (vérifiez la connexion), réessayez');
+        } finally {
+            button.textContent = label;
+            for (const b of aircraftButtons) b.disabled = false;
+            button.blur();
+        }
+    });
+}
+
 document.getElementById('hangar-partir').addEventListener('click', () => {
     leaveHangar();
     openSpawnDialog();
@@ -2039,14 +2324,22 @@ updateModes();
 // Couleur de l'avion (livrée) : appliquée à notre avion et envoyée aux autres joueurs. Choisie dans le menu Profil
 // (solo et multijoueur) ou dans le panneau Multijoueur : les deux listes restent d'accord
 const liverySelects = ['profil-livree', 'multi-livree', 'hangar-livree'].map((id) => document.getElementById(id)).filter(Boolean);
-for (const select of liverySelects) {
-    for (const [id, livery] of Object.entries(LIVERIES)) select.add(new Option(livery.label, id));
+// Listes des livrées : celles de l'avion piloté (couleurs du Cessna, ou livrées d'escadrons du F-15)
+function refreshLiveryOptions() {
+    const list = aircraftType === 'f15' ? F15_LIVERIES : LIVERIES;
+    for (const select of liverySelects) {
+        select.replaceChildren(...Object.entries(list).map(([id, livery]) => new Option(livery.label, id)));
+    }
 }
+refreshLiveryOptions();
 function setLivery(id, save = true) {
-    multiplayer.livery = isLivery(id) ? id : DEFAULT_LIVERY;
+    const jet = aircraftType === 'f15';
+    multiplayer.livery = jet ? (isF15Livery(id) ? id : F15_DEFAULT_LIVERY) : (isLivery(id) ? id : DEFAULT_LIVERY);
     for (const select of liverySelects) select.value = multiplayer.livery;
-    if (aircraftModel) paintAircraft(aircraftModel, multiplayer.livery);
-    if (save) try { localStorage.setItem('livree', multiplayer.livery); } catch { /* stockage indisponible */ }
+    if (jet) {
+        if (jetModel) paintF15(jetModel, multiplayer.livery);
+    } else if (aircraftModel) paintAircraft(aircraftModel, multiplayer.livery);
+    if (save) try { localStorage.setItem(jet ? 'livree-f15' : 'livree', multiplayer.livery); } catch { /* stockage indisponible */ }
 }
 let savedLivery = null;
 try { savedLivery = localStorage.getItem('livree'); } catch { /* stockage indisponible */ }
@@ -2653,6 +2946,7 @@ for (const button of initiationDialog.querySelectorAll('[data-niveau]')) {
         const lang = initiationDialog.querySelector('[data-langue-lecon].actif')?.dataset.langueLecon ?? 'fr';
         try { localStorage.setItem('initiation-langue', lang); } catch { /* stockage indisponible */ }
         const level = Number(button.dataset.niveau), cameraGuide = $('initiation-camera').checked;
+        if (aircraftType !== 'c172') setAircraftType('c172');   // la leçon se fait sur le Cessna
         enterGame(() => {
             initiation.start(level, cameraGuide, lang);
             view.focus();
@@ -2699,13 +2993,14 @@ const weightBalance = new WeightBalance(document.getElementById('masse-dialog'),
 let currentLoad = { ...weightBalance.load };
 function applyLoad(load) {
     currentLoad = { ...load };
-    systems.fuelLoad = [load.fuelLeft / WB_GALLON, load.fuelRight / WB_GALLON];
-    systems.fuel = [...systems.fuelLoad];
-    systems.dispatchEvent(new Event('change'));
+    cessnaSystems.fuelLoad = [load.fuelLeft / WB_GALLON, load.fuelRight / WB_GALLON];
+    cessnaSystems.fuel = [...cessnaSystems.fuelLoad];
+    cessnaSystems.dispatchEvent(new Event('change'));
     updateLoad();
 }
 function updateLoad() {
-    const loaded = computeLoad({ ...currentLoad, fuelLeft: systems.fuel[0] * WB_GALLON, fuelRight: systems.fuel[1] * WB_GALLON });
+    if (aircraftType === 'f15') return;   // (masse du F-15 : voir updateJet)
+    const loaded = computeLoad({ ...currentLoad, fuelLeft: cessnaSystems.fuel[0] * WB_GALLON, fuelRight: cessnaSystems.fuel[1] * WB_GALLON });
     controls.model.aircraft.mass = loaded.mass;
     controls.model.cgOffset = loaded.cg - CG_REFERENCE;
 }
@@ -2736,7 +3031,9 @@ function updateHud(delta) {
         verticalSpeed: controls.getVerticalSpeed(),
         heading: controls.getHeading(),
         rpm: systems.rpm,
-        fuel: (systems.fuel[0] + systems.fuel[1]) / (2 * TANK_CAPACITY),
+        n2: aircraftType === 'f15' ? jetSystems.engines.map((e) => e.n2) : undefined,
+        ab: aircraftType === 'f15' ? jetSystems.afterburner : 0,
+        fuel: systems.fuelFraction,
         alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
         stallAlpha: THREE.MathUtils.radToDeg(controls.model.stallAlpha()),
         flaps: controls.getFlaps() * flapMax,
@@ -2778,6 +3075,15 @@ function cockpitState() {
         gloveboxOpen,
         parkingBrake: controls.parkingBrake,
         flapLevel: controls.getFlapLevel(),
+        jet: aircraftType === 'f15' ? {
+            g: controls.model.loadFactor,
+            mach: controls.getSpeed() / 340,
+            alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
+            beta: THREE.MathUtils.radToDeg(controls.model.beta),
+            gear: controls.model.gearPosition,
+            canopy: jetCanopy,
+            fuelFlowKgH: jetSystems.engines.map((e) => (e.running ? jetSystems.fuelFlow / Math.max(1, jetSystems.engines.filter((x) => x.running).length) : 0)),
+        } : null,
     };
 }
 
@@ -2976,6 +3282,12 @@ function obsUnderPointer(event) {
 // Action d'une commande : clic (step = côté cliqué : -1 / +1) ou molette (step = -1 / +1). fine : Maj (pas plus grand)
 function useControl(control, step, wheel = false, fine = false) {
     const { id } = control;
+    if (id.startsWith('jet:')) {
+        if (wheel) return false;
+        jetCommand(id.slice(4), step);
+        sounds.click();
+        return true;
+    }
     const trimStep = THREE.MathUtils.degToRad(fine ? 5 : 1);
     if (id === 'obs') vor.turnCourse(step * (fine ? 10 : 1));
     else if (id === 'yokes') {
@@ -3189,6 +3501,10 @@ const MIXTURE_RATE = 0.4;
 const mixtureKeys = { KeyU: 0, KeyY: 0 };
 window.addEventListener('keydown', (event) => {
     if (event.code in mixtureKeys && !isTypingTarget(event.target)) mixtureKeys[event.code] = 1;
+    // F-15 : Y sort / rentre le train, U sort / rentre l'aérofrein (pas de mixture sur un réacteur)
+    if (aircraftType !== 'f15' || event.repeat || isTypingTarget(event.target) || choosingSpawn || controls.isCrashed()) return;
+    if (event.code === 'KeyY') toggleGear();
+    if (event.code === 'KeyU') toggleSpeedbrake();
 });
 window.addEventListener('keyup', (event) => {
     if (event.code in mixtureKeys) mixtureKeys[event.code] = 0;
@@ -3235,13 +3551,21 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     recenter: () => recenterCamera(),
     menu: () => setMenuBar(!simulatorElement.classList.contains('barre')),
     flaps: (step) => controls.setFlapLevel(controls.getFlapLevel() + step),
+    train: () => toggleGear(),
+    aerofrein: () => toggleSpeedbrake(),
+});
+// Boutons propres au F-15 (train, aérofrein) : montrés seulement en F-15 ; allumés train sorti / aérofrein sorti
+document.addEventListener('aircraft-change', ({ detail }) => {
+    for (const button of document.querySelectorAll('#tactile [data-jet]')) button.hidden = detail !== 'f15';
 });
 updateNavPanelsButton();
 
 // Interface tablette (boutons SOL / SYSTÈMES, panneaux de tuiles déplaçables) : sur tablette seulement, en vol, en plus de
 // la barre de menus. Le contenu est décrit dans TabletRegistry.js ; tabletApi lui donne accès aux fonctions existantes
 const tabletApi = {
-    systems, controls, vor, atc, MAGNETOS, FUEL_SELECTOR,
+    get systems() { return systems; },
+    jetSystems, jet: () => aircraftType === 'f15', jetCommand, jetGear: () => controls.model.gearDown, jetSpeedbrake: () => controls.model.speedbrakeOut,
+    controls, vor, atc, MAGNETOS, FUEL_SELECTOR,
     click: (id) => document.getElementById(id)?.click(),
     // Contenu d'un menu de la barre (Météo, Profil, En ligne), affiché dans un panneau sur iPad
     menuContent: (id) => menuContent.get(document.getElementById(id)),
@@ -3354,7 +3678,8 @@ function checkPlaneCollisions() {
             const matrix = remoteMatrices[i++] ??= new THREE.Matrix4();
             matrix.compose(player.position, player.quaternion, _unitScale);
             _oneMatrix[0] = matrix;
-            const touching = planesCollide(aircraft, _oneMatrix);
+            matrix.planeType = player.type;
+            const touching = planesCollide(aircraft, _oneMatrix, aircraftType);
             const spawns = multiplayer.players.get(player.id)?.spawns ?? null;
             let seen = playerTrack.get(player.id);
             if (!seen) {
@@ -3373,7 +3698,7 @@ function checkPlaneCollisions() {
         ghostPlayers.clear();
         playerTrack.clear();
     }
-    if (planesCollide(aircraft, otherPlanes)) controls.collide('Collision avec un autre avion');
+    if (planesCollide(aircraft, otherPlanes, aircraftType)) controls.collide('Collision avec un autre avion');
 }
 
 // --- Chargement et entrée en partie -----------------------------------------------------------------------------
@@ -3447,7 +3772,7 @@ function updateWarmView() {
     aircraft.updateMatrixWorld();
     camera.updateMatrixWorld();
     const drawRange = Math.max(scene.fog?.far ?? 3000, 2400) + 600;
-    pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
+    pilotEyeWorld.copy(cockpit.eye).multiplyScalar(CABIN_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
     terrain.update(camera.position, drawRange, true);
     airport.update(0, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld, drawRange + 1500);
     airport.updateHangars(0, aircraft.position);
@@ -3563,6 +3888,11 @@ async function enterGame(start) {
 
 let initiationErrorShown = false;
 let lastTouchInset = '', lastLeftReserve = -1;
+// Avion choisi la dernière fois (hangar) : repris au lancement (le F-15 se charge pendant le menu principal)
+try {
+    if (localStorage.getItem('avion') === 'f15') setAircraftType('f15').catch(() => setAircraftType('c172'));
+} catch { /* stockage indisponible */ }
+
 renderer.setAnimationLoop((time)=>{
     // Écran de chargement : rien n'est dessiné derrière lui (sauf les images du préchauffage, voir warmUpWorld) ; toute
     // la puissance va au chargement
@@ -3614,7 +3944,7 @@ renderer.setAnimationLoop((time)=>{
 
     updatePropeller( delta );
     // Systèmes : moteur, carburant, électricité ; le modèle de vol en reçoit la puissance et l'alimentation des volets
-    const mixtureInput = mixtureKeys.KeyU - mixtureKeys.KeyY;
+    const mixtureInput = aircraftType === 'c172' ? mixtureKeys.KeyU - mixtureKeys.KeyY : 0;
     if (mixtureInput && !choosingSpawn) systems.setMixture(systems.mixture + mixtureInput * MIXTURE_RATE * Math.min(delta, 0.1));
     if (panelLightsKey && !choosingSpawn) {
         const before = systems.panelLights;
@@ -3629,23 +3959,34 @@ renderer.setAnimationLoop((time)=>{
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
+    const jet = aircraftType === 'f15';
+    if (jet) updateJet(delta);
     // Au départ (choix du spawn, touche R), le moteur qui tourne déjà monte en ~1 s au lieu d'arriver d'un coup :
     // ses graves, relevés, faisaient un "boum" comme un coup de tonnerre
     spawnFade = choosingSpawn ? 0 : Math.min(1, spawnFade + delta / 1.2);
     // En cabine : plus faible et étouffé (passe-bas)
     engineSound.setCabin(!chaseView);
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
-    engineSound.update(systems.rpm, engineVolume, { running: systems.running, cranking: systems.cranking });
+    engineSound.update(jet ? 0 : systems.rpm, jet ? 0 : engineVolume, { running: !jet && systems.running, cranking: !jet && systems.cranking });
+    jetSound.setCabin(!chaseView);
+    jetSound.update({
+        engines: jetSystems.engines, jfs: jet && jetSystems.jfsRunning, jfsLevel: jetSystems.jfs, speed: controls.getSpeed(),
+        aoaWarning: jet && controls.isNearStall() && !choosingSpawn,
+    }, jet ? (controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * spawnFade * spawnFade) : 0);
     updateSounds();
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
     updateHud(delta);
-    if (!choosingSpawn) multiplayer.update( aircraft, controls.getThrottle() * systems.power, { crashed: controls.isCrashed(), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName } );
+    if (!choosingSpawn) multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
+        crashed: controls.isCrashed(), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
+        jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
+    } );
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
     wind.setShared(host?.weather ? METARS[host.weather] ?? null : null);
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
+    jetSound.setListener( camera );
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
     remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime );
     updateRemoteCrashes( delta );
@@ -3663,7 +4004,7 @@ renderer.setAnimationLoop((time)=>{
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
     // PAPI : couleur vue de l'œil du pilote, même en vue extérieure
-    pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
+    pilotEyeWorld.copy(cockpit.eye).multiplyScalar(CABIN_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
     // Dessin limité à ce qui est visible : dalles du terrain et aérodromes au-delà du brouillard cachés
     const drawRange = Math.max(scene.fog?.far ?? 3000, 2400) + 600;
     terrain.update( camera.position, drawRange );
@@ -3676,8 +4017,8 @@ renderer.setAnimationLoop((time)=>{
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls(delta);
     updateVor( delta );
-    controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps(), controls.getTrim() );
-    if (gear) {
+    if (!jet) controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps(), controls.getTrim() );
+    if (gear && !jet) {
         const inputs = controls.getInputs();
         gear.update( delta, inputs.yaw + inputs.roll * 0.5, controls.getSpeed(), controls.isOnGround() );   // même braquage que FlightModel
     }
