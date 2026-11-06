@@ -7,10 +7,10 @@ import {
     PlaneGeometry,
     ShaderMaterial,
     SRGBColorSpace,
-    TextureLoader,
     UniformsLib,
     UniformsUtils
 } from 'three';
+import { loadTexture } from './Loading.js';
 
 // 4 "bouffées" du pack Smoke Particle Assets de Kenney (CC0), regroupées en 2x2
 const PUFF_ATLAS = 'asset/textures/cloud_puffs.png';
@@ -153,8 +153,7 @@ class Clouds {
             geometry.setAttribute(name, attribute);
         }
 
-        const map = new TextureLoader().load(PUFF_ATLAS);
-        map.colorSpace = SRGBColorSpace;
+        const map = loadTexture('ciel', PUFF_ATLAS, (texture) => { texture.colorSpace = SRGBColorSpace; });
 
         this.material = new ShaderMaterial({
             uniforms: UniformsUtils.merge([UniformsLib.fog, {

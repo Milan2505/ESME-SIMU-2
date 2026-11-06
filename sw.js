@@ -5,7 +5,11 @@
 // Sauf les fichiers lourds du dossier asset/ (modèles, textures, sons), qui changent rarement : servis tout de suite
 // depuis le cache du navigateur, et remis à jour en arrière-plan pour la fois suivante. Sur un portable en Wi-Fi, le
 // chargement n'attend plus un aller-retour avec le serveur pour chacun d'eux.
+// Bibliothèques du CDN (three.js, générateur d'arbres ez-tree, mqtt) : leur adresse porte leur version (three@0.174.0),
+// leur contenu ne change jamais. Gardées dans le cache du site après la première visite : la partie suivante ne les
+// retélécharge pas (Safari, sur iPad, vide vite son cache ordinaire)
 const ASSET_CACHE = 'esme-assets-v1';
+const CDN_CACHE = 'esme-cdn-v1';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
@@ -13,7 +17,12 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('fetch', (event) => {
     const request = event.request;
     const url = new URL(request.url);
-    if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+    if (request.method !== 'GET') return;
+    if (url.hostname === 'cdn.jsdelivr.net' && /@\d/.test(url.pathname)) {
+        event.respondWith(cdnCached(request));
+        return;
+    }
+    if (url.origin !== self.location.origin) return;
     if (url.pathname.includes('/asset/') && !request.headers.has('range')) {
         event.respondWith(cachedThenRefreshed(event, request));
         return;
@@ -38,4 +47,14 @@ async function cachedThenRefreshed(event, request) {
         return cached;
     }
     return refresh.catch(() => fetch(request));
+}
+
+// Bibliothèque versionnée du CDN : depuis le cache s'il l'a, sinon téléchargée et gardée
+async function cdnCached(request) {
+    const cache = await caches.open(CDN_CACHE);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    const response = await fetch(request);
+    if (response.ok && response.status === 200) await cache.put(request, response.clone());
+    return response;
 }

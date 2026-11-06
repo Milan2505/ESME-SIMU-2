@@ -37,6 +37,7 @@ import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
 import { isTablet, isStandalone, isIOS } from './js/Device.js';
+import { track, task, progress, LoadingScreen } from './js/Loading.js';
 // Tablette : marque sur la page (bande de la barre d'état d'iOS en plein écran, voir style.css)
 document.documentElement.classList.toggle('tablette', isTablet());
 // Tablette : ni zoom de la page, ni sélection de texte. Safari (iPad) ignore « user-scalable=no » du viewport : deux
@@ -387,30 +388,35 @@ systems.addEventListener('start', () => engineSound.playStart(chaseView ? 1 : 0.
 systems.addEventListener('stop', () => { if (!controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
 systems.addEventListener('startfail', ({ detail }) => showRadioMessage(detail));
 
-// Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs
-loadAircraft().then(({ model, template, parts }) => {
-    aircraftModel = model;
-    propeller = parts.propeller;
-    controlSurfaces = new ControlSurfaces(parts.pivots);
-    gear = parts.gear ? new Gear(parts.gear, AIRCRAFT_SCALE) : null;
-    setupPropellerBlur(propeller);
-    airframe.add(model);
-    cockpit.fitInsideHull(model);                    // rien de la cabine ne traverse les flancs
-    const shell = buildCabinShell(model);
-    cockpit.addCabinShell(shell);   // garnitures intérieures : l'envers de la carrosserie
-    loadCabinParts(shell);   // pièces modélisées dans Blender (carénages, aérateurs)
-    cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
-    setRegistration(model, atc.registration);
-    paintAircraft(model, multiplayer.livery);
-    aircraftLights.setOccluder(model);
-    aircraftLights.setRudder(parts.pivots.rudder);
-    remotePlayers.setTemplate(template);
-    airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
-        setRegistration(plane, registration);
-        paintAircraft(plane, livery);
+// Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs (suivi par
+// l'écran de chargement ; un échec du réseau se réessaie)
+function setupAircraft() {
+    if (aircraftModel) return Promise.resolve();
+    return loadAircraft().then(({ model, template, parts }) => {
+        aircraftModel = model;
+        propeller = parts.propeller;
+        controlSurfaces = new ControlSurfaces(parts.pivots);
+        gear = parts.gear ? new Gear(parts.gear, AIRCRAFT_SCALE) : null;
+        setupPropellerBlur(propeller);
+        airframe.add(model);
+        cockpit.fitInsideHull(model);                    // rien de la cabine ne traverse les flancs
+        const shell = buildCabinShell(model);
+        cockpit.addCabinShell(shell);   // garnitures intérieures : l'envers de la carrosserie
+        track('avion', 'Cabine (cabin.glb)', () => loadCabinParts(shell)).catch(() => {});   // carénages, aérateurs (Blender)
+        cockpit.setWindshieldGlass(model);               // pluie sur la vitre du pare-brise
+        setRegistration(model, atc.registration);
+        paintAircraft(model, multiplayer.livery);
+        aircraftLights.setOccluder(model);
+        aircraftLights.setRudder(parts.pivots.rudder);
+        remotePlayers.setTemplate(template);
+        airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
+            setRegistration(plane, registration);
+            paintAircraft(plane, livery);
+        });
+        rebuildObstacles(); // + les avions garés
     });
-    rebuildObstacles(); // + les avions garés
-}).catch((error) => console.error(error));
+}
+track('avion', 'Cessna 172 (c172p.glb)', setupAircraft).catch(() => {});
 
 // Hélice en rotation : les pales s'estompent et un disque flou apparaît (comme vu de la cabine d'un vrai avion,
 // au lieu d'une pale qui saute d'une position à l'autre à chaque image)
@@ -881,8 +887,20 @@ function applyDecorDensity() {
     }
     scenery.setDensity(decorDensity);
     scenery.setVisible(decorStyle !== 'classique');
-    if (decorStyle !== 'classique') scenery.build().then(rebuildObstacles);
+    if (decorStyle !== 'classique') buildScenery().then(rebuildObstacles, () => { /* échec : voir l'écran de chargement */ });
     rebuildObstacles();
+}
+
+// Forêts et villages (Scenery.js, arbres générés : plusieurs secondes) : suivis par l'écran de chargement, avec leur
+// avancement. Seulement s'ils sont affichés (réglage « Décor ») : en style classique, rien n'est construit
+let sceneryLoading = null;
+function buildScenery() {
+    if (!sceneryLoading) {
+        sceneryLoading = track('decor', 'Forêts et villages (arbres générés)', () => scenery.build(), { weight: 6 });
+        scenery.onProgress = (fraction) => progress(sceneryLoading.item, fraction);
+        sceneryLoading.catch(() => {});
+    }
+    return scenery.build();
 }
 
 // Obstacles : bâtiments et avions de l'aéroport, et seulement le décor affiché (pas de crash contre un arbre invisible)
@@ -896,6 +914,7 @@ function rebuildObstacles() {
     if (scenery.group.visible) controls.obstacles.push(...scenery.obstacles);
 }
 
+// Données (CSV) puis un modèle OBJ par type d'objet, chacun suivi par l'écran de chargement (nouvel essai possible)
 async function buildWorld() {
     const [types, objets] = await Promise.all([
         loadCSV('data/type objet.csv'),
@@ -915,7 +934,8 @@ async function buildWorld() {
         const ref = placed[0];
         const scale = ref ? [ref.scalex, ref.scaley, ref.scalez].map(Number) : DEFAULT_SCALE;
 
-        loader.load(asset, (obj) => {
+        track('decor', `${asset.split('/').pop()}.obj`, () => loader.loadAsync(asset).then((obj) => {
+            if (decorGroups.some((group) => group.codeType === type.codeType)) return;   // (déjà là)
             // Position, orientation et taille de chaque exemplaire
             const placement = new THREE.Object3D();
             const matrices = [];
@@ -968,11 +988,11 @@ async function buildWorld() {
             }
             decorGroups.push(group);
             applyDecorDensity();
-        });
+        })).catch(() => {});
     }
 }
 
-buildWorld().catch((error) => console.error(error));
+track('decor', 'Données du décor (data/*.csv)', buildWorld).catch(() => {});
 
 // Mâts d'éclairage du parking de l'aéroport (construits dans Airport.js)
 airport.addFloodlights();
@@ -1873,14 +1893,14 @@ document.getElementById('mp-vol-libre').addEventListener('click', () => {
     }
     newWind(Math.floor(Math.random() * 2 ** 32));   // nouvelle partie solo : nouveau vent
     closeMainMenu();
-    openAirportChoice();
+    enterGame(openAirportChoice);
 });
 document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
 // Partie créée ou rejointe depuis le menu : fenêtre fermée -> au hangar
 multiDialog.addEventListener('close', () => {
     if (!inMenu || !multiplayer.code) return;
     closeMainMenu();
-    openAirportChoice();
+    enterGame(openAirportChoice);
 });
 document.getElementById('mp-initiation').addEventListener('click', () => openInitiation());
 document.getElementById('mp-parametres').addEventListener('click', () => openSettings());
@@ -2600,8 +2620,11 @@ for (const button of initiationDialog.querySelectorAll('[data-niveau]')) {
         radioVoices.preload();
         const lang = initiationDialog.querySelector('[data-langue-lecon].actif')?.dataset.langueLecon ?? 'fr';
         try { localStorage.setItem('initiation-langue', lang); } catch { /* stockage indisponible */ }
-        initiation.start(Number(button.dataset.niveau), $('initiation-camera').checked, lang);
-        view.focus();
+        const level = Number(button.dataset.niveau), cameraGuide = $('initiation-camera').checked;
+        enterGame(() => {
+            initiation.start(level, cameraGuide, lang);
+            view.focus();
+        });
     });
 }
 $('initiation-annuler').addEventListener('click', () => initiationDialog.close());
@@ -3277,9 +3300,197 @@ function checkPlaneCollisions() {
     if (planesCollide(aircraft, otherPlanes)) controls.collide('Collision avec un autre avion');
 }
 
+// --- Chargement et entrée en partie -----------------------------------------------------------------------------
+// Tout ce qui sert au vol se charge dès l'ouverture de la page, pendant le menu principal (voir Loading.js). À l'entrée
+// en partie (Vol libre, Multijoueur, Initiation), l'écran de chargement attend ce qui manque, compile les shaders et
+// dessine quelques images derrière lui (préchauffage), puis « Commencer » (un vrai toucher : son débloqué sur iPad).
+// Relevé avant ce changement : 0,8 s figée à l'arrivée au hangar (shaders compilés à leur première image), des à-coups
+// de 130 à 270 ms en vol (vue cabine, décollage), sons (18 Mo) téléchargés seulement au premier clic
+
+// Sons : téléchargés et décodés tout de suite (contexte audio encore suspendu : il démarre au premier geste)
+for (const sound of [stallWarning, bankAngleWarning, engineSound, sounds]) sound.unlock().catch(() => { /* refait au prochain geste */ });
+// Ciel étoilé : chargé d'avance (avant : au premier passage à la nuit, en vol)
+nightSky.preload();
+
+// Dalles du terrain vues depuis chaque endroit où la caméra peut sauter (aérodromes, hangars, départs, menu) :
+// construites d'avance et gardées (voir Terrain.prebuild)
+function terrainViewpoints() {
+    const points = [];
+    for (const field of airport.list) {
+        for (const spawn of field.spawns) points.push(new THREE.Vector3(spawn.x, 0, spawn.z));
+        for (const hangar of field.hangars) points.push(new THREE.Vector3(hangar.spot.x, 0, hangar.spot.z));
+        for (const view of Object.values(SPAWN_VIEWS)) {
+            const s = spawnViewState(view, field);
+            points.push(s.target.clone(), new THREE.Vector3(s.target.x + Math.sin(s.yaw) * Math.cos(s.pitch) * s.distance, 0,
+                s.target.z + Math.cos(s.yaw) * Math.cos(s.pitch) * s.distance));
+        }
+    }
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) points.push(new THREE.Vector3(215 + Math.cos(a) * 520, 0, 20 + Math.sin(a) * 520));
+    return points;
+}
+const terrainLoading = track('terrain', 'Relief autour des aérodromes', () => new Promise((resolve) => setTimeout(resolve, 200))
+    .then(() => terrain.prebuild(terrainViewpoints(), Math.max(viewDistance, scene.fog?.far ?? 0, 2400) + 600,
+        (fraction) => progress(terrainLoading.item, fraction))), { weight: 3 });
+terrainLoading.catch(() => {});
+
+const loadingScreen = new LoadingScreen(document.getElementById('chargement'));
+let worldWarm = false;   // préchauffage fait (une fois par visite : les parties suivantes entrent tout de suite)
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+// Shaders de tout ce qui est dans la scène (même caché), pour la cible où elle est vraiment dessinée (voir
+// checkNewShaders) ; attend leur fin (20 s au plus)
+function compileScene() {
+    const previous = renderer.getRenderTarget();
+    renderer.setRenderTarget(graphics.composer.renderTarget1);
+    const compiling = renderer.compileAsync(scene, camera);
+    renderer.setRenderTarget(previous);
+    return Promise.race([compiling, new Promise((resolve) => setTimeout(resolve, 20000))]);
+}
+
+// Textures envoyées à la carte graphique maintenant (sinon : à la première image qui les montre, 200 ms d'à-coup)
+function uploadTextures() {
+    const seen = new Set();
+    const upload = (texture) => {
+        if (!texture?.isTexture || seen.has(texture) || texture.isRenderTargetTexture) return;
+        seen.add(texture);
+        const image = texture.image;
+        if (!image || image.complete === false || (image.width ?? 1) === 0) return;
+        try { renderer.initTexture(texture); } catch { /* texture pas encore prête : envoyée à sa première image */ }
+    };
+    scene.traverse((object) => {
+        for (const material of [object.material].flat()) {
+            if (!material) continue;
+            for (const value of Object.values(material)) upload(value);
+            for (const uniform of Object.values(material.uniforms ?? {})) upload(uniform?.value);
+        }
+    });
+}
+
+// Mise à jour de ce qui dépend de la caméra (sans physique, ni son, ni réseau), comme le fait chaque image du vol
+function updateWarmView() {
+    aircraft.updateMatrixWorld();
+    camera.updateMatrixWorld();
+    const drawRange = Math.max(scene.fog?.far ?? 3000, 2400) + 600;
+    pilotEyeWorld.copy(cockpit.eye).multiplyScalar(AIRCRAFT_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
+    terrain.update(camera.position, drawRange, true);
+    airport.update(0, Math.min(1, wind.speed / 20), camera, wind.direction, pilotEyeWorld, drawRange + 1500);
+    airport.updateHangars(0, aircraft.position);
+    decorShadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
+    scenery.update(camera.position, clock.elapsedTime, decorShadowCenter);
+    clouds.update(camera);
+    cloudLayer.update(0, camera, weather.wind);
+    nightSky.update(camera);
+    for (const object of detailedObjects) {
+        object.visible = object.boundingSphere.distanceToPoint(camera.position) < DETAIL_DISTANCE;
+    }
+    aircraftLights.update(camera, clock.elapsedTime);
+    if (aircraft.visible) cockpit.update(0, cockpitState());
+    updateFog();
+    graphics.update(aircraft.position, !chaseView, decorShadowCenter);
+}
+
+// Place l'avion et la caméra comme à une étape de la partie : vue d'ensemble d'un aérodrome, hangar, piste (vue
+// extérieure), cabine. De nuit, en piste, tous les feux de l'avion allumés (les lumières changent les shaders)
+function placeWarmView(kind, field) {
+    const dark = (weather?.night ?? 0) >= 0.5;
+    inMenu = false;
+    inHangar = kind === 'hangar';
+    choosingSpawn = kind === 'ensemble' || kind === 'hangar';
+    chaseView = kind !== 'cabine';
+    updateView();
+    aircraft.visible = kind !== 'ensemble';
+    if (kind === 'ensemble') {
+        Object.assign(spawnCam, spawnViewState(SPAWN_VIEWS.ensemble, field));
+        spawnCam.goal = spawnViewState(SPAWN_VIEWS.ensemble, field);
+    } else if (kind === 'hangar') {
+        const spot = field.hangars[0].spot;
+        aircraft.position.set(spot.x, 0, spot.z);
+        aircraft.rotation.set(0, spot.heading, 0);
+        controls.placeOnGround();
+        aircraft.position.y += 0.05;
+        aircraftLights.setSwitches({});
+        landingLight.visible = taxiLight.visible = false;
+    } else {
+        const spawn = field.spawns[0];
+        aircraft.position.set(spawn.x, 0, spawn.z);
+        aircraft.rotation.set(0, spawn.heading, 0);
+        controls.placeOnGround();
+        aircraftLights.setSwitches({ land: true, taxi: true, strobe: true, beacon: true, nav: true });
+        landingLight.visible = taxiLight.visible = dark;
+    }
+    aircraft.updateMatrixWorld();
+    updateCamera(0, true);
+}
+
+async function warmUpWorld() {
+    const views = airport.list.flatMap((field) => ['ensemble', 'hangar', 'piste', 'cabine'].map((kind) => [kind, field]));
+    const compiling = task('shaders', 'Shaders', { weight: views.length });
+    const warming = task('prechauffage', 'Images de préchauffage', { weight: views.length });
+    const saved = { position: aircraft.position.clone(), quaternion: aircraft.quaternion.clone(), visible: aircraft.visible,
+        chaseView, inHangar, inMenu, choosingSpawn, markers: spawnMarkers.visible,
+        spawnCam: { ...spawnCam, target: spawnCam.target.clone() } };
+    spawnMarkers.visible = false;
+    try {
+        uploadTextures();
+        for (const [i, [kind, field]] of views.entries()) {
+            placeWarmView(kind, field);
+            updateWarmView();
+            await compileScene();
+            compiling.progress((i + 1) / views.length);
+            // Quelques images dessinées derrière l'écran de chargement : ombres, post-traitement, variantes de shaders
+            // que la compilation d'avance ne couvre pas, géométries et textures envoyées à la carte graphique
+            for (let frame = 0; frame < 3; frame++) {
+                updateWarmView();
+                graphics.render();
+                await nextFrame();
+            }
+            warming.progress((i + 1) / views.length);
+        }
+        compiling.done();
+        warming.done();
+    } catch (error) {
+        // Préchauffage raté : on joue quand même (au pire, quelques à-coups comme avant)
+        console.error('Préchauffage :', error);
+        compiling.done();
+        warming.done();
+    } finally {
+        aircraft.position.copy(saved.position);
+        aircraft.quaternion.copy(saved.quaternion);
+        aircraft.visible = saved.visible;
+        ({ chaseView, inHangar, inMenu, choosingSpawn } = saved);
+        spawnMarkers.visible = saved.markers;
+        Object.assign(spawnCam, saved.spawnCam);
+        updateView();
+        applyLights();
+        aircraft.updateMatrixWorld();
+        // Objets déjà compilés : pas de nouvelle compilation au prochain contrôle (voir checkNewShaders)
+        sceneObjects = 0;
+        scene.traverse((o) => { if (o.isMesh || o.isPoints || o.isLine || o.isSprite) sceneObjects++; });
+    }
+}
+
+// Entrée en partie : écran de chargement si quelque chose manque (la première fois : toujours, pour « Commencer »)
+async function enterGame(start) {
+    if (worldWarm && loadingScreen.ready) {
+        start();
+        return;
+    }
+    await loadingScreen.open(async () => {
+        if (worldWarm) return;
+        await warmUpWorld();
+        worldWarm = true;
+    });
+    clock.getDelta();              // (pas de saut du temps après l'attente)
+    graphics.holdResolution();     // ni de baisse de résolution : les i/s de l'attente ne comptent pas
+    start();
+}
+
 let initiationErrorShown = false;
 let lastTouchInset = '', lastLeftReserve = -1;
 renderer.setAnimationLoop((time)=>{
+    // Écran de chargement : rien n'est dessiné derrière lui (sauf les images du préchauffage, voir warmUpWorld) ; toute
+    // la puissance va au chargement
+    if (loadingScreen.active) return;
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
     if (fpsLimit > 0) {
         const interval = 1000 / fpsLimit;

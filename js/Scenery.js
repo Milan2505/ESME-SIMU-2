@@ -162,10 +162,13 @@ class Scenery {
     }
 
     // Construit tout (une seule fois) ; rend une promesse
+    // onProgress (facultatif) : avancement 0 -> 1 (écran de chargement). Échec : rejeté, refait au prochain appel
     build() {
         this._building ??= this._build().catch((error) => {
             console.error('Décor réaliste indisponible :', error);
             this._building = null;
+            this._attempts = (this._attempts ?? 0) + 1;
+            throw error;
         });
         return this._building;
     }
@@ -173,12 +176,17 @@ class Scenery {
     async _build() {
         const rnd = random(1729);
         const villages = this._placeVillages(rnd);
-        const [{ Tree }, houseModels] = await Promise.all([import(EZ_TREE_URL), this._loadHouses()]);
+        const report = (fraction) => this.onProgress?.(fraction);
+        // (nouvel essai après un échec du réseau : autre adresse, le navigateur peut garder en mémoire l'import raté)
+        const treeModule = import(this._attempts ? `${EZ_TREE_URL}?essai=${this._attempts}` : EZ_TREE_URL);
+        const [{ Tree }, houseModels] = await Promise.all([treeModule, this._loadHouses()]);
+        report(0.3);
         // Construction par morceaux, en rendant la main au navigateur entre chacun : la page ne fige pas (portables)
         const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
         this._buildHouses(villages, houseModels, rnd);
         await breathe();
         const trees = this._placeTrees(rnd, villages);
+        report(0.4);
         await breathe();
         for (const [index, def] of SPECIES.entries()) {
             const source = new Tree();
@@ -203,6 +211,7 @@ class Scenery {
             this._instancedLeaves(leaves);
             await this._texturesLoaded(source);
             this.species.push(this._makeSpecies(source, def, trees.filter((t) => t.species === index)));
+            report(0.4 + 0.6 * (index + 1) / SPECIES.length);
             await breathe();
         }
         this.ready = true;
@@ -537,7 +546,7 @@ class Scenery {
 
     setVisible(visible) {
         this.group.visible = visible;
-        if (visible) this.build();
+        if (visible) this.build().catch(() => { /* signalé par build ; refait au prochain appel */ });
     }
 
     // camera : position (monde) ; time : s (vent dans les feuillages) ; shadowCenter : centre de la zone d'ombres du

@@ -3,7 +3,7 @@
 // Sources et licences : asset/sounds/LICENSE.txt
 // Fournit aussi le moteur des avions des autres joueurs, placé dans l'espace (distance, gauche/droite).
 
-import { sharedAudioContext } from './AudioUnlock.js';
+import { sharedAudioContext, loadSound } from './AudioUnlock.js';
 
 // Boucles : régime auquel chacune a été enregistrée (mesuré sur l'enregistrement) et niveau relatif (dB)
 const LAYERS = [
@@ -61,9 +61,8 @@ function createLoops(audio, buffers, output) {
     return loops;
 }
 
-async function loadBuffer(audio, url) {
-    const response = await fetch(url);
-    return audio.decodeAudioData(await response.arrayBuffer());
+function loadBuffer(audio, url) {
+    return loadSound(audio, url);   // FLAC (repli WAV), suivi par l'écran de chargement
 }
 
 // Moteur d'un autre joueur

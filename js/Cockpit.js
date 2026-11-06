@@ -26,6 +26,7 @@ import {
     TorusGeometry,
     Vector3
 } from 'three';
+import { track } from './Loading.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -447,7 +448,7 @@ class Cockpit {
             this.group.add(column);
             return { column, wheel, z: PANEL_FACE_Z };
         });
-        this._loadYokes().catch((error) => console.error(error));
+        track('instruments', 'Manches (c172p-yoke.glb)', () => this._loadYokes()).catch(() => {});   // suivi par l'écran de chargement
 
         // Manette des gaz (gros bouton gris moleté) et de mixture (rouge, crantée) : tirées vers le pilote = réduit /
         // appauvri ; une tige les relie au tableau

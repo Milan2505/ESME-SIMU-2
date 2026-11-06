@@ -27,7 +27,6 @@ import {
     SpriteMaterial,
     SphereGeometry,
     SRGBColorSpace,
-    TextureLoader,
     Vector2,
     Vector3
 } from 'three';
@@ -35,6 +34,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { flareTexture } from './LightFlare.js';
 import { mergeStatic } from './MergeStatic.js';
 import { releaseAfterUpload } from './CanvasMemory.js';
+import { loadTexture, track } from './Loading.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
 // Tout est modélisé ici, sauf la tour et l'aérogare (modèles FlightGear, voir BUILDINGS) ; le relief est aplani
@@ -65,7 +65,8 @@ const TAXILANE_X = 310;      // voie de circulation du parking (axe nord-sud)
 const VOR_STATION = { x: 330, z: -215, ident: 'ESM', frequency: '113.50' };
 const DOOR_TRIGGER = 70;     // les portes d'un hangar s'ouvrent quand l'avion approche à moins de 70 m (s)
 const DOOR_TIME = 6;         // durée d'ouverture / fermeture (s)
-const LOGO = 'ESME_LOGO_BASELINE_QUADRI_2021.png';
+// (1024 px : l'original de 1772 px occupait 12 Mo de mémoire graphique pour un panneau de quelques mètres)
+const LOGO = 'asset/textures/esme_logo_1024.png';
 const LIGHT_HEIGHT = 0.36;   // hauteur du verre des feux de bord (feux surélevés)
 const HANGARS = [{ x: 395, z: 15, name: 'ESME AÉRO-CLUB' }, { x: 395, z: 62, name: 'HANGAR 2' }]
     .map((h) => ({ ...h, minX: h.x - 15, maxX: h.x + 15, minZ: h.z - 14, maxZ: h.z + 14 }));
@@ -430,7 +431,13 @@ const BUILDINGS = {
 const buildingModels = new Map();   // url -> promesse du modèle (partagé entre les aérodromes)
 const loadBuilding = (name) => {
     const url = `asset/airport/${name}.glb`;
-    if (!buildingModels.has(url)) buildingModels.set(url, new GLTFLoader().loadAsync(url).then((gltf) => gltf.scene));
+    if (!buildingModels.has(url)) {
+        // Échec (réseau) : oublié, pour qu'un nouvel essai (écran de chargement) le retélécharge
+        buildingModels.set(url, new GLTFLoader().loadAsync(url).then((gltf) => gltf.scene, (error) => {
+            buildingModels.delete(url);
+            throw error;
+        }));
+    }
     return buildingModels.get(url);
 };
 
@@ -1140,9 +1147,10 @@ class Airport {
 
     _logoTexture() {
         if (!this._logo) {
-            this._logo = new TextureLoader().load(LOGO);
-            this._logo.colorSpace = SRGBColorSpace;
-            this._logo.anisotropy = 4;
+            this._logo = loadTexture('aerodromes', LOGO, (texture) => {
+                texture.colorSpace = SRGBColorSpace;
+                texture.anisotropy = 4;
+            });
         }
         return this._logo;
     }
@@ -1204,8 +1212,13 @@ class Airport {
 
     // Tour ou aérogare (modèle chargé à part, ajouté quand il arrive) : boîte de collision, verres allumés la nuit,
     // feu d'obstacle sur le toit de la tour
-    _loadBuilding({ model, x, z, tower, beacon = [0, 0], night }) {
-        loadBuilding(model).then((source) => {
+    // Suivi par l'écran de chargement (nouvel essai : on recharge et on place le bâtiment s'il manque)
+    _loadBuilding(building) {
+        track('aerodromes', `${building.model} (${this.aerodrome?.icao ?? this.id})`, () => this._placeBuilding(building)).catch(() => {});
+    }
+
+    _placeBuilding({ model, x, z, tower, beacon = [0, 0], night }) {
+        return loadBuilding(model).then((source) => {
             const building = source.clone();
             building.position.set(x, 0, z);
             building.rotation.y = BUILDING_ROTATION;
@@ -1242,7 +1255,7 @@ class Airport {
                 this._beacon.position.set(x + beacon[0], box.max.y + 0.25, z + beacon[1]);
                 this._beaconPlaced = true;
             }
-        }).catch((error) => console.error(error));
+        });
     }
 
     _addObstacle(mesh) {

@@ -45,6 +45,7 @@
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/mqtt@5.14.1/dist/mqtt.esm.js">
 	<link rel="modulepreload" href="simulator.js">
 	<link rel="modulepreload" href="js/Utils3d.js">
+	<link rel="modulepreload" href="js/Loading.js">
 	<link rel="modulepreload" href="js/PlaneControls.js">
 	<link rel="modulepreload" href="js/FlightModel.js">
 	<link rel="modulepreload" href="js/Cessna172.js">
@@ -312,6 +313,28 @@
 			</section>
 		</div>
 		<p class="mp-pied">Réalisé par Milan Eliayan · Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
+	</div>
+
+	<!-- Écran de chargement (entrée en partie) : barre de l'avancement réel, étape en cours ; « Commencer » quand tout
+	     est prêt (shaders compilés, images préchauffées). Voir js/Loading.js -->
+	<div id="chargement" role="dialog" aria-modal="true" aria-labelledby="chargement-titre" hidden>
+		<div class="ch-boite">
+			<img class="ch-logo" src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="">
+			<h2 id="chargement-titre">Préparation du vol</h2>
+			<p id="chargement-etape" aria-live="polite">Chargement…</p>
+			<progress id="chargement-barre" max="1" value="0">0 %</progress>
+			<p id="chargement-detail"></p>
+			<ul id="chargement-etapes"></ul>
+			<div id="chargement-erreur" role="alert" hidden>
+				<p id="chargement-erreur-texte"></p>
+				<div class="ch-actions">
+					<button id="chargement-reessayer" class="ch-bouton">Réessayer</button>
+					<button id="chargement-continuer" class="ch-bouton ch-secondaire">Continuer sans</button>
+				</div>
+			</div>
+			<button id="chargement-commencer" class="ch-bouton ch-commencer" hidden>Commencer</button>
+			<p class="ch-astuce">« Commencer » active aussi le son (moteur, alarmes).</p>
+		</div>
 	</div>
 
 	<!-- Choix de l'aérodrome (Vol libre, Multijoueur), avant le hangar : survoler un terrain le montre -->

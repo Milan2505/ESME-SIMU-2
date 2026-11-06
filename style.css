@@ -1828,6 +1828,179 @@ img{margin: 0px;
     width: 100%;
   }
 }
+
+/* --- Écran de chargement (entrée en partie, voir js/Loading.js) ------------------------------------------------------
+   Plein écran, par-dessus le menu. Zones sûres d'iOS comme pour la barre blanche (encoche, barre d'état de l'iPad en
+   plein écran : au moins 28 px en haut sur tablette, où Safari ne les indique pas toujours) */
+#chargement {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  overflow: auto;
+  color: #fff;
+  font-family: Noto Sans, sans-serif;
+  background: radial-gradient(ellipse at 30% 20%, #16314f 0%, #0b1320 70%);
+  animation: mp-entree 0.3s ease-out;
+}
+html.tablette #chargement {
+  padding-top: max(28px, env(safe-area-inset-top, 0px));
+}
+#chargement[hidden] {
+  display: none;
+}
+#chargement p {
+  text-indent: 0;   /* (retrait des paragraphes de la page) */
+}
+.ch-boite {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: min(480px, 100%);
+}
+.ch-logo {
+  align-self: flex-start;
+  width: 56px;
+  border-radius: 6px;
+}
+#chargement-titre {
+  margin: 0;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: clamp(24px, 4vw, 34px);
+  letter-spacing: 2px;
+  color: #fff;
+}
+#chargement-etape {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 16px;
+  color: #8fd3ff;
+}
+#chargement-barre {
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+#chargement-barre::-webkit-progress-bar {
+  background: transparent;
+}
+#chargement-barre::-webkit-progress-value {
+  border-radius: 6px;
+  background: linear-gradient(90deg, #1d6fb8, #8fd3ff);
+  transition: width 0.25s ease-out;
+}
+#chargement-barre::-moz-progress-bar {
+  border-radius: 6px;
+  background: linear-gradient(90deg, #1d6fb8, #8fd3ff);
+}
+#chargement-detail {
+  margin: 0;
+  font-size: 12px;
+  color: #b8c6d4;
+  font-variant-numeric: tabular-nums;
+}
+#chargement-etapes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 16px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: #6f8296;
+}
+#chargement-etapes li::before {
+  content: '○';
+  display: inline-block;
+  width: 1.3em;
+}
+#chargement-etapes li.encours {
+  color: #fff;
+}
+#chargement-etapes li.encours::before {
+  content: '◌';
+  color: #8fd3ff;
+}
+#chargement-etapes li.fait {
+  color: #b8c6d4;
+}
+#chargement-etapes li.fait::before {
+  content: '✓';
+  color: #5fd08a;
+}
+#chargement-etapes li.echec {
+  color: #ffb4a8;
+}
+#chargement-etapes li.echec::before {
+  content: '✕';
+  color: #ff7a66;
+}
+#chargement-erreur {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 122, 102, 0.6);
+  border-radius: 6px;
+  background: rgba(120, 30, 20, 0.35);
+}
+#chargement-erreur[hidden] {
+  display: none;
+}
+#chargement-erreur-texte {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.ch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ch-bouton {
+  min-height: 44px;   /* cible confortable au doigt */
+  padding: 10px 20px;
+  font: inherit;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border: 1px solid #3d8fd6;
+  border-radius: 4px;
+}
+.ch-bouton:hover,
+.ch-bouton:focus-visible {
+  background: linear-gradient(90deg, #2580d1, #1d5c9c);
+  outline: 2px solid #8fd3ff;
+  outline-offset: 2px;
+}
+.ch-secondaire {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.ch-commencer {
+  min-height: 56px;
+  margin-top: 6px;
+  font-size: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  animation: mp-entree 0.3s ease-out;
+}
+.ch-commencer[hidden] {
+  display: none;
+}
+.ch-astuce {
+  margin: 0;
+  font-size: 12px;
+  color: #6f8296;
+}
 .mp-retour {
   width: 100%;
   margin-top: 6px;

@@ -7,10 +7,10 @@ import {
     RepeatWrapping,
     SRGBColorSpace,
     Sphere,
-    TextureLoader,
     Vector3
 } from 'three';
 import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+import { loadTexture } from './Loading.js';
 
 // Textures CC0 de Poly Haven (https://polyhaven.com), voir asset/textures/
 const TEXTURES = {
@@ -118,6 +118,7 @@ class Terrain {
         for (const t of this._tiles) {
             for (const geometry of t.cache.values()) geometry.dispose();
             t.cache.clear();
+            t.keep?.clear();   // (finesses gardées : à refaire, voir prebuild)
             t.level = -1;
         }
         this.update(this._viewer, this._range, true);
@@ -165,10 +166,42 @@ class Terrain {
         }
     }
 
+    // Construit d'avance (écran de chargement) les dalles vues depuis chacun des points donnés, à la finesse qu'elles y
+    // auront, et les garde : le saut de la caméra vers un aérodrome, un hangar ou un départ n'a plus rien à construire
+    // (avant : jusqu'à 9 dalles d'un coup, une image figée). Construction par morceaux de ~25 ms (la page reste fluide) ;
+    // onProgress(0 -> 1)
+    async prebuild(points, range = this._range, onProgress) {
+        const wanted = new Map();   // dalle -> finesses
+        for (const p of points) {
+            for (const t of this._tiles) {
+                const d = this._distance(t, p);
+                if (d >= range + TILE * 0.75) continue;
+                let level = LOD_DISTANCES.findIndex((limit) => d < limit);
+                if (level < 0) level = LOD_DISTANCES.length;
+                if (!wanted.has(t)) wanted.set(t, new Set());
+                wanted.get(t).add(level);
+            }
+        }
+        const jobs = [...wanted].flatMap(([t, levels]) => [...levels].map((level) => [t, level]));
+        let slice = performance.now();
+        for (const [i, [t, level]] of jobs.entries()) {
+            (t.keep ??= new Set()).add(level);
+            if (!t.cache.has(level)) t.cache.set(level, this._createTile(t, Math.max(MIN_SEGMENTS, this._fullSegments >> level)));
+            if (performance.now() - slice > 25) {
+                onProgress?.((i + 1) / jobs.length);
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                slice = performance.now();
+            }
+        }
+        onProgress?.(1);
+        this._pending = true;   // revoir l'affichage à la prochaine image
+    }
+
     _show(tile, level) {
-        // Finesses plus fines que celle affichée : libérées (mémoire), refaites si l'on revient près de la dalle
+        // Finesses plus fines que celle affichée : libérées (mémoire), refaites si l'on revient près de la dalle ; sauf
+        // celles construites d'avance autour des aérodromes (voir prebuild)
         for (const [k, geometry] of tile.cache) {
-            if (k < level) {
+            if (k < level && !tile.keep?.has(k)) {
                 geometry.dispose();
                 tile.cache.delete(k);
             }
@@ -482,14 +515,13 @@ class Terrain {
     }
 
     _createMaterial(renderer, { snowHeight, tile, grassTint }) {
-        const loader = new TextureLoader();
         const textures = {};
         for (const [name, url] of Object.entries(TEXTURES)) {
-            const texture = loader.load(url);
-            texture.colorSpace = SRGBColorSpace;
-            texture.wrapS = texture.wrapT = RepeatWrapping;
-            texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy()); // au-delà : coûteux en plein écran (6 lectures de texture par pixel), gain à peine visible
-            textures[name] = texture;
+            textures[name] = loadTexture('terrain', url, (texture) => {
+                texture.colorSpace = SRGBColorSpace;
+                texture.wrapS = texture.wrapT = RepeatWrapping;
+                texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy()); // au-delà : coûteux en plein écran (6 lectures de texture par pixel), gain à peine visible
+            });
         }
 
         const material = new MeshStandardMaterial({ roughness: 1 });

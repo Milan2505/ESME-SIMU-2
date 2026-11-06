@@ -416,6 +416,13 @@ class Graphics {
         this.composer.setPixelRatio(ratio);
     }
 
+    // Après une attente sans images (écran de chargement) : la mesure des i/s repart de zéro, sans juger la résolution
+    // sur l'attente elle-même (elle aurait été baissée d'un cran à tort)
+    holdResolution(ms = 2000) {
+        const q = this._quality, now = performance.now();
+        Object.assign(q, { frames: 0, start: now, holdUntil: now + ms, goodSeconds: 0, badSeconds: 0 });
+    }
+
     // atmosphere : { elevation, azimuth, turbidity, rayleigh } (degrés), ou null pour un ciel uni
     setAtmosphere(atmosphere, { elevation = 50, azimuth = 150 } = {}) {
         const sun = atmosphere ?? { elevation, azimuth };

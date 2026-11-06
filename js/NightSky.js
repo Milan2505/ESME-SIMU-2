@@ -4,9 +4,9 @@ import {
     Mesh,
     ShaderMaterial,
     SphereGeometry,
-    SRGBColorSpace,
-    TextureLoader
+    SRGBColorSpace
 } from 'three';
+import { loadTexture } from './Loading.js';
 
 // Ciel étoilé et Voie lactée : moitié haute du panorama "Rogland Clear Night" de Poly Haven (CC0),
 // voir asset/textures/. Le bas du panorama (relief photographié) n'est pas utilisé.
@@ -74,12 +74,14 @@ class NightSky {
     }
 
     // visibility : 0 = invisible (jour), 1 = nuit claire
+    // Panorama chargé d'avance (écran de chargement) : passer à la nuit en vol ne le télécharge plus à ce moment-là
+    preload() {
+        this.material.uniforms.uMap.value ??= loadTexture('ciel', NIGHT_SKY, (map) => { map.colorSpace = SRGBColorSpace; });
+        return this.material.uniforms.uMap.value;
+    }
+
     setVisibility(visibility, horizonColor) {
-        if (visibility > 0 && !this.material.uniforms.uMap.value) {
-            const map = new TextureLoader().load(NIGHT_SKY);
-            map.colorSpace = SRGBColorSpace;
-            this.material.uniforms.uMap.value = map;
-        }
+        if (visibility > 0) this.preload();
         this.mesh.visible = visibility > 0;
         this.material.uniforms.uOpacity.value = visibility;
         if (horizonColor !== undefined) this.material.uniforms.uHorizon.value.set(horizonColor);

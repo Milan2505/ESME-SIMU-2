@@ -12,6 +12,8 @@
 // par le mode silencieux (alors qu'une vidéo, elle, joue) : alarmes et moteur muets. Safari 17+ (iPadOS 17) permet de
 // le déclarer comme « lecture » (navigator.audioSession), comme une vidéo : il joue alors même en mode silencieux.
 // Plus ancien : pas de moyen fiable, le mode silencieux coupe le son. Le volume de l'appareil reste, lui, toujours respecté
+import { track } from './Loading.js';
+
 let context = null;
 
 function sharedAudioContext() {
@@ -39,4 +41,30 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) resu
 window.addEventListener('pageshow', resumeAudio);
 window.addEventListener('focus', resumeAudio);
 
-export { sharedAudioContext, resumeAudio };
+// Sons : chaque WAV a sa copie FLAC à côté (même son à l'échantillon près, compression sans perte : 10 Mo au lieu de
+// 18 ; les boucles du moteur restent sans raccord audible, contrairement au MP3 ou à l'AAC qui ajoutent un silence).
+// Navigateur qui ne lit pas le FLAC (ou décodage raté) : le WAV. Chargés dès l'ouverture de la page, sans attendre de
+// geste : un contexte audio encore suspendu sait déjà décoder ; il démarre au premier toucher (« Commencer »).
+// Chaque son est suivi par l'écran de chargement
+const flacSupported = (() => {
+    try { return new Audio().canPlayType('audio/flac') !== ''; } catch { return false; }
+})();
+
+async function decode(audio, url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url} : ${response.status}`);
+    return audio.decodeAudioData(await response.arrayBuffer());
+}
+
+function loadSound(audio, url) {
+    const name = url.split('/').pop();
+    return track('sons', name, async () => {
+        const flac = url.replace(/\.wav$/, '.flac');
+        if (flacSupported && flac !== url) {
+            try { return await decode(audio, flac); } catch { /* repli sur le WAV */ }
+        }
+        return decode(audio, url);
+    });
+}
+
+export { sharedAudioContext, resumeAudio, loadSound };
