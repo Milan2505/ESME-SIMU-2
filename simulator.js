@@ -516,9 +516,11 @@ function updateJet(delta) {
     if (jetCanopyOpen && (!controls.isOnGround() || controls.getSpeed() > 20)) jetSystems.switches.canopy = jetCanopyOpen = false;
     // Hangar, menu, choix du départ, arrivée sur le départ (son qui monte) : verrière, train et aérofrein prennent
     // directement leur position, sans bruit (avant : à l'arrivée au hangar, la verrière s'ouvrait en jouant le vérin)
+    // (au hangar, la verrière s'anime quand même, en silence : elle se ferme après le choix du F-15, voir openHangar)
     const quiet = choosingSpawn || inMenu || spawnFade < 1 || controls.isCrashed();
     const canopyBefore = jetCanopy;
-    jetCanopy = quiet ? (jetCanopyOpen ? 1 : 0) : THREE.MathUtils.clamp(jetCanopy + (jetCanopyOpen ? 1 : -1) * delta / CANOPY_TIME, 0, 1);
+    jetCanopy = quiet && !inHangar ? (jetCanopyOpen ? 1 : 0)
+        : THREE.MathUtils.clamp(jetCanopy + (jetCanopyOpen ? 1 : -1) * delta / CANOPY_TIME, 0, 1);
     const volume = quiet ? 0 : chaseView ? 0.8 : 0.6;
     if ((canopyBefore === 0 && jetCanopy > 0) || (canopyBefore === 1 && jetCanopy < 1)) jetSound.play('canopy-trans', volume * 0.6);
     if (canopyBefore > 0 && jetCanopy === 0) jetSound.play('canopy-close2', volume);
@@ -2110,6 +2112,7 @@ document.getElementById('aerodrome-menu').addEventListener('click', () => {
 
 const hangarPanel = document.getElementById('hangar-panneau');
 let viewBeforeHangar = null;
+let hangarCanopyTimer = 0;
 function openHangar() {
     const hangar = airport.hangars[0];   // (aérodrome choisi)
     inHangar = choosingSpawn = true;
@@ -2125,6 +2128,14 @@ function openHangar() {
     controls.placeOnGround();
     aircraft.position.y += 0.05;   // sol du hangar, un peu au-dessus du terrain
     aircraft.visible = true;
+    // F-15 : verrière d'abord ouverte, puis elle se ferme sous les yeux du joueur (animation, sans bruit au hangar)
+    clearTimeout(hangarCanopyTimer);
+    if (aircraftType === 'f15') {
+        jetCanopy = 1;
+        hangarCanopyTimer = setTimeout(() => {
+            if (inHangar && aircraftType === 'f15') jetSystems.switches.canopy = false;
+        }, 1200);
+    }
     // Vue extérieure (en vue cabine, la carrosserie est masquée)
     viewBeforeHangar = chaseView;
     if (!chaseView) {
@@ -2145,7 +2156,7 @@ function leaveHangar() {
 const aircraftButtons = [...document.querySelectorAll('#hangar-avions [data-avion]')];
 const HANGAR_DESCRIPTIONS = {
     c172: "Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.",
-    f15: 'F-15C Eagle, au hangar, éteint et verrière ouverte. Mise en route : BATT, JFS, ENG MASTER, puis lancement de '
+    f15: 'F-15C Eagle, au hangar, éteint. Mise en route : BATT, JFS, ENG MASTER, puis lancement de '
         + 'chaque réacteur (voir le manuel). Train : touche Y, aérofrein : U, postcombustion : gaz au-delà de 85 %.',
 };
 function updateAircraftChoice() {

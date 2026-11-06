@@ -97,7 +97,9 @@ const ROTATIONS = [
     { names: ['basi-needle-knots'], center: [-5.6979, -0.0566, 0.7709], axis: [-1, 0, 0], angle: (s) => BACKUP_ASI(s.kt) },
     // Manche : tangage (tout le manche), roulis (la poignée) ; manettes des gaz (ralenti -> MIL -> postcombustion)
     { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => -s.stickPitch * 18 },   // cabrer (+) : manche tiré vers le pilote
-    { names: ['stick-handle-parts', 'pickle-button'], center: [-5.5126, 0.0139, 0.6024], axis: [-1, 0, 0], angle: (s) => -s.stickRoll * 20, inner: true },
+    // Roulis : tout le manche (colonne et poignée, d'un seul tenant comme sur le vrai) pivote à sa base, ~12° de chaque
+    // côté (avant : la poignée seule penchait au-dessus de la colonne restée droite, comme un manche en deux morceaux)
+    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.012, 0.3764], axis: [-1, 0, 0], angle: (s) => -s.stickRoll * 12, inner: true },
     { names: ['throttle-left-wire', 'throttle-left-manual-sbr-switch', 'throttle-left-finger-lift', 'left-throttle-grip'], center: [-5.4852, -0.3714, 0.645], axis: [0, -1, 0], angle: (s) => s.throttleDeg },
     { names: ['throttle-missile-select-switch', 'throttle-speedbrake-switch-mount', 'throttle-microphone-switch', 'throttle-target-designator-switch',
         'throttle-right-grip', 'throttle-right-finger-lift', 'throttle-target-designator-switch-mount', 'throttle-speedbrake-switch'],
