@@ -84,7 +84,7 @@ const ROTATIONS = [
     { names: ['balt-needle-1000-feet'], center: [-5.6951, 0.0832, 0.7699], axis: [-1, 0, 0], angle: (s) => s.ft * 0.0036 },
     { names: ['basi-needle-knots'], center: [-5.6979, -0.0566, 0.7709], axis: [-1, 0, 0], angle: (s) => BACKUP_ASI(s.kt) },
     // Manche : tangage (tout le manche), roulis (la poignée) ; manettes des gaz (ralenti -> MIL -> postcombustion)
-    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => s.stickPitch * 18 },
+    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => -s.stickPitch * 18 },   // cabrer (+) : manche tiré vers le pilote
     { names: ['stick-handle-parts', 'pickle-button'], center: [-5.5126, 0.0139, 0.6024], axis: [-1, 0, 0], angle: (s) => -s.stickRoll * 20, inner: true },
     { names: ['throttle-left-wire', 'throttle-left-manual-sbr-switch', 'throttle-left-finger-lift', 'left-throttle-grip'], center: [-5.4852, -0.3714, 0.645], axis: [0, -1, 0], angle: (s) => s.throttleDeg },
     { names: ['throttle-missile-select-switch', 'throttle-speedbrake-switch-mount', 'throttle-microphone-switch', 'throttle-target-designator-switch',
@@ -339,6 +339,7 @@ class F15Cockpit {
             n2: powered ? n2 : [0, 0],
             egt: engines.map((e) => (powered && e.running ? 380 + (e.n2 - 60) * 9 + e.ab * 250 : powered ? 60 + e.n2 * 6 : 0)),
             ffPph: engines.map((e, i) => (powered ? (jet.fuelFlowKgH?.[i] ?? 0) * 2.2046 : 0)),
+            // (même ouverture que les pétales, voir F15Model.animateF15)
             nozzle: engines.map((e) => (powered ? MathUtils.clamp(e.ab > 0.02 ? 0.4 + 0.6 * e.ab : e.n2 < 70 ? 0.8 - (e.n2 - 60) * 0.06 : 0.2 * (1 - (e.n2 - 70) / 30), 0, 1) : 0)),
             oil: engines.map((e) => (powered && e.running ? 25 + e.n2 * 0.35 : 0)),
             hyd: engines.some((e) => e.n2 > 40) ? 3000 : 0,

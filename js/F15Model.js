@@ -148,14 +148,20 @@ function prepare(scene) {
             material.roughness = Math.max(material.roughness, 0.55);
         }
     });
-    // Vitres : légèrement teintées, un peu de reflet
+    // Vitres : légèrement teintées, un peu de reflet. Exportées en « masque » d'opacité nulle (verre du modèle
+    // FlightGear rendu par un effet à part) : sans retirer le seuil de découpe (alphaTest 0,5), toute vitre plus
+    // transparente que 50 % disparaissait. Deux couches (extérieure, intérieure) : ~30 % d'opacité en tout
     for (const name of ['CanopyGlass', 'CanopyGlassInside', 'WindscreenGlass', 'WindscreenGlassInside']) {
         for (const node of nodes.get(name) ?? []) {
             node.traverse((m) => {
                 if (!m.isMesh) return;
                 m.material = m.material.clone();
-                Object.assign(m.material, { transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide, roughness: 0.05, metalness: 0.2 });
-                m.material.color.set(0x9aa6ad);
+                Object.assign(m.material, {
+                    transparent: true, opacity: 0.17, alphaTest: 0, alphaMap: null, depthWrite: false, side: DoubleSide,
+                    roughness: 0.04, metalness: 0.3, envMapIntensity: 1.5,
+                });
+                m.material.color.set(0x8fa3b0);
+                m.material.needsUpdate = true;
                 m.renderOrder = 3;
                 m.castShadow = false;
             });
@@ -429,6 +435,8 @@ function animateF15(model, state, delta) {
     P.fans.forEach((fan, i) => fan.rotateZ((i ? -1 : 1) * state.n2[i] * 0.6 * delta));
     P.nozzles.forEach((petals, i) => {
         const n2 = state.n2[i], ab = state.ab[i];
+        // Comme le vrai F100 : ouverte au ralenti, fermée à plein gaz sec (MIL), rouverte en postcombustion (le surplus
+        // de gaz brûlés doit pouvoir sortir, sinon la contre-pression ferait décrocher le réacteur)
         const open = MathUtils.clamp(ab > 0.02 ? 0.4 + 0.6 * ab : n2 < 70 ? 0.8 - (n2 - 60) * 0.06 : 0.2 * (1 - (n2 - 70) / 30), 0, 1);
         for (const petal of petals) {
             set(petal.front, -15 * open);
