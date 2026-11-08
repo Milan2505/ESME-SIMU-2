@@ -79,6 +79,27 @@ const ROOFS = [
     { cell: [8, 3], weight: 0.12 },    // ardoise
     { cell: [2, 2], weight: 0.08 },    // ardoise foncée
 ];
+// Couleurs de la palette trop vives pour un village (vert pomme, bleu ciel, violet, rose… : murs, volets, portes)
+// ramenées à des teintes réelles : crépis crème, ocre, beige, blanc cassé ; volets vert sauge, gris-bleu, rouge sombre ;
+// gris neutres (pierre, ardoise). [colonne, rangée, couleur sRGB visée]
+const REALISTIC_CELLS = [
+    [0, 1, 0x8a9a6b], [1, 1, 0x7d8c60],     // vert pomme -> volets vert sauge
+    [2, 1, 0xe8d6a8], [3, 1, 0xe2cf9e],     // jaune vif -> crépi jaune pâle
+    [4, 1, 0xd8b58e], [5, 1, 0xd0ab84],     // orange -> ocre clair
+    [6, 1, 0x96483b], [7, 1, 0xa3523f],     // rouge vif -> brique, volets rouge sombre
+    [8, 1, 0x7f8c97], [9, 1, 0x75828d],     // bleu vif -> volets gris-bleu
+    [10, 1, 0xece8df], [11, 1, 0xdedacf],   // bleu ciel -> blanc cassé
+    [12, 1, 0xd2c5ae], [13, 1, 0xc6b8a1],   // violet -> beige
+    [14, 1, 0xe3c7b1], [15, 1, 0xd8bba5],   // rose -> rose-beige (crépi)
+    [0, 2, 0x8e8b85], [1, 2, 0x7d7a74],     // gris bleuté -> gris neutre
+    [4, 2, 0xbab5ab], [5, 2, 0xc4bfb5],     // lavande -> pierre
+    [6, 2, 0xf0ece4], [7, 2, 0xe6e2d8],     // blanc pur -> blanc cassé
+    [2, 3, 0x8a9a6b], [3, 3, 0x7d8c60],     // vert -> vert sauge
+    [2, 2, 0x4c4d50], [3, 2, 0x4a4b4e],     // ardoise bleu marine -> ardoise gris anthracite (toits, clocher)
+    [8, 3, 0x56575a], [9, 3, 0x56575a],
+    [10, 3, 0x6c6964], [11, 3, 0x6c6964],   // gris bleuté foncé -> gris
+    [12, 3, 0x9a968e], [13, 3, 0x9a968e],
+];
 const WALL_CELL = [14, 2];           // crépi crème (église)
 const SLATE_CELL = [8, 3];
 
@@ -111,6 +132,29 @@ function repaint(uv, cells, [col, row]) {
         if (!cells.has(cell)) continue;
         uv.setXY(i, uv.getX(i) + (col - cell % 16) / 16, uv.getY(i) + (row - Math.floor(cell / 16)) / 4);
     }
+}
+
+// Repeint la palette des maisons (REALISTIC_CELLS) : chaque pixel d'une case est multiplié par (couleur visée /
+// couleur moyenne de la case), le dégradé de la case est conservé. Rend une nouvelle image (la texture d'origine du
+// modèle n'est pas lue ailleurs)
+function realisticPalette(image) {
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0);
+    const cw = canvas.width / 16, ch = canvas.height / 4;
+    for (const [col, row, hex] of REALISTIC_CELLS) {
+        const x = Math.round(col * cw), y = Math.round(row * ch), w = Math.round(cw), h = Math.round(ch);
+        const cell = ctx.getImageData(x, y, w, h), d = cell.data;
+        const mean = [0, 0, 0];
+        for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) mean[c] += d[i + c];
+        const target = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
+        const k = mean.map((m, c) => target[c] / Math.max(1, m / (d.length / 4)));
+        for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i + c] = Math.min(255, d[i + c] * k[c]);
+        ctx.putImageData(cell, x, y);
+    }
+    return canvas;
 }
 
 function pickRoof(rnd) {
@@ -491,7 +535,14 @@ class Scenery {
                     models[k].traverse((child) => {
                         if (!child.isMesh) return;
                         // Éclairage Lambert : les maisons Kenney n'ont qu'une texture de couleurs, le PBR n'apporte rien
-                        material ??= new MeshLambertMaterial({ map: child.material.map, color: child.material.color });
+                        if (!material) {
+                            const map = child.material.map;
+                            if (map?.image) {
+                                map.image = realisticPalette(map.image);
+                                map.needsUpdate = true;
+                            }
+                            material = new MeshLambertMaterial({ map, color: child.material.color });
+                        }
                         const g = new BufferGeometry();
                         for (const name of ['position', 'normal', 'uv']) g.setAttribute(name, floats(child.geometry.attributes[name]));
                         if (child.geometry.index) g.setIndex(child.geometry.index);
