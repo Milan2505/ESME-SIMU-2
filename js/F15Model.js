@@ -7,6 +7,7 @@ import {
     CylinderGeometry,
     ConeGeometry,
     DoubleSide,
+    ExtrudeGeometry,
     FrontSide,
     Group,
     MathUtils,
@@ -14,14 +15,14 @@ import {
     Mesh,
     MeshBasicMaterial,
     MeshStandardMaterial,
-    PlaneGeometry,
     ShaderMaterial,
+    Shape,
+    ShapeGeometry,
     SRGBColorSpace,
     TextureLoader,
     Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeStatic } from './MergeStatic.js';
 import { isTablet } from './Device.js';
 
@@ -402,9 +403,26 @@ function prepare(scene) {
 
 // Rétroviseurs de l'arceau (gauche, droit, en haut) : ceux du modèle d'origine n'étaient que des pavés plats à la
 // texture sombre (des blocs noirs vus de la cabine). Refaits à la même place et dans le même sens (mesurés sur leur
-// verre : centre, normale, longueur, largeur) : boîtier arrondi gris foncé, patte de fixation vers l'arceau, miroir
-// légèrement plus grand qui renvoie un reflet de ciel et du dos de l'avion (image fixe : un vrai reflet coûterait un
-// second rendu de la scène à chaque image)
+// verre : centre, normale, longueur, largeur) : boîtier gris foncé aux bouts arrondis, patte de fixation vers l'arceau,
+// miroir qui renvoie un reflet de ciel et du dos de l'avion (image fixe : un vrai reflet coûterait un second rendu de la
+// scène à chaque image). Un peu plus petits que le verre d'origine : boîtier compris, ils ne dépassent plus de l'arceau
+const MIRROR_LENGTH = 0.82, MIRROR_WIDTH = 0.72;   // part de la longueur et de la largeur du verre d'origine
+
+// Rectangle aux coins arrondis (rayon r), centré
+function roundedRect(w, h, r) {
+    const shape = new Shape(), x = -w / 2, y = -h / 2;
+    shape.moveTo(x + r, y);
+    shape.lineTo(x + w - r, y);
+    shape.quadraticCurveTo(x + w, y, x + w, y + r);
+    shape.lineTo(x + w, y + h - r);
+    shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    shape.lineTo(x + r, y + h);
+    shape.quadraticCurveTo(x, y + h, x, y + h - r);
+    shape.lineTo(x, y + r);
+    shape.quadraticCurveTo(x, y, x + r, y);
+    return shape;
+}
+
 function buildMirrors(find) {
     const mirrors = [];
     const housingMaterial = new MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.55, metalness: 0.2 });
@@ -420,16 +438,24 @@ function buildMirrors(find) {
         const [normal, width, length] = principalAxes(points.map((v) => v.clone().sub(center)));
         if (normal.z < 0) normal.negate();   // miroir tourné vers l'arrière (le pilote)
         const extent = (axis) => 2 * Math.max(...points.map((v) => Math.abs(v.clone().sub(center).dot(axis))));
-        const L = extent(length) * 1.1, W = extent(width) * 1.2;
+        const L = extent(length) * MIRROR_LENGTH, W = extent(width) * MIRROR_WIDTH;
         if (new Vector3().crossVectors(length, width).dot(normal) < 0) width.negate();   // repère direct (longueur, largeur, normale)
         const group = new Group();
         group.name = `mirror${side}`;
         group.position.copy(center);
         group.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(length, width, normal));
-        const depth = 0.028, rim = 0.009;
-        const housing = new Mesh(new RoundedBoxGeometry(L + 2 * rim, W + 2 * rim, depth, 3, 0.008), housingMaterial);
-        housing.position.z = -depth / 2 + 0.003;
-        const face = new Mesh(new PlaneGeometry(L, W), glassMaterial);
+        // Bouts arrondis : rayon des coins presque la demi-largeur (forme de pilule aplatie)
+        const depth = 0.024, rim = 0.008, bevel = 0.004;
+        const radius = (W / 2) * 0.85;
+        const housingGeometry = new ExtrudeGeometry(roundedRect(L + 2 * rim, W + 2 * rim, radius + rim), {
+            depth: depth - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 12 });
+        const housing = new Mesh(housingGeometry, housingMaterial);
+        housing.position.z = -(depth - 2 * bevel) - bevel + 0.003;   // face avant du boîtier juste derrière le miroir
+        const faceGeometry = new ShapeGeometry(roundedRect(L, W, radius), 12);
+        // Coordonnées de texture ramenées au rectangle (ShapeGeometry les donne en mètres)
+        const uv = faceGeometry.attributes.uv, pos = faceGeometry.attributes.position;
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / L + 0.5, pos.getY(i) / W + 0.5);
+        const face = new Mesh(faceGeometry, glassMaterial);
         face.position.z = 0.0035;
         // Patte : du dos du boîtier vers l'arceau
         const arm = new Mesh(new CylinderGeometry(0.006, 0.008, 0.035, 12), housingMaterial);
