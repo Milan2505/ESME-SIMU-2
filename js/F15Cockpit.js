@@ -358,9 +358,10 @@ class F15Cockpit {
         const glass = new MeshStandardMaterial({
             color: 0x6f9c8c, transparent: true, opacity: 0.11, roughness: 0.08, metalness: 0.6, depthWrite: false, side: DoubleSide,
         });
-        // (jonction des deux vitres : translucide, sous la symbologie, qui reste lisible par-dessus)
+        // (jonction des deux vitres : à peine visible, même teinte que le verre. Avant, sombre à 35 % : une barre
+        // grise en travers du milieu du HUD, sur la vitesse et l'altitude)
         const bevel = new MeshStandardMaterial({
-            color: 0x23302f, transparent: true, opacity: 0.35, roughness: 0.4, metalness: 0.3, depthWrite: false, side: DoubleSide,
+            color: 0x6f9c8c, transparent: true, opacity: 0.05, roughness: 0.08, metalness: 0.6, depthWrite: false, side: DoubleSide,
         });
         for (const name of ['HUDImage1', 'HUDImage2', 'HUDImageBevels']) {
             get(name)?.traverse((m) => {
