@@ -363,10 +363,11 @@ class Terrain {
     _waterMaterial() {
         // Rive : l'eau s'efface en transparence juste avant (fond peu profond visible). Sans ce fondu, vu de loin, l'eau et
         // le sol presque au même niveau se disputaient l'écran (bord qui tremble) et le bord net crénelait. Repoussée un
-        // peu en profondeur : près de la rive, le sol passe devant
-        const material = new MeshStandardMaterial({ color: 0x173f4d, roughness: 0.06, metalness: 0, transparent: true,
-            polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: 4 });
-        // (pas de « factor » : il grandit avec l'angle de vue ; de loin, l'eau passait derrière le fond du lac et disparaissait)
+        // peu en profondeur : près de la rive, le sol passe devant. Recul proportionnel à la distance (0,05 %, voir
+        // project_vertex) et non polygonOffset : ses « units » valent ~d² (précision du tampon de profondeur), soit ~5 m à
+        // 1,5 km -> l'eau passait derrière le fond du lac (8 m plus bas) par bandes (pas de « factor » non plus : il
+        // grandit avec l'angle de vue)
+        const material = new MeshStandardMaterial({ color: 0x173f4d, roughness: 0.06, metalness: 0, transparent: true });
         const time = this._waterTime;
         material.onBeforeCompile = (shader) => {
             shader.uniforms.uWaterTime = time;
@@ -377,7 +378,9 @@ class Terrain {
                     varying vec3 vWaterPos;`)
                 .replace('#include <begin_vertex>', `#include <begin_vertex>
                     vDepth = aDepth;
-                    vWaterPos = (modelMatrix * vec4(position, 1.0)).xyz;`);
+                    vWaterPos = (modelMatrix * vec4(position, 1.0)).xyz;`)
+                .replace('#include <project_vertex>', `#include <project_vertex>
+                    gl_Position = projectionMatrix * vec4(mvPosition.xyz * 1.0005, 1.0);`);
             shader.fragmentShader = shader.fragmentShader
                 .replace('#include <common>', `#include <common>
                     uniform float uWaterTime;
@@ -622,6 +625,10 @@ class Terrain {
                             * sin(cp.y * 1.1 - uWaterTime * 0.7 + sin(cp.x * 0.7 + uWaterTime * 0.8) * 1.2)), 8.0);
                         bed += vec3(0.5, 0.55, 0.45) * caustic * (1.0 - smoothstep(0.5, 5.0, lakeDepth)) * (1.0 - smoothstep(0.02, 0.4, length(uvDx)));
                         bed *= mix(vec3(1.0), vec3(0.45, 0.62, 0.66), smoothstep(0.0, ${LAKE_DEPTH}.0, lakeDepth));
+                        // Très loin (> ~2 km), la précision du tampon de profondeur ne sépare plus le fond de l'eau, 8 m
+                        // au-dessus : le fond profond prend la couleur de l'eau, il ne perce plus en bandes claires
+                        float bedFar = smoothstep(1500.0, 2500.0, distance(vTerrainPos, cameraPosition)) * smoothstep(1.0, 3.0, lakeDepth);
+                        bed = mix(bed, vec3(0.0086, 0.0497, 0.0742), bedFar);   // (couleur de l'eau, 0x173f4d en linéaire)
                         terrainColor = mix(terrainColor, bed, underwater);
                     }
                     diffuseColor.rgb *= terrainColor;`);
