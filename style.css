@@ -4278,3 +4278,80 @@ html.telephone .tb-etat {
     font-size: 12px;
   }
 }
+
+/* Panneaux d'avant le vol (choix de l'aérodrome, hangar, choix du départ) : même apparence que la barre du haut en vol
+   (fond sombre translucide, bordure fine claire, coins arrondis, texte blanc en gras ; survol bleu clair, choix actif
+   bleu). Sélecteur renforcé (#_) : passe devant les styles clairs d'origine, sur ordinateur comme sur tablette */
+#simulator:not(#_) > :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) {
+  font-family: Noto Sans, sans-serif;
+  color: #fff;
+  background: rgba(14, 18, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) h3 {
+  font-family: inherit;
+  color: #fff;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) :is(.depart-aide, .profil-livree) {
+  font-family: inherit;
+  color: #c9d3de;
+}
+#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) .profil-livree {
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+/* Cases (aérodromes, départs, vues, avions) et boutons. (#hangar-partir à part : dans un même :is(), un identifiant
+   donnerait sa priorité à toute la liste, et l'état actif des cases ne passerait plus devant) */
+#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button,
+#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) :is(.depart-vues button, .mp-retour),
+#simulator:not(#_) #hangar-partir {
+  font-family: inherit;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+}
+#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button small {
+  font-weight: normal;
+  letter-spacing: 0;
+  color: #b8c6d4;
+}
+#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button:hover,
+#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) :is(.depart-vues button, .mp-retour):hover {
+  background: rgba(143, 211, 255, 0.22);
+}
+#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button.survol,
+#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) .depart-vues button.actif,
+#simulator:not(#_) #hangar-panneau #hangar-partir {
+  background: rgba(30, 110, 200, 0.85);
+  border-color: #8fd3ff;
+}
+#simulator:not(#_) #hangar-panneau #hangar-partir:hover {
+  background: rgba(45, 130, 225, 0.95);
+}
+/* Champs (livrée, immatriculation) */
+#simulator:not(#_) #hangar-panneau :is(select, input) {
+  font-family: inherit;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+}
+#simulator:not(#_) #hangar-panneau input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+#simulator:not(#_) #hangar-panneau option {
+  color: #000;
+}
+#simulator:not(#_) #hangar-panneau .immat.invalide {
+  color: #ff8a80;
+  outline-color: #ff8a80;
+}
