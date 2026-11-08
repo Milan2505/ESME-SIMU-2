@@ -70,7 +70,8 @@ const ROTATIONS = [
     { names: ['a_needle'], center: [-5.7096, -0.133, 0.856], axis: [-1, 0, 0], angle: (s) => G_METER(s.g) },
     { names: ['needle-max'], center: [-5.7096, -0.133, 0.856], axis: [-1, 0, 0], angle: (s) => G_METER(s.gMax) },
     { names: ['needle-min'], center: [-5.7096, -0.133, 0.856], axis: [-1, 0, 0], angle: (s) => G_METER(s.gMin) },
-    { names: ['sphere'], center: [-5.7436, 0.012, 0.9862], axis: [1, 0, 0], angle: (s) => s.rollDeg },
+    // (axe -x comme l'index : avec +x, la sphère tournait à l'envers, sol du côté de l'aile haute)
+    { names: ['sphere'], center: [-5.7436, 0.012, 0.9862], axis: [-1, 0, 0], angle: (s) => s.rollDeg },
     { names: ['sphere'], center: [-5.7436, 0.012, 0.9862], axis: [0, 1, 0], angle: (s) => s.pitchDeg, inner: true },
     { names: ['bank-index'], center: [-5.7052, 0.01, 0.9924], axis: [-1, 0, 0], angle: (s) => s.rollDeg },
     { names: ['slip-ball'], center: [-5.7037, 0.01, 1.0139], axis: [-1, 0, 0], angle: (s) => s.slip * 8 },
