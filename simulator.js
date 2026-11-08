@@ -87,6 +87,7 @@ import { JetSystems, JET_MIL } from './js/JetSystems.js';
 import { loadF15, cloneF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT, F15_WHEEL_BOTTOM } from './js/F15Model.js';
 import { F15Cockpit } from './js/F15Cockpit.js';
 import { JetSound } from './js/JetSound.js';
+import { VERSION, VERSION_DATE } from './js/Version.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -2216,6 +2217,27 @@ function openMainMenu() {
     document.getElementById('mp-multi-detail').textContent = multiplayer.code
         ? `Partie ${multiplayer.code} en cours` : 'Partie privée entre amis';
     document.getElementById('mp-vol-libre').focus();
+    checkVersion();
+}
+
+// Numéro de version (nombre de commits, voir tools/version.sh) au menu principal ; à chaque ouverture du menu, celui
+// publié en ligne est relu : plus récent (page restée ouverte pendant une mise à jour) -> bouton pour recharger
+const versionLabel = document.getElementById('mp-version');
+const [vy, vm, vd] = VERSION_DATE.split('-');
+versionLabel.textContent = `Version 0.${VERSION} (${vd}/${vm}/${vy})`;
+function checkVersion() {
+    fetch(`js/Version.js?t=${Date.now()}`, { cache: 'no-store' })
+        .then((response) => (response.ok ? response.text() : ''))
+        .then((text) => {
+            const online = Number(text.match(/VERSION\s*=\s*(\d+)/)?.[1]);
+            if (!(online > VERSION)) return;
+            versionLabel.replaceChildren(`Version 0.${VERSION} · `, Object.assign(document.createElement('a'), {
+                href: '#', textContent: `version 0.${online} disponible, recharger`,
+                onclick: (event) => { event.preventDefault(); location.reload(); },
+            }));
+            versionLabel.querySelector('a').style.color = '#ffcf5a';
+        })
+        .catch(() => {});   // hors ligne : on garde la version affichée
 }
 function closeMainMenu() {
     if (!inMenu) return;
