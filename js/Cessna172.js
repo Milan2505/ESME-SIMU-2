@@ -42,8 +42,8 @@ const CESSNA_172 = {
 	                                  // (en virage, l'aile extérieure plus rapide porte plus) s'en déduit, voir FlightModel
 	sideslipDrag: 0.6,                // traînée en plus en dérapage (par rad²) : glissade, l'avion ralentit
 	spiralStability: 0.1,             // manche lâché, l'inclinaison se réduit doucement (sinon le virage se resserre)
-	spiralBank: deg( 35 ),            // au-delà, virage engagé : l'inclinaison augmente toute seule…
-	spiralDivergence: 0.05,           // … de plus en plus vite (rad/s par rad au-delà de spiralBank)
+	spiralBank: deg( 35 ),            // au-delà, plus de rappel : virage engagé (l'inclinaison augmente toute seule, par la
+	                                  // portance des deux demi-ailes, voir FlightModel)
 	adverseYaw: 0.08,                 // lacet inverse aux ailerons (rad/s à fond) : le nez part à l'opposé du virage
 	// Effets moteur (hélice tournant à droite vue de la cabine), à pleine poussée et basse vitesse, nuls en croisière
 	engineEffectSpeed: 55,            // vitesse (m/s, ~107 kt) où ils s'annulent (dérive calée pour la croisière)

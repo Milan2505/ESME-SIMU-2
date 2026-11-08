@@ -51,7 +51,6 @@ const F15 = {
 	sideslipDrag: 0.5,
 	spiralStability: 0.15,
 	spiralBank: deg( 75 ),
-	spiralDivergence: 0,
 	adverseYaw: 0,                    // interconnexion ailerons-direction (ARI) : pas de lacet inverse
 	engineEffectSpeed: 1,             // (pas d'effets d'hélice)
 	engineYaw: 0,
