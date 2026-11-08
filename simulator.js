@@ -253,8 +253,10 @@ let gloveboxOpen = false;
 // Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
 const decorGroups = [];
 let decorDensity = 1;
-let decorStyle = 'realiste';   // 'classique' (arbres stylisés), 'realiste' (forêts et villages), 'mixte' (les deux)
-const CLASSIC_TREES = new Set(['TREE', 'TREE_F']);
+// 'realiste' (forêts, villages, rochers et fleurs réalistes : par défaut) ou 'classique' (anciens assets stylisés seuls)
+let decorStyle = 'realiste';
+// Anciens assets (data/type objet.csv) affichés seulement en style classique : arbres, fleurs, rochers, tentes stylisés
+const CLASSIC_ASSETS = new Set(['TREE', 'TREE_F', 'FLOWER_Y', 'FLOWER_P', 'ROCK', 'TENT']);
 // Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
 // Forêts et villages réalistes autour de chaque aérodrome (régions : centres), rien dans l'axe des pistes
 const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => airport.inCorridor(x, z),
@@ -1141,18 +1143,18 @@ resize();
 // Construction de la scène à partir du modèle de données (data/)
 // Réglage "Arbres et décor" : n'affiche qu'une partie des exemplaires (ceux de objet.csv d'abord)
 function applyDecorDensity() {
-    const classicShown = decorStyle !== 'realiste';
+    const classic = decorStyle === 'classique';
     for (const group of decorGroups) {
         const count = Math.max(1, Math.round(group.total * decorDensity));
-        group.hidden = CLASSIC_TREES.has(group.codeType) && !classicShown;
+        group.hidden = CLASSIC_ASSETS.has(group.codeType) && !classic;
         for (const mesh of group.meshes) {
             mesh.count = count;
             mesh.visible = !group.hidden;
         }
     }
     scenery.setDensity(decorDensity);
-    scenery.setVisible(decorStyle !== 'classique');
-    if (decorStyle !== 'classique') buildScenery().then(rebuildObstacles, () => { /* échec : voir l'écran de chargement */ });
+    scenery.setVisible(!classic);
+    if (!classic) buildScenery().then(rebuildObstacles, () => { /* échec : voir l'écran de chargement */ });
     rebuildObstacles();
 }
 

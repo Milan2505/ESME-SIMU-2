@@ -2,6 +2,7 @@
 // mémorisés dans le navigateur (localStorage) d'une visite à l'autre.
 
 const STORAGE_KEY = 'esme-fs-reglages';
+const VERSION = 2;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte »)
 
 // Chaque réglage : libellé, explication courte et choix possibles [valeur, libellé]
 const OPTIONS = {
@@ -23,8 +24,8 @@ const OPTIONS = {
                   choices: [[3000, 'Proche (3 km)'], [4500, 'Moyenne (4,5 km)'], [6000, 'Lointaine (6 km)']] },
     decor:      { label: 'Arbres et décor', hint: 'Part des arbres, fleurs, rochers affichés',
                   choices: [[0.25, '25 %'], [0.5, '50 %'], [1, '100 %']] },
-    decorStyle: { label: 'Style du décor', hint: "Réaliste : forêts et villages (plus lourd) ; Mixte : avec les arbres stylisés d'origine",
-                  choices: [['classique', 'Classique (stylisé)'], ['realiste', 'Réaliste'], ['mixte', 'Mixte (les deux)']] },
+    decorStyle: { label: 'Style du décor', hint: "Réaliste : forêts, villages, rochers et fleurs ; Anciens assets : arbres, fleurs et rochers stylisés d'origine",
+                  choices: [['realiste', 'Réaliste'], ['classique', 'Anciens assets']] },
     bloom:      { label: 'Halo lumineux', hint: 'Lueur autour des feux, éclairs, explosion',
                   choices: [[false, 'Désactivé'], [true, 'Activé']] },
     perf:       { label: 'Afficher la fluidité', hint: 'Images par seconde et résolution, en haut à gauche de l\'écran (touche P)',
@@ -49,8 +50,8 @@ const OPTIONS = {
 const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
-    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, visibility: 3000, decor: 0.25, decorStyle: 'classique', bloom: false },
-    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, visibility: 6000, decor: 0.5,  decorStyle: 'classique', bloom: true },
+    bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, visibility: 3000, decor: 0.25, decorStyle: 'realiste', bloom: false },
+    moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, visibility: 6000, decor: 0.5,  decorStyle: 'realiste', bloom: true },
     haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, visibility: 6000, decor: 1,    decorStyle: 'realiste', bloom: true },
     ultra: { label: 'Ultra', fps: 0,  resolution: 'auto', antialias: 4, shadows: 4096, clouds: 1,   cloudLayer: true,  terrain: 512, visibility: 6000, decor: 1,    decorStyle: 'realiste', bloom: true },
 };
@@ -116,7 +117,7 @@ class Settings extends EventTarget {
         for (const [key, select] of Object.entries(this._selects)) select.value = JSON.stringify(this.values[key]);
         if (this._presetSelect) this._presetSelect.value = JSON.stringify(this.preset);
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({ preset: this.preset, values: this.values }));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, preset: this.preset, values: this.values }));
         } catch { /* stockage indisponible : réglages valables pour cette visite seulement */ }
         this.dispatchEvent(new CustomEvent('change', { detail: this.values }));
     }
@@ -134,6 +135,9 @@ class Settings extends EventTarget {
         }
         // Ne reprend que des valeurs encore proposées (le menu peut évoluer)
         for (const [key, option] of Object.entries(OPTIONS)) {
+            // Sauvegarde d'avant la version 2 : style du décor non repris (« Classique » était le défaut des préréglages
+            // Bas et Moyen, « Mixte » n'existe plus) -> décor réaliste ; les anciens assets se choisissent exprès
+            if (key === 'decorStyle' && (saved.version ?? 1) < 2) continue;
             const value = saved.values[key];
             if (option.choices.some(([choice]) => choice === value)) this.values[key] = value;
         }

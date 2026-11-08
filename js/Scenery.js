@@ -28,6 +28,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { Nature } from './Nature.js';
 
 // Décor réaliste (réglage « Style du décor ») : forêts d'arbres réalistes et villages autour de l'aérodrome.
 // - Arbres : générés par EZ-Tree (Daniel Greenheck, licence MIT, https://github.com/dgreenheck/ez-tree), écorce et
@@ -35,6 +36,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 //   Près de la caméra : arbre complet (ombres portées) ; plus loin : « imposteur », un panneau tourné vers la caméra
 //   avec l'image de l'arbre pré-rendue (deux triangles au lieu de ~10 000). La répartition est refaite quand la caméra bouge.
 // - Maisons : City Kit Suburban de Kenney (CC0, asset/houses), groupées en villages, un seul maillage par village.
+// - Rochers et prairies fleuries : voir Nature.js.
 // Tout est placé de la même façon à chaque partie (tirage à graine fixe).
 
 const EZ_TREE_URL = 'https://cdn.jsdelivr.net/npm/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js';
@@ -184,6 +186,11 @@ class Scenery {
         // Construction par morceaux, en rendant la main au navigateur entre chacun : la page ne fige pas (portables)
         const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
         this._buildHouses(villages, houseModels, rnd);
+        await breathe();
+        // Rochers et fleurs : tirage à part (les arbres restent à leur place)
+        this.nature = new Nature(this.group, { terrain: this.terrain, renderer: this.renderer, rnd: random(4242),
+            free: (x, z, margin) => this._free(x, z, villages, margin), grass: (x, z, slope) => this._grass(x, z, slope),
+            regions: this.regions });
         await breathe();
         const trees = this._placeTrees(rnd, villages);
         report(0.4);
@@ -538,6 +545,10 @@ class Scenery {
         if (!this.ready) return;
         this.obstacles = [...(this._houseObstacles ?? [])];
         for (const sp of this.species) this.obstacles.push(...sp.obstacles.slice(0, this._shown(sp)));
+        if (this.nature) {
+            this.nature.setDensity(density);
+            this.obstacles.push(...this.nature.obstacles);
+        }
     }
 
     _shown(species) {
@@ -554,6 +565,7 @@ class Scenery {
     update(cameraPosition, time, shadowCenter = cameraPosition) {
         if (!this.ready || !this.group.visible) return;
         for (const sp of this.species) sp.source.update(time);
+        this.nature?.animate(time);
         // Ombres des maisons seulement dans la zone d'ombres (ailleurs : passe d'ombre inutile)
         for (const village of this.villages) {
             const sphere = village.geometry.boundingSphere;
@@ -566,6 +578,7 @@ class Scenery {
         this._lastLayout = cameraPosition.clone();
         this._lastShadow = shadowCenter.clone();
         this._layoutFar = farthest;
+        this.nature?.layout(cameraPosition, farthest);
         const near = this.near ?? NEAR, near2 = near * near, far2 = farthest * farthest, shadow2 = SHADOW_RANGE * SHADOW_RANGE;
         const p = new Vector3(), scale = new Vector3(), yaw = new Quaternion(), tilt = new Quaternion(), billboard = new Matrix4();
         const X = new Vector3(1, 0, 0);
