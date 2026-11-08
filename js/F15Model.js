@@ -260,7 +260,9 @@ function prepare(scene) {
     const main = (side) => {
         const s = side === 'Left' ? -1 : 1;
         const wheel = find(`${side} Main wheel`);
-        const spin = pivot(`${side}Spin`, wheel, wheelCenter(wheel), new Vector3(1, 0, 0));
+        // Roues principales carrossées de ~2,5° (haut vers l'intérieur) : elles tournent sur leur vrai axe, mesuré sur la
+        // bande de roulement (avant : axe horizontal, la roue se dandinait comme mal fixée sur son moyeu)
+        const spin = pivot(`${side}Spin`, wheel, wheelCenter(wheel), new Vector3(1, s * 0.0436, 0));
         const parts = [spin, ...find(`${side} Main Upper oleo`, `${side} Main lower oleo`, `${side} Main retraction linkage`, `${side} Main retract strut`)];
         const twist = pivot(`${side}Twist`, parts, fg(1.9641, s * 1.32, -0.4794), fg(-0.7, 0, 2.7));
         const fold = pivot(`${side}Fold`, [twist], fg(side === 'Left' ? 1.95 : 1.9, s * 1.32, -0.483), fg(0, 1, 0));
@@ -446,6 +448,7 @@ function paintF15(model, id) {
 // canopy (0 -> 1), gear (0 rentré -> 1 sorti), steer (-1 -> 1), wheelSpeed (m/s), onGround, n2 [g, d] (%),
 // ab [g, d] (0 -> 1), time (s) }
 const _canopyShift = new Vector3();
+const _spinAxis = new Vector3();
 const WHEEL_SPIN_MAX = 10;   // rad/s : ~0,17 rad par image à 60 i/s (atteint vers 4 à 5 m/s)
 function animateF15(model, state, delta) {
     const P = model.userData.parts;
@@ -490,9 +493,10 @@ function animateF15(model, state, delta) {
     // et l'œil voyait la roue trembler d'avant en arrière (effet stroboscopique) au lieu de tourner
     const roll_ = state.onGround ? state.wheelSpeed : 0;
     const spin = (radius) => -Math.sign(roll_) * Math.min(Math.abs(roll_) / radius, WHEEL_SPIN_MAX) * Math.min(delta, 0.05);
-    P.noseSpin.rotateX(spin(P.wheelRadius));
-    P.left.spin.rotateX(spin(P.mainRadius));
-    P.right.spin.rotateX(spin(P.mainRadius));
+    for (const [wheel, radius] of [[P.noseSpin, P.wheelRadius], [P.left.spin, P.mainRadius], [P.right.spin, P.mainRadius]]) {
+        _spinAxis.copy(wheel.userData.axis);   // (copie d'avion : axe recopié en simple objet {x, y, z})
+        wheel.rotateOnAxis(_spinAxis, spin(radius));
+    }
 
     // Réacteurs : soufflante, tuyères (ouvertes au ralenti, fermées plein gaz sec, grandes ouvertes en postcombustion),
     // flammes
