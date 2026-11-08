@@ -84,7 +84,7 @@ const F15 = {
 	gearTime: 5,                      // s : sortie ou rentrée complète
 	gearDrag: 0.02,
 	speedbrakeTime: 2,                // s
-	speedbrakeDrag: 0.08,             // aérofrein dorsal sorti (~45°)
+	speedbrakeDrag: 0.16,             // aérofrein dorsal sorti (~45°) ; avant 0,08 : on ne le sentait presque pas
 
 	// Trim (manche lâché : incidence tenue, donc vitesse) : 0° -> ~340 kt ; décollage +10° -> ~235 kt (montée) ;
 	// à cabrer à fond (+30°) -> ~150 kt volets sortis (approche)
