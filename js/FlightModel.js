@@ -47,7 +47,6 @@ const GEAR_DAMPING = 0.75;
 const GEAR_TRAVEL = [ - 0.18, 0.05 ];   // m : enfoncement max, détente max
 const OBSTACLE_CELL = 64;           // m : côté des cases du rangement des obstacles (voir _checkObstacles)
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
-const ALPHA_COMMAND_TIME = 0.25;    // s : lissage de l'incidence visée au manche (voir _updateFlight)
 const RELEASE_TIME = 4;             // s au plus : après un relâchement du manche, le nez ne repart pas en sens inverse
                                     // (jusqu'à ce que l'incidence ait rejoint celle visée)
 const DRIFT_RATE = 2;              // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
@@ -118,7 +117,7 @@ class FlightModel extends EventDispatcher {
 		this._pathAngle = null;          // pente de la trajectoire (rad) et sa vitesse de variation (rad/s), lissée
 		this._pathRate = 0;
 		this._phugoidBlend = 1;          // amortissement de la phugoïde : 1 manche lâché, 0 dès qu'on touche le manche (en douceur)
-		this._alphaCommand = null;       // incidence visée, lissée (voir _updateFlight)
+		this._alphaCommand = null;       // incidence visée au pas précédent (relâchement du manche, voir _updateFlight)
 		this._release = 0;               // relâchement du manche en cours (s restantes) et son sens (+ : on tirait)
 		this._releaseSign = 0;
 		this.wingLift = [ 0, 0 ];         // portance de chaque demi-aile (N) : [gauche, droite]
@@ -456,22 +455,24 @@ class FlightModel extends EventDispatcher {
 			const weight = A.mass * GRAVITY / Math.max( 1, pressure );
 			alphaTarget = MathUtils.clamp( alphaTarget, ( A.gLimitNegative * weight - base ) / A.clAlpha, ( A.gLimit * weight - base ) / A.clAlpha );
 		}
-		// Incidence visée au manche lissée (~0,25 s, le temps que la gouverne de profondeur agisse) : manche lâché d'un
-		// coup, le nez revient vers l'incidence du trim sans être rabattu brutalement dans l'autre sens. (Avant
-		// l'amortissement de la phugoïde ci-dessous : un retard dans cette boucle la ferait osciller)
+		// Relâchement du manche (voir pitchRate plus bas) : il commence quand l'incidence visée revient vers celle du
+		// trim (touche relâchée) ; il s'arrête dès que le pilote reprend le manche, dans un sens ou dans l'autre (sinon,
+		// tirer juste après avoir poussé était bloqué : de la latence), ou quand l'incidence a rejoint celle visée.
+		// (Pas de lissage de l'incidence visée : il retardait chaque mouvement de manche d'~0,1 s)
 		this._alphaCommand ??= alphaTarget;
-		// Manche qui revient vers le neutre (touche relâchée) : début de la phase de relâchement (voir pitchRate plus bas)
-		const fromTrim = this._alphaCommand - trimAlpha;
-		if ( Math.abs( alphaTarget - trimAlpha ) < Math.abs( fromTrim ) - 1e-4 && Math.abs( fromTrim ) > MathUtils.degToRad( 0.5 ) ) {
+		const fromTrim = this._alphaCommand - trimAlpha;   // (pas précédent)
+		const toTrim = Math.abs( alphaTarget - trimAlpha );
+		const returning = toTrim < Math.abs( fromTrim ) - 1e-5;
+		if ( returning && Math.abs( fromTrim ) > MathUtils.degToRad( 0.5 ) && input.pitch * Math.sign( fromTrim ) >= 0 ) {
 			this._release = RELEASE_TIME;
 			this._releaseSign = Math.sign( fromTrim );
-		} else if ( Math.abs( alpha - this._alphaCommand ) < MathUtils.degToRad( 0.5 ) ) {
-			this._release = 0;   // incidence revenue : fin du relâchement
+		} else if ( this._release > 0 && ( input.pitch * this._releaseSign < - 0.02 || toTrim > Math.abs( fromTrim ) + 1e-5
+			|| Math.abs( alpha - alphaTarget ) < MathUtils.degToRad( 0.5 ) ) ) {
+			this._release = 0;   // manche repris (autre sens, ou de nouveau dans le même), ou incidence revenue
 		} else {
 			this._release = Math.max( 0, this._release - dt );
 		}
-		this._alphaCommand += ( alphaTarget - this._alphaCommand ) * Math.min( 1, dt / ALPHA_COMMAND_TIME );
-		alphaTarget = this._alphaCommand;
+		this._alphaCommand = alphaTarget;
 		// Manche lâché : amortissement des longues oscillations de trajectoire (phugoïde) ; quand la trajectoire
 		// se redresse, l'incidence baisse un peu, et inversement (sans effet en vol stabilisé, ni à l'arrondi).
 		// Il entre en douceur une fois le manche lâché (~2 s), sort en douceur dès qu'on le touche (0,25 s) et reste
