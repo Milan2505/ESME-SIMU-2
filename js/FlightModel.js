@@ -488,7 +488,11 @@ class FlightModel extends EventDispatcher {
 		const handsOff = Math.abs( input.pitch ) < 0.05 && this._release <= 0;
 		this._phugoidBlend = MathUtils.clamp( this._phugoidBlend + ( handsOff ? dt / 2 : - dt / 0.25 ), 0, 1 );
 		const phugoidLimit = MathUtils.degToRad( 10 );
-		alphaTarget -= this._phugoidBlend * MathUtils.clamp( A.phugoidDamping * this._pathRate, - phugoidLimit, phugoidLimit );
+		// Seulement ailes à plat : la pente de la trajectoire ne dépend de la profondeur qu'en proportion de cos(inclinaison).
+		// Avant, en virage serré, l'avion qui s'enfonce lui faisait cabrer l'avion de lui-même (jusqu'à +10° à 90°
+		// d'inclinaison) : le virage se resserrait seul et pousser sur le manche n'avait presque plus d'effet
+		const level = Math.max( 0, _planeUp.y ) ** 2;   // 1 ailes à plat, 0 à 90° d'inclinaison, sur le dos ou nez vertical
+		alphaTarget -= this._phugoidBlend * level * MathUtils.clamp( A.phugoidDamping * this._pathRate, - phugoidLimit, phugoidLimit );
 		const cgStability = MathUtils.clamp( 1 - this.cgOffset * CG_STABILITY, 0.5, 1.5 );
 		// Stabilité en tangage : elle tient l'incidence voulue pendant que la trajectoire tourne (ressource, virage,
 		// arrondi) : le nez suit la rotation du vent relatif autour de l'axe de tangage, plus un rappel vers l'incidence
@@ -502,8 +506,7 @@ class FlightModel extends EventDispatcher {
 		// nez ne tombe), l'incidence reste forte : manche tenu en arrière, l'avion reste décroché (il s'enfonce, le nez
 		// oscille) jusqu'à ce que le pilote rende la main
 		if ( this.stalled ) pathPitchRate *= 0.5;
-		let pitchRate = MathUtils.clamp( ( pathPitchRate + A.pitchStability * cgStability * ( alphaTarget - alpha ) ) * stability, - A.pitchRateMax, A.pitchRateMax );
-		// Relâchement du manche : le nez s'arrête, il ne repart pas dans l'autre sens. L'incidence en trop se résorbe
+		let pitchRate = MathUtils.clamp( ( pathPitchRate + A.pitchStability * cgStability * ( alphaTarget - alpha ) ) * stability, - A.pitchRateMax, A.pitchRateMax );		// Relâchement du manche : le nez s'arrête, il ne repart pas dans l'autre sens. L'incidence en trop se résorbe
 		// parce que la trajectoire, portée par la portance en excès, rejoint le nez (comme sur un vrai avion). Avant, le
 		// rappel vers l'incidence du trim rabattait le nez d'un coup (jusqu'à ~20°/s) : un à-coup en sens opposé à chaque
 		// touche relâchée. (Le décrochage garde son abattée, appliquée après)
