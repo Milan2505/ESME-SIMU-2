@@ -3760,7 +3760,7 @@ function checkPlaneCollisions() {
 // --- Chargement et entrée en partie -----------------------------------------------------------------------------
 // Tout ce qui sert au vol se charge dès l'ouverture de la page, pendant le menu principal (voir Loading.js). À l'entrée
 // en partie (Vol libre, Multijoueur, Initiation), l'écran de chargement attend ce qui manque, compile les shaders et
-// dessine quelques images derrière lui (préchauffage), puis « Commencer » (un vrai toucher : son débloqué sur iPad).
+// dessine quelques images derrière lui (préchauffage), puis la partie s'ouvre d'elle-même (son : clics du menu).
 // Relevé avant ce changement : 0,8 s figée à l'arrivée au hangar (shaders compilés à leur première image), des à-coups
 // de 130 à 270 ms en vol (vue cabine, décollage), sons (18 Mo) téléchargés seulement au premier clic
 
@@ -3926,7 +3926,7 @@ async function warmUpWorld() {
     }
 }
 
-// Entrée en partie : écran de chargement si quelque chose manque (la première fois : toujours, pour « Commencer »)
+// Entrée en partie : écran de chargement si quelque chose manque (la première fois : toujours, pour le préchauffage)
 async function enterGame(start) {
     if (worldWarm && loadingScreen.ready) {
         start();

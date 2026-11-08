@@ -298,7 +298,7 @@
 		<div class="mp-gauche">
 			<img class="mp-logo" src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="ESME">
 			<h1 class="mp-titre">ESME <span>flight simulator</span></h1>
-			<p class="mp-sous-titre">Cessna 172 · Aérodrome ESME · <span id="mp-version"></span></p>
+			<p class="mp-sous-titre"><span id="mp-version"></span></p>
 			<nav class="mp-boutons">
 				<button id="mp-vol-libre" class="mp-bouton mp-principal"><strong>Vol libre</strong><small>Seul, choisissez votre avion et votre départ</small></button>
 				<button id="mp-multi" class="mp-bouton"><strong>Multijoueur</strong><small id="mp-multi-detail">Partie privée entre amis</small></button>
@@ -332,8 +332,8 @@
 		<p class="mp-pied">Réalisé par Milan Eliayan · Projet étudiant ESME · Modèle c172p FlightGear (GPL-2.0)</p>
 	</div>
 
-	<!-- Écran de chargement (entrée en partie) : barre de l'avancement réel, étape en cours ; « Commencer » quand tout
-	     est prêt (shaders compilés, images préchauffées). Voir js/Loading.js -->
+	<!-- Écran de chargement (entrée en partie) : barre de l'avancement réel, étape en cours ; la partie s'ouvre d'elle-même
+	     quand tout est prêt (shaders compilés, images préchauffées). Voir js/Loading.js -->
 	<div id="chargement" role="dialog" aria-modal="true" aria-labelledby="chargement-titre" hidden>
 		<div class="ch-boite">
 			<img class="ch-logo" src="ESME_LOGO_BASELINE_QUADRI_2021.png" alt="">
@@ -349,8 +349,6 @@
 					<button id="chargement-continuer" class="ch-bouton ch-secondaire">Continuer sans</button>
 				</div>
 			</div>
-			<button id="chargement-commencer" class="ch-bouton ch-commencer" hidden>Commencer</button>
-			<p class="ch-astuce">« Commencer » active aussi le son (moteur, alarmes).</p>
 		</div>
 	</div>
 

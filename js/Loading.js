@@ -5,7 +5,7 @@ import { TextureLoader } from 'three';
 // le menu principal. Chaque élément nécessaire au vol est inscrit ici (track) avec la promesse de sa fin ; la barre de
 // progression ne compte que ce qui est vraiment chargé et prêt. L'écran ne se ferme qu'une fois tout prêt, les shaders
 // compilés et quelques images déjà dessinées derrière lui (préchauffage, voir simulator.js) : la première image visible
-// du vol est fluide. Le dernier bouton, « Commencer », est un vrai toucher : il débloque le son sur iPad.
+// du vol est fluide. La partie s'ouvre alors d'elle-même (le son est débloqué par les clics du menu).
 // Un élément en échec (réseau) affiche un message et « Réessayer » (qui relance seulement ce qui a échoué) ; un élément
 // qui ne progresse plus pendant STALL_SECONDS est traité comme un échec : jamais d'attente sans fin.
 
@@ -137,7 +137,6 @@ class LoadingScreen {
         this.steps = element.querySelector('#chargement-etapes');
         this.errorBox = element.querySelector('#chargement-erreur');
         this.errorText = element.querySelector('#chargement-erreur-texte');
-        this.startButton = element.querySelector('#chargement-commencer');
         this.active = false;
         this._shown = 0;
         this._stepRows = new Map(Object.entries(STEPS).map(([step, label]) => {
@@ -162,22 +161,17 @@ class LoadingScreen {
     }
 
     // Affiche l'écran jusqu'à ce que tout soit prêt, puis lance prepare() (shaders, préchauffage : inscrits à leur
-    // tour), puis attend « Commencer ». Rend une promesse résolue au toucher de « Commencer »
+    // tour). Rend une promesse résolue dès que tout est prêt : la partie s'ouvre d'elle-même (le son est déjà autorisé
+    // par les clics du menu, voir unlockSounds dans simulator.js)
     async open(prepare) {
         this.active = true;
         this._skipFailures = false;
         this._shown = 0;
         this.element.hidden = false;
-        this.startButton.hidden = true;
         this._render();
         await this._waitReady();
         await prepare?.();
         await this._waitReady();
-        this.stepLabel.textContent = 'Prêt au départ';
-        this.startButton.hidden = false;
-        this._render();
-        this.startButton.focus();
-        await new Promise((resolve) => this.startButton.addEventListener('click', resolve, { once: true }));
         this.active = false;
         this.element.hidden = true;
     }
@@ -205,7 +199,7 @@ class LoadingScreen {
         this.bar.value = this._shown;
         const percent = Math.floor(this._shown * 100);
         this.bar.textContent = `${percent} %`;
-        if (this.startButton.hidden) this.stepLabel.textContent = s.current ? `${STEPS[s.current]}…` : 'Finalisation…';
+        this.stepLabel.textContent = s.current ? `${STEPS[s.current]}…` : 'Finalisation…';
         this.detail.textContent = `${percent} % · ${s.doneCount} / ${s.count} éléments prêts`;
         for (const [step, row] of this._stepRows) {
             const own = items.filter((item) => item.step === step);

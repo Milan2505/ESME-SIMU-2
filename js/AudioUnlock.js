@@ -44,7 +44,7 @@ window.addEventListener('focus', resumeAudio);
 // Sons : chaque WAV a sa copie FLAC à côté (même son à l'échantillon près, compression sans perte : 10 Mo au lieu de
 // 18 ; les boucles du moteur restent sans raccord audible, contrairement au MP3 ou à l'AAC qui ajoutent un silence).
 // Navigateur qui ne lit pas le FLAC (ou décodage raté) : le WAV. Chargés dès l'ouverture de la page, sans attendre de
-// geste : un contexte audio encore suspendu sait déjà décoder ; il démarre au premier toucher (« Commencer »).
+// geste : un contexte audio encore suspendu sait déjà décoder ; il démarre au premier toucher (menu).
 // Chaque son est suivi par l'écran de chargement
 const flacSupported = (() => {
     try { return new Audio().canPlayType('audio/flac') !== ''; } catch { return false; }

@@ -1995,22 +1995,6 @@ html.tablette #chargement {
   background: rgba(255, 255, 255, 0.07);
   border-color: rgba(255, 255, 255, 0.3);
 }
-.ch-commencer {
-  min-height: 56px;
-  margin-top: 6px;
-  font-size: 20px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  animation: mp-entree 0.3s ease-out;
-}
-.ch-commencer[hidden] {
-  display: none;
-}
-.ch-astuce {
-  margin: 0;
-  font-size: 12px;
-  color: #6f8296;
-}
 .mp-retour {
   width: 100%;
   margin-top: 6px;
@@ -4279,8 +4263,7 @@ html.telephone .tb-etat {
     gap: 6px;
     width: min(640px, 100%);
   }
-  #chargement .ch-logo,
-  #chargement .ch-astuce {
+  #chargement .ch-logo {
     display: none;
   }
   #chargement-titre {
@@ -4293,10 +4276,5 @@ html.telephone .tb-etat {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 2px 12px;
     font-size: 12px;
-  }
-  .ch-commencer {
-    min-height: 44px;
-    margin-top: 2px;
-    font-size: 17px;
   }
 }
