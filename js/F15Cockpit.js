@@ -62,6 +62,13 @@ const AOA = table([[0, 0], [40, -302], [50, -334]]);
 const VSI = table([[-6000, -263], [-4000, -238], [-2000, -198], [-1000, -161], [-500, -129], [0, -90], [500, -51], [1000, -19], [2000, 19], [4000, 57], [6000, 81]]);
 const BACKUP_ASI = table([[0, 0], [60, 13], [100, 45], [150, 161], [170, 180], [200, 210], [300, 250], [400, 270], [850, 345]]);
 
+// Manche : course (degrés) dans toutes les directions ; position ramenée dans le disque de rayon 1
+const STICK_TRAVEL = 10;
+function stickCircle(s) {
+    const k = 1 / Math.max(1, Math.hypot(s.stickPitch, s.stickRoll));
+    return { pitch: s.stickPitch * k, roll: s.stickRoll * k };
+}
+
 // Rotations (repère FlightGear : x vers l'arrière, y à droite, z en haut) : pièces, centre, axe, angle (degrés) selon l'état
 const ROTATIONS = [
     { names: ['face', 'mach-scale'], center: [-5.7005, -0.1427, 0.9963], axis: [-1, 0, 0], angle: (s) => ASI(s.kt) },
@@ -97,11 +104,13 @@ const ROTATIONS = [
     { names: ['balt-needle-1000-feet'], center: [-5.6951, 0.0832, 0.7699], axis: [-1, 0, 0], angle: (s) => s.ft * 0.0036 },
     { names: ['basi-needle-knots'], center: [-5.6979, -0.0566, 0.7709], axis: [-1, 0, 0], angle: (s) => BACKUP_ASI(s.kt) },
     // Manche : tangage (tout le manche), roulis (la poignée) ; manettes des gaz (ralenti -> MIL -> postcombustion)
-    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => -s.stickPitch * (s.stickPitch < 0 ? 8 : 18) },   // cabrer (+) : manche tiré vers le pilote
-    // (poussé : 8° au plus ; la poignée touche le tableau vers 11°, mesuré sur les deux modèles. Tiré : 18°, libre)
-    // Roulis : tout le manche (colonne et poignée, d'un seul tenant comme sur le vrai) pivote à sa base, ~12° de chaque
-    // côté (avant : la poignée seule penchait au-dessus de la colonne restée droite, comme un manche en deux morceaux)
-    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.012, 0.3764], axis: [-1, 0, 0], angle: (s) => -s.stickRoll * 12, inner: true },
+    // Débattement circulaire : même course dans les quatre directions (STICK_TRAVEL : poussé, la poignée touche le tableau
+    // vers 11°, mesuré sur les deux modèles), et en diagonale la course reste sur le cercle (sinon tangage et roulis
+    // à fond s'additionnaient : course en carré, plus longue dans les coins)
+    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => -stickCircle(s).pitch * STICK_TRAVEL },   // cabrer (+) : manche tiré vers le pilote
+    // Roulis : tout le manche (colonne et poignée, d'un seul tenant comme sur le vrai) pivote à sa base
+    // (avant : la poignée seule penchait au-dessus de la colonne restée droite, comme un manche en deux morceaux)
+    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.012, 0.3764], axis: [-1, 0, 0], angle: (s) => -stickCircle(s).roll * STICK_TRAVEL, inner: true },
     { names: ['throttle-left-wire', 'throttle-left-manual-sbr-switch', 'throttle-left-finger-lift', 'left-throttle-grip'], center: [-5.4852, -0.3714, 0.645], axis: [0, -1, 0], angle: (s) => s.throttleDeg },
     { names: ['throttle-missile-select-switch', 'throttle-speedbrake-switch-mount', 'throttle-microphone-switch', 'throttle-target-designator-switch',
         'throttle-right-grip', 'throttle-right-finger-lift', 'throttle-target-designator-switch-mount', 'throttle-speedbrake-switch'],
