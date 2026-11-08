@@ -176,6 +176,34 @@ function prepare(scene) {
     for (const name of ['CanopyRefuelReadyLightLamp', 'CanopyLockShootLightLamp']) for (const n of nodes.get(name) ?? []) n.visible = false;
     // Soufflante rapide (image floue) : la soufflante normale tourne à la place
     for (const name of ['FanLHighSpeed', 'FanLHighSpeed001', 'FanRHighSpeed', 'FanRHighSpeed001']) for (const n of nodes.get(name) ?? []) n.visible = false;
+    // Conduit du réacteur droit : le modèle d'origine n'en a que le dernier tronçon (z 5,5 -> 6), on voyait le dehors
+    // autour de la soufflante depuis l'entrée d'air. Recréé en miroir du conduit gauche (complet, z 2,9 -> 6)
+    for (const left of nodes.get('left-engine-and-inlet002') ?? []) {
+        if (!left.isMesh) continue;
+        const geometry = left.geometry.clone();
+        const position = geometry.attributes.position, normal = geometry.attributes.normal;
+        for (let i = 0; i < position.count; i++) {
+            position.setX(i, -position.getX(i) + 0.015);   // (les deux réacteurs ne sont pas tout à fait symétriques)
+            normal?.setX(i, -normal.getX(i));
+        }
+        // Miroir : sens des triangles inversé, sinon ils montreraient leur dos
+        const index = geometry.index;
+        if (index) for (let i = 0; i < index.count; i += 3) {
+            const a = index.getX(i + 1);
+            index.setX(i + 1, index.getX(i + 2));
+            index.setX(i + 2, a);
+        }
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        const right = new Mesh(geometry, left.material);
+        right.name = 'right-engine-and-inlet-mirror';
+        right.castShadow = left.castShadow;
+        right.receiveShadow = left.receiveShadow;
+        right.position.copy(left.position);
+        right.quaternion.copy(left.quaternion);
+        right.scale.copy(left.scale);
+        left.parent.add(right);
+    }
 
     // Recherche par préfixe (doublons numérotés : « Nose door 1.000 », « .001 »…) ; noms nettoyés par GLTFLoader
     // (espaces -> _, points retirés)
@@ -444,7 +472,14 @@ function animateF15(model, state, delta) {
     // Train : position (0 rentré -> 1 sorti) ; roulette orientée au sol, roues qui roulent
     const g = state.gear;
     set(P.noseGear, table([[0.1, 110], [1, 0]])(g));
-    rot(P.noseSteer, state.onGround ? state.steer * 45 : 0);
+    // Roulette de nez : braquage limité avec la vitesse (45° au parking, ~8° au décollage, comme le modèle de vol qui
+    // perd son autorité) et suivi en douceur (avant : elle suivait le manche sans filtre, chaque correction de roulis
+    // la faisait battre de gauche à droite)
+    const speed = Math.abs(state.wheelSpeed ?? 0);
+    const steerMax = MathUtils.lerp(45, 8, MathUtils.clamp((speed - 5) / 35, 0, 1));
+    const steerTarget = state.onGround ? state.steer * steerMax : 0;
+    P.steerAngle = (P.steerAngle ?? 0) + (steerTarget - (P.steerAngle ?? 0)) * (1 - Math.exp(-delta / 0.25));
+    rot(P.noseSteer, P.steerAngle);
     set(P.left.fold, table([[0, 100], [0.1, 100], [1, 0]])(g));
     set(P.left.twist, table([[0.4, -90], [1, 0]])(g));
     set(P.right.fold, table([[0, 100], [0.1, 100], [1, 0]])(g));
