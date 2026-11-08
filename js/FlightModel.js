@@ -7,7 +7,7 @@ import {
 } from 'three';
 import { CESSNA_172 } from './Cessna172.js';
 
-// Modèle de vol : mécanique du point (portance, traînée, poussée, poids) selon l'incidence et la vitesse,
+// Modèle de vol : portance (calculée sur chaque demi-aile), traînée, poussée et poids selon l'incidence et la vitesse,
 // avec effet de sol et décrochage ; au sol, roulage sur les roues jusqu'à ce que l'aile porte l'avion.
 // Aucune dépendance au clavier ni à la page : on lui donne des commandes (manche, gaz, trim, volets, freins),
 // il fait avancer l'avion (object : position et orientation). Les caractéristiques viennent de Cessna172.js.
@@ -34,6 +34,7 @@ const _right = new Vector3();
 const _planeUp = new Vector3();
 const _air = new Vector3();
 const _liftDirection = new Vector3();
+const _panelAir = new Vector3();
 const _force = new Vector3();
 const _basis = new Matrix4();
 const _pathAxis = new Vector3();
@@ -46,7 +47,8 @@ const GEAR_DAMPING = 0.75;
 const GEAR_TRAVEL = [ - 0.18, 0.05 ];   // m : enfoncement max, détente max
 const OBSTACLE_CELL = 64;           // m : côté des cases du rangement des obstacles (voir _checkObstacles)
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
-const DRIFT_RATE = 2;               // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
+const ALPHA_COMMAND_TIME = 0.25;    // s : lissage de l'incidence visée au manche (voir _updateFlight)
+const DRIFT_RATE = 2;              // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
 
 class FlightModel extends EventDispatcher {
 
@@ -113,6 +115,9 @@ class FlightModel extends EventDispatcher {
 		this._prevAir = null;            // vent relatif au pas précédent (rotation de la trajectoire)
 		this._pathAngle = null;          // pente de la trajectoire (rad) et sa vitesse de variation (rad/s), lissée
 		this._pathRate = 0;
+		this._phugoidBlend = 1;          // amortissement de la phugoïde : 1 manche lâché, 0 dès qu'on touche le manche (en douceur)
+		this._alphaCommand = null;       // incidence visée, lissée (voir _updateFlight)
+		this.wingLift = [ 0, 0 ];         // portance de chaque demi-aile (N) : [gauche, droite]
 		this._groundYaw = 0;             // cap au sol (rad, + = vers la gauche)
 		this._groundPitch = 0;           // cabré au sol (rad), 0 = roulette avant posée
 		this._settleRoll = 0;            // après le toucher : inclinaison et assiette qui restent à résorber (rad)
@@ -158,6 +163,9 @@ class FlightModel extends EventDispatcher {
 		this._gustRoll = 0;
 		this._angularVelocity.set( 0, 0, 0 );
 		this._pathAngle = null;
+		this._pathRate = 0;
+		this._phugoidBlend = 1;
+		this._alphaCommand = null;
 		this.stalled = false;
 		this._stallBreak = 0;
 		this._prevAir = null;
@@ -369,11 +377,34 @@ class FlightModel extends EventDispatcher {
 		this.groundEffect = 1 - groundEffect;      // 0 -> ~0,07 : intensité de l'effet de sol (instruments, tests)
 
 		const pressure = 0.5 * this.airDensity() * speed * speed * A.wingArea;
-		const lift = this._liftCoefficient( alpha, this.stalled ) * ( 1 + A.groundEffectLift * this.groundEffect );
-		this.loadFactor = lift * pressure / ( A.mass * GRAVITY );
-		_liftDirection.crossVectors( _right, _air ).normalize(); // perpendiculaire au vent relatif
-		_force.copy( _liftDirection ).multiplyScalar( lift * pressure )
-			.addScaledVector( _air, - ( this._dragCoefficient( lift, groundEffect, speed ) + A.sideslipDrag * beta * beta ) * pressure / speed )
+		// Portance appliquée aux ailes, pas seulement au centre de gravité : chaque demi-aile (centre de poussée à un quart
+		// d'envergure du fuselage) a son propre vent relatif, celui de l'avion plus la vitesse que lui donne la rotation
+		// de l'avion (ω × r). En virage (lacet), l'aile extérieure va plus vite et porte plus ; une rafale ou une
+		// incidence qui diffère d'une aile à l'autre aussi. Les deux portances s'ajoutent (force sur l'avion) et leur
+		// différence, multipliée par le bras de levier, est un moment de roulis (voir plus bas). La vitesse due au roulis
+		// lui-même n'y est pas : l'amortissement en roulis est déjà dans la réponse aux gouvernes (angularResponse)
+		const groundLift = 1 + A.groundEffectLift * this.groundEffect;
+		const arm = A.wingspan / 4;
+		const w = this._angularVelocity;
+		let liftForce = 0, rollMoment = 0;
+		_force.set( 0, 0, 0 );
+		for ( const side of [ - 1, 1 ] ) {   // -1 : aile gauche, 1 : aile droite
+			// Vitesse de la demi-aile due au lacet (repère avion : z vers l'arrière) : lacet à gauche (+), l'aile droite avance
+			_panelAir.set( 0, 0, - w.y * side * arm ).applyQuaternion( quaternion ).add( _air );
+			const panelSpeed = Math.max( 0.1, _panelAir.length() );
+			const panelAlpha = Math.atan2( - _panelAir.dot( _planeUp ), _panelAir.dot( _forward ) );
+			const panelLift = this._liftCoefficient( panelAlpha, this.stalled ) * groundLift
+				* 0.5 * this.airDensity() * panelSpeed * panelSpeed * A.wingArea / 2;
+			_liftDirection.crossVectors( _right, _panelAir ).normalize();   // perpendiculaire au vent relatif de cette aile
+			_force.addScaledVector( _liftDirection, panelLift );
+			liftForce += panelLift;
+			// Aile droite qui porte plus : elle se soulève, roulis à gauche (+)
+			rollMoment += side * panelLift * _liftDirection.dot( _planeUp ) * arm;
+			this.wingLift[ side < 0 ? 0 : 1 ] = panelLift;
+		}
+		const lift = liftForce / pressure;   // coefficient de portance de l'avion entier (traînée induite, facteur de charge)
+		this.loadFactor = liftForce / ( A.mass * GRAVITY );
+		_force.addScaledVector( _air, - ( this._dragCoefficient( lift, groundEffect, speed ) + A.sideslipDrag * beta * beta ) * pressure / speed )
 			.addScaledVector( _right, - A.sideForce * beta * pressure )
 			.addScaledVector( _forward, this._thrust( speed ) );
 		// Accélération latérale ressentie (sans la pesanteur, repère avion, + = vers la droite) : bille de l'indicateur
@@ -418,14 +449,27 @@ class FlightModel extends EventDispatcher {
 			const weight = A.mass * GRAVITY / Math.max( 1, pressure );
 			alphaTarget = MathUtils.clamp( alphaTarget, ( A.gLimitNegative * weight - base ) / A.clAlpha, ( A.gLimit * weight - base ) / A.clAlpha );
 		}
+		// Incidence visée au manche lissée (~0,25 s, le temps que la gouverne de profondeur agisse) : manche lâché d'un
+		// coup, le nez revient vers l'incidence du trim sans être rabattu brutalement dans l'autre sens. (Avant
+		// l'amortissement de la phugoïde ci-dessous : un retard dans cette boucle la ferait osciller)
+		this._alphaCommand ??= alphaTarget;
+		this._alphaCommand += ( alphaTarget - this._alphaCommand ) * Math.min( 1, dt / ALPHA_COMMAND_TIME );
+		alphaTarget = this._alphaCommand;
 		// Manche lâché : amortissement des longues oscillations de trajectoire (phugoïde) ; quand la trajectoire
-		// se redresse, l'incidence baisse un peu, et inversement (sans effet en vol stabilisé, ni à l'arrondi)
+		// se redresse, l'incidence baisse un peu, et inversement (sans effet en vol stabilisé, ni à l'arrondi).
+		// Il entre en douceur une fois le manche lâché (~1 s), sort en douceur dès qu'on le touche (0,25 s) et reste
+		// limité (±10°). Avant, il s'enclenchait d'un coup sous 10 % de manche, sans limite : en relâchant après une
+		// ressource (trajectoire qui tourne vite), l'incidence visée sautait de ~15° et le nez partait d'un coup dans le
+		// sens opposé au mouvement qu'on venait de faire (et au début d'un mouvement, il s'y opposait)
 		const pathAngle = Math.asin( MathUtils.clamp( this.velocity.y / Math.max( 0.1, this.velocity.length() ), - 1, 1 ) );
 		if ( this._pathAngle !== null ) {
 			this._pathRate += ( ( pathAngle - this._pathAngle ) / dt - this._pathRate ) * Math.min( 1, dt * A.phugoidFilter );
 		}
 		this._pathAngle = pathAngle;
-		if ( Math.abs( input.pitch ) < 0.1 ) alphaTarget -= A.phugoidDamping * this._pathRate;
+		const handsOff = Math.abs( input.pitch ) < 0.05;
+		this._phugoidBlend = MathUtils.clamp( this._phugoidBlend + ( handsOff ? dt / 1 : - dt / 0.25 ), 0, 1 );
+		const phugoidLimit = MathUtils.degToRad( 10 );
+		alphaTarget -= this._phugoidBlend * MathUtils.clamp( A.phugoidDamping * this._pathRate, - phugoidLimit, phugoidLimit );
 		const cgStability = MathUtils.clamp( 1 - this.cgOffset * CG_STABILITY, 0.5, 1.5 );
 		// Stabilité en tangage : elle tient l'incidence voulue pendant que la trajectoire tourne (ressource, virage,
 		// arrondi) : le nez suit la rotation du vent relatif autour de l'axe de tangage, plus un rappel vers l'incidence
@@ -455,8 +499,8 @@ class FlightModel extends EventDispatcher {
 		// dérive et facteur P (pale descendante, à droite, qui mord plus, d'autant plus que l'incidence est forte) ->
 		// lacet à gauche. Forts plein gaz à basse vitesse (montée, remise de gaz), nuls en croisière : du pied droit
 		const pFactor = 0.6 + 0.4 * MathUtils.clamp( alpha / stallAlpha, 0, 1.5 );
+		// (le roulis dû au lacet ne vient plus d'un coefficient : il sort de la portance des deux demi-ailes, voir plus haut)
 		let rollRate = input.roll * A.rollRate * effect + ( A.dihedral * beta * vane + spiral ) * stability + this._gustRoll
-			+ A.yawRoll * this._angularVelocity.y   // lacet à gauche (+) : roulis à gauche (+)
 			+ A.engineRoll * power * slow;
 		// Lacet inverse : l'aileron baissé (aile qui monte) traîne plus, le nez part du côté opposé au virage : on
 		// coordonne au palonnier
@@ -475,10 +519,11 @@ class FlightModel extends EventDispatcher {
 		// Une aile tombe, pendant l'abattée : à peine moteur réduit (le 172 est docile), nettement plein gaz
 		if ( this.stalled && this._stallBreak > 0 && this._stallBreak < A.stallBreakTime ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
 		const response = Math.min( 1, A.angularResponse * dt );
-		const w = this._angularVelocity;
 		w.x += ( pitchRate - w.x ) * response;
 		w.y += ( yawRate - w.y ) * response;
 		w.z += ( rollRate - w.z ) * response;
+		// Moment de roulis de la portance des deux demi-ailes (inertie en roulis de l'avion)
+		w.z += rollMoment / A.rollInertia * dt;
 		_tmpQuaternion.set( w.x * dt / 2, w.y * dt / 2, w.z * dt / 2, 1 ).normalize();
 		quaternion.multiply( _tmpQuaternion ).normalize();
 	}
@@ -561,7 +606,8 @@ class FlightModel extends EventDispatcher {
 			this._liftoffBlend = this.assists.smoothLiftoff ? 1 : 0;
 			this._weathervaneBlend = 1;
 			this._angularVelocity.set( 0, 0, 0 );
-		this._pathAngle = null;
+			this._pathAngle = null;
+			this._alphaCommand = null;
 			this.dispatchEvent( { type: 'liftoff' } );
 		}
 	}

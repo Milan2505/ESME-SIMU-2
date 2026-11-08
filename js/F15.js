@@ -47,7 +47,7 @@ const F15 = {
 	pitchStability: 4.5,
 	yawStability: 3.5,
 	dihedral: 0.25,
-	yawRoll: 0.1,
+	rollInertia: 28700,               // kg·m² : inertie en roulis (F-15C, ordre de grandeur réel)
 	sideslipDrag: 0.5,
 	spiralStability: 0.15,
 	spiralBank: deg( 75 ),

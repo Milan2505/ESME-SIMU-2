@@ -38,7 +38,8 @@ const CESSNA_172 = {
 	pitchStability: 3.5,              // manche lâché : le nez revient à l'incidence du trim
 	yawStability: 2.4,                // la dérive aligne le nez sur la trajectoire (virage coordonné)
 	dihedral: 0.6,                    // le dérapage incline l'avion (dièdre des ailes : l'aile au vent se soulève)
-	yawRoll: 0.4,                     // le nez qui tourne incline l'avion du même côté (l'aile extérieure, plus rapide, porte plus)
+	rollInertia: 1285,                // kg·m² : inertie en roulis (C172 réel) ; le roulis dû à la portance des deux demi-ailes
+	                                  // (en virage, l'aile extérieure plus rapide porte plus) s'en déduit, voir FlightModel
 	sideslipDrag: 0.6,                // traînée en plus en dérapage (par rad²) : glissade, l'avion ralentit
 	spiralStability: 0.1,             // manche lâché, l'inclinaison se réduit doucement (sinon le virage se resserre)
 	spiralBank: deg( 35 ),            // au-delà, virage engagé : l'inclinaison augmente toute seule…
