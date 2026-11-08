@@ -4051,6 +4051,7 @@ renderer.setAnimationLoop((time)=>{
         onlineTimer = 1;
         if (!menuContent.get(onlineMenu).hidden) updateOnlineList();
     }
+    clouds.setSeeThrough( choosingSpawn && !inHangar ); // choix de l'aérodrome / du départ, vu d'en haut
     clouds.update( camera );
     cloudLayer.update( delta, camera, weather.wind );
     for (const object of detailedObjects) {

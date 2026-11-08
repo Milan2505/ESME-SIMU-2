@@ -27,6 +27,7 @@ const vertexShader = /* glsl */`
     uniform float uCoverage;
     uniform float uDetail;
     uniform float uWrap;
+    uniform float uSeeThrough;
     varying vec2 vUv;
     varying float vShade;
     varying float vAlpha;
@@ -57,6 +58,8 @@ const vertexShader = /* glsl */`
         vAlpha = smoothstep(size * 0.15, size * 0.8, dist);
         // Nuages qui suivent la caméra (voir _sort) : effacés vers le bord de leur zone, avant d'y être replacés
         vAlpha *= 1.0 - smoothstep(uWrap * 0.85, uWrap, distance(aOffset.xz, cameraPosition.xz));
+        // Vue d'ensemble du choix de départ (caméra en altitude) : nuages sous la caméra effacés, le terrain reste visible
+        vAlpha *= 1.0 - uSeeThrough * (1.0 - smoothstep(cameraPosition.y - 80.0, cameraPosition.y + 20.0, aOffset.y));
 
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -95,10 +98,10 @@ class Clouds {
         count = 70,           // nombre de nuages pour une couverture de 1
         maxCoverage = 4,      // couverture maximale (météo Jour à 100 % : 4 fois plus de nuages)
         radius = 2800,        // demi-côté de la zone de nuages, centrée sur la caméra (au-delà du brouillard)
-        minBase = 180,        // altitude de la base des nuages
-        maxBase = 360,
-        minWidth = 120,
-        maxWidth = 320,
+        minBase = 300,        // altitude de la base des nuages
+        maxBase = 550,
+        minWidth = 180,
+        maxWidth = 450,
     } = {}) {
         // Les nuages couvrent toute la carte sans être plus nombreux : un carré de 2 × radius, répété comme un pavage ;
         // chaque nuage est dessiné dans la copie la plus proche de la caméra
@@ -120,7 +123,9 @@ class Clouds {
             };
             this.clouds.push(cloud);
 
-            const n = Math.round(width / 5); // moins de bouffées, un peu plus grosses : moins de superpositions à dessiner
+            // Moins de bouffées, un peu plus grosses : moins de superpositions à dessiner. Leur taille suit la largeur
+            // du nuage, donc 1 bouffée pour 7 m garde le même remplissage et le même coût qu'avant malgré des nuages plus gros
+            const n = Math.round(width / 7);
             for (let p = 0; p < n; p++) {
                 // Point dans un demi-ellipsoïde : base plate, sommet bombé
                 const angle = Math.random() * Math.PI * 2;
@@ -165,6 +170,7 @@ class Clouds {
                 uCoverage: { value: 0.5 },
                 uDetail: { value: 1 },       // part des bouffées dessinées (réglage de qualité)
                 uWrap: { value: radius },
+                uSeeThrough: { value: 0 },   // 1 : nuages sous la caméra effacés (vue d'ensemble du choix de départ)
             }]),
             vertexShader,
             fragmentShader,
@@ -212,9 +218,15 @@ class Clouds {
         this._resort();
     }
 
+    // Vue d'ensemble du choix de départ : nuages sous la caméra effacés (le terrain choisi reste visible)
+    setSeeThrough(enabled) {
+        this.material.uniforms.uSeeThrough.value = enabled ? 1 : 0;
+    }
+
     // Densité du nuage à la position donnée (0 = dehors, 1 = au cœur), pour le "jour blanc"
     densityAt(position) {
         if (!this.mesh.visible) return 0; // nuages désactivés : pas de "jour blanc"
+        if (this.material.uniforms.uSeeThrough.value) return 0; // vue d'ensemble : pas de "jour blanc" non plus
         const coverage = this.material.uniforms.uCoverage.value;
         let density = 0;
         const span = 2 * this.radius;
