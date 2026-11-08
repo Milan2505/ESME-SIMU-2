@@ -96,7 +96,8 @@ const ROTATIONS = [
     { names: ['balt-needle-1000-feet'], center: [-5.6951, 0.0832, 0.7699], axis: [-1, 0, 0], angle: (s) => s.ft * 0.0036 },
     { names: ['basi-needle-knots'], center: [-5.6979, -0.0566, 0.7709], axis: [-1, 0, 0], angle: (s) => BACKUP_ASI(s.kt) },
     // Manche : tangage (tout le manche), roulis (la poignée) ; manettes des gaz (ralenti -> MIL -> postcombustion)
-    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => -s.stickPitch * 18 },   // cabrer (+) : manche tiré vers le pilote
+    { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.0468, 0.3764], axis: [0, -1, 0], angle: (s) => -s.stickPitch * (s.stickPitch < 0 ? 8 : 18) },   // cabrer (+) : manche tiré vers le pilote
+    // (poussé : 8° au plus ; la poignée touche le tableau vers 11°, mesuré sur les deux modèles. Tiré : 18°, libre)
     // Roulis : tout le manche (colonne et poignée, d'un seul tenant comme sur le vrai) pivote à sa base, ~12° de chaque
     // côté (avant : la poignée seule penchait au-dessus de la colonne restée droite, comme un manche en deux morceaux)
     { names: ['stick-handle-parts', 'pickle-button', 'stick-mast'], center: [-5.5126, -0.012, 0.3764], axis: [-1, 0, 0], angle: (s) => -s.stickRoll * 12, inner: true },

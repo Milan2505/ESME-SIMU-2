@@ -11,8 +11,8 @@
 import { sharedAudioContext, loadSound } from './AudioUnlock.js';
 
 const DIR = 'asset/sounds/f15/';
-const LOOPS = ['jet-whine', 'jet-intake-air', 'engine-jet-exhaust', 'engine-jet-afterburner', 'engine-jet-afterburner-inside', 'jfs-running', 'stall-600-chopped'];
-const ONE_SHOTS = ['jfs-startup', 'jfs-shutdown', 'gear-transit', 'gear-door-close', 'air-brakes', 'canopy-trans', 'canopy-close2'];
+const LOOPS = ['jet-whine', 'jet-intake-air', 'engine-jet-exhaust', 'engine-jet-afterburner', 'engine-jet-afterburner-inside', 'jfs-running', 'stall-600-chopped', 'gear-transit'];
+const ONE_SHOTS = ['jfs-startup', 'jfs-shutdown', 'gear-door-close', 'air-brakes', 'canopy-trans', 'canopy-close2'];
 const SOUND_SPEED = 343;
 const CABIN_CUTOFF = 2600, OUTSIDE_CUTOFF = 20000;
 
@@ -134,6 +134,9 @@ class JetSound {
             abInside: new Loop(this._audio, this._buffers['engine-jet-afterburner-inside'], this._master),
             jfs: new Loop(this._audio, this._buffers['jfs-running'], this._master),
             aoa: new Loop(this._audio, this._buffers['stall-600-chopped'], this._alarm),
+            // Manœuvre du train : boucle de 0,8 s, entendue pendant toute la sortie ou la rentrée (5 s) ; avant, jouée
+            // une seule fois au départ, elle laissait un silence jusqu'au claquement des trappes
+            gear: new Loop(this._audio, this._buffers['gear-transit'], this._master),
         };
     }
 
@@ -163,7 +166,8 @@ class JetSound {
         source.start();
     }
 
-    // state : { engines: [{ n2, ab }], jfs (JFS en marche), jfsLevel (0 -> 1), speed (m/s), aoaWarning } ; volume : 0 -> 1
+    // state : { engines: [{ n2, ab }], jfs (JFS en marche), jfsLevel (0 -> 1), speed (m/s), aoaWarning, gearMoving } ;
+    // volume : 0 -> 1
     update(state, volume = 1) {
         if (!this._loops) return;
         const now = this._audio.currentTime;
@@ -178,6 +182,7 @@ class JetSound {
         }
         this._loops.jfs.set(state.jfs ? 0.45 * state.jfsLevel * volume : 0, 0.7 + 0.3 * state.jfsLevel, now);
         this._loops.aoa.set(state.aoaWarning && volume > 0 ? 0.5 : 0, 1, now);
+        this._loops.gear.set(state.gearMoving ? 0.85 * volume : 0, 1, now);
     }
 }
 

@@ -2,19 +2,26 @@ import {
     AdditiveBlending,
     BackSide,
     Box3,
+    CanvasTexture,
     Color,
+    CylinderGeometry,
     ConeGeometry,
     DoubleSide,
     FrontSide,
     Group,
     MathUtils,
+    Matrix4,
     Mesh,
+    MeshBasicMaterial,
+    MeshStandardMaterial,
+    PlaneGeometry,
     ShaderMaterial,
     SRGBColorSpace,
     TextureLoader,
     Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeStatic } from './MergeStatic.js';
 import { isTablet } from './Device.js';
 
@@ -68,8 +75,8 @@ const F15_LIGHT_LAYOUT = {
         { kind: 'nav', color: 0xffffff, position: [1.755, 3.33, 8.47], sector: [deg(110), deg(250)], size: 1.0 },
         { kind: 'strobe', color: 0xf2f6ff, position: [-1.755, 3.40, 8.42], size: 3.6, mesh: [] },
         { kind: 'strobe', color: 0xf2f6ff, position: [1.755, 3.40, 8.42], size: 3.6, mesh: ['TailFinCollisionLights'] },
-        { kind: 'landing', color: 0xfff4dc, position: [-0.02, -0.806, -3.73], size: 3.5, mesh: ['Landing_lightBulb'] },
-        { kind: 'taxi', color: 0xfff4dc, position: [-0.02, -1.01, -3.66], size: 2.6, mesh: ['Taxi_lightBulb'] },
+        { kind: 'landing', color: 0xfff4dc, position: [-0.02, -0.806, -3.73], size: 3.5, mesh: ['Landing_lightBulb'], follow: true },
+        { kind: 'taxi', color: 0xfff4dc, position: [-0.02, -1.01, -3.66], size: 2.6, mesh: ['Taxi_lightBulb'], follow: true },
     ],
 };
 
@@ -204,6 +211,24 @@ function prepare(scene) {
         right.scale.copy(left.scale);
         left.parent.add(right);
     }
+    // Entrées d'air et conduits : le modèle d'origine est fait pour être vu des deux côtés (faces orientées au hasard).
+    // Affichés d'un seul côté comme le reste de l'avion, des pans entiers disparaissaient vus de l'entrée d'air (croissant
+    // de ciel autour de la soufflante droite) : ici, les deux faces (un matériau à part par matériau d'origine)
+    const doubleSided = new Map();
+    const ducts = ['Intake002', 'left-engine-and-inlet002', 'right-engine-and-inlet', 'right-engine-and-inlet-mirror',
+        'IntakeRampL0', 'IntakeRampR0', 'IntakeRampL2', 'IntakeRampR2', 'IntakeRampL3', 'IntakeRampR3', 'IntakeRampL4', 'IntakeRampR4'];
+    for (const node of scene.children) {
+        if (!ducts.includes(node.name)) continue;
+        node.traverse((m) => {
+            if (!m.isMesh) return;
+            if (!doubleSided.has(m.material)) {
+                const material = m.material.clone();
+                material.side = DoubleSide;
+                doubleSided.set(m.material, material);
+            }
+            m.material = doubleSided.get(m.material);
+        });
+    }
 
     // Recherche par préfixe (doublons numérotés : « Nose door 1.000 », « .001 »…) ; noms nettoyés par GLTFLoader
     // (espaces -> _, points retirés)
@@ -247,6 +272,12 @@ function prepare(scene) {
         'CanopyMirrorLeftGlass', 'CanopyMirrorRightFrame', 'CanopyMirrorRightGlass', 'CanopyMirrorTopFrame', 'CanopyMirrorTopGlass', 'CanopyWire'),
     fg(-2.36, 0, 1.4), new Vector3(1, 0, 0));
     p.canopy.userData.home = p.canopy.position.clone();
+    // Rétroviseurs de l'arceau : refaits (voir buildMirrors), rangés dans la verrière qu'ils suivent
+    for (const mirror of buildMirrors(find)) {
+        scene.add(mirror);
+        scene.updateMatrixWorld(true);
+        p.canopy.attach(mirror);
+    }
 
     // --- Train ---
     // Roulette de nez : 9 cm plus bas (elle touche la piste comme les roues principales)
@@ -367,6 +398,110 @@ function prepare(scene) {
         parts: { ...p, noseGear, noseSteer, noseSpin, left, right, doors, fans, nozzles, flames, burners, wheelRadius, mainRadius },
     };
     return root;
+}
+
+// Rétroviseurs de l'arceau (gauche, droit, en haut) : ceux du modèle d'origine n'étaient que des pavés plats à la
+// texture sombre (des blocs noirs vus de la cabine). Refaits à la même place et dans le même sens (mesurés sur leur
+// verre : centre, normale, longueur, largeur) : boîtier arrondi gris foncé, patte de fixation vers l'arceau, miroir
+// légèrement plus grand qui renvoie un reflet de ciel et du dos de l'avion (image fixe : un vrai reflet coûterait un
+// second rendu de la scène à chaque image)
+function buildMirrors(find) {
+    const mirrors = [];
+    const housingMaterial = new MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.55, metalness: 0.2 });
+    const glassMaterial = new MeshBasicMaterial({ map: mirrorTexture() });
+    for (const side of ['Left', 'Right', 'Top']) {
+        const glass = find(`CanopyMirror${side}Glass`).find((o) => o.isMesh);
+        if (!glass) continue;
+        glass.updateWorldMatrix(true, false);
+        const points = [];
+        const position = glass.geometry.attributes.position;
+        for (let i = 0; i < position.count; i++) points.push(new Vector3().fromBufferAttribute(position, i).applyMatrix4(glass.matrixWorld));
+        const center = points.reduce((sum, v) => sum.add(v), new Vector3()).divideScalar(points.length);
+        const [normal, width, length] = principalAxes(points.map((v) => v.clone().sub(center)));
+        if (normal.z < 0) normal.negate();   // miroir tourné vers l'arrière (le pilote)
+        const extent = (axis) => 2 * Math.max(...points.map((v) => Math.abs(v.clone().sub(center).dot(axis))));
+        const L = extent(length) * 1.1, W = extent(width) * 1.2;
+        if (new Vector3().crossVectors(length, width).dot(normal) < 0) width.negate();   // repère direct (longueur, largeur, normale)
+        const group = new Group();
+        group.name = `mirror${side}`;
+        group.position.copy(center);
+        group.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(length, width, normal));
+        const depth = 0.028, rim = 0.009;
+        const housing = new Mesh(new RoundedBoxGeometry(L + 2 * rim, W + 2 * rim, depth, 3, 0.008), housingMaterial);
+        housing.position.z = -depth / 2 + 0.003;
+        const face = new Mesh(new PlaneGeometry(L, W), glassMaterial);
+        face.position.z = 0.0035;
+        // Patte : du dos du boîtier vers l'arceau
+        const arm = new Mesh(new CylinderGeometry(0.006, 0.008, 0.035, 12), housingMaterial);
+        arm.rotation.x = Math.PI / 2;
+        arm.position.z = -depth - 0.012;
+        group.add(housing, face, arm);
+        for (const o of [housing, arm]) o.castShadow = true;
+        mirrors.push(group);
+        for (const o of find(`CanopyMirror${side}Glass`, `CanopyMirror${side}Frame`)) o.removeFromParent();
+    }
+    return mirrors;
+}
+
+// Axes principaux d'un nuage de points centré (Jacobi, matrice 3 × 3) : [plus petit, moyen, plus grand]
+function principalAxes(points) {
+    const a = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (const v of points) {
+        const c = [v.x, v.y, v.z];
+        for (let i = 0; i < 3; i++) for (let k = 0; k < 3; k++) a[i][k] += c[i] * c[k];
+    }
+    const vec = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (let sweep = 0; sweep < 30; sweep++) {
+        for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+            if (Math.abs(a[p][q]) < 1e-14) continue;
+            const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+            const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+            const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+            for (let k = 0; k < 3; k++) {
+                const akp = a[k][p], akq = a[k][q];
+                a[k][p] = c * akp - s * akq;
+                a[k][q] = s * akp + c * akq;
+            }
+            for (let k = 0; k < 3; k++) {
+                const apk = a[p][k], aqk = a[q][k];
+                a[p][k] = c * apk - s * aqk;
+                a[q][k] = s * apk + c * aqk;
+            }
+            for (let k = 0; k < 3; k++) {
+                const vkp = vec[k][p], vkq = vec[k][q];
+                vec[k][p] = c * vkp - s * vkq;
+                vec[k][q] = s * vkp + c * vkq;
+            }
+        }
+    }
+    return [0, 1, 2].sort((i, k) => a[i][i] - a[k][k]).map((i) => new Vector3(vec[0][i], vec[1][i], vec[2][i]).normalize());
+}
+
+// Reflet fixe des rétroviseurs : ciel en haut, horizon clair, dos de l'avion et verrière en bas
+let mirrorMap = null;
+function mirrorTexture() {
+    if (mirrorMap) return mirrorMap;
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+    const g = canvas.getContext('2d');
+    const sky = g.createLinearGradient(0, 0, 0, 64);
+    sky.addColorStop(0, '#7f9cbc');
+    sky.addColorStop(0.5, '#c4d2df');
+    sky.addColorStop(0.62, '#8b939a');
+    sky.addColorStop(1, '#4b5157');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, 128, 64);
+    // Reflet de lumière en biais
+    const sheen = g.createLinearGradient(0, 0, 128, 64);
+    sheen.addColorStop(0.3, 'rgba(255,255,255,0)');
+    sheen.addColorStop(0.42, 'rgba(255,255,255,0.28)');
+    sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
+    g.fillStyle = sheen;
+    g.fillRect(0, 0, 128, 64);
+    mirrorMap = new CanvasTexture(canvas);
+    mirrorMap.colorSpace = SRGBColorSpace;
+    return mirrorMap;
 }
 
 // Flamme : dégradé le long du cône (vive à la sortie, s'éteint au bout), bords adoucis, diamants de choc

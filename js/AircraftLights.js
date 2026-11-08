@@ -298,6 +298,12 @@ class AircraftLights {
                 }
                 mesh.material = lensMaterial(light.color);   // propre à ce feu (le matériau d'origine est partagé)
                 light.glows.push(mesh.material);
+                // Feu porté par une pièce mobile (phares du F-15 sur la jambe du train avant) : le halo suit son verre
+                if (light.follow && !light.anchor) {
+                    mesh.geometry.computeBoundingBox();
+                    light.anchor = mesh;
+                    light.anchorCenter = mesh.geometry.boundingBox.getCenter(new Vector3());
+                }
             }
         }
     }
@@ -333,6 +339,12 @@ class AircraftLights {
         const strobeOn = strobe < 0.05 || (strobe > 0.16 && strobe < 0.21);
         const sw = this.switches ?? { nav: true, beacon: true, strobe: true, land: this.landingLight, taxi: this.landingLight };
         this._followRudder();
+        for (const light of this.lights) {
+            if (!light.anchor?.parent) continue;
+            light.anchor.updateWorldMatrix(true, false);
+            light.position.copy(light.anchorCenter).applyMatrix4(light.anchor.matrixWorld);
+            this.group.worldToLocal(light.position);
+        }
         if (this.beaconLight?.visible) {
             // Pas en vue cabine : la lumière traverse le toit (pas d'ombres) et faisait des éclairs rouges sur le tableau
             this.beaconLight.intensity = beacon && !this._cabin ? 6 : 0;

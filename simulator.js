@@ -527,11 +527,14 @@ function updateJet(delta) {
     if (canopyBefore > 0 && jetCanopy === 0) jetSound.play('canopy-close2', volume);
     // Train : bruit de la manœuvre, puis des trappes ; les phares suivent (sur la jambe avant)
     const gear = model.gearPosition;
-    if ((jetGearWas === 1 && gear < 1) || (jetGearWas === 0 && gear > 0)) jetSound.play('gear-transit', volume);
+    // (bruit de la manœuvre elle-même : boucle de JetSound, voir gearMoving plus bas)
     if ((jetGearWas < 1 && gear === 1) || (jetGearWas > 0 && gear === 0)) {
         jetSound.play('gear-door-close', volume);
         applyLights();
     }
+    // Phares éteints dès que la jambe commence à rentrer (avant : seulement une fois rentrée, leurs halos et faisceaux
+    // restaient en l'air sous le nez pendant la manœuvre)
+    if (jetGearWas === 1 && gear < 1) applyLights();
     jetGearWas = gear;
     if (model.speedbrakeOut !== jetSpeedbrakeWas) {
         jetSpeedbrakeWas = model.speedbrakeOut;
@@ -4023,6 +4026,7 @@ renderer.setAnimationLoop((time)=>{
     jetSound.update({
         engines: jetSystems.engines, jfs: jet && jetSystems.jfsRunning, jfsLevel: jetSystems.jfs, speed: controls.getSpeed(),
         aoaWarning: jet && controls.isNearStall() && !choosingSpawn,
+        gearMoving: jet && controls.model.gearPosition > 0 && controls.model.gearPosition < 1,
     }, jet ? (controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * spawnFade * spawnFade) : 0);
     updateSounds();
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
