@@ -446,6 +446,7 @@ function paintF15(model, id) {
 // canopy (0 -> 1), gear (0 rentré -> 1 sorti), steer (-1 -> 1), wheelSpeed (m/s), onGround, n2 [g, d] (%),
 // ab [g, d] (0 -> 1), time (s) }
 const _canopyShift = new Vector3();
+const WHEEL_SPIN_MAX = 10;   // rad/s : ~0,17 rad par image à 60 i/s (atteint vers 4 à 5 m/s)
 function animateF15(model, state, delta) {
     const P = model.userData.parts;
     if (!P) return;
@@ -485,10 +486,13 @@ function animateF15(model, state, delta) {
     set(P.right.fold, table([[0, 100], [0.1, 100], [1, 0]])(g));
     set(P.right.twist, table([[0.4, 90], [1, 0]])(g));
     for (const door of P.doors) set(door.group, door.angle(g));
+    // Rotation des roues plafonnée (WHEEL_SPIN_MAX) : au-delà, les rayons de la jante avançaient de 30 à 60° par image
+    // et l'œil voyait la roue trembler d'avant en arrière (effet stroboscopique) au lieu de tourner
     const roll_ = state.onGround ? state.wheelSpeed : 0;
-    P.noseSpin.rotateX(-roll_ / P.wheelRadius * delta);
-    P.left.spin.rotateX(-roll_ / P.mainRadius * delta);
-    P.right.spin.rotateX(-roll_ / P.mainRadius * delta);
+    const spin = (radius) => -Math.sign(roll_) * Math.min(Math.abs(roll_) / radius, WHEEL_SPIN_MAX) * Math.min(delta, 0.05);
+    P.noseSpin.rotateX(spin(P.wheelRadius));
+    P.left.spin.rotateX(spin(P.mainRadius));
+    P.right.spin.rotateX(spin(P.mainRadius));
 
     // Réacteurs : soufflante, tuyères (ouvertes au ralenti, fermées plein gaz sec, grandes ouvertes en postcombustion),
     // flammes

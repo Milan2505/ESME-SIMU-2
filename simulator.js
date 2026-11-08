@@ -3394,7 +3394,10 @@ function updateSounds() {
     cockpit.setRain(rain);
     sounds.setLoop('rain', rain * (chaseView ? 0.8 : 0.25));
     sounds.setLoop('rainCockpit', rain * (chaseView ? 0 : 0.9));
-    const rolling = controls.isOnGround() && !controls.isCrashed() ? Math.min(1, controls.getSpeed() / 20) * 0.6 : 0;
+    // (menu, hangar, choix du départ : vol figé, mais l'avion peut être resté « au sol en roulant » si on a quitté
+    // en pleine course : sans ce test, le roulement des pneus continuait au menu)
+    const rolling = controls.isOnGround() && !controls.isCrashed() && !choosingSpawn
+        ? Math.min(1, controls.getSpeed() / 20) * 0.6 : 0;
     const surface = controls.getSurface(), grass = surface === 'grass', water = surface === 'water';
     const rate = 0.7 + controls.getSpeed() / 40;
     sounds.setLoop('rollAsphalt', grass || water ? 0 : rolling, rate);
