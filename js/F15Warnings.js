@@ -31,7 +31,8 @@ const PHRASES = {
     fireL:    { text: 'Warning. Engine fire left. Engine fire left.', priority: 1, repeat: 5 },
     fireR:    { text: 'Warning. Engine fire right. Engine fire right.', priority: 1, repeat: 5 },
     overG:    { text: 'Over G. Over G.', priority: 2, repeat: 2.5 },
-    lock:     { text: 'Lock. Lock.', priority: 2, repeat: 0 },           // autodirecteur de l'AIM-9 verrouillé : tirez
+    lock:     { text: 'Lock. Lock.', priority: 2, repeat: 0 },
+    fox2:     { text: 'Fox two!', priority: 2, repeat: 0 },                 // missile air-air tiré           // autodirecteur de l'AIM-9 verrouillé : tirez
     altitude: { text: 'Altitude. Altitude.', priority: 2, repeat: 0 },
     engineL:  { text: 'Left engine out.', priority: 3, repeat: 0 },
     engineR:  { text: 'Right engine out.', priority: 3, repeat: 0 },
@@ -107,7 +108,7 @@ class F15Warnings {
         }
         const ctx = this._audio;
         this._out = ctx.createGain();
-        this._out.gain.value = 0.9;
+        this._out.gain.value = 1.3;   // (alarmes au-dessus du bruit des réacteurs)
         this._out.connect(ctx.destination);
         // Casque : bande de l'interphone
         this._voiceIn = ctx.createBiquadFilter();
@@ -117,7 +118,7 @@ class F15Warnings {
         low.type = 'lowpass';
         low.frequency.value = 4200;
         const gain = ctx.createGain();
-        gain.gain.value = 1.4;
+        gain.gain.value = 1.8;
         this._voiceIn.connect(low).connect(gain).connect(this._out);
         return ctx;
     }

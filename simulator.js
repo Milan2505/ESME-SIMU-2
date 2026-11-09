@@ -1005,7 +1005,8 @@ controls.addEventListener('reset', () => {
 
 const _lookAt = new THREE.Vector3();
 const _offset = new THREE.Vector3();
-const chaseOffset = new THREE.Vector3(0, 0, CHASE_DISTANCE);  // caméra extérieure par rapport à l'avion (repère monde)
+const chaseForward = new THREE.Vector3(0, 0, -1);   // caméra extérieure : axe de l'avion lissé (repère monde)
+let chaseHeading = 0;                                 // … et son cap (rad)
 const _headQuaternion = new THREE.Quaternion();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _xAxis = new THREE.Vector3(1, 0, 0);
@@ -1106,22 +1107,25 @@ function updateCamera(delta, snap = false) {
         // de l'avion ; seule sa direction autour de lui suit avec un peu de retard (virages, tangage). Lisser la position
         // elle-même la laissait traîner derrière l'avion d'autant plus qu'il allait vite (zoomée à 7 m : ~20 m en vol),
         // puis revenir d'un coup quand il ralentissait ou tournait
-        _offset.set(0, 0, orbit.distance).applyAxisAngle(_xAxis, -orbit.pitch).applyAxisAngle(_yAxis, orbit.yaw)
-            .applyQuaternion(aircraft.quaternion);
-        if (snap) {
-            chaseOffset.copy(_offset);
-        } else {
-            // Direction et distance lissées séparément : la caméra tourne autour de l'avion sans s'en rapprocher
-            const length = THREE.MathUtils.lerp(chaseOffset.length(), _offset.length(), 1 - Math.exp(-CHASE_STIFFNESS * delta));
-            chaseOffset.lerp(_offset, 1 - Math.exp(-CHASE_STIFFNESS * delta)).setLength(length);
-        }
-        camera.position.copy(aircraft.position).add(chaseOffset);
+        // Stable : elle suit le cap de l'avion (et un peu sa montée), lissés, mais jamais son inclinaison : l'horizon
+        // reste droit, l'avion s'incline devant elle. Avant, l'écart caméra-avion tournait avec toute l'orientation de
+        // l'avion (roulis compris) : en virage serré ou en boucle, la caméra balançait et se retournait
+        _offset.set(0, 0, -1).applyQuaternion(aircraft.quaternion);
+        if (snap) chaseForward.copy(_offset);
+        else chaseForward.lerp(_offset, 1 - Math.exp(-CHASE_STIFFNESS * 0.6 * delta)).normalize();
+        const horizontal = Math.hypot(chaseForward.x, chaseForward.z);
+        if (horizontal > 0.2) chaseHeading = Math.atan2(-chaseForward.x, -chaseForward.z);   // (à la verticale : cap gardé)
+        const climb = THREE.MathUtils.clamp(Math.atan2(chaseForward.y, horizontal), -1.2, 1.2) * 0.5;
+        const pitch = THREE.MathUtils.clamp(orbit.pitch - climb, -0.6, 1.45);
+        _offset.set(0, 0, orbit.distance).applyAxisAngle(_xAxis, -pitch).applyAxisAngle(_yAxis, chaseHeading + orbit.yaw);
+        camera.position.copy(aircraft.position).add(_offset);
         camera.position.y = Math.max(camera.position.y, terrain.heightAt(camera.position.x, camera.position.z) + 2);
         camera.up.set(0, 1, 0);
-        _lookAt.copy(CHASE_TARGET).applyAxisAngle(_yAxis, orbit.yaw);
-        // En orbite, on vise l'avion lui-même plutôt qu'un point devant lui
-        _lookAt.multiplyScalar(Math.max(0, Math.cos(orbit.yaw)));
-        camera.lookAt(_lookAt.applyMatrix4(aircraft.matrixWorld));
+        // Point visé : un peu devant l'avion (dans l'axe lissé), l'avion lui-même quand on tourne autour
+        _lookAt.copy(chaseForward).multiplyScalar(-CHASE_TARGET.z * Math.max(0, Math.cos(orbit.yaw)) * 0.5)
+            .add(aircraft.position);
+        _lookAt.y += CHASE_TARGET.y;
+        camera.lookAt(_lookAt);
     }
     // Secousses (atterrissage, roulage, crash)
     // Vibration continue (sinusoïdes de fréquences non multiples) plutôt qu'un tirage au hasard à chaque image,
@@ -3685,6 +3689,7 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     aerofrein: () => toggleSpeedbrake(),
     feu: (on) => pullTrigger(on),
     arme: () => switchWeapon(),
+    leurres: () => dropFlares(),
 });
 // Boutons propres au F-15 (train, aérofrein) : montrés seulement en F-15 ; allumés train sorti / aérofrein sorti
 document.addEventListener('aircraft-change', ({ detail }) => {
@@ -3940,24 +3945,41 @@ weapons.addEventListener('lock', ({ detail }) => {
 // Notre missile air-air part : refait chez les autres joueurs (et la cible est prévenue)
 weapons.addEventListener('aamissile', ({ detail }) => {
     multiplayer.sendAAMissile(detail);
-    weaponHud.message('FOX 2 !');
+    weaponHud.message('FOX 2 !', true);
+    f15Warnings.announce('fox2');
+});
+// Leurres (←) : envoyés aux autres (ils les voient, et les missiles leurrés le sont chez tous)
+function dropFlares() {
+    if (aircraftType !== 'f15') return weaponHud.message('Leurres : seulement sur le F-15');
+    if (!weaponsArmed()) return weaponHud.message("Leurres : seulement en vol (décollez d'abord)");
+    weapons.dropFlares(aircraft, controls.model.velocity, multiplayer.id);
+}
+weapons.addEventListener('flares', ({ detail }) => {
+    multiplayer.sendFlares(detail);
+    sounds.click(0.5, 600);
+    setTimeout(() => sounds.click(0.4, 500), 90);
+    if (detail.decoyed.length) weaponHud.message(`Missile leurré ! (${detail.decoyed.length})`);
+});
+multiplayer.addEventListener('flares', ({ detail }) => {
+    weapons.addRemoteFlares(new THREE.Vector3().fromArray(detail.position), new THREE.Vector3().fromArray(detail.velocity), detail.decoyed);
 });
 multiplayer.addEventListener('aamissile', ({ detail }) => {
     weapons.addRemoteAA({ from: new THREE.Vector3().fromArray(detail.from), velocity: new THREE.Vector3().fromArray(detail.velocity),
-        targetId: detail.targetId }, detail.id, detail.name, camera.position);
+        targetId: detail.targetId, missileId: detail.missileId }, detail.id, detail.name, camera.position);
     if (detail.atMe && !controls.isCrashed()) {
         if (aircraftType === 'f15') f15Warnings.announce('missile');
-        weaponHud.message(`MISSILE EN APPROCHE ! (${detail.name})`, true);
+        weaponHud.message(`MISSILE EN APPROCHE ! (${detail.name}) ← : LEURRES`, true);
     }
 });
 window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.code !== 'ArrowUp' && event.code !== 'ArrowDown' && event.code !== 'ArrowRight') return;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowRight', 'ArrowLeft'].includes(event.code)) return;
     if (!inFlightScreen()) return;
     event.preventDefault();
     if (event.repeat) return;
     if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
     if (event.code === 'ArrowUp') pullTrigger(true);
+    else if (event.code === 'ArrowLeft') dropFlares();
     else if (event.code === 'ArrowRight') {
         // → tenue : canon, quelle que soit l'arme choisie (on garde son missile prêt)
         weapons.gunKey = true;
@@ -3988,6 +4010,7 @@ weapons.addEventListener('explosion', ({ detail }) => {
     if (distance < 400) shake = Math.max(shake, 0.8 * (1 - distance / 400));
     if (controls.isCrashed() || choosingSpawn || inHangar) return;
     if (detail.kind === 'aa') return;   // (missile air-air : les dégâts viennent du tireur, voir Weapons.js)
+    if (controls.isOnGround()) return;   // au sol : intouchable (anti spawn-kill)
     const attacker = detail.own ? { id: null, name: 'votre propre missile' } : { id: detail.ownerId, name: detail.ownerName };
     damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType === 'c172');
 });
@@ -3999,7 +4022,8 @@ multiplayer.addEventListener('missile', ({ detail }) => {
 });
 // Obus d'un autre joueur sur notre avion
 multiplayer.addEventListener('hit', ({ detail }) => {
-    if (controls.isCrashed() || choosingSpawn || inHangar) return;
+    // Au sol : intouchable (pas d'avion abattu au départ, au parking ou en roulant)
+    if (controls.isCrashed() || choosingSpawn || inHangar || controls.isOnGround()) return;
     damage.applyHits(detail.zones, { id: detail.id, name: detail.name }, aircraftType === 'c172');
 });
 damage.addEventListener('hit', () => {
@@ -4057,7 +4081,21 @@ function updateCombat(frameDelta) {
     const delta = Math.min(frameDelta, 0.1);   // même pas maximal que le modèle de vol (onglet en arrière-plan, à-coup)
     const jet = aircraftType === 'f15';
     const armed = weaponsArmed();
-    const targets = multiplayer.code ? remotePlayers.combatList() : [];
+    // Cibles : seulement les avions en vol (ceux au sol ne peuvent être ni touchés ni verrouillés : pas de spawn-kill)
+    const targets = multiplayer.code ? remotePlayers.combatList().filter((t) => {
+        const p = t.group.position;
+        return p.y - (AIRCRAFT_PROFILES[t.type]?.wheelHeight ?? 0) - terrain.heightAt(p.x, p.z) > 4;
+    }) : [];
+    // Alerte radar : un autre joueur nous accroche ou nous a verrouillés
+    let threat = { state: 'off', name: '' };
+    if (multiplayer.code && !controls.isCrashed() && !choosingSpawn) {
+        for (const player of multiplayer.players.values()) {
+            if (player.lockOn !== multiplayer.id || player.crashed) continue;
+            if (player.lockOnLocked) threat = { state: 'lock', name: player.name };
+            else if (threat.state === 'off') threat = { state: 'search', name: player.name };
+        }
+    }
+    weapons.threat = threat.state;
     camera.updateMatrixWorld();
     // Mode missile : la croix rouge suit la souris au sol (au centre de l'écran sans souris)
     if (armed && weapons.selected === 'missile') weapons.aim(camera, pointerNdc);
@@ -4073,7 +4111,7 @@ function updateCombat(frameDelta) {
     ownSmoke.update(delta, _smokeSource, crashed || choosingSpawn ? 0 : damage.smoke, damage.onFire && !crashed && !choosingSpawn, controls.model.velocity);
     const visible = !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo');
     weaponHud.update(delta, visible, {
-        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets, touch: touchControls.enabled,
+        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets, touch: touchControls.enabled, threat,
     });
 }
 
@@ -4349,7 +4387,7 @@ renderer.setAnimationLoop((time)=>{
         engines: jetSystems.engines, jfs: jet && jetSystems.jfsRunning, jfsLevel: jetSystems.jfs, speed: controls.getSpeed(),
         aoaWarning: jet && controls.isNearStall() && !choosingSpawn,
         gearMoving: jet && controls.model.gearPosition > 0 && controls.model.gearPosition < 1,
-    }, jet ? (controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.7) * spawnFade * spawnFade) : 0);
+    }, jet ? (controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 0.6 : 0.4) * spawnFade * spawnFade) : 0);   // (avant 1 / 0,7 : couvrait les alarmes)
     updateSounds();
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
@@ -4361,7 +4399,8 @@ renderer.setAnimationLoop((time)=>{
         crashed: controls.isCrashed() || choosingSpawn, crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
         jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
         // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
-        combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed() },
+        combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed(),
+            lock: weapons.lockId, locked: weapons.locked },
     } );
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;

@@ -17,6 +17,8 @@ const DEFAULT_RANGE = 600;
 const MESSAGE_TIME = 3;        // s
 
 const _point = new Vector3(), _camera = new Vector3(), _dir = new Vector3(), _lead = new Vector3(), _pipper = new Vector3();
+const _view = new Vector3();
+const HUD_ZONE = 0.34;   // rayon de la zone du triangle de cible (fraction du plus petit côté de l'écran)
 
 function formatKm(meters) {
     return meters < 1000 ? `${Math.round(meters / 10) * 10} m` : `${(meters / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} km`;
@@ -196,7 +198,7 @@ class WeaponHud {
                         ctx.strokeRect(b.screen.x - half - 6, b.screen.y - half - 6, half * 2 + 12, half * 2 + 12);
                         ctx.lineWidth = 2;
                         ctx.font = 'bold 15px DejaVu Sans Mono, monospace';
-                        ctx.fillText('LOCK', b.screen.x, b.screen.y - half - 16);
+                        ctx.fillText('LOCK', b.screen.x, b.screen.y + half + 36);   // (dessous : le triangle est au-dessus)
                         ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
                         ctx.fillText(`${b.t.name} ${formatKm(b.distance)}`, b.screen.x, b.screen.y + half + 18);
                     } else if (isLock) {
@@ -214,6 +216,11 @@ class WeaponHud {
                         ctx.fillText(`${b.t.name} ${formatKm(b.distance)}`, b.screen.x, b.screen.y + half + 11);
                     }
                 }
+                // Triangle rouge pointé sur la cible (avion accroché, sinon le plus proche à portée)
+                const guide = s.targets.find((t) => t.id === weapons.lockId)
+                    ?? s.targets.map((t) => ({ t, d: t.group.position.distanceTo(s.aircraft.position) }))
+                        .filter((x) => x.d < AAM.maxRange * 1.5).sort((a, b) => a.d - b.d)[0]?.t;
+                if (guide) this._targetTriangle(ctx, W, H, camera, guide, weapons.locked, guide.group.position.distanceTo(s.aircraft.position));
                 // Verrouillé : « SHOOT » clignotant sous le cercle
                 if (weapons.locked && bore && Math.floor(performance.now() / 200) % 2 === 0) {
                     ctx.fillStyle = RED;
@@ -279,6 +286,22 @@ class WeaponHud {
             this._cards(ctx, W, weapons, s.touch);
         }
 
+        // Alerte radar : un autre joueur nous accroche / nous a verrouillés
+        if (s.threat && s.threat.state !== 'off' && (s.threat.state === 'search' || Math.floor(performance.now() / 180) % 2 === 0)) {
+            ctx.font = 'bold 20px DejaVu Sans Mono, monospace';
+            const text = s.threat.state === 'lock' ? `VERROUILLÉ PAR ${s.threat.name} ! ← : LEURRES` : `ACCROCHÉ PAR ${s.threat.name}`;
+            this._box(ctx, W / 2, H * 0.72, [text], s.threat.state === 'lock' ? RED : '#ffd24a');
+            ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+        }
+        // Leurres en recharge : petite jauge sous les cartes
+        if (s.jet && s.armed && weapons.flareReload > 0) {
+            ctx.fillStyle = 'rgba(255, 240, 192, 0.9)';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
+            ctx.fillText('LEURRES…', W / 2, 122);
+            ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+        }
+
         // Nos obus touchent : croix blanche
         if (weapons.hitMarker > 0) {
             const c = pipper ?? { x: W / 2, y: H / 2 };
@@ -322,6 +345,53 @@ class WeaponHud {
             ctx.font = 'bold 18px DejaVu Sans Mono, monospace';
             this._box(ctx, W / 2, H * 0.3, [this._message], this._messageRed ? RED : '#ffffff');
             ctx.globalAlpha = 1;
+        }
+    }
+
+    // Triangle rouge sur la cible, qui ne sort jamais de la zone du HUD (cercle au centre de l'écran) : cible dans la
+    // zone, il est posé juste au-dessus d'elle, pointe vers le bas ; ailleurs (même derrière nous), il reste sur le bord
+    // de la zone et pointe vers elle. Plein quand la cible est verrouillée
+    _targetTriangle(ctx, W, H, camera, target, locked, distance) {
+        const cx = W / 2, cy = H / 2, R = Math.min(W, H) * HUD_ZONE;
+        camera.updateMatrixWorld();
+        _view.copy(target.group.position).applyMatrix4(camera.matrixWorldInverse);   // repère de la caméra (devant : z < 0)
+        let dx, dy, inside = false;
+        if (_view.z < 0) {
+            const p = this._project(target.group.position, camera);
+            dx = p.x - cx;
+            dy = p.y - cy;
+            inside = Math.hypot(dx, dy) <= R;
+        } else {
+            dx = _view.x;
+            dy = -_view.y;
+            if (Math.hypot(dx, dy) < 1e-3) dy = 1;   // pile derrière : vers le bas
+        }
+        const length = Math.hypot(dx, dy) || 1;
+        ctx.save();
+        ctx.strokeStyle = ctx.fillStyle = RED;
+        ctx.lineWidth = 2.5;
+        let x, y, angle;
+        if (inside) {
+            x = cx + dx;
+            y = cy + dy - 22;              // au-dessus de la cible
+            angle = Math.PI / 2;           // pointe vers le bas, sur elle
+        } else {
+            x = cx + dx / length * R;
+            y = cy + dy / length * R;
+            angle = Math.atan2(dy, dx);    // pointe vers la cible
+        }
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(14, 0); ctx.lineTo(-10, -11); ctx.lineTo(-10, 11);
+        ctx.closePath();
+        if (locked) ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        if (!inside) {
+            ctx.fillStyle = RED;
+            ctx.textAlign = 'center';
+            ctx.fillText(formatKm(distance), cx + dx / length * (R - 48), cy + dy / length * (R - 48));
         }
     }
 
@@ -392,8 +462,8 @@ class WeaponHud {
         ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
         ctx.textAlign = 'center';
         const hint = touch ? "ARME : changer d'arme · FEU : tirer (air-sol : ou toucher le sol)"
-            : weapons.selected === 'gun' ? 'Clic gauche (ou ↑ / →) : tirer · Clic droit (ou ↓) : arme suivante'
-                : weapons.selected === 'aa' ? 'Avion dans le cercle : verrou auto · Clic gauche (ou ↑) : tir · → : canon · Clic droit : arme suivante'
+            : weapons.selected === 'gun' ? 'Clic gauche (ou ↑ / →) : tirer · Clic droit (ou ↓) : arme suivante · ← : leurres'
+                : weapons.selected === 'aa' ? 'Gardez l\'avion dans le petit cercle : verrou · Clic gauche (ou ↑) : tir · → : canon · ← : leurres'
                     : 'Clic gauche sur le sol (ou ↑) : missile · → : canon · Clic droit (ou ↓) : arme suivante';
         const tw = ctx.measureText(hint).width + 20;
         ctx.fillStyle = 'rgba(10,12,16,0.6)';

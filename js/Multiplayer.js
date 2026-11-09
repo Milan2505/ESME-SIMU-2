@@ -90,6 +90,9 @@ function cleanState(state) {
         firing: state.f === 1,
         damage: Math.min(100, Math.max(0, Number(state.d) || 0)),
         burning: state.fi === 1,
+        // Autodirecteur : joueur que celui-ci accroche (lk), verrouillé (lkd) — alerte radar chez la cible
+        lockOn: typeof state.lk === 'string' && ID_PATTERN.test(state.lk) ? state.lk : null,
+        lockOnLocked: state.lkd === 1,
     };
 }
 
@@ -233,6 +236,8 @@ class Multiplayer extends EventTarget {
             f: combat?.firing ? 1 : undefined,
             d: combat?.damage ? Math.round(combat.damage) : undefined,
             fi: combat?.burning ? 1 : undefined,
+            lk: combat?.lock ?? undefined,
+            lkd: combat?.lock && combat.locked ? 1 : undefined,
         };
         // Début et fin d'une rafale : envoyés tout de suite (les traceurs chez les autres suivent la détente)
         const firingChanged = (this._state.f === 1) !== this._wasFiring;
@@ -263,10 +268,15 @@ class Multiplayer extends EventTarget {
     }
 
     // Combat : missile air-air tiré sur un joueur (départ, vitesse de l'avion, identifiant de la cible)
-    sendAAMissile({ from, velocity, targetId }) {
+    sendAAMissile({ from, velocity, targetId, missileId }) {
         if (this._joined && ID_PATTERN.test(targetId)) {
-            this._publish({ aam: { p: from.toArray().map(round), v: velocity.toArray().map(round), t: targetId } });
+            this._publish({ aam: { p: from.toArray().map(round), v: velocity.toArray().map(round), t: targetId, i: missileId } });
         }
+    }
+
+    // Combat : salve de leurres (position, vitesse) et missiles qu'elle a leurrés (identifiants)
+    sendFlares({ position, velocity, decoyed }) {
+        if (this._joined) this._publish({ flr: { p: position.toArray().map(round), v: velocity.toArray().map(round), d: decoyed.slice(0, 8) } });
     }
 
     // Combat : nous venons d'être abattus (by : identifiant du tireur, ou null)
@@ -430,9 +440,17 @@ class Multiplayer extends EventTarget {
             const player = this.players.get(id);
             const from = numbers(data.aam.p, 3), velocity = numbers(data.aam.v, 3);
             const targetId = typeof data.aam.t === 'string' && ID_PATTERN.test(data.aam.t) ? data.aam.t : null;
+            const missileId = typeof data.aam.i === 'string' && data.aam.i.length <= 48 ? data.aam.i : null;
             if (player && from && velocity && targetId) {
-                this.dispatchEvent(new CustomEvent('aamissile', { detail: { id, name: player.name, from, velocity, targetId, atMe: targetId === this.id } }));
+                this.dispatchEvent(new CustomEvent('aamissile', { detail: { id, name: player.name, from, velocity, targetId, missileId, atMe: targetId === this.id } }));
             }
+            return;
+        }
+        // Combat : leurres d'un joueur
+        if (data.flr && typeof data.flr === 'object') {
+            const position = numbers(data.flr.p, 3), velocity = numbers(data.flr.v, 3);
+            const decoyed = Array.isArray(data.flr.d) ? data.flr.d.filter((x) => typeof x === 'string' && x.length <= 48).slice(0, 8) : [];
+            if (this.players.has(id) && position && velocity) this.dispatchEvent(new CustomEvent('flares', { detail: { id, position, velocity, decoyed } }));
             return;
         }
         // Combat : un joueur a été abattu

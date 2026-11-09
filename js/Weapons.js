@@ -63,16 +63,23 @@ const AAM = {
     maxSpeed: 850,                    // m/s (~Mach 2,5)
     acceleration: 300,                // m/s² (moteur-fusée)
     minRange: 300,                    // m
-    maxRange: 10000,                  // m
-    seeker: deg(25),                  // cône où l'autodirecteur accroche une cible
-    keep: deg(35),                    // il la garde jusqu'à cet angle
-    lockTime: 1.2,                    // s pour verrouiller
-    turnG: 35,                        // facteur de charge maxi du missile
+    maxRange: 8000,                   // m
+    seeker: deg(10),                  // cône où l'autodirecteur accroche une cible (avant 25° : trop facile)
+    keep: deg(15),                    // il la garde jusqu'à cet angle
+    lockTime: 2.2,                    // s pour verrouiller (garder l'avion dans le cercle)
+    turnG: 28,                        // facteur de charge maxi du missile
+    burn: 2.5,                        // s de propulsion
+    drag: 55,                         // m/s² de perte de vitesse en vol plané
+    turnDrag: 270,                    // m/s² de plus en virage maxi (tiré de loin, une cible qui vire serré l'épuise)
+    minSpeed: 280,                    // m/s : en dessous, plus de guidage
     life: 20,                         // s : au-delà, autodestruction
     fuse: 12,                         // m : fusée de proximité
     reload: 0.5,                      // s entre deux tirs (rechargé tout de suite)
 };
 const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
+// Leurres infrarouges (flares) : une salve de 4 ; chaque missile air-air qui nous poursuit (entre 250 m et 5 km) a
+// FLARE_DECOY de chances de partir sur un leurre. Trop tard (moins de 250 m) : il ne se laisse plus tromper
+const FLARE = { count: 4, cooldown: 1.2, life: 3.5, decoy: 0.7, minRange: 250, maxRange: 5000 };
 const WEAPON_ORDER = ['gun', 'aa', 'missile'];
 const MAX_BULLETS = 500;
 const UNLIMITED = true;              // munitions illimitées (obus et missiles ne s'épuisent pas)
@@ -350,9 +357,11 @@ class Missile {
 // Missile air-air : vole droit devant à la sortie du rail, puis rallie sa cible en visant le point où elle sera
 // (anticipation), avec un virage limité par son facteur de charge ; explose à moins de AAM.fuse m de la cible
 class AAMissile {
-    constructor(scene, mesh, glow, { from, velocity, targetId, ownerId, ownerName, own }) {
+    constructor(scene, mesh, glow, { from, velocity, targetId, missileId, ownerId, ownerName, own }) {
         this.scene = scene;
         this.targetId = targetId;
+        this.id = missileId ?? null;
+        this.decoy = null;             // leurre poursuivi à la place de l'avion : { position, velocity }
         this.ownerId = ownerId;
         this.ownerName = ownerName;
         this.own = own;
@@ -383,7 +392,12 @@ class AAMissile {
             return false;
         }
         this.age += delta;
-        this.speed = Math.min(AAM.maxSpeed, this.speed + AAM.acceleration * delta);
+        // Moteur-fusée : pousse AAM.burn s, puis le missile perd de la vitesse (traînée), d'autant plus qu'il vire.
+        // Trop lent : il ne peut plus manœuvrer et tombe (une cible qui vire serré au bon moment l'épuise)
+        if (this.age < AAM.burn) this.speed = Math.min(AAM.maxSpeed, this.speed + AAM.acceleration * delta);
+        else this.speed = Math.max(0, this.speed - (AAM.drag + AAM.turnDrag * (this._turning ?? 0)) * delta);
+        this._turning = 0;
+        if (this.speed < AAM.minSpeed) target = null;   // plus assez d'énergie : guidage perdu
         // Guidage (après 0,3 s de vol droit : dégagement de l'avion)
         if (target && this.age > 0.3) {
             const distance = this.position.distanceTo(target.position);
@@ -392,6 +406,11 @@ class AAMissile {
             const angle = this.direction.angleTo(this._aim);
             const maxTurn = AAM.turnG * 9.81 / this.speed * delta;
             if (angle > 1e-5) this.direction.lerp(this._aim, Math.min(1, maxTurn / angle)).normalize();
+            this._turning = Math.min(1, angle / Math.max(1e-6, maxTurn));   // part du virage maxi utilisée
+        }
+        if (!target) {   // sans guidage : il pique
+            this.direction.y -= 0.15 * delta;
+            this.direction.normalize();
         }
         this._last.copy(this.position);
         this.position.addScaledVector(this.direction, this.speed * delta);
@@ -444,7 +463,7 @@ class WeaponSounds {
         }
         const ctx = this.ctx, rate = ctx.sampleRate;
         this.master = ctx.createGain();
-        this.master.gain.value = 0.7;
+        this.master.gain.value = 0.9;
         this.master.connect(ctx.destination);
         // Rafale : 50 coups (0,5 s), chacun un claquement grave et un souffle
         const period = Math.round(rate / GUN.rate);
@@ -500,31 +519,64 @@ class WeaponSounds {
         this.remote.filter.frequency.setTargetAtTime(1200 + 2000 * remote, now, 0.05);
     }
 
+    // Alerte radar (RWR) : un autre joueur nous accroche ('search' : bip lent) ou nous a verrouillés ('lock' : bips
+    // rapides et aigus)
+    rwr(state) {
+        if (state === 'off' || !this._init() || this.ctx.state !== 'running') return;
+        const now = this.ctx.currentTime;
+        if (now < (this._rwrNext ?? 0)) return;
+        const lock = state === 'lock';
+        this._rwrNext = now + (lock ? 0.16 : 0.8);
+        const osc = this.ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = lock ? 1600 : 900;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.09, now + 0.005);
+        gain.gain.setValueAtTime(0.09, now + (lock ? 0.08 : 0.12));
+        gain.gain.linearRampToValueAtTime(0, now + (lock ? 0.09 : 0.13));
+        osc.connect(gain).connect(this.master);
+        osc.start(now);
+        osc.stop(now + 0.15);
+    }
+
     // Autodirecteur de l'AIM-9 dans le casque : 'off', 'search' (grondement grave), 'lock' (tonalité aiguë)
-    seeker(state) {
-        if (state === this._seekerState) return;
-        this._seekerState = state;
+    // Signal de l'autodirecteur de l'AIM-9 dans le casque, comme le vrai : 'search' (rien devant : grondement grave et
+    // faible), 'track' (une cible chaude dans le cercle : « brrrrrr » plus fort, qui monte pendant le verrouillage ;
+    // progress 0 -> 1), 'lock' (verrouillé : sifflement aigu continu)
+    seeker(state, progress = 0) {
         if (state !== 'off' && !this._init()) return;
         if (!this.ctx) return;
         if (!this._seeker) {
-            const osc = this.ctx.createOscillator();
-            osc.type = 'triangle';
-            const lfo = this.ctx.createOscillator();
-            lfo.frequency.value = 18;
-            const depth = this.ctx.createGain();
-            depth.gain.value = 60;
-            lfo.connect(depth).connect(osc.frequency);
-            const gain = this.ctx.createGain();
+            const ctx = this.ctx;
+            // Son grave et râpeux (dent de scie filtrée), haché par une modulation d'amplitude : « brrrr »
+            const osc = ctx.createOscillator();
+            osc.type = 'sawtooth';
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 1400;
+            const chop = ctx.createGain();
+            chop.gain.value = 0.5;
+            const lfo = ctx.createOscillator();
+            lfo.type = 'square';
+            lfo.frequency.value = 26;
+            const depth = ctx.createGain();
+            depth.gain.value = 0.5;
+            lfo.connect(depth).connect(chop.gain);
+            const gain = ctx.createGain();
             gain.gain.value = 0;
-            osc.connect(gain).connect(this.master);
+            osc.connect(filter).connect(chop).connect(gain).connect(this.master);
             osc.start();
             lfo.start();
-            this._seeker = { osc, gain, depth };
+            this._seeker = { osc, lfo, depth, filter, gain };
         }
         const now = this.ctx.currentTime, k = this._seeker;
-        k.gain.gain.setTargetAtTime(state === 'off' ? 0 : state === 'lock' ? 0.12 : 0.07, now, 0.05);
-        k.osc.frequency.setTargetAtTime(state === 'lock' ? 1250 : 420, now, 0.03);
-        k.depth.gain.setTargetAtTime(state === 'lock' ? 8 : 60, now, 0.05);
+        const level = { off: 0, search: 0.035, track: 0.09 + 0.05 * progress, lock: 0.12 }[state] ?? 0;
+        k.gain.gain.setTargetAtTime(level, now, 0.04);
+        k.osc.frequency.setTargetAtTime(state === 'lock' ? 1150 : state === 'track' ? 190 + 160 * progress : 150, now, 0.05);
+        k.lfo.frequency.setTargetAtTime(state === 'track' ? 24 + 10 * progress : 20, now, 0.05);
+        k.depth.gain.setTargetAtTime(state === 'lock' ? 0.05 : 0.5, now, 0.05);
+        k.filter.frequency.setTargetAtTime(state === 'lock' ? 4000 : 900 + 900 * progress, now, 0.05);
     }
 
     whoosh(volume = 1) {
@@ -541,6 +593,47 @@ class WeaponSounds {
     }
 }
 
+// Leurres : boules de magnésium très lumineuses éjectées sous l'avion, qui tombent en brûlant ~3,5 s
+class Flares {
+    constructor(group, glow) {
+        this._flares = Array.from({ length: 48 }, () => {
+            const sprite = new Sprite(new SpriteMaterial({ map: glow, color: 0xfff0c0, blending: AdditiveBlending, transparent: true, depthWrite: false }));
+            sprite.material.color.multiplyScalar(8);   // > 1 : halo du bloom
+            sprite.visible = false;
+            sprite.userData = { age: 0, velocity: new Vector3() };
+            group.add(sprite);
+            return sprite;
+        });
+        this._next = 0;
+    }
+
+    // Salve à une position, avec la vitesse de l'avion ; renvoie la position moyenne (cible des missiles leurrés)
+    burst(position, velocity, count = FLARE.count) {
+        for (let i = 0; i < count; i++) {
+            const sprite = this._flares[this._next];
+            this._next = (this._next + 1) % this._flares.length;
+            sprite.position.copy(position);
+            sprite.userData.age = 0;
+            sprite.userData.velocity.copy(velocity).multiplyScalar(0.6)
+                .add(_v.set((Math.random() - 0.5) * 30, -15 - Math.random() * 10, (Math.random() - 0.5) * 30));
+            sprite.visible = true;
+        }
+    }
+
+    update(delta) {
+        for (const sprite of this._flares) {
+            if (!sprite.visible) continue;
+            const d = sprite.userData;
+            d.age += delta;
+            if (d.age >= FLARE.life) { sprite.visible = false; continue; }
+            d.velocity.multiplyScalar(Math.exp(-1.2 * delta));   // freinés par l'air
+            d.velocity.y -= 9.81 * delta;
+            sprite.position.addScaledVector(d.velocity, delta);
+            sprite.scale.setScalar((5 + Math.random() * 3) * (1 - d.age / FLARE.life * 0.6));
+        }
+    }
+}
+
 class Weapons extends EventTarget {
     // terrain : hauteur du sol (heightAt)
     constructor(scene, { terrain }) {
@@ -552,6 +645,10 @@ class Weapons extends EventTarget {
         const glow = glowTexture();
         this._glow = glow;
         this.impacts = new Impacts(this.group, glow);
+        this.flares = new Flares(this.group, glow);
+        this.flareReload = 0;          // s avant la salve de leurres suivante
+        this.threat = 'off';           // alerte radar (RWR) : 'off', 'search' (accroché), 'lock' (verrouillé)
+        this._aaCount = 0;
         this.sounds = new WeaponSounds();
 
         this.ammo = GUN.rounds;
@@ -818,11 +915,45 @@ class Weapons extends EventTarget {
         if (!this.locked || !this.lockId) return this._message('Pas de verrouillage : gardez un avion dans le cercle');
         if (this.aaReload > 0) return false;
         const from = this._launchPoint('aa', aircraft);
-        const data = { from, velocity: velocity.clone(), targetId: this.lockId };
+        const data = { from, velocity: velocity.clone(), targetId: this.lockId, missileId: `${ownId}-${++this._aaCount}` };
         this.aaReload = AAM.reload;
         this._launchAA({ ...data, ownerId: ownId, ownerName: ownName, own: true });
         this.dispatchEvent(new CustomEvent('aamissile', { detail: data }));
         return true;
+    }
+
+    // Salve de leurres (touche ←) ; ownId : notre identifiant. Missiles air-air qui nous poursuivent : chacun a ses
+    // chances de partir sur un leurre (décidé ici, envoyé aux autres pour qu'ils voient la même chose)
+    dropFlares(aircraft, velocity, ownId) {
+        if (this.flareReload > 0) return null;
+        this.flareReload = FLARE.cooldown;
+        const position = _a.set(0, -0.8, 4).applyQuaternion(aircraft.quaternion).add(aircraft.position).clone();
+        this.flares.burst(position, velocity);
+        const decoyed = [];
+        for (const missile of this.aaInFlight) {
+            if (missile.targetId !== ownId || missile.exploded || missile.decoy) continue;
+            const distance = missile.position.distanceTo(aircraft.position);
+            if (distance < FLARE.minRange || distance > FLARE.maxRange) continue;
+            if (Math.random() < FLARE.decoy && missile.id) decoyed.push(missile.id);
+        }
+        this._decoy(decoyed, position, velocity);
+        const detail = { position, velocity: velocity.clone(), decoyed };
+        this.dispatchEvent(new CustomEvent('flares', { detail }));
+        return detail;
+    }
+
+    // Leurres d'un autre joueur : on les voit, et les missiles leurrés chez lui le sont aussi chez nous
+    addRemoteFlares(position, velocity, decoyed) {
+        this.flares.burst(position, velocity);
+        this._decoy(decoyed, position, velocity);
+    }
+
+    _decoy(ids, position, velocity) {
+        for (const missile of this.aaInFlight) {
+            if (!missile.id || !ids.includes(missile.id) || missile.decoy) continue;
+            missile.decoy = { position: position.clone(), velocity: velocity.clone().multiplyScalar(0.6).add(_v.set(0, -20, 0)) };
+            if (missile.own) this._message('Votre missile est parti sur un leurre !');
+        }
     }
 
     // Missile air-air tiré par un autre joueur (refait chez nous, sur la même cible)
@@ -915,8 +1046,11 @@ class Weapons extends EventTarget {
         this.switchFlash = Math.max(0, this.switchFlash - delta);
         this.reload = Math.max(0, this.reload - delta);
         this.aaReload = Math.max(0, this.aaReload - delta);
+        this.flareReload = Math.max(0, this.flareReload - delta);
+        this.flares.update(delta);
+        this.sounds.rwr(this.threat);
         this._updateLock(delta, own, targets);
-        this.sounds.seeker(this.selected === 'aa' && own.armed ? (this.locked ? 'lock' : 'search') : 'off');
+        this.sounds.seeker(this.selected === 'aa' && own.armed ? (this.locked ? 'lock' : this.lockId ? 'track' : 'search') : 'off', this.lockProgress);
         const wantFire = ((this.trigger && this.selected === 'gun') || this.gunKey) && own.armed && this.ammo > 0 && !this.overheated;
         // Missiles partis : réapparaissent sur leur pylône
         for (let i = this._storeTimers.length - 1; i >= 0; i--) {
@@ -1050,13 +1184,17 @@ class Weapons extends EventTarget {
         for (let i = this.aaInFlight.length - 1; i >= 0; i--) {
             const missile = this.aaInFlight[i];
             let target = null;
-            if (own.id && missile.targetId === own.id) target = own.alive ? { position: own.aircraft.position, velocity: own.velocity } : null;
+            if (missile.decoy) {
+                missile.decoy.velocity.y -= 9.81 * delta;
+                missile.decoy.position.addScaledVector(missile.decoy.velocity, delta);
+                target = missile.decoy;
+            } else if (own.id && missile.targetId === own.id) target = own.alive ? { position: own.aircraft.position, velocity: own.velocity } : null;
             else {
                 const t = targets.find((x) => x.id === missile.targetId);
                 if (t) target = { position: t.group.position, velocity: t.velocity ?? _v.set(0, 0, 0) };
             }
             if (missile.update(delta, ground, target)) {
-                const hit = missile.miss <= AAM.fuse;
+                const hit = missile.miss <= AAM.fuse && !missile.decoy;
                 // Notre missile explose près de sa cible : éclats -> coups au but envoyés au joueur touché
                 if (missile.own && hit && missile.targetId !== own.id) {
                     const count = missile.miss < 5 ? 20 : missile.miss < 9 ? 13 : 8;
@@ -1138,4 +1276,4 @@ class Weapons extends EventTarget {
     }
 }
 
-export { Weapons, GUN, MISSILE, UNLIMITED, MISSILE_RELOAD, AAM };
+export { Weapons, GUN, MISSILE, UNLIMITED, MISSILE_RELOAD, AAM, FLARE };
