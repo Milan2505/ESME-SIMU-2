@@ -2579,13 +2579,19 @@ window.addEventListener('keyup', (event) => {
 window.addEventListener('blur', () => radio.setTalking(false));
 
 // Crash d'un autre joueur : explosion à l'endroit de l'impact, bruit moins fort et retardé de loin
+// Explosions réutilisées (avant : une nouvelle à chaque fois, jamais libérée : la mémoire graphique grossissait en combat)
 const remoteCrashes = [];
-remotePlayers.addEventListener('crash', ({ detail }) => {
-    const effect = new CrashEffect();
-    const ground = terrain.heightAt(detail.position.x, detail.position.z);
-    effect.start(detail.position.clone().setY(Math.max(ground, detail.position.y - WHEEL_HEIGHT)));
+const spareCrashes = [];
+function startExplosion(position) {
+    const effect = spareCrashes.pop() ?? new CrashEffect();
+    effect.start(position);
     scene.add(effect.group);
     remoteCrashes.push(effect);
+    return effect;
+}
+remotePlayers.addEventListener('crash', ({ detail }) => {
+    const ground = terrain.heightAt(detail.position.x, detail.position.z);
+    startExplosion(detail.position.clone().setY(Math.max(ground, detail.position.y - WHEEL_HEIGHT)));
     const distance = detail.position.distanceTo(camera.position);
     sounds.play('crash', { volume: THREE.MathUtils.clamp(60 / distance, 0.05, 1), delay: Math.min(3, distance / 343) });
 });
@@ -2597,6 +2603,8 @@ function updateRemoteCrashes(delta) {
         if (!effect.group.visible) {
             scene.remove(effect.group);
             remoteCrashes.splice(i, 1);
+            if (spareCrashes.length < 12) spareCrashes.push(effect);
+            else effect.dispose();
         }
     }
 }
@@ -4001,10 +4009,7 @@ weapons.addEventListener('missile', ({ detail }) => multiplayer.sendMissile(deta
 weapons.addEventListener('message', ({ detail }) => weaponHud.message(detail.text));
 // Missile qui explose (le nôtre ou celui d'un autre joueur) : boule de feu, bruit (retardé de loin), souffle sur notre avion
 weapons.addEventListener('explosion', ({ detail }) => {
-    const effect = new CrashEffect();
-    effect.start(detail.position);
-    scene.add(effect.group);
-    remoteCrashes.push(effect);
+    startExplosion(detail.position);
     const distance = detail.position.distanceTo(camera.position);
     sounds.play('crash', { volume: THREE.MathUtils.clamp(150 / distance, 0.08, 1), delay: Math.min(4, distance / 343) });
     if (distance < 400) shake = Math.max(shake, 0.8 * (1 - distance / 400));

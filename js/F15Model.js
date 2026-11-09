@@ -18,10 +18,15 @@ import {
     ShaderMaterial,
     Shape,
     ShapeGeometry,
+    Skeleton,
+    SkinnedMesh,
     SRGBColorSpace,
     TextureLoader,
+    Float32BufferAttribute,
+    Uint16BufferAttribute,
     Vector3,
 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeStatic } from './MergeStatic.js';
 import { isTablet } from './Device.js';
@@ -109,6 +114,15 @@ async function loadF15() {
 function cloneF15(model) {
     const copy = model.clone();
     const parts = rebind(model.userData.parts, model, copy);
+    // Pétales des tuyères (voir skinPetals) : la copie suit ses propres pétales, pas ceux du modèle copié
+    const from = [], to = [];
+    model.traverse((o) => from.push(o));
+    copy.traverse((o) => to.push(o));
+    const map = new Map(from.map((o, i) => [o, to[i]]));
+    from.forEach((source, i) => {
+        if (!source.isSkinnedMesh) return;
+        to[i].bind(new Skeleton(source.skeleton.bones.map((bone) => map.get(bone)), source.skeleton.boneInverses), source.bindMatrix);
+    });
     // Matériaux propres à la copie : livrée (une autre peut être choisie), flammes et tuyères (sa propre postcombustion)
     parts.burners = [];
     copy.traverse((child) => {
@@ -384,7 +398,28 @@ function prepare(scene) {
     scene.traverse((o) => { if (o.userData.pivot) animated.add(o); });
     for (const name of ['WingTipPosL-Light', 'WingTipPosR-Light', 'TailFinCollisionLights', 'AfterburnerL', 'AfterburnerR']) for (const o of find(name)) animated.add(o);
     for (const f of flames) animated.add(f);
+    // Verres des feux (AircraftLights les retrouve par leur nom et leur donne leur propre matériau)
+    for (const light of F15_LIGHT_LAYOUT.lights) for (const name of light.mesh ?? []) for (const o of find(name)) animated.add(o);
+    for (const name of ['Landing_lightBulb', 'Taxi_lightBulb']) scene.traverse((o) => { if (o.name === name) animated.add(o); });
     mergeStatic(scene, (o) => animated.has(o));
+    // Tuyères : 160 pétales (80 par tuyère), chacun son appel de dessin (et autant dans la passe d'ombres) : plus de la
+    // moitié du coût de dessin d'un F-15. Réunis en une pièce par tuyère et par matériau, chaque pétale gardant son
+    // mouvement (voir skinPetals)
+    for (const side of ['L', 'R']) {
+        const meshes = [];
+        scene.traverse((o) => {
+            if (!o.isMesh || !o.visible) return;
+            let ring = false;
+            o.traverseAncestors((a) => { if (/^ring[LR]\d+$/.test(a.name) && a.name[4] === side) ring = true; });
+            if (ring) meshes.push(o);
+        });
+        skinPetals(scene, meshes, `petales${side}`);
+    }
+    // Pièces fixes de chaque partie mobile (verrière, jambes du train, trappes, aérofrein…) fusionnées par matériau
+    // dans leur partie : elles bougent ensemble, une pièce suffit
+    const pivots = [];
+    scene.traverse((o) => { if (o.userData.pivot) pivots.push(o); });
+    for (const pivot of pivots) mergeStatic(pivot, (o) => o !== pivot && (o.userData.pivot || animated.has(o)));
 
     // Livrée d'origine du modèle (embarquée) : sert telle quelle, sans être rechargée
     let embedded = null;
@@ -399,6 +434,60 @@ function prepare(scene) {
         parts: { ...p, noseGear, noseSteer, noseSpin, left, right, doors, fans, nozzles, flames, burners, wheelRadius, mainRadius },
     };
     return root;
+}
+
+// Pétales réunis en un maillage « à os » (skinning) par matériau : chaque pétale d'origine devient un os (caché, il
+// garde sa place dans les pivots animés par animateF15) qui déplace ses propres sommets. Même image, même mouvement,
+// mais quelques appels de dessin au lieu de 80 par tuyère. Les pétales cachés servent toujours aux tests de rayons
+// (occultation des feux) : le maillage réuni n'y répond pas
+class PetalMesh extends SkinnedMesh {
+    raycast() {}
+}
+
+function skinPetals(root, meshes, name) {
+    root.updateMatrixWorld(true);
+    const toRoot = new Matrix4().copy(root.matrixWorld).invert();
+    const groups = new Map();
+    for (const mesh of meshes) {
+        if (Array.isArray(mesh.material) || mesh.matrixWorld.determinant() < 0 || Object.keys(mesh.geometry.morphAttributes).length) continue;
+        const geometry = mesh.geometry;
+        const key = [mesh.material.uuid, mesh.castShadow, mesh.receiveShadow, mesh.renderOrder, geometry.index ? 'i' : 'n',
+            Object.keys(geometry.attributes).sort().join(',')].join('|');
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(mesh);
+    }
+    const matrix = new Matrix4();
+    for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        const geometries = list.map((mesh, bone) => {
+            const geometry = mesh.geometry.clone();
+            geometry.applyMatrix4(matrix.multiplyMatrices(toRoot, mesh.matrixWorld));
+            geometry.clearGroups();
+            const count = geometry.attributes.position.count;
+            const indices = new Uint16Array(count * 4), weights = new Float32Array(count * 4);
+            for (let i = 0; i < count; i++) {
+                indices[i * 4] = bone;
+                weights[i * 4] = 1;
+            }
+            geometry.setAttribute('skinIndex', new Uint16BufferAttribute(indices, 4));
+            geometry.setAttribute('skinWeight', new Float32BufferAttribute(weights, 4));
+            return geometry;
+        });
+        const geometry = mergeGeometries(geometries, false);
+        for (const g of geometries) g.dispose();
+        if (!geometry) continue;
+        const first = list[0];
+        const skinned = new PetalMesh(geometry, first.material);
+        skinned.name = name;
+        skinned.castShadow = first.castShadow;
+        skinned.receiveShadow = first.receiveShadow;
+        skinned.renderOrder = first.renderOrder;
+        root.add(skinned);
+        skinned.updateMatrixWorld(true);
+        // Os : les pétales d'origine (leur position au moment de la réunion sert de pose de référence)
+        skinned.bind(new Skeleton(list, list.map((mesh) => new Matrix4().copy(mesh.matrixWorld).invert())), skinned.matrixWorld.clone());
+        for (const mesh of list) mesh.visible = false;
+    }
 }
 
 // Rétroviseurs de l'arceau (gauche, droit, en haut) : ceux du modèle d'origine n'étaient que des pavés plats à la

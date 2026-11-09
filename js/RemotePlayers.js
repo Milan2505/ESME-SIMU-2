@@ -18,6 +18,9 @@ const SMOOTHING = 8;            // lissage de l'orientation
 const POSITION_CORRECTION = 3;  // rapidité du recalage sur la position prédite
 const MAX_EXTRAPOLATION = 1;    // prédiction au plus 1 s après le dernier message (s)
 const SNAP_DISTANCE = 60;       // au-delà, on replace l'avion directement (réinitialisation…) (m)
+// … ou au-delà de la distance parcourue en SNAP_TIME s à sa vitesse : un F-15 à 300 m/s fait 45 m entre deux messages,
+// et un message en retard sur un relais public le décalait de plus de 60 m : l'avion « sautait » au lieu de glisser
+const SNAP_TIME = 0.8;
 const LABEL_HEIGHT = 0.065;     // hauteur de l'étiquette : ~6,5 % de la hauteur de l'écran, quelle que soit la distance
 const LABEL_OFFSET = 3;         // étiquette au-dessus de l'avion (m)
 const LABEL_REFRESH = 0.5;      // distance et altitude de l'étiquette mises à jour toutes les 0,5 s
@@ -222,7 +225,8 @@ class RemotePlayers extends EventTarget {
             this._targetQuaternion.fromArray(state.q);
 
             const group = plane.group;
-            if (plane.fresh || group.position.distanceTo(this._targetPosition) > SNAP_DISTANCE) {
+            const snap = Math.max(SNAP_DISTANCE, this._velocity.length() * SNAP_TIME);
+            if (plane.fresh || group.position.distanceTo(this._targetPosition) > snap) {
                 group.position.copy(this._targetPosition);
                 group.quaternion.copy(this._targetQuaternion);
                 plane.fresh = false;

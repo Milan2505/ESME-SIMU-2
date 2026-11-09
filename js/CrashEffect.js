@@ -1,18 +1,23 @@
 import {
-    AdditiveBlending,
     CanvasTexture,
+    Color,
     Group,
-    Sprite,
-    SpriteMaterial,
     SRGBColorSpace,
     Vector3
 } from 'three';
+import { Billboards } from './Billboards.js';
 
 const FIRE_DURATION = 1.4;
 const SMOKE_DURATION = 6;
+const FIRE_COUNT = 16, SMOKE_COUNT = 28;
+const FIRE_COLOR = new Color(0xffa040).multiplyScalar(4);   // > 1 : halo du bloom
+const SMOKE_COLOR = new Color(0x1c1c1c);
 
-// Bouffée floue (dégradé radial irrégulier)
+// Bouffée floue (dégradé radial irrégulier) : dessinée une fois, partagée par toutes les explosions (avant : une
+// nouvelle image et 44 matériaux à chaque explosion, jamais libérés : la mémoire graphique grossissait en combat)
+let _puffMap = null;
 function puffTexture() {
+    if (_puffMap) return _puffMap;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 128;
     const ctx = canvas.getContext('2d');
@@ -24,49 +29,45 @@ function puffTexture() {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, 128, 128);
     }
-    const texture = new CanvasTexture(canvas);
-    texture.colorSpace = SRGBColorSpace;
-    return texture;
+    _puffMap = new CanvasTexture(canvas);
+    _puffMap.colorSpace = SRGBColorSpace;
+    return _puffMap;
 }
 
-// Explosion au crash : boule de feu lumineuse (halo du bloom), puis panache de fumée noire
+const _world = new Vector3();
+
+// Explosion au crash : boule de feu lumineuse (halo du bloom), puis panache de fumée noire. Deux lots de particules
+// (voir Billboards.js) : deux appels de dessin par explosion. Réutilisable : start() la relance ailleurs
 class CrashEffect {
     constructor() {
         this.group = new Group();
         this.group.visible = false;
         this._time = 0;
         const map = puffTexture();
-
-        this._fire = Array.from({ length: 16 }, () => {
-            const sprite = new Sprite(new SpriteMaterial({
-                map, color: 0xffa040, blending: AdditiveBlending, transparent: true, depthWrite: false,
-            }));
-            sprite.material.color.multiplyScalar(4); // > 1 : halo du bloom
-            sprite.userData.velocity = new Vector3();
-            this.group.add(sprite);
-            return sprite;
-        });
-        this._smoke = Array.from({ length: 28 }, () => {
-            const sprite = new Sprite(new SpriteMaterial({ map, color: 0x1c1c1c, transparent: true, depthWrite: false }));
-            sprite.userData.velocity = new Vector3();
-            this.group.add(sprite);
-            return sprite;
-        });
+        const particle = () => ({ position: new Vector3(), velocity: new Vector3(), delay: 0 });
+        this._fire = Array.from({ length: FIRE_COUNT }, particle);
+        this._smoke = Array.from({ length: SMOKE_COUNT }, particle);
+        // Positions en repère monde (les lots se placent eux-mêmes au centre de leurs particules)
+        this._smokeBatch = new Billboards(SMOKE_COUNT, { map });
+        this._fireBatch = new Billboards(FIRE_COUNT, { map, additive: true });
+        this._origin = new Vector3();
+        this.group.add(this._smokeBatch, this._fireBatch);
     }
 
     start(position) {
-        this.group.position.copy(position);
+        this._origin.copy(position);
         this.group.visible = true;
         this._time = 0;
-        for (const sprite of this._fire) {
-            sprite.position.set(0, 0.5, 0);
-            sprite.userData.velocity.set(Math.random() - 0.5, Math.random() * 0.8 + 0.3, Math.random() - 0.5).multiplyScalar(9);
+        for (const p of this._fire) {
+            p.position.set(0, 0.5, 0);
+            p.velocity.set(Math.random() - 0.5, Math.random() * 0.8 + 0.3, Math.random() - 0.5).multiplyScalar(9);
         }
-        this._smoke.forEach((sprite, i) => {
-            sprite.position.set((Math.random() - 0.5) * 4, 1, (Math.random() - 0.5) * 4);
-            sprite.userData.velocity.set((Math.random() - 0.5) * 2, 3 + Math.random() * 4, (Math.random() - 0.5) * 2);
-            sprite.userData.delay = (i / this._smoke.length) * 2.5; // la fumée continue de sortir
+        this._smoke.forEach((p, i) => {
+            p.position.set((Math.random() - 0.5) * 4, 1, (Math.random() - 0.5) * 4);
+            p.velocity.set((Math.random() - 0.5) * 2, 3 + Math.random() * 4, (Math.random() - 0.5) * 2);
+            p.delay = (i / this._smoke.length) * 2.5; // la fumée continue de sortir
         });
+        this.update(0);
     }
 
     stop() {
@@ -76,24 +77,34 @@ class CrashEffect {
     update(delta) {
         if (!this.group.visible) return;
         const t = (this._time += delta);
-
-        for (const sprite of this._fire) {
-            const life = Math.min(1, t / FIRE_DURATION);
-            sprite.position.addScaledVector(sprite.userData.velocity, delta);
-            sprite.userData.velocity.multiplyScalar(1 - 2 * delta);
-            sprite.scale.setScalar(2 + 9 * Math.sqrt(life));
-            sprite.material.opacity = 1 - life;
+        // (le groupe reste à l'origine : les lots sont placés en repère monde)
+        const fire = this._fireBatch;
+        fire.begin();
+        const fireLife = Math.min(1, t / FIRE_DURATION);
+        for (const p of this._fire) {
+            p.position.addScaledVector(p.velocity, delta);
+            p.velocity.multiplyScalar(1 - 2 * delta);
+            fire.add(_world.copy(p.position).add(this._origin), 2 + 9 * Math.sqrt(fireLife), FIRE_COLOR.r, FIRE_COLOR.g, FIRE_COLOR.b, 1 - fireLife);
         }
-        for (const sprite of this._smoke) {
-            const local = t - sprite.userData.delay;
-            sprite.visible = local > 0;
+        fire.end();
+        const smoke = this._smokeBatch;
+        smoke.begin();
+        for (const p of this._smoke) {
+            const local = t - p.delay;
             if (local <= 0) continue;
             const life = Math.min(1, local / SMOKE_DURATION);
-            sprite.position.addScaledVector(sprite.userData.velocity, delta);
-            sprite.scale.setScalar(4 + 20 * life);
-            sprite.material.opacity = 0.75 * Math.min(1, local * 3) * (1 - life);
+            p.position.addScaledVector(p.velocity, delta);
+            smoke.add(_world.copy(p.position).add(this._origin), 4 + 20 * life, SMOKE_COLOR.r, SMOKE_COLOR.g, SMOKE_COLOR.b,
+                0.75 * Math.min(1, local * 3) * (1 - life));
         }
+        smoke.end();
         if (t > SMOKE_DURATION + 3) this.stop();
+    }
+
+    dispose() {
+        this.group.removeFromParent();
+        this._smokeBatch.dispose();
+        this._fireBatch.dispose();
     }
 }
 

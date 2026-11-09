@@ -128,6 +128,12 @@ const _hinge = new Vector3();
 const _worldLight = new Vector3();
 const _ray = new Vector3();
 const _raycaster = new Raycaster();
+const _hits = [];
+// Occultation des feux : un rayon de la caméra vers chaque feu, contre le modèle de l'avion (F-15 : ~90 000 triangles).
+// Refait pour chaque feu une image sur OCCLUSION_FRAMES (les feux d'un même avion à tour de rôle) : le fondu de
+// visibilité (~50 ms) masque l'écart ; au-delà de OCCLUSION_RANGE, l'avion ne fait que quelques pixels : pas de test
+const OCCLUSION_FRAMES = 3;
+const OCCLUSION_RANGE = 4000;     // m
 const FLARE_OFFSET = 0.6;
 // Lumière portée par les bouts d'aile (avion du joueur, la nuit) : lueur du feu de navigation en continu,
 // éclair blanc du strobe qui éclaire le sol, les objets proches et l'avion (comme le phare)
@@ -356,7 +362,8 @@ class AircraftLights {
             light.intensity = flash ? STROBE_FLASH : sw.nav ? NAV_GLOW : 0;
         }
 
-        for (const light of this.lights) {
+        this._frame = (this._frame ?? 0) + 1;
+        for (const [index, light] of this.lights.entries()) {
             const toEye = _eye.clone().sub(light.position);
             const distance = toEye.length();
             let intensity = 1;
@@ -384,9 +391,14 @@ class AircraftLights {
                 _worldLight.copy(light.position).applyMatrix4(this.group.matrixWorld);
                 _ray.subVectors(_worldLight, camera.position);
                 const far = _ray.length() - 0.35; // le feu est fixé contre la carlingue : on ne teste pas les derniers cm
-                _raycaster.set(camera.position, _ray.normalize());
-                _raycaster.far = Math.max(0, far);
-                target = _raycaster.intersectObject(occluder, true).length ? 0 : 1;
+                if (far >= OCCLUSION_RANGE) light.occlusion = 1;
+                else if (light.occlusion === undefined || (this._frame + index) % OCCLUSION_FRAMES === 0) {
+                    _raycaster.set(camera.position, _ray.normalize());
+                    _raycaster.far = Math.max(0, far);
+                    _hits.length = 0;
+                    light.occlusion = _raycaster.intersectObject(occluder, true, _hits).length ? 0 : 1;
+                }
+                target = light.occlusion;
             }
             light.visibility += (target - light.visibility) * Math.min(1, delta * 20);
             intensity *= light.kind === 'strobe' ? target : light.visibility; // l'éclair d'un strobe est trop bref pour un fondu

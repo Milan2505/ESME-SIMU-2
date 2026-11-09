@@ -2,6 +2,7 @@ import {
     AdditiveBlending,
     BoxGeometry,
     CanvasTexture,
+    Color,
     ConeGeometry,
     CylinderGeometry,
     DoubleSide,
@@ -22,6 +23,7 @@ import {
 } from 'three';
 import { sharedAudioContext } from './AudioUnlock.js';
 import { SmokeTrail } from './Damage.js';
+import { Billboards } from './Billboards.js';
 
 // Armement du F-15 :
 // - canon M61A1 Vulcan de 20 mm (comme le vrai F-15C : six tubes rotatifs dans l'emplanture de l'aile droite,
@@ -170,34 +172,30 @@ function glowTexture() {
     return texture;
 }
 
-// Petits effets d'impact : éclairs (obus qui touchent un avion) et poussière (obus qui tapent le sol)
+// Petits effets d'impact : éclairs (obus qui touchent un avion) et poussière (obus qui tapent le sol). Deux lots de
+// particules (voir Billboards.js) : deux appels de dessin en tout (avant : un par éclair et par nuage de poussière)
+const SPARK_COLOR = new Color(0xffd080).multiplyScalar(4);
+const DUST_COLOR = new Color(0x8a7a60);
 class Impacts {
     constructor(group, glow) {
-        this._sparks = Array.from({ length: 40 }, () => {
-            const s = new Sprite(new SpriteMaterial({ map: glow, color: 0xffd080, blending: AdditiveBlending, transparent: true, depthWrite: false }));
-            s.material.color.multiplyScalar(4);
-            s.visible = false;
-            s.userData = { age: 0, life: 0.15, size: 3 };
-            group.add(s);
-            return s;
-        });
-        this._dust = Array.from({ length: 60 }, () => {
-            const s = new Sprite(new SpriteMaterial({ map: glow, color: 0x8a7a60, transparent: true, depthWrite: false }));
-            s.visible = false;
-            s.userData = { age: 0, life: 1, size: 4 };
-            group.add(s);
-            return s;
-        });
+        const particle = () => ({ alive: false, age: 0, life: 0.15, size: 3, position: new Vector3() });
+        this._sparks = Array.from({ length: 40 }, particle);
+        this._dust = Array.from({ length: 60 }, particle);
+        this._sparkBatch = new Billboards(40, { map: glow, additive: true });
+        this._dustBatch = new Billboards(60, { map: glow });
+        this._sparkBatch.visible = this._dustBatch.visible = false;
+        group.add(this._dustBatch, this._sparkBatch);
         this._nextSpark = 0;
         this._nextDust = 0;
+        this._active = false;
     }
 
     spark(position, size = 3) {
         const s = this._sparks[this._nextSpark];
         this._nextSpark = (this._nextSpark + 1) % this._sparks.length;
         s.position.copy(position);
-        Object.assign(s.userData, { age: 0, life: 0.12 + Math.random() * 0.08, size: size * (0.7 + Math.random() * 0.6) });
-        s.visible = true;
+        Object.assign(s, { alive: true, age: 0, life: 0.12 + Math.random() * 0.08, size: size * (0.7 + Math.random() * 0.6) });
+        this._active = true;
     }
 
     dust(position) {
@@ -205,30 +203,36 @@ class Impacts {
         this._nextDust = (this._nextDust + 1) % this._dust.length;
         s.position.copy(position);
         s.position.y += 1;
-        Object.assign(s.userData, { age: 0, life: 0.8 + Math.random() * 0.6, size: 3 + Math.random() * 3 });
-        s.visible = true;
+        Object.assign(s, { alive: true, age: 0, life: 0.8 + Math.random() * 0.6, size: 3 + Math.random() * 3 });
         this.spark(position, 2);
     }
 
     update(delta) {
+        if (!this._active) return;
+        let alive = 0;
+        const sparks = this._sparkBatch;
+        sparks.begin();
         for (const s of this._sparks) {
-            if (!s.visible) continue;
-            const d = s.userData;
-            d.age += delta;
-            if (d.age >= d.life) { s.visible = false; continue; }
-            s.scale.setScalar(d.size * (1 - d.age / d.life * 0.5));
-            s.material.opacity = 1 - d.age / d.life;
+            if (!s.alive) continue;
+            s.age += delta;
+            if (s.age >= s.life) { s.alive = false; continue; }
+            alive++;
+            sparks.add(s.position, s.size * (1 - s.age / s.life * 0.5), SPARK_COLOR.r, SPARK_COLOR.g, SPARK_COLOR.b, 1 - s.age / s.life);
         }
+        sparks.end();
+        const dust = this._dustBatch;
+        dust.begin();
         for (const s of this._dust) {
-            if (!s.visible) continue;
-            const d = s.userData;
-            d.age += delta;
-            const t = d.age / d.life;
-            if (t >= 1) { s.visible = false; continue; }
+            if (!s.alive) continue;
+            s.age += delta;
+            const t = s.age / s.life;
+            if (t >= 1) { s.alive = false; continue; }
+            alive++;
             s.position.y += 1.5 * delta;
-            s.scale.setScalar(d.size * (0.5 + 1.5 * t));
-            s.material.opacity = 0.7 * (1 - t);
+            dust.add(s.position, s.size * (0.5 + 1.5 * t), DUST_COLOR.r, DUST_COLOR.g, DUST_COLOR.b, 0.7 * (1 - t));
         }
+        dust.end();
+        this._active = alive > 0;
     }
 }
 
@@ -593,44 +597,50 @@ class WeaponSounds {
     }
 }
 
-// Leurres : boules de magnésium très lumineuses éjectées sous l'avion, qui tombent en brûlant ~3,5 s
+// Leurres : boules de magnésium très lumineuses éjectées sous l'avion, qui tombent en brûlant ~3,5 s. Un lot de
+// particules (voir Billboards.js) : un appel de dessin pour tous les leurres
+const FLARE_COLOR = new Color(0xfff0c0).multiplyScalar(8);   // > 1 : halo du bloom
 class Flares {
     constructor(group, glow) {
-        this._flares = Array.from({ length: 48 }, () => {
-            const sprite = new Sprite(new SpriteMaterial({ map: glow, color: 0xfff0c0, blending: AdditiveBlending, transparent: true, depthWrite: false }));
-            sprite.material.color.multiplyScalar(8);   // > 1 : halo du bloom
-            sprite.visible = false;
-            sprite.userData = { age: 0, velocity: new Vector3() };
-            group.add(sprite);
-            return sprite;
-        });
+        this._flares = Array.from({ length: 48 }, () => ({ alive: false, age: 0, position: new Vector3(), velocity: new Vector3() }));
+        this._batch = new Billboards(48, { map: glow, additive: true });
+        this._batch.visible = false;
+        group.add(this._batch);
         this._next = 0;
+        this._active = false;
     }
 
     // Salve à une position, avec la vitesse de l'avion ; renvoie la position moyenne (cible des missiles leurrés)
     burst(position, velocity, count = FLARE.count) {
         for (let i = 0; i < count; i++) {
-            const sprite = this._flares[this._next];
+            const flare = this._flares[this._next];
             this._next = (this._next + 1) % this._flares.length;
-            sprite.position.copy(position);
-            sprite.userData.age = 0;
-            sprite.userData.velocity.copy(velocity).multiplyScalar(0.6)
+            flare.position.copy(position);
+            flare.age = 0;
+            flare.velocity.copy(velocity).multiplyScalar(0.6)
                 .add(_v.set((Math.random() - 0.5) * 30, -15 - Math.random() * 10, (Math.random() - 0.5) * 30));
-            sprite.visible = true;
+            flare.alive = true;
         }
+        this._active = true;
     }
 
     update(delta) {
-        for (const sprite of this._flares) {
-            if (!sprite.visible) continue;
-            const d = sprite.userData;
+        if (!this._active) return;
+        let alive = 0;
+        const batch = this._batch;
+        batch.begin();
+        for (const d of this._flares) {
+            if (!d.alive) continue;
             d.age += delta;
-            if (d.age >= FLARE.life) { sprite.visible = false; continue; }
+            if (d.age >= FLARE.life) { d.alive = false; continue; }
+            alive++;
             d.velocity.multiplyScalar(Math.exp(-1.2 * delta));   // freinés par l'air
             d.velocity.y -= 9.81 * delta;
-            sprite.position.addScaledVector(d.velocity, delta);
-            sprite.scale.setScalar((5 + Math.random() * 3) * (1 - d.age / FLARE.life * 0.6));
+            d.position.addScaledVector(d.velocity, delta);
+            batch.add(d.position, (5 + Math.random() * 3) * (1 - d.age / FLARE.life * 0.6), FLARE_COLOR.r, FLARE_COLOR.g, FLARE_COLOR.b, 1);
         }
+        batch.end();
+        this._active = alive > 0;
     }
 }
 

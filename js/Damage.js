@@ -1,12 +1,11 @@
 import {
-    AdditiveBlending,
     CanvasTexture,
+    Color,
     Group,
-    Sprite,
-    SpriteMaterial,
     SRGBColorSpace,
     Vector3
 } from 'three';
+import { Billboards } from './Billboards.js';
 
 // Dégâts au combat (multijoueur) : obus de 20 mm du canon M61 et souffle des missiles air-sol (voir Weapons.js).
 // Chaque coup touche une partie de l'avion, qui a son propre effet sur le vol (FlightModel.damage) :
@@ -56,52 +55,53 @@ function puffTexture() {
 }
 
 // Traînée de fumée (et flammes) derrière un avion touché, ou derrière un missile. Bouffées dans le repère du monde :
-// elles restent sur place pendant que l'avion avance
+// elles restent sur place pendant que l'avion avance. Dessinées en deux lots (fumée, flammes : voir Billboards.js),
+// soit deux appels de dessin pour toute la traînée (avant : un par bouffée, jusqu'à 244 par traînée)
 class SmokeTrail {
     constructor(scene, { count = 90, color = 0x2a2a2a, size = 5, life = 4 } = {}) {
         this.scene = scene;
-        this.group = new Group();
-        this.group.frustumCulled = false;
         this.size = size;
         this.life = life;
         const map = puffTexture();
-        this._puffs = Array.from({ length: count }, () => {
-            const sprite = new Sprite(new SpriteMaterial({ map, color, transparent: true, depthWrite: false, opacity: 0 }));
-            sprite.visible = false;
-            sprite.userData = { age: 0, life: 1, velocity: new Vector3(), size: 1 };
-            this.group.add(sprite);
-            return sprite;
-        });
-        this._fire = Array.from({ length: 24 }, () => {
-            const sprite = new Sprite(new SpriteMaterial({ map, color: 0xff8a30, blending: AdditiveBlending, transparent: true, depthWrite: false }));
-            sprite.material.color.multiplyScalar(3);   // > 1 : halo du bloom
-            sprite.visible = false;
-            sprite.userData = { age: 0, life: 1, velocity: new Vector3(), size: 1 };
-            this.group.add(sprite);
-            return sprite;
-        });
+        this._color = new Color(color);
+        this._fireColor = new Color(0xff8a30).multiplyScalar(3);   // > 1 : halo du bloom
+        const particle = () => ({ alive: false, age: 0, life: 1, size: 1, opacity: 1, position: new Vector3(), velocity: new Vector3() });
+        this._puffs = Array.from({ length: count }, particle);
+        this._fire = Array.from({ length: 24 }, particle);
+        this._smokeBatch = new Billboards(count, { map });
+        this._fireBatch = new Billboards(24, { map, additive: true });
+        this._smokeBatch.visible = this._fireBatch.visible = false;
         this._next = 0;
         this._nextFire = 0;
         this._smokeTimer = 0;
         this._fireTimer = 0;
         this._last = null;
+        this._alive = 0;
+        this.group = new Group();   // (gardé : ajouté à la scène, contient les deux lots)
+        this.group.add(this._smokeBatch, this._fireBatch);
         scene.add(this.group);
     }
 
     _emit(pool, index, position, velocity, size, life) {
-        const sprite = pool[index];
-        sprite.position.copy(position);
-        sprite.userData.velocity.copy(velocity);
-        sprite.userData.age = 0;
-        sprite.userData.life = life * (0.8 + Math.random() * 0.4);
-        sprite.userData.size = size * (0.8 + Math.random() * 0.4);
-        sprite.visible = true;
+        const p = pool[index];
+        p.position.copy(position);
+        p.velocity.copy(velocity);
+        p.age = 0;
+        p.life = life * (0.8 + Math.random() * 0.4);
+        p.size = size * (0.8 + Math.random() * 0.4);
+        p.alive = true;
+        return p;
     }
 
     // level : 0 (rien) -> 1 (épaisse fumée noire) ; fire : flammes ; velocity : vitesse de l'avion (les bouffées en
     // gardent un peu)
     update(delta, position, level, fire = false, velocity = null) {
         if (this._last === null) this._last = position.clone();
+        // Rien à émettre ni à animer : aucun calcul (avion intact)
+        if (this._alive === 0 && level <= 0.02 && !fire) {
+            this._last.copy(position);
+            return;
+        }
         const moved = this._last.distanceTo(position);
         // Bouffées réparties sur le chemin parcouru depuis l'image précédente (traînée continue, même vite)
         if (level > 0.02) {
@@ -116,9 +116,8 @@ class SmokeTrail {
                     p.z += (Math.random() - 0.5) * 0.8;
                     _v.set((Math.random() - 0.5) * 1.5, 1 + Math.random(), (Math.random() - 0.5) * 1.5);
                     if (velocity) _v.addScaledVector(velocity, 0.08);
-                    this._emit(this._puffs, this._next, p, _v, this.size * (0.6 + level * 0.6), this.life);
-                    this._puffs[this._next].material.opacity = 0;
-                    this._puffs[this._next].userData.opacity = 0.35 + 0.5 * level;
+                    const puff = this._emit(this._puffs, this._next, p, _v, this.size * (0.6 + level * 0.6), this.life);
+                    puff.opacity = 0.35 + 0.5 * level;
                     this._next = (this._next + 1) % this._puffs.length;
                 }
             }
@@ -135,37 +134,46 @@ class SmokeTrail {
         }
         this._last.copy(position);
 
-        for (const sprite of this._puffs) {
-            if (!sprite.visible) continue;
-            const d = sprite.userData;
+        // Des plus anciennes aux plus récentes (vue de derrière, les plus lointaines d'abord)
+        let alive = 0;
+        const smoke = this._smokeBatch, c = this._color;
+        smoke.begin();
+        for (let k = 0, n = this._puffs.length; k < n; k++) {
+            const d = this._puffs[(this._next + k) % n];
+            if (!d.alive) continue;
             d.age += delta;
             const t = d.age / d.life;
             if (t >= 1) {
-                sprite.visible = false;
+                d.alive = false;
                 continue;
             }
-            sprite.position.addScaledVector(d.velocity, delta);
-            sprite.scale.setScalar(d.size * (0.6 + 2.2 * t));
-            sprite.material.opacity = d.opacity * Math.min(1, t * 8) * (1 - t);
+            alive++;
+            d.position.addScaledVector(d.velocity, delta);
+            smoke.add(d.position, d.size * (0.6 + 2.2 * t), c.r, c.g, c.b, d.opacity * Math.min(1, t * 8) * (1 - t));
         }
-        for (const sprite of this._fire) {
-            if (!sprite.visible) continue;
-            const d = sprite.userData;
+        smoke.end();
+        const flames = this._fireBatch, f = this._fireColor;
+        flames.begin();
+        for (let k = 0, n = this._fire.length; k < n; k++) {
+            const d = this._fire[(this._nextFire + k) % n];
+            if (!d.alive) continue;
             d.age += delta;
             const t = d.age / d.life;
             if (t >= 1) {
-                sprite.visible = false;
+                d.alive = false;
                 continue;
             }
-            sprite.position.addScaledVector(d.velocity, delta);
-            sprite.scale.setScalar(d.size * (1 - 0.6 * t));
-            sprite.material.opacity = 1 - t;
+            alive++;
+            d.position.addScaledVector(d.velocity, delta);
+            flames.add(d.position, d.size * (1 - 0.6 * t), f.r, f.g, f.b, 1 - t);
         }
+        flames.end();
+        this._alive = alive;
     }
 
     // Plus rien n'est émis ; true quand toutes les bouffées ont disparu
     get empty() {
-        return !this._puffs.some((s) => s.visible) && !this._fire.some((s) => s.visible);
+        return !this._puffs.some((p) => p.alive) && !this._fire.some((p) => p.alive);
     }
 
     // Recommence ailleurs sans traînée entre les deux positions (réapparition)
@@ -175,7 +183,8 @@ class SmokeTrail {
 
     dispose() {
         this.scene.remove(this.group);
-        for (const sprite of [...this._puffs, ...this._fire]) sprite.material.dispose();
+        this._smokeBatch.dispose();
+        this._fireBatch.dispose();
     }
 }
 const _p = new Vector3(), _v = new Vector3();
