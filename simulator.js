@@ -1675,16 +1675,39 @@ function pseudo() {
 }
 
 document.getElementById('multi-creer').addEventListener('click', () => multiplayer.create(pseudo()));
-document.getElementById('multi-rejoindre').addEventListener('click', () => {
-    if (multiCode.value.trim()) multiplayer.join(multiCode.value, pseudo());
-});
+// Rejoindre : le code tapé. Celui de la partie où l'on est déjà (créée dans cette fenêtre) : on y reste. Avant,
+// « Rejoindre » quittait d'abord la partie (seul dedans, elle disparaissait), puis la cherchait : « Aucune partie avec le
+// code… » alors que le code était bon
+function joinTyped() {
+    const code = multiCode.value.trim().toUpperCase();
+    if (!code) return;
+    if (code === multiplayer.code) {
+        multiStatut.textContent = `Vous êtes déjà dans la partie ${code} : les autres joueurs tapent ce code sur leur appareil (ou ouvrent le lien)`;
+        multiStatut.classList.remove('erreur');
+        return;
+    }
+    multiplayer.join(code, pseudo());
+}
+document.getElementById('multi-rejoindre').addEventListener('click', joinTyped);
 multiCode.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && multiCode.value.trim()) multiplayer.join(multiCode.value, pseudo());
+    if (event.key === 'Enter') joinTyped();
 });
 document.getElementById('multi-quitter').addEventListener('click', () => multiplayer.leave());
 document.getElementById('multi-fermer').addEventListener('click', () => multiDialog.close());
 
 const multiPartage = document.getElementById('multi-partage');
+const multiCodePartie = document.getElementById('multi-code-partie');
+const multiCodeValeur = document.getElementById('multi-code-valeur');
+document.getElementById('multi-copier-code').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    try {
+        await navigator.clipboard.writeText(multiplayer.code ?? '');
+        button.textContent = 'Code copié ✓';
+        setTimeout(() => { button.textContent = 'Copier le code'; }, 2000);
+    } catch {
+        getSelection().selectAllChildren(multiCodeValeur);   // copie manuelle (Ctrl+C)
+    }
+});
 const multiLien = document.getElementById('multi-lien');
 
 // Vent de la partie : tiré au hasard à chaque vol en solo ; en multijoueur, tiré du code de la partie (le même pour
@@ -1706,6 +1729,9 @@ multiplayer.addEventListener('status', ({ detail }) => {
     updateMultiResume();
     multiPartage.hidden = !multiplayer.code;
     multiLien.value = multiplayer.link;
+    // Code de la partie : en grand (la case CODE sert seulement à rejoindre la partie d'un autre)
+    multiCodePartie.hidden = !multiplayer.code;
+    multiCodeValeur.textContent = multiplayer.code ?? '';
     closeGameButton.hidden = !(multiplayer.code && multiplayer.isHost);
 });
 // Créateur de la partie : « Fermer la partie » la termine pour tous (les autres joueurs repassent en solo)

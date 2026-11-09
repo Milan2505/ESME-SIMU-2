@@ -2510,6 +2510,34 @@ body:has(#simulator.jeu) {
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* Code de la partie en cours : en grand, bien visible */
+#multi-dialog #multi-code-partie {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  background: rgba(143, 211, 255, 0.12);
+  border: 1px solid rgba(143, 211, 255, 0.5);
+  border-radius: 6px;
+}
+#multi-dialog #multi-code-partie[hidden] {
+  display: none;
+}
+#multi-dialog #multi-code-partie span {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+#multi-dialog #multi-code-valeur {
+  flex: 1;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 30px;
+  letter-spacing: 6px;
+  color: #fff;
+  user-select: all;
+}
 #multi-dialog #multi-statut {
   margin: 14px 0 6px;
   padding: 8px 12px;
