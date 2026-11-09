@@ -27,9 +27,11 @@ const PULL_UP_HOLD = 1.2;       // s : « PULL UP » continue un peu après la s
 // Phrases, priorité (0 : la plus urgente, coupe les autres) et répétition (s ; 0 : une fois par apparition)
 const PHRASES = {
     pullUp:   { text: 'Pull up. Pull up.', priority: 0, repeat: 0.3 },
+    missile:  { text: 'Missile. Missile.', priority: 1, repeat: 0 },     // missile air-air tiré sur nous
     fireL:    { text: 'Warning. Engine fire left. Engine fire left.', priority: 1, repeat: 5 },
     fireR:    { text: 'Warning. Engine fire right. Engine fire right.', priority: 1, repeat: 5 },
     overG:    { text: 'Over G. Over G.', priority: 2, repeat: 2.5 },
+    lock:     { text: 'Lock. Lock.', priority: 2, repeat: 0 },           // autodirecteur de l'AIM-9 verrouillé : tirez
     altitude: { text: 'Altitude. Altitude.', priority: 2, repeat: 0 },
     engineL:  { text: 'Left engine out.', priority: 3, repeat: 0 },
     engineR:  { text: 'Right engine out.', priority: 3, repeat: 0 },
@@ -72,6 +74,7 @@ class F15Warnings {
         this._pullUpHold = 0;
         this._audio = null;
         this.volume = 1;
+        this._announced = new Set();      // annonces ponctuelles demandées (lock, missile)
     }
 
     // Calcul des phrases à l'avance (une fois, voix neuronale)
@@ -178,6 +181,14 @@ class F15Warnings {
         this._speaking = speaking;
     }
 
+    // Annonce ponctuelle de la voix (« Lock, lock », « Missile, missile »), dite une fois
+    announce(key) {
+        if (!PHRASES[key]) return;
+        this._said.delete(key);
+        this._next.delete(key);
+        this._announced.add(key);
+    }
+
     // Clic sur MASTER CAUTION : voyant éteint jusqu'à la prochaine panne
     acknowledge() {
         this._acked = new Set(CAUTIONS.filter((key) => this.alarms[key]));
@@ -199,6 +210,7 @@ class F15Warnings {
             this.alarms = {};
             this._active.clear();
             this._said.clear();
+            this._announced.clear();
             this._previousCautions.clear();
             this._masterCaution = false;
             this._altArmed = false;
@@ -320,6 +332,7 @@ class F15Warnings {
                 this._next.delete(key);
             }
         }
+        for (const key of this._announced) this._active.add(key);
         // Phrase finie : répétée après son délai
         if (this._speaking?.done) {
             this._next.set(this._speaking.key, this._time + PHRASES[this._speaking.key].repeat);
@@ -343,6 +356,7 @@ class F15Warnings {
         }
         this._say(best);
         this._said.add(best);
+        if (this._announced.delete(best)) this._active.delete(best);
         // (redite à la fin de la phrase ; sans son possible : dans quelques secondes)
         this._next.set(best, this._speaking ? Infinity : this._time + PHRASES[best].repeat + 2);
     }

@@ -262,6 +262,13 @@ class Multiplayer extends EventTarget {
         if (this._joined) this._publish({ missile: { p: from.toArray().map(round), v: velocity.toArray().map(round), t: target.toArray().map(round) } });
     }
 
+    // Combat : missile air-air tiré sur un joueur (départ, vitesse de l'avion, identifiant de la cible)
+    sendAAMissile({ from, velocity, targetId }) {
+        if (this._joined && ID_PATTERN.test(targetId)) {
+            this._publish({ aam: { p: from.toArray().map(round), v: velocity.toArray().map(round), t: targetId } });
+        }
+    }
+
     // Combat : nous venons d'être abattus (by : identifiant du tireur, ou null)
     sendKill(by, reason) {
         if (this._joined) this._publish({ kill: { by: by ?? '', r: String(reason).slice(0, 80) } });
@@ -415,6 +422,16 @@ class Multiplayer extends EventTarget {
             const from = numbers(data.missile.p, 3), velocity = numbers(data.missile.v, 3), target = numbers(data.missile.t, 3);
             if (player && from && velocity && target) {
                 this.dispatchEvent(new CustomEvent('missile', { detail: { id, name: player.name, from, velocity, target } }));
+            }
+            return;
+        }
+        // Combat : missile air-air tiré par un joueur (cible : un joueur, peut-être nous)
+        if (data.aam && typeof data.aam === 'object') {
+            const player = this.players.get(id);
+            const from = numbers(data.aam.p, 3), velocity = numbers(data.aam.v, 3);
+            const targetId = typeof data.aam.t === 'string' && ID_PATTERN.test(data.aam.t) ? data.aam.t : null;
+            if (player && from && velocity && targetId) {
+                this.dispatchEvent(new CustomEvent('aamissile', { detail: { id, name: player.name, from, velocity, targetId, atMe: targetId === this.id } }));
             }
             return;
         }

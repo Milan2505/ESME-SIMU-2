@@ -57,6 +57,23 @@ const MISSILE = {
     rails: [new Vector3(-2.6, -0.55, 1.2), new Vector3(2.6, -0.55, 1.2)],   // pylônes sous les ailes
     terminalDive: deg(30),            // piqué minimal sur la croix
 };
+// Missile air-air AIM-9 Sidewinder (autodirecteur infrarouge) : verrouillage automatique d'un avion devant le nez,
+// puis il le poursuit (navigation avec anticipation, virage limité), fusée de proximité
+const AAM = {
+    maxSpeed: 850,                    // m/s (~Mach 2,5)
+    acceleration: 300,                // m/s² (moteur-fusée)
+    minRange: 300,                    // m
+    maxRange: 10000,                  // m
+    seeker: deg(25),                  // cône où l'autodirecteur accroche une cible
+    keep: deg(35),                    // il la garde jusqu'à cet angle
+    lockTime: 1.2,                    // s pour verrouiller
+    turnG: 35,                        // facteur de charge maxi du missile
+    life: 20,                         // s : au-delà, autodestruction
+    fuse: 12,                         // m : fusée de proximité
+    reload: 2,                        // s entre deux tirs
+};
+const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
+const WEAPON_ORDER = ['gun', 'aa', 'missile'];
 const MAX_BULLETS = 500;
 const UNLIMITED = true;              // munitions illimitées (obus et missiles ne s'épuisent pas)
 // Rythme du combat (munitions illimitées) : le canon chauffe, le missile se recharge
@@ -329,6 +346,88 @@ class Missile {
     }
 }
 
+// Missile air-air : vole droit devant à la sortie du rail, puis rallie sa cible en visant le point où elle sera
+// (anticipation), avec un virage limité par son facteur de charge ; explose à moins de AAM.fuse m de la cible
+class AAMissile {
+    constructor(scene, mesh, glow, { from, velocity, targetId, ownerId, ownerName, own }) {
+        this.scene = scene;
+        this.targetId = targetId;
+        this.ownerId = ownerId;
+        this.ownerName = ownerName;
+        this.own = own;
+        this.object = mesh.clone();
+        this.object.scale.setScalar(1.2);
+        this.flame = new Sprite(new SpriteMaterial({ map: glow, color: 0xffb060, blending: AdditiveBlending, transparent: true, depthWrite: false }));
+        this.flame.material.color.multiplyScalar(6);
+        this.flame.position.set(0, 0, 1.4);
+        this.object.add(this.flame);
+        scene.add(this.object);
+        this.trail = new SmokeTrail(scene, { count: 220, color: 0xe6e6e6, size: 1.8, life: 6 });
+        this.position = from.clone();
+        this.speed = Math.max(150, velocity.length());
+        this.direction = velocity.lengthSq() > 1 ? velocity.clone().normalize() : new Vector3(0, 0, -1);
+        this.age = 0;
+        this.exploded = false;
+        this.done = false;
+        this.miss = Infinity;          // distance à la cible au moment de l'explosion
+        this._aim = new Vector3();
+        this._last = new Vector3();
+    }
+
+    // target : { position, velocity } ou null (cible perdue) ; true quand le missile explose
+    update(delta, ground, target) {
+        if (this.exploded) {
+            this.trail.update(delta, this.position, 0);
+            this.done = this.trail.empty;
+            return false;
+        }
+        this.age += delta;
+        this.speed = Math.min(AAM.maxSpeed, this.speed + AAM.acceleration * delta);
+        // Guidage (après 0,3 s de vol droit : dégagement de l'avion)
+        if (target && this.age > 0.3) {
+            const distance = this.position.distanceTo(target.position);
+            const time = distance / Math.max(100, this.speed);
+            this._aim.copy(target.position).addScaledVector(target.velocity, time).sub(this.position).normalize();
+            const angle = this.direction.angleTo(this._aim);
+            const maxTurn = AAM.turnG * 9.81 / this.speed * delta;
+            if (angle > 1e-5) this.direction.lerp(this._aim, Math.min(1, maxTurn / angle)).normalize();
+        }
+        this._last.copy(this.position);
+        this.position.addScaledVector(this.direction, this.speed * delta);
+        this.object.position.copy(this.position);
+        this.object.quaternion.setFromUnitVectors(_z.set(0, 0, -1), this.direction);
+        this.flame.scale.setScalar(1.6 + Math.random() * 0.8);
+        this.trail.update(delta, this.position, 0.6, false);
+        // Fusée de proximité : point du trajet le plus proche de la cible
+        if (target) {
+            _d.subVectors(this.position, this._last);
+            const t = MathUtils.clamp(_d.dot(_v.subVectors(target.position, this._last)) / Math.max(1e-6, _d.lengthSq()), 0, 1);
+            _a.copy(this._last).addScaledVector(_d, t);
+            const miss = _a.distanceTo(target.position);
+            // (dans le rayon de la fusée : explose au point le plus proche, pas dès l'entrée dans le rayon)
+            if (miss <= AAM.fuse && t < 1) {
+                this.miss = miss;
+                this.position.copy(_a);
+                return this._explode();
+            }
+        }
+        if (this.position.y < ground(this.position.x, this.position.z) || this.age > AAM.life) return this._explode();
+        return false;
+    }
+
+    _explode() {
+        this.exploded = true;
+        this.scene.remove(this.object);
+        return true;
+    }
+
+    dispose() {
+        this.scene.remove(this.object);
+        this.flame.material.dispose();
+        this.trail.dispose();
+    }
+}
+
 // Sons synthétisés : rafale du canon (« brrrt » à 100 coups/s, en boucle tant qu'on tire), départ du missile
 class WeaponSounds {
     constructor() {
@@ -400,6 +499,33 @@ class WeaponSounds {
         this.remote.filter.frequency.setTargetAtTime(1200 + 2000 * remote, now, 0.05);
     }
 
+    // Autodirecteur de l'AIM-9 dans le casque : 'off', 'search' (grondement grave), 'lock' (tonalité aiguë)
+    seeker(state) {
+        if (state === this._seekerState) return;
+        this._seekerState = state;
+        if (state !== 'off' && !this._init()) return;
+        if (!this.ctx) return;
+        if (!this._seeker) {
+            const osc = this.ctx.createOscillator();
+            osc.type = 'triangle';
+            const lfo = this.ctx.createOscillator();
+            lfo.frequency.value = 18;
+            const depth = this.ctx.createGain();
+            depth.gain.value = 60;
+            lfo.connect(depth).connect(osc.frequency);
+            const gain = this.ctx.createGain();
+            gain.gain.value = 0;
+            osc.connect(gain).connect(this.master);
+            osc.start();
+            lfo.start();
+            this._seeker = { osc, gain, depth };
+        }
+        const now = this.ctx.currentTime, k = this._seeker;
+        k.gain.gain.setTargetAtTime(state === 'off' ? 0 : state === 'lock' ? 0.12 : 0.07, now, 0.05);
+        k.osc.frequency.setTargetAtTime(state === 'lock' ? 1250 : 420, now, 0.03);
+        k.depth.gain.setTargetAtTime(state === 'lock' ? 8 : 60, now, 0.05);
+    }
+
     whoosh(volume = 1) {
         if (!this._init()) return;
         const source = this.ctx.createBufferSource();
@@ -436,6 +562,12 @@ class Weapons extends EventTarget {
         this.heat = 0;                 // chauffe du canon (0 -> 1)
         this.overheated = false;       // surchauffe : le canon ne tire plus jusqu'à refroidissement
         this.reload = 0;               // s avant que le missile suivant soit prêt
+        this.aaReload = 0;             // s avant que le missile air-air suivant soit prêt
+        this.aaInFlight = [];          // missiles air-air en vol (les nôtres et ceux des autres)
+        this.lockId = null;            // avion accroché par l'autodirecteur (identifiant du joueur)
+        this.lockName = '';
+        this.lockProgress = 0;         // 0 -> 1 : verrouillage en cours
+        this.locked = false;           // verrouillé : tirez
         this.target = null;            // point du sol sous la croix rouge (mode missile) ; null : rien
         this.targetLocked = false;
         this.inFlight = [];            // missiles en vol
@@ -513,11 +645,22 @@ class Weapons extends EventTarget {
         this.heat = 0;
         this.overheated = false;
         this.reload = 0;
+        this.aaReload = 0;
+        this._resetLock();
+    }
+
+    _resetLock() {
+        if (this.locked) this.dispatchEvent(new CustomEvent('lockLost'));
+        this.lockId = null;
+        this.lockName = '';
+        this.lockProgress = 0;
+        this.locked = false;
     }
 
     // Change d'arme (canon <-> missile) ; arme donnée : celle-là
-    select(weapon = this.selected === 'gun' ? 'missile' : 'gun') {
+    select(weapon = WEAPON_ORDER[(WEAPON_ORDER.indexOf(this.selected) + 1) % WEAPON_ORDER.length]) {
         if (weapon === this.selected) return;
+        this._resetLock();
         this.selected = weapon;
         this.trigger = false;
         this.switchFlash = 0.5;
@@ -608,6 +751,68 @@ class Weapons extends EventTarget {
         return true;
     }
 
+    // Autodirecteur : accroche l'avion le plus proche de l'axe du nez (dans le cône, à portée), le verrouille en
+    // AAM.lockTime ; événements 'lock' (verrouillé : « LOCK LOCK ») et 'lockLost'
+    _updateLock(delta, own, targets) {
+        if (this.selected !== 'aa' || !own.armed) {
+            if (this.lockId || this.lockProgress) this._resetLock();
+            return;
+        }
+        _fwd.set(0, 0, -1).applyQuaternion(own.aircraft.quaternion);
+        const angleTo = (t) => {
+            const distance = t.group.position.distanceTo(own.aircraft.position);
+            if (distance < AAM.minRange * 0.5 || distance > AAM.maxRange) return Infinity;
+            return _fwd.angleTo(_d.subVectors(t.group.position, own.aircraft.position));
+        };
+        let current = this.lockId ? targets.find((t) => t.id === this.lockId) : null;
+        if (current && angleTo(current) > AAM.keep) current = null;
+        if (!current) {
+            if (this.lockId) this._resetLock();
+            let best = null, bestAngle = AAM.seeker;
+            for (const t of targets) {
+                const angle = angleTo(t);
+                if (angle < bestAngle) { best = t; bestAngle = angle; }
+            }
+            if (!best) return;
+            this.lockId = best.id;
+            this.lockName = best.name;
+            this.lockProgress = 0;
+            current = best;
+        }
+        this.lockProgress = Math.min(1, this.lockProgress + delta / AAM.lockTime);
+        if (this.lockProgress >= 1 && !this.locked) {
+            this.locked = true;
+            this.dispatchEvent(new CustomEvent('lock', { detail: { id: current.id, name: current.name } }));
+        }
+    }
+
+    // Tir d'un missile air-air sur l'avion verrouillé
+    fireAA(aircraft, velocity, ownId, ownName) {
+        if (!this.locked || !this.lockId) return this._message('Pas de verrouillage : gardez un avion dans le cercle');
+        if (this.aaReload > 0) return false;
+        const rail = MISSILE.rails[this._railIndex++ % MISSILE.rails.length];
+        const from = rail.clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
+        const data = { from, velocity: velocity.clone(), targetId: this.lockId };
+        this.aaReload = AAM.reload;
+        this._launchAA({ ...data, ownerId: ownId, ownerName: ownName, own: true });
+        this.dispatchEvent(new CustomEvent('aamissile', { detail: data }));
+        return true;
+    }
+
+    // Missile air-air tiré par un autre joueur (refait chez nous, sur la même cible)
+    addRemoteAA(data, ownerId, ownerName, listener) {
+        const missile = this._launchAA({ ...data, ownerId, ownerName, own: false });
+        const distance = listener ? missile.position.distanceTo(listener) : 0;
+        this.sounds.whoosh(MathUtils.clamp(80 / Math.max(1, distance), 0, 0.8));
+    }
+
+    _launchAA(options) {
+        const missile = new AAMissile(this.scene, this._missileMesh, this._glow, options);
+        this.aaInFlight.push(missile);
+        if (options.own) this.sounds.whoosh(1);
+        return missile;
+    }
+
     // Missile tiré par un autre joueur (même trajectoire que chez lui)
     addRemoteMissile(data, ownerId, ownerName, listener) {
         const missile = this._launch({ ...data, ownerId, ownerName, own: false });
@@ -683,6 +888,9 @@ class Weapons extends EventTarget {
         // Notre canon : les tubes se lancent, puis 100 obus par seconde tant que la détente est tenue
         this.switchFlash = Math.max(0, this.switchFlash - delta);
         this.reload = Math.max(0, this.reload - delta);
+        this.aaReload = Math.max(0, this.aaReload - delta);
+        this._updateLock(delta, own, targets);
+        this.sounds.seeker(this.selected === 'aa' && own.armed ? (this.locked ? 'lock' : 'search') : 'off');
         const wantFire = this.trigger && own.armed && this.ammo > 0 && this.selected === 'gun' && !this.overheated;
         this._spin = wantFire ? Math.min(1, this._spin + delta / GUN.spinUp) : 0;
         this.firing = wantFire && this._spin >= 1;
@@ -804,6 +1012,36 @@ class Weapons extends EventTarget {
             }
         }
 
+        // Missiles air-air : cible = avion d'un autre joueur, ou le nôtre (missile d'un autre joueur sur nous)
+        for (let i = this.aaInFlight.length - 1; i >= 0; i--) {
+            const missile = this.aaInFlight[i];
+            let target = null;
+            if (own.id && missile.targetId === own.id) target = own.alive ? { position: own.aircraft.position, velocity: own.velocity } : null;
+            else {
+                const t = targets.find((x) => x.id === missile.targetId);
+                if (t) target = { position: t.group.position, velocity: t.velocity ?? _v.set(0, 0, 0) };
+            }
+            if (missile.update(delta, ground, target)) {
+                const hit = missile.miss <= AAM.fuse;
+                // Notre missile explose près de sa cible : éclats -> coups au but envoyés au joueur touché
+                if (missile.own && hit && missile.targetId !== own.id) {
+                    const count = missile.miss < 5 ? 20 : missile.miss < 9 ? 13 : 8;
+                    const zones = this._pendingHits.get(missile.targetId) ?? [];
+                    for (let k = 0; k < count; k++) zones.push(AAM_ZONES[Math.floor(Math.random() * AAM_ZONES.length)]);
+                    this._pendingHits.set(missile.targetId, zones);
+                    this.hitMarker = 0.6;
+                }
+                this.dispatchEvent(new CustomEvent('explosion', { detail: {
+                    position: missile.position.clone(), ownerId: missile.ownerId, ownerName: missile.ownerName, own: missile.own,
+                    kind: 'aa', hit, targetId: missile.targetId,
+                } }));
+            }
+            if (missile.done) {
+                missile.dispose();
+                this.aaInFlight.splice(i, 1);
+            }
+        }
+
         // Croix rouge : au sol, assez grande pour se voir de loin
         const showCross = this.target && own.armed && this.selected === 'missile';
         this.cross.visible = Boolean(showCross);
@@ -852,6 +1090,8 @@ class Weapons extends EventTarget {
             if (missile.marker) this.group.remove(missile.marker);
             missile.dispose();
         }
+        for (const missile of this.aaInFlight) missile.dispose();
+        this.aaInFlight.length = 0;
         this.inFlight.length = 0;
         for (const bullet of this._bullets) bullet.alive = false;
         this.tracers.count = 0;
@@ -864,4 +1104,4 @@ class Weapons extends EventTarget {
     }
 }
 
-export { Weapons, GUN, MISSILE, UNLIMITED, MISSILE_RELOAD };
+export { Weapons, GUN, MISSILE, UNLIMITED, MISSILE_RELOAD, AAM };

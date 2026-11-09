@@ -3842,6 +3842,8 @@ view.addEventListener('pointerdown', (event) => {
         if (weapons.selected === 'gun') {
             mouseFiring = true;
             setTrigger(true);
+        } else if (weapons.selected === 'aa') {
+            fireAA();
         } else {
             camera.updateMatrixWorld();
             fireMissile(screenNdc(event));
@@ -3891,11 +3893,36 @@ function fireMissile(ndc = null) {
     camera.updateMatrixWorld();
     weapons.fireMissileAt(camera, ndc ?? pointerNdc, aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
 }
+// Missile air-air sur l'avion verrouillé
+function fireAA() {
+    if (!weaponsArmed()) return weaponHud.message("Armes : seulement en vol (décollez d'abord)");
+    weapons.fireAA(aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
+}
 // Tir avec l'arme choisie (clavier ↑, bouton FEU)
 function pullTrigger(on) {
     if (weapons.selected === 'gun') setTrigger(on);
-    else if (on) fireMissile();
+    else if (!on) return;
+    else if (weapons.selected === 'aa') fireAA();
+    else fireMissile();
 }
+// Autodirecteur verrouillé : « LOCK, LOCK » (voix d'alarme du F-15)
+weapons.addEventListener('lock', ({ detail }) => {
+    f15Warnings.announce('lock');
+    weaponHud.message(`LOCK : ${detail.name} — tirez !`, true);
+});
+// Notre missile air-air part : refait chez les autres joueurs (et la cible est prévenue)
+weapons.addEventListener('aamissile', ({ detail }) => {
+    multiplayer.sendAAMissile(detail);
+    weaponHud.message('FOX 2 !');
+});
+multiplayer.addEventListener('aamissile', ({ detail }) => {
+    weapons.addRemoteAA({ from: new THREE.Vector3().fromArray(detail.from), velocity: new THREE.Vector3().fromArray(detail.velocity),
+        targetId: detail.targetId }, detail.id, detail.name, camera.position);
+    if (detail.atMe && !controls.isCrashed()) {
+        if (aircraftType === 'f15') f15Warnings.announce('missile');
+        weaponHud.message(`MISSILE EN APPROCHE ! (${detail.name})`, true);
+    }
+});
 window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code !== 'ArrowUp' && event.code !== 'ArrowDown') return;
@@ -3925,6 +3952,7 @@ weapons.addEventListener('explosion', ({ detail }) => {
     sounds.play('crash', { volume: THREE.MathUtils.clamp(150 / distance, 0.08, 1), delay: Math.min(4, distance / 343) });
     if (distance < 400) shake = Math.max(shake, 0.8 * (1 - distance / 400));
     if (controls.isCrashed() || choosingSpawn || inHangar) return;
+    if (detail.kind === 'aa') return;   // (missile air-air : les dégâts viennent du tireur, voir Weapons.js)
     const attacker = detail.own ? { id: null, name: 'votre propre missile' } : { id: detail.ownerId, name: detail.ownerName };
     damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType === 'c172');
 });
@@ -3999,7 +4027,7 @@ function updateCombat(frameDelta) {
     // Mode missile : la croix rouge suit la souris au sol (au centre de l'écran sans souris)
     if (armed && weapons.selected === 'missile') weapons.aim(camera, pointerNdc);
     weapons.update(delta, {
-        own: { aircraft, velocity: controls.model.velocity, armed },
+        own: { aircraft, velocity: controls.model.velocity, armed, id: multiplayer.id, alive: !controls.isCrashed() && !choosingSpawn },
         camera, targets, cabin: !chaseView,
         shooters: targets.filter((t) => t.firing && t.type === 'f15').map((t) => ({ id: t.id, matrix: t.group.matrixWorld, velocity: t.velocity })),
     });

@@ -1,5 +1,5 @@
 import { MathUtils, Vector3 } from 'three';
-import { GUN, MISSILE, MISSILE_RELOAD } from './Weapons.js';
+import { GUN, MISSILE, MISSILE_RELOAD, AAM } from './Weapons.js';
 
 // Affichage du combat, par-dessus l'écran de vol (vue cabine et extérieure) :
 // - mode air-air : réticule du canon (point où seront les obus à la distance de la cible la plus proche), cadres sur
@@ -170,6 +170,63 @@ class WeaponHud {
                     if (weapons.overheated) ctx.fillText('SURCHAUFFE', pipper.x, pipper.y - 38);
                     else if (onTarget) ctx.fillText('TIR', pipper.x, pipper.y - 38);
                 }
+            } else if (weapons.selected === 'aa') {
+                // Missile air-air : cercle de l'autodirecteur autour de l'axe du nez ; avion accroché : losange qui se
+                // resserre pendant le verrouillage, puis carré rouge « LOCK » et « SHOOT »
+                _lead.set(0, 0, -3000).applyQuaternion(s.aircraft.quaternion).add(s.aircraft.position);
+                const bore = this._project(_lead, camera);
+                const radius = Math.tan(AAM.seeker) * focal;
+                if (bore) {
+                    ctx.strokeStyle = ctx.fillStyle = weapons.locked ? RED : 'rgba(255, 210, 70, 0.9)';
+                    ctx.setLineDash([10, 8]);
+                    ctx.beginPath();
+                    ctx.arc(bore.x, bore.y, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.textAlign = 'center';
+                    ctx.fillText(weapons.locked ? 'AIM-9 · LOCK' : weapons.lockId ? 'AIM-9 · VERROUILLAGE…' : 'AIM-9 · CHERCHE', bore.x, bore.y + radius + 14);
+                }
+                for (const b of boxes) {
+                    const half = MathUtils.clamp(14 / b.distance * focal, 9, 60);
+                    const isLock = b.t.id === weapons.lockId;
+                    ctx.textAlign = 'center';
+                    if (isLock && weapons.locked) {
+                        ctx.strokeStyle = ctx.fillStyle = RED;
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(b.screen.x - half - 6, b.screen.y - half - 6, half * 2 + 12, half * 2 + 12);
+                        ctx.lineWidth = 2;
+                        ctx.font = 'bold 15px DejaVu Sans Mono, monospace';
+                        ctx.fillText('LOCK', b.screen.x, b.screen.y - half - 16);
+                        ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+                        ctx.fillText(`${b.t.name} ${formatKm(b.distance)}`, b.screen.x, b.screen.y + half + 18);
+                    } else if (isLock) {
+                        const r = half + 6 + 40 * (1 - weapons.lockProgress);
+                        ctx.strokeStyle = ctx.fillStyle = 'rgba(255, 210, 70, 1)';
+                        ctx.beginPath();
+                        ctx.moveTo(b.screen.x, b.screen.y - r); ctx.lineTo(b.screen.x + r, b.screen.y);
+                        ctx.lineTo(b.screen.x, b.screen.y + r); ctx.lineTo(b.screen.x - r, b.screen.y);
+                        ctx.closePath();
+                        ctx.stroke();
+                        ctx.fillText(`${b.t.name} ${formatKm(b.distance)}`, b.screen.x, b.screen.y + r + 12);
+                    } else {
+                        ctx.strokeStyle = ctx.fillStyle = GREEN;
+                        ctx.strokeRect(b.screen.x - half, b.screen.y - half, half * 2, half * 2);
+                        ctx.fillText(`${b.t.name} ${formatKm(b.distance)}`, b.screen.x, b.screen.y + half + 11);
+                    }
+                }
+                // Verrouillé : « SHOOT » clignotant sous le cercle
+                if (weapons.locked && bore && Math.floor(performance.now() / 200) % 2 === 0) {
+                    ctx.fillStyle = RED;
+                    ctx.font = 'bold 26px DejaVu Sans Mono, monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('SHOOT', bore.x, bore.y + radius + 42);
+                    ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+                }
+                if (!s.targets.length && bore) {
+                    ctx.fillStyle = 'rgba(255, 210, 70, 0.9)';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Aucun avion ennemi (multijoueur)', bore.x, bore.y - radius - 12);
+                }
             } else {
                 // Mode missile : les avions restent encadrés ; viseur au sol (losange qui tourne), anneau de rechargement
                 ctx.strokeStyle = 'rgba(90, 255, 130, 0.5)';
@@ -270,14 +327,19 @@ class WeaponHud {
 
     // Deux cartes : CANON / MISSILE ; l'arme choisie est éclairée (et grossit un instant au changement)
     _cards(ctx, W, weapons, touch) {
-        const cw = 190, ch = 62, gap = 14, top = 18;
-        const x0 = W / 2 - cw - gap / 2;
+        const gap = 12, ch = 62, top = 18;
+        const cw = Math.min(180, (W - 24 - 2 * gap) / 3);
+        const x0 = W / 2 - (3 * cw + 2 * gap) / 2;
         const blink = Math.floor(performance.now() / 250) % 2 === 0;
         const cards = [
             { key: 'gun', title: 'CANON M61', color: [90, 255, 130],
                 value: weapons.heat, bar: weapons.overheated ? (blink ? 'SURCHAUFFE' : '') : weapons.heat > 0.7 ? 'CHAUD' : 'CHAUFFE',
                 barColor: weapons.overheated || weapons.heat > 0.7 ? '#ff4a3a' : weapons.heat > 0.4 ? '#ffb000' : '#4cd964' },
-            { key: 'missile', title: 'MISSILE AGM-65', color: [255, 80, 70],
+            { key: 'aa', title: 'AIM-9 AIR-AIR', color: [255, 210, 70],
+                value: weapons.aaReload > 0 ? 1 - weapons.aaReload / AAM.reload : weapons.locked ? 1 : weapons.lockProgress,
+                bar: weapons.aaReload > 0 ? 'RECHARGE' : weapons.locked ? (blink ? 'LOCK' : '') : weapons.lockId ? 'VERROU…' : 'CHERCHE',
+                barColor: weapons.aaReload > 0 ? '#ffb000' : weapons.locked ? '#ff4a3a' : '#ffd24a' },
+            { key: 'missile', title: 'AGM-65 AIR-SOL', color: [255, 80, 70],
                 value: weapons.reload > 0 ? 1 - weapons.reload / MISSILE_RELOAD : 1, bar: weapons.reload > 0 ? 'RECHARGE' : 'PRÊT',
                 barColor: weapons.reload > 0 ? '#ffb000' : '#4cd964' },
         ];
@@ -312,10 +374,10 @@ class WeaponHud {
             }
             ctx.textAlign = 'left';
             ctx.font = `bold ${active ? 15 : 13}px DejaVu Sans Mono, monospace`;
-            ctx.fillText(card.title, x + 46, y + 20);
+            ctx.fillText(card.title, x + 46, y + 20, w - 54);
             ctx.font = 'bold 11px DejaVu Sans Mono, monospace';
             ctx.fillStyle = '#d8dde3';
-            ctx.fillText(active ? 'CHOISI · ∞' : '∞', x + 46, y + 37);
+            ctx.fillText(active ? 'CHOISI · ∞' : '∞', x + 46, y + 37, w - 120);
             // Jauge (chauffe du canon, rechargement du missile)
             const bx = x + 10, by = y + h - 14, bw = w - 20;
             ctx.fillStyle = 'rgba(255,255,255,0.15)';
@@ -329,9 +391,10 @@ class WeaponHud {
         ctx.lineWidth = 2;
         ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
         ctx.textAlign = 'center';
-        const hint = touch ? "ARME : changer d'arme · FEU : tirer (missile : ou toucher le sol)"
-            : weapons.selected === 'gun' ? 'Clic gauche (ou ↑) : tirer · Clic droit (ou ↓) : passer au MISSILE'
-                : 'Clic gauche sur le sol (ou ↑) : missile · Clic droit (ou ↓) : passer au CANON';
+        const hint = touch ? "ARME : changer d'arme · FEU : tirer (air-sol : ou toucher le sol)"
+            : weapons.selected === 'gun' ? 'Clic gauche (ou ↑) : tirer · Clic droit (ou ↓) : arme suivante'
+                : weapons.selected === 'aa' ? 'Avion dans le cercle : verrouillage auto · Clic gauche (ou ↑) : tir · Clic droit : arme suivante'
+                    : 'Clic gauche sur le sol (ou ↑) : missile · Clic droit (ou ↓) : arme suivante';
         const tw = ctx.measureText(hint).width + 20;
         ctx.fillStyle = 'rgba(10,12,16,0.6)';
         ctx.fillRect(W / 2 - tw / 2, top + ch + 8, tw, 20);
