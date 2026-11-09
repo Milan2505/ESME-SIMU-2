@@ -466,7 +466,8 @@ class Multiplayer extends EventTarget {
         this._joined = true;
         this._counting = false;
         this._sendState();
-        this._status(`Partie privée ${this.code} : partagez le code ou le lien`);
+        this._status(this.isHost ? `Partie privée ${this.code} : partagez le code ou le lien` : `Partie ${this.code} rejointe`);
+        this.dispatchEvent(new CustomEvent('joined', { detail: { code: this.code, host: this.isHost } }));
     }
 
     _fail(text) {

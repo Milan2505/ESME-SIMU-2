@@ -500,6 +500,7 @@ class Weapons extends EventTarget {
         this.firing = false;
         this._spin = 0;
         this.targetLocked = false;
+        this.target = null;            // (nouveau départ : plus de croix)
     }
 
     _message(text) {
@@ -561,7 +562,7 @@ class Weapons extends EventTarget {
     // Tir d'un missile sur la croix ; aircraft : objet de l'avion, velocity : sa vitesse (m/s)
     fireMissile(aircraft, velocity, ownId, ownName) {
         if (this.missiles <= 0) return this._message('Plus de missiles');
-        if (!this.target) return this._message('Visez le sol avec la souris : la croix rouge montre où ira le missile');
+        if (!this.target) return this._message("Posez d'abord la croix : clic droit sur le sol");
         const range = aircraft.position.distanceTo(this.target);
         if (range < MISSILE.minRange) return this._message('Cible trop proche');
         if (range > MISSILE.maxRange) return this._message(`Cible hors de portée (${(range / 1000).toFixed(1)} km > 16 km)`);
@@ -574,7 +575,7 @@ class Weapons extends EventTarget {
         if (!UNLIMITED) this.missiles--;
         this._launch({ ...data, ownerId: ownId, ownerName: ownName, own: true });
         this.dispatchEvent(new CustomEvent('missile', { detail: data }));
-        this.targetLocked = false;   // la croix peut être déplacée pour le missile suivant
+        // (la croix reste posée : on peut tirer plusieurs missiles au même endroit)
         return true;
     }
 

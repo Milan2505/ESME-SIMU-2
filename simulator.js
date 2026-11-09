@@ -1462,6 +1462,9 @@ window.addEventListener('keydown', (event) => {
 // En arrivant sur le simulateur : plein écran dès le premier clic ou la première touche (le navigateur refuse le plein
 // écran sans geste du joueur). Une seule fois : quitté ensuite, il n'est plus imposé
 function enterFullscreenOnce(event) {
+    // Fenêtre ouverte (Multijoueur…) : pas maintenant. Le plein écran passait par-dessus elle et la cachait : en
+    // arrivant par un lien d'invitation, la fenêtre « Rejoindre » disparaissait au premier clic
+    if (document.querySelector('dialog[open]')) return;
     window.removeEventListener('pointerdown', enterFullscreenOnce, true);
     window.removeEventListener('keydown', enterFullscreenOnce, true);
     if (isIOS()) return;   // iPad : pas de plein écran du navigateur (voir plus haut)
@@ -1694,6 +1697,12 @@ multiCode.addEventListener('keydown', (event) => {
 });
 document.getElementById('multi-quitter').addEventListener('click', () => multiplayer.leave());
 document.getElementById('multi-fermer').addEventListener('click', () => multiDialog.close());
+// Partie rejointe (code tapé ou lien d'invitation) : la fenêtre se ferme toute seule ; depuis le menu principal, on
+// passe directement au choix de l'aérodrome (voir l'événement close). Le créateur garde la fenêtre (code à partager)
+multiplayer.addEventListener('joined', ({ detail }) => {
+    if (detail.host || !multiDialog.open) return;
+    setTimeout(() => { if (multiDialog.open && multiplayer.code === detail.code) multiDialog.close(); }, 1200);
+});
 
 const multiPartage = document.getElementById('multi-partage');
 const multiCodePartie = document.getElementById('multi-code-partie');
@@ -3818,15 +3827,14 @@ function screenNdc(event) {
 // Commandes de tir (F-15, en vol) — simples :
 // - canon : clic gauche maintenu sur l'image (ou touche ↑) ; pendant le tir, la souris ne tourne pas la caméra
 //   (le clic droit glissé, si) ;
-// - missile : la croix rouge suit la souris au sol ; clic droit (ou touche →) : le missile part sur la croix.
+// - missile : clic droit sur le sol = la croix rouge s'y pose et y reste (fixée au sol, même quand l'avion bouge) ;
+//   clic droit sur la croix (ou touche →) : le missile part exactement sur elle. Un clic droit ailleurs la déplace.
 // Tablette : bouton CANON (maintenu), toucher le sol pose la croix, bouton MISSILE.
 let mouseFiring = false;
-let touchCross = false;   // croix posée au doigt (tablette) : elle reste où on l'a mise
+const CROSS_CLICK = 45;   // px : clic droit à moins de 45 px de la croix = tir
+const _crossScreen = new THREE.Vector3();
 view.addEventListener('pointermove', (event) => {
-    if (event.pointerType !== 'mouse') return;
-    pointerNdc = screenNdc(event);
-    touchCross = false;
-    weapons.unlock();   // la croix suit la souris
+    if (event.pointerType === 'mouse') pointerNdc = screenNdc(event);
 });
 view.addEventListener('pointerleave', () => { pointerNdc = null; });
 view.addEventListener('pointerdown', (event) => {
@@ -3844,13 +3852,21 @@ view.addEventListener('pointerup', (event) => {
     if (!weaponsArmed() || dragDistance > 6) return;
     camera.updateMatrixWorld();
     if (event.pointerType === 'mouse' && event.button === 2) {
-        // Clic droit : missile sur le point visé
+        // Clic droit sur la croix : missile ; ailleurs : la croix s'y pose
+        if (weapons.target) {
+            const r = view.getBoundingClientRect();
+            _crossScreen.copy(weapons.target).project(camera);
+            const x = r.left + (_crossScreen.x + 1) / 2 * r.width, y = r.top + (1 - _crossScreen.y) / 2 * r.height;
+            if (_crossScreen.z < 1 && Math.hypot(event.clientX - x, event.clientY - y) < CROSS_CLICK) {
+                fireMissile();
+                return;
+            }
+        }
         weapons.lockAt(camera, screenNdc(event));
-        fireMissile();
+        if (weapons.target) weaponHud.message('Croix posée : clic droit dessus (ou →) pour tirer le missile');
     } else if (event.pointerType !== 'mouse' && !controlAt(event)) {
         // Doigt : pose la croix
         weapons.lockAt(camera, screenNdc(event));
-        touchCross = true;
     }
 });
 
@@ -3966,8 +3982,6 @@ function updateCombat(frameDelta) {
     const armed = weaponsArmed();
     const targets = multiplayer.code ? remotePlayers.combatList() : [];
     camera.updateMatrixWorld();
-    // Croix rouge : sous la souris (ou au centre de l'écran sans souris), sauf posée au doigt
-    if (armed && !touchCross) weapons.aim(camera, pointerNdc);
     weapons.update(delta, {
         own: { aircraft, velocity: controls.model.velocity, armed },
         camera, targets, cabin: !chaseView,

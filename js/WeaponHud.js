@@ -196,7 +196,8 @@ class WeaponHud {
             const lines = [
                 UNLIMITED ? 'CANON ∞   MISSILES ∞' : `CANON ${String(weapons.ammo).padStart(3, ' ')}   MISSILES ×${weapons.missiles}`,
                 s.touch ? 'Canon : bouton CANON · Missile : toucher le sol, puis MISSILE'
-                    : 'Clic gauche (ou ↑) : canon · Clic droit (ou →) : missile sur la croix',
+                    : weapons.target ? 'Clic gauche (ou ↑) : canon · Clic droit sur la croix (ou →) : missile'
+                        : 'Clic gauche (ou ↑) : canon · Clic droit sur le sol : poser la croix du missile',
             ];
             if (impact !== null) lines.push(`MISSILE EN VOL · IMPACT ${Math.ceil(impact)} s`);
             this._box(ctx, W / 2, 62, lines, GREEN);
