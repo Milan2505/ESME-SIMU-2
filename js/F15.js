@@ -70,7 +70,11 @@ const F15 = {
 	pitchRateMax: 0.65,               // ~37°/s (avant 26°/s)
 	phugoidDamping: 1.5,
 	phugoidFilter: 30,
-	elevatorLimit: deg( 6 ),
+	// Manche à fond : incidence tenue juste sous le décrochage (24,5°), comme le font les commandes de vol d'un chasseur
+	// en virage à performance maxi ; le facteur de charge baisse en douceur à mesure que la vitesse tombe. Avant (+6° :
+	// 32° visés), manche au ventre en virage serré, l'avion décrochait, abattée, raccrochait, redécrochait… : il
+	// oscillait de haut en bas toutes les ~2 s (4 à 7 g) et partait en roulis
+	elevatorLimit: deg( - 1.5 ),
 	elevatorLimitProtected: deg( - 2 ),
 
 	// Volets (deux positions : rentrés, sortis à 30°)
