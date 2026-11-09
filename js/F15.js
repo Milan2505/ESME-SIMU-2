@@ -8,7 +8,7 @@ const deg = MathUtils.degToRad;
 // Réacteurs : la poussée vient des systèmes (JetSystems.js : régime, postcombustion), donnée au modèle de vol par
 // model.jetThrust ; jet: true remplace la poussée de l'hélice et retire ses effets (couple, souffle, facteur P).
 // Repères de vitesse (masse ~18 t) : rotation ~120 kt, envol ~140 kt, approche ~140 kt (incidence ~12°), décrochage
-// vers 105 kt volets sortis ; au niveau de la mer, ~Mach 1,15 au plus avec la postcombustion (traînée d'onde).
+// vers 105 kt volets sortis ; au niveau de la mer, ~Mach 1 au plus avec la postcombustion (traînée d'onde).
 
 const F15 = {
 	jet: true,
@@ -24,7 +24,7 @@ const F15 = {
 	cl0: 0.05,                        // aile cambrée à peine : presque pas de portance à incidence nulle
 	clAlpha: 3.2,                     // pente de portance (aile delta tronquée de faible allongement, ~3)
 	alphaStall: deg( 26 ),            // incidence maxi (le F-15 tient de très fortes incidences ; au-delà, il s'enfonce)
-	cd0: 0.021,                       // traînée de forme, lisse (sans charges)
+	cd0: 0.026,                       // traînée de forme (avant 0,021 : trop rapide ; ~-10 % à poussée égale en croisière)
 	inducedDrag: 0.13,                // k·CL² : allongement 3, e ≈ 0,8
 	stallDrag: 0.3,
 	sideForce: 0.8,
@@ -34,8 +34,9 @@ const F15 = {
 	power: Infinity,                  // (hélice : sans objet)
 	windmillDrag: 0,
 	densityAltitude: true,            // air moins dense en altitude : portance, traînée et poussée baissent
-	// Traînée d'onde : au-delà de Mach 0,88, la traînée monte en flèche jusqu'à Mach 1,05, puis se stabilise
-	machCritical: 0.88,
+	// Traînée d'onde : au-delà de Mach 0,80, la traînée monte en flèche jusqu'à Mach 1,05, puis se stabilise
+	// (avant 0,88 : plein gaz sec ~625 kt au ras du sol, maintenant ~585 kt ; postcombustion 675 -> ~655 kt)
+	machCritical: 0.80,
 	waveDrag: 0.028,
 	gLimit: 9,                        // commandes de vol : facteur de charge limité à +9 g (manche au ventre à grande vitesse)
 	gLimitNegative: - 3,
