@@ -317,4 +317,4 @@ class Damage extends EventTarget {
     }
 }
 
-export { Damage, SmokeTrail, ZONES, BLAST_RADIUS };
+export { Damage, SmokeTrail, ZONES, BLAST_RADIUS, puffTexture };

@@ -22,7 +22,7 @@ import {
     Vector3
 } from 'three';
 import { sharedAudioContext } from './AudioUnlock.js';
-import { SmokeTrail } from './Damage.js';
+import { SmokeTrail, puffTexture } from './Damage.js';
 import { Billboards } from './Billboards.js';
 
 // Armement du F-15 :
@@ -66,8 +66,9 @@ const AAM = {
     acceleration: 300,                // m/s² (moteur-fusée)
     minRange: 300,                    // m
     maxRange: 8000,                   // m
-    seeker: deg(10),                  // cône où l'autodirecteur accroche une cible (avant 25° : trop facile)
-    keep: deg(15),                    // il la garde jusqu'à cet angle
+    seeker: deg(6),                   // cône où l'autodirecteur accroche une cible (avant 25°, puis 10° : trop facile ;
+                                      // il faut maintenant vraiment viser l'avion)
+    keep: deg(10),                    // il la garde jusqu'à cet angle
     lockTime: 2.2,                    // s pour verrouiller (garder l'avion dans le cercle)
     turnG: 28,                        // facteur de charge maxi du missile
     burn: 2.5,                        // s de propulsion
@@ -76,12 +77,27 @@ const AAM = {
     minSpeed: 280,                    // m/s : en dessous, plus de guidage
     life: 20,                         // s : au-delà, autodestruction
     fuse: 12,                         // m : fusée de proximité
-    reload: 0.5,                      // s entre deux tirs (rechargé tout de suite)
+    reload: 4,                        // s entre deux tirs (avant 0,5 s : on pouvait arroser l'ennemi de missiles)
 };
 const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
-// Leurres infrarouges (flares) : une salve de 4 ; chaque missile air-air qui nous poursuit (entre 250 m et 5 km) a
-// FLARE_DECOY de chances de partir sur un leurre. Trop tard (moins de 250 m) : il ne se laisse plus tromper
-const FLARE = { count: 4, cooldown: 1.2, life: 3.5, decoy: 0.7, minRange: 250, maxRange: 5000 };
+// Leurres infrarouges (flares) : une salve de 4, éjectés l'un après l'autre (FLARE.interval), puis FLARE.cooldown s
+// avant la salve suivante. Chaque missile air-air qui nous poursuit a une chance de partir sur un leurre (decoyChance) :
+// plus grande quand le missile est à moyenne distance et derrière nous (il voit les leurres se séparer de l'avion, face
+// aux tuyères), plus faible en postcombustion (les réacteurs brillent bien plus qu'un leurre), nulle à moins de 250 m
+// (trop tard : il ne se laisse plus tromper). Avant : 70 % de chances à chaque salve, une salve toutes les 1,2 s, le
+// missile était presque toujours leurré
+const FLARE = { count: 4, interval: 0.12, cooldown: 3, life: 4, decoy: 0.5, minRange: 250, maxRange: 5000 };
+
+// Chance qu'une salve trompe un missile : distance (m), aspect (-1 : missile droit devant, 1 : droit derrière),
+// postcombustion (0 -> 1)
+function decoyChance(distance, aspect, afterburner) {
+    if (distance < FLARE.minRange || distance > FLARE.maxRange) return 0;
+    const range = distance < 600 ? (distance - FLARE.minRange) / (600 - FLARE.minRange)
+        : distance > 2500 ? 1 - 0.6 * (distance - 2500) / (FLARE.maxRange - 2500) : 1;
+    const rear = 0.5 + 0.5 * Math.max(0, aspect);
+    const engines = 1 - 0.6 * MathUtils.clamp(afterburner, 0, 1);
+    return FLARE.decoy * range * rear * engines;
+}
 const WEAPON_ORDER = ['gun', 'aa', 'missile'];
 const MAX_BULLETS = 500;
 const UNLIMITED = true;              // munitions illimitées (obus et missiles ne s'épuisent pas)
@@ -89,8 +105,8 @@ const UNLIMITED = true;              // munitions illimitées (obus et missiles 
 const HEAT_TIME = 4;                  // s de tir continu jusqu'à la surchauffe (~400 obus)
 const COOL_RATE = 0.35;               // refroidissement (fraction par seconde, détente lâchée)
 const COOLED = 0.3;                   // après une surchauffe : le canon retire sous ce niveau
-const MISSILE_RELOAD = 0.5;           // s entre deux missiles (le pylône est rechargé tout de suite)
-const STORE_RELOAD = 0.5;             // s : le missile parti réapparaît sur son pylône
+const MISSILE_RELOAD = 3;             // s entre deux missiles air-sol (avant 0,5 s)
+// (le missile parti réapparaît sur son pylône quand le suivant est prêt)
 const HIT_FLUSH = 0.1;                // s : coups au but regroupés avant envoi
 const TRACER_COLOR = 0xffb347;
 
@@ -115,7 +131,7 @@ const HIT_RANGE = 14;   // m : au-delà de cette distance du centre de l'avion, 
 
 const _a = new Vector3(), _b = new Vector3(), _d = new Vector3(), _v = new Vector3(), _q = new Quaternion();
 const _m = new Matrix4(), _inv = new Matrix4(), _scale = new Vector3(), _z = new Vector3(0, 0, 1);
-const _fwd = new Vector3(), _up = new Vector3(), _right = new Vector3(), _p = new Vector3();
+const _fwd = new Vector3(), _up = new Vector3(), _right = new Vector3(), _p = new Vector3(), _back = new Vector3();
 
 // Segment [a, b] (repère avion) contre une boîte : fraction du segment au premier contact, ou null
 function segmentBox(a, b, box) {
@@ -597,36 +613,57 @@ class WeaponSounds {
     }
 }
 
-// Leurres : boules de magnésium très lumineuses éjectées sous l'avion, qui tombent en brûlant ~3,5 s. Un lot de
-// particules (voir Billboards.js) : un appel de dessin pour tous les leurres
-const FLARE_COLOR = new Color(0xfff0c0).multiplyScalar(8);   // > 1 : halo du bloom
+// Leurres : boules de magnésium éjectées sous l'avion l'une après l'autre, qui brûlent ~4 s en tombant, vite freinées
+// par l'air, chacune avec sa traînée de fumée blanche (comme les vrais). Deux lots de particules (voir Billboards.js) :
+// deux appels de dessin pour tous les leurres et leurs fumées
+const FLARE_COLOR = new Color(0xfff4d8).multiplyScalar(10);   // > 1 : halo du bloom
+const FLARE_SMOKE = new Color(0xe4e4e4);
+const FLARE_PUFFS = 1200;
 class Flares {
-    constructor(group, glow) {
-        this._flares = Array.from({ length: 48 }, () => ({ alive: false, age: 0, position: new Vector3(), velocity: new Vector3() }));
+    constructor(group, glow, puff) {
+        this._flares = Array.from({ length: 48 }, () => ({ alive: false, age: 0, smoke: 0, position: new Vector3(), velocity: new Vector3() }));
+        this._puffs = Array.from({ length: FLARE_PUFFS }, () => ({ alive: false, age: 0, life: 1, position: new Vector3() }));
+        this._pending = [];            // leurres de la salve pas encore éjectés : { at, elapsed, position, velocity }
         this._batch = new Billboards(48, { map: glow, additive: true });
-        this._batch.visible = false;
-        group.add(this._batch);
+        this._smoke = new Billboards(FLARE_PUFFS, { map: puff });
+        this._batch.visible = this._smoke.visible = false;
+        group.add(this._smoke, this._batch);
         this._next = 0;
+        this._nextPuff = 0;
         this._active = false;
     }
 
-    // Salve à une position, avec la vitesse de l'avion ; renvoie la position moyenne (cible des missiles leurrés)
+    // Salve : leurres éjectés à FLARE.interval s d'intervalle, le long de la trajectoire de l'avion (position et
+    // vitesse au début de la salve)
     burst(position, velocity, count = FLARE.count) {
         for (let i = 0; i < count; i++) {
-            const flare = this._flares[this._next];
-            this._next = (this._next + 1) % this._flares.length;
-            flare.position.copy(position);
-            flare.age = 0;
-            flare.velocity.copy(velocity).multiplyScalar(0.6)
-                .add(_v.set((Math.random() - 0.5) * 30, -15 - Math.random() * 10, (Math.random() - 0.5) * 30));
-            flare.alive = true;
+            this._pending.push({ at: i * FLARE.interval, elapsed: 0, position: position.clone(), velocity: velocity.clone() });
         }
         this._active = true;
     }
 
+    _eject(position, velocity) {
+        const flare = this._flares[this._next];
+        this._next = (this._next + 1) % this._flares.length;
+        flare.position.copy(position);
+        flare.age = 0;
+        flare.smoke = 0;
+        // Éjectés vers le bas et un peu sur le côté (~30 m/s), avec une partie de la vitesse de l'avion
+        flare.velocity.copy(velocity).multiplyScalar(0.7)
+            .add(_v.set((Math.random() - 0.5) * 24, -22 - Math.random() * 10, (Math.random() - 0.5) * 24));
+        flare.alive = true;
+    }
+
     update(delta) {
         if (!this._active) return;
-        let alive = 0;
+        for (let i = this._pending.length - 1; i >= 0; i--) {
+            const p = this._pending[i];
+            p.elapsed += delta;
+            if (p.elapsed < p.at) continue;
+            this._eject(p.position.addScaledVector(p.velocity, p.elapsed), p.velocity);   // (l'avion a avancé depuis)
+            this._pending.splice(i, 1);
+        }
+        let alive = this._pending.length;
         const batch = this._batch;
         batch.begin();
         for (const d of this._flares) {
@@ -634,12 +671,37 @@ class Flares {
             d.age += delta;
             if (d.age >= FLARE.life) { d.alive = false; continue; }
             alive++;
-            d.velocity.multiplyScalar(Math.exp(-1.2 * delta));   // freinés par l'air
+            d.velocity.multiplyScalar(Math.exp(-1.8 * delta));   // légers : vite freinés par l'air
             d.velocity.y -= 9.81 * delta;
             d.position.addScaledVector(d.velocity, delta);
-            batch.add(d.position, (5 + Math.random() * 3) * (1 - d.age / FLARE.life * 0.6), FLARE_COLOR.r, FLARE_COLOR.g, FLARE_COLOR.b, 1);
+            // Fumée : une bouffée tous les ~2 m parcourus (traînée continue même à la sortie, quand le leurre est rapide)
+            d.smoke -= delta;
+            if (d.smoke <= 0) {
+                d.smoke = MathUtils.clamp(2 / Math.max(1, d.velocity.length()), 0.012, 0.05);
+                const puff = this._puffs[this._nextPuff];
+                this._nextPuff = (this._nextPuff + 1) % FLARE_PUFFS;
+                puff.position.copy(d.position);
+                puff.age = 0;
+                puff.life = 2.5 + Math.random();
+                puff.alive = true;
+            }
+            const burn = 1 - d.age / FLARE.life;   // s'éteint peu à peu
+            batch.add(d.position, (2.2 + Math.random() * 1.6) * (0.5 + 0.5 * burn), FLARE_COLOR.r, FLARE_COLOR.g, FLARE_COLOR.b, Math.min(1, burn * 3));
         }
         batch.end();
+        const smoke = this._smoke;
+        smoke.begin();
+        for (let k = 0; k < FLARE_PUFFS; k++) {
+            const p = this._puffs[(this._nextPuff + k) % FLARE_PUFFS];
+            if (!p.alive) continue;
+            p.age += delta;
+            const t = p.age / p.life;
+            if (t >= 1) { p.alive = false; continue; }
+            alive++;
+            p.position.y += 0.6 * delta;
+            smoke.add(p.position, 2.4 + 5 * t, FLARE_SMOKE.r, FLARE_SMOKE.g, FLARE_SMOKE.b, 0.45 * Math.min(1, t * 10) * (1 - t));
+        }
+        smoke.end();
         this._active = alive > 0;
     }
 }
@@ -655,7 +717,7 @@ class Weapons extends EventTarget {
         const glow = glowTexture();
         this._glow = glow;
         this.impacts = new Impacts(this.group, glow);
-        this.flares = new Flares(this.group, glow);
+        this.flares = new Flares(this.group, glow, puffTexture());
         this.flareReload = 0;          // s avant la salve de leurres suivante
         this.threat = 'off';           // alerte radar (RWR) : 'off', 'search' (accroché), 'lock' (verrouillé)
         this._aaCount = 0;
@@ -778,7 +840,7 @@ class Weapons extends EventTarget {
             aircraft.updateMatrixWorld(true);
             const point = mesh.getWorldPosition(new Vector3());
             mesh.visible = false;
-            this._storeTimers.push({ mesh, time: STORE_RELOAD });
+            this._storeTimers.push({ mesh, time: kind === 'aa' ? AAM.reload : MISSILE_RELOAD });
             return point;
         }
         return MISSILE.rails[side].clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
@@ -932,19 +994,21 @@ class Weapons extends EventTarget {
         return true;
     }
 
-    // Salve de leurres (touche ←) ; ownId : notre identifiant. Missiles air-air qui nous poursuivent : chacun a ses
-    // chances de partir sur un leurre (décidé ici, envoyé aux autres pour qu'ils voient la même chose)
-    dropFlares(aircraft, velocity, ownId) {
+    // Salve de leurres (touche ←) ; ownId : notre identifiant ; afterburner : postcombustion (0 -> 1). Missiles air-air
+    // qui nous poursuivent : chacun a ses chances de partir sur un leurre (decoyChance ; décidé ici, envoyé aux autres
+    // pour qu'ils voient la même chose)
+    dropFlares(aircraft, velocity, ownId, { afterburner = 0 } = {}) {
         if (this.flareReload > 0) return null;
         this.flareReload = FLARE.cooldown;
         const position = _a.set(0, -0.8, 4).applyQuaternion(aircraft.quaternion).add(aircraft.position).clone();
         this.flares.burst(position, velocity);
         const decoyed = [];
+        _back.set(0, 0, 1).applyQuaternion(aircraft.quaternion);   // vers l'arrière de l'avion
         for (const missile of this.aaInFlight) {
-            if (missile.targetId !== ownId || missile.exploded || missile.decoy) continue;
+            if (missile.targetId !== ownId || missile.exploded || missile.decoy || !missile.id) continue;
             const distance = missile.position.distanceTo(aircraft.position);
-            if (distance < FLARE.minRange || distance > FLARE.maxRange) continue;
-            if (Math.random() < FLARE.decoy && missile.id) decoyed.push(missile.id);
+            const aspect = _d.subVectors(missile.position, aircraft.position).normalize().dot(_back);
+            if (Math.random() < decoyChance(distance, aspect, afterburner)) decoyed.push(missile.id);
         }
         this._decoy(decoyed, position, velocity);
         const detail = { position, velocity: velocity.clone(), decoyed };

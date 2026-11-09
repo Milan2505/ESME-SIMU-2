@@ -3960,7 +3960,7 @@ weapons.addEventListener('aamissile', ({ detail }) => {
 function dropFlares() {
     if (aircraftType !== 'f15') return weaponHud.message('Leurres : seulement sur le F-15');
     if (!weaponsArmed()) return weaponHud.message("Leurres : seulement en vol (décollez d'abord)");
-    weapons.dropFlares(aircraft, controls.model.velocity, multiplayer.id);
+    weapons.dropFlares(aircraft, controls.model.velocity, multiplayer.id, { afterburner: jetSystems.afterburner });
 }
 weapons.addEventListener('flares', ({ detail }) => {
     multiplayer.sendFlares(detail);
@@ -4089,7 +4089,8 @@ function updateCombat(frameDelta) {
     // Cibles : seulement les avions en vol (ceux au sol ne peuvent être ni touchés ni verrouillés : pas de spawn-kill)
     const targets = multiplayer.code ? remotePlayers.combatList().filter((t) => {
         const p = t.group.position;
-        return p.y - (AIRCRAFT_PROFILES[t.type]?.wheelHeight ?? 0) - terrain.heightAt(p.x, p.z) > 4;
+        t.agl = p.y - (AIRCRAFT_PROFILES[t.type]?.wheelHeight ?? 0) - terrain.heightAt(p.x, p.z);   // hauteur sol (m), pour le radar
+        return t.agl > 4;
     }) : [];
     // Alerte radar : un autre joueur nous accroche ou nous a verrouillés
     let threat = { state: 'off', name: '' };

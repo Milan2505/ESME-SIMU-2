@@ -20,6 +20,11 @@ const _point = new Vector3(), _camera = new Vector3(), _dir = new Vector3(), _le
 const _view = new Vector3();
 const HUD_CABIN_ALPHA = 0.5;   // opacité des symboles de tir en cabine (comme la symbologie du HUD)
 const HUD_ZONE = 0.34;   // rayon de la zone du triangle de cible (fraction du plus petit côté de l'écran)
+// Radar (triangle rouge qui montre l'ennemi) : comme un vrai radar, il ne voit pas un avion qui vole au ras du sol (noyé
+// dans les échos du relief), ni un avion trop loin
+const RADAR_MIN_HEIGHT = 100 * 0.3048;   // m au-dessus du sol (100 ft) : en dessous, invisible au radar
+const RADAR_RANGE = 12000;               // m
+const radarSees = (t, distance) => distance <= RADAR_RANGE && (t.agl ?? Infinity) >= RADAR_MIN_HEIGHT;
 
 function formatKm(meters) {
     return meters < 1000 ? `${Math.round(meters / 10) * 10} m` : `${(meters / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} km`;
@@ -221,9 +226,9 @@ class WeaponHud {
                     }
                 }
                 // Triangle rouge pointé sur la cible (avion accroché, sinon le plus proche à portée)
-                const guide = s.targets.find((t) => t.id === weapons.lockId)
-                    ?? s.targets.map((t) => ({ t, d: t.group.position.distanceTo(s.aircraft.position) }))
-                        .filter((x) => x.d < AAM.maxRange * 1.5).sort((a, b) => a.d - b.d)[0]?.t;
+                // (seulement les avions que le radar voit : assez haut au-dessus du sol, pas trop loin)
+                const seen = s.targets.map((t) => ({ t, d: t.group.position.distanceTo(s.aircraft.position) })).filter((x) => radarSees(x.t, x.d));
+                const guide = seen.find((x) => x.t.id === weapons.lockId)?.t ?? seen.sort((a, b) => a.d - b.d)[0]?.t;
                 if (guide) this._targetTriangle(ctx, W, H, camera, guide, weapons.locked, guide.group.position.distanceTo(s.aircraft.position));
                 // Verrouillé : « SHOOT » clignotant sous le cercle
                 if (weapons.locked && bore && Math.floor(performance.now() / 200) % 2 === 0) {
@@ -303,7 +308,7 @@ class WeaponHud {
             ctx.fillStyle = 'rgba(255, 240, 192, 0.9)';
             ctx.textAlign = 'center';
             ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
-            ctx.fillText('LEURRES…', W / 2, 122);
+            ctx.fillText(`LEURRES ${Math.ceil(weapons.flareReload)} s`, W / 2, 122);
             ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
         }
 
