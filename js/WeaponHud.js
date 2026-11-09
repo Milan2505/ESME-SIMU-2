@@ -1,5 +1,5 @@
 import { MathUtils, Vector3 } from 'three';
-import { GUN, MISSILE } from './Weapons.js';
+import { GUN, MISSILE, UNLIMITED } from './Weapons.js';
 
 // Affichage du combat, par-dessus l'écran de vol (vue cabine et extérieure) :
 // - mode air-air : réticule du canon (point où seront les obus à la distance de la cible la plus proche), cadres sur
@@ -194,7 +194,7 @@ class WeaponHud {
             // Munitions et mode (en haut, au centre)
             const impact = weapons.nextImpact;
             const lines = [
-                `CANON ${String(weapons.ammo).padStart(3, ' ')}   MISSILES ×${weapons.missiles}`,
+                UNLIMITED ? 'CANON ∞   MISSILES ∞' : `CANON ${String(weapons.ammo).padStart(3, ' ')}   MISSILES ×${weapons.missiles}`,
                 s.touch ? 'Canon : bouton CANON · Missile : toucher le sol, puis MISSILE'
                     : 'Clic gauche (ou ↑) : canon · Clic droit (ou →) : missile sur la croix',
             ];

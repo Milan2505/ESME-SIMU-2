@@ -58,6 +58,7 @@ const MISSILE = {
     terminalDive: deg(30),            // piqué minimal sur la croix
 };
 const MAX_BULLETS = 500;
+const UNLIMITED = true;              // munitions illimitées (obus et missiles ne s'épuisent pas)
 const HIT_FLUSH = 0.1;                // s : coups au but regroupés avant envoi
 const TRACER_COLOR = 0xffb347;
 
@@ -570,7 +571,7 @@ class Weapons extends EventTarget {
         const rail = MISSILE.rails[this._railIndex++ % MISSILE.rails.length];
         const from = rail.clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
         const data = { from, velocity: velocity.clone(), target: this.target.clone() };
-        this.missiles--;
+        if (!UNLIMITED) this.missiles--;
         this._launch({ ...data, ownerId: ownId, ownerName: ownName, own: true });
         this.dispatchEvent(new CustomEvent('missile', { detail: data }));
         this.targetLocked = false;   // la croix peut être déplacée pour le missile suivant
@@ -655,7 +656,7 @@ class Weapons extends EventTarget {
             this._roundTimer -= delta;
             while (this._roundTimer <= 0 && this.ammo > 0) {
                 this._shoot(own.aircraft.matrixWorld, own.velocity, true, -this._roundTimer);
-                this.ammo--;
+                if (!UNLIMITED) this.ammo--;
                 this._roundTimer += 1 / GUN.rate;
             }
             this.muzzleFlash.position.copy(GUN.muzzle).applyMatrix4(own.aircraft.matrixWorld)
@@ -803,4 +804,4 @@ class Weapons extends EventTarget {
     }
 }
 
-export { Weapons, GUN, MISSILE };
+export { Weapons, GUN, MISSILE, UNLIMITED };
