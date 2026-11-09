@@ -4111,7 +4111,7 @@ function updateCombat(frameDelta) {
     ownSmoke.update(delta, _smokeSource, crashed || choosingSpawn ? 0 : damage.smoke, damage.onFire && !crashed && !choosingSpawn, controls.model.velocity);
     const visible = !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo');
     weaponHud.update(delta, visible, {
-        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets, touch: touchControls.enabled, threat,
+        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets, touch: touchControls.enabled, threat, cabin: !chaseView,
     });
 }
 
@@ -4479,3 +4479,7 @@ renderer.setAnimationLoop((time)=>{
     if (!shaderWarmup) graphics.render();
     updatePerf(performance.now() - frameStart);
 });
+
+// Démarrage réussi (voir index.html : écran d'erreur et nouvel essai si le simulateur ne démarre pas)
+window.esmeStarted = true;
+try { sessionStorage.removeItem('esme-relance'); } catch { /* stockage indisponible */ }

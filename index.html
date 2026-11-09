@@ -656,6 +656,43 @@
 		// Désactive le menu contextuel du navigateur (clic droit) partout dans le simulateur
 		document.addEventListener('contextmenu', (e) => e.preventDefault());
 	</script>
-	<script type="module" src="simulator.js"></script>
+	<script>
+		// Démarrage raté : juste après une mise à jour du site, GitHub Pages sert parfois pendant quelques minutes un
+		// mélange de fichiers de l'ancienne et de la nouvelle version ; un fichier qui en appelle un autre plus ancien
+		// fait échouer tout le simulateur, qui restait sur un écran noir sans rien dire. Ici : message, puis nouvel essai
+		// automatique (3 au plus), puis un bouton
+		(function () {
+			let tries = 0;
+			try { tries = Number(sessionStorage.getItem('esme-relance')) || 0; } catch (e) { /* stockage indisponible */ }
+			let shown = false;
+			window.esmeStartFailed = function (detail) {
+				if (window.esmeStarted || shown) return;
+				shown = true;
+				const box = document.createElement('div');
+				box.id = 'demarrage-rate';
+				box.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#0f1218;color:#e8edf2;font:16px DejaVu Sans Mono,monospace';
+				const retry = tries < 3;
+				box.innerHTML = '<strong style="font-size:22px">Le simulateur n\'a pas pu démarrer</strong>'
+					+ '<span>' + (retry ? 'Le site vient sans doute d\'être mis à jour : nouvel essai dans quelques secondes…'
+						: 'Rechargez la page dans une minute (le site est peut-être en cours de mise à jour).') + '</span>'
+					+ '<button style="padding:10px 22px;font:bold 15px DejaVu Sans Mono,monospace;cursor:pointer">Recharger maintenant</button>'
+					+ '<small style="opacity:.6;max-width:640px;word-break:break-word"></small>';
+				box.querySelector('small').textContent = String(detail || '');
+				box.querySelector('button').addEventListener('click', function () { location.reload(); });
+				document.body.appendChild(box);
+				if (retry) {
+					try { sessionStorage.setItem('esme-relance', String(tries + 1)); } catch (e) { /* stockage indisponible */ }
+					setTimeout(function () { location.reload(); }, 4000);
+				}
+			};
+			window.addEventListener('error', function (event) {
+				// (seulement les erreurs de script : une image ou un son introuvable ne bloque pas le démarrage)
+				const script = event.target && event.target.tagName === 'SCRIPT';
+				if (window.esmeStarted || !(event instanceof ErrorEvent || script)) return;
+				window.esmeStartFailed(event.message || 'un fichier du simulateur n’a pas pu être chargé');
+			}, true);
+		})();
+	</script>
+	<script type="module" src="simulator.js" onerror="esmeStartFailed('un fichier du simulateur n’a pas pu être chargé')"></script>
 </body>
 </html>

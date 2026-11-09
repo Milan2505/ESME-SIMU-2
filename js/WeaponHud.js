@@ -18,6 +18,7 @@ const MESSAGE_TIME = 3;        // s
 
 const _point = new Vector3(), _camera = new Vector3(), _dir = new Vector3(), _lead = new Vector3(), _pipper = new Vector3();
 const _view = new Vector3();
+const HUD_CABIN_ALPHA = 0.5;   // opacité des symboles de tir en cabine (comme la symbologie du HUD)
 const HUD_ZONE = 0.34;   // rayon de la zone du triangle de cible (fraction du plus petit côté de l'écran)
 
 function formatKm(meters) {
@@ -103,6 +104,9 @@ class WeaponHud {
         let pipper = null;
 
         if (s.jet && s.armed) {
+            // En cabine, les symboles de tir se superposent au HUD du F-15 : même opacité que sa symbologie (projetée sur
+            // le verre, plus pâle) ; avant, le réticule ressortait bien plus fort que le reste du HUD
+            ctx.globalAlpha = s.cabin ? HUD_CABIN_ALPHA : 1;
             camera.updateMatrixWorld();
             _camera.setFromMatrixPosition(camera.matrixWorld);
             const focal = H / 2 / Math.tan(MathUtils.degToRad(camera.fov) / 2);
@@ -283,6 +287,7 @@ class WeaponHud {
             }
 
             // Cartes des armes (en haut, au centre) : arme choisie en évidence, chauffe du canon, rechargement du missile
+            ctx.globalAlpha = 1;
             this._cards(ctx, W, weapons, s.touch);
         }
 
