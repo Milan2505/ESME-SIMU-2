@@ -2648,6 +2648,15 @@ body:has(#simulator.jeu) {
 #hud[hidden] {
   display: none;
 }
+/* Combat (WeaponHud.js) : calque transparent posé exactement sur l'écran de vol (placé par le script) */
+#armement {
+  position: fixed;
+  z-index: 3;
+  pointer-events: none;
+}
+#armement[hidden] {
+  display: none;
+}
 
 /* Barre de menus (Échap) : « Mode photo » (masque les infos de vol et les panneaux superposés) */
 #mode-photo {
@@ -2814,6 +2823,7 @@ html.tablette #simulator.jeu > #commandes {
 }
 /* Mode photo : rien par-dessus la vue (sauf la barre, si on l'ouvre pour en sortir) */
 #simulator.photo > #hud,
+#simulator.photo > #armement,
 #simulator.photo > #nom-vue,
 #simulator.photo > #ils-bouton,
 #simulator.photo > #nav-zone,

@@ -125,6 +125,22 @@ class TouchControls {
     _setupButton(button) {
         const action = button.dataset.tactile;
         const hold = { frein: ['_brake', 1], 'trim-cabrer': ['_trim', 1], 'trim-piquer': ['_trim', -1] }[action];
+        // Canon : tire tant qu'on appuie
+        if (action === 'canon') {
+            const release = () => {
+                this.actions.canon?.(false);
+                button.classList.remove('actif');
+            };
+            button.addEventListener('pointerdown', (event) => {
+                event.preventDefault();
+                button.setPointerCapture(event.pointerId);
+                this.actions.canon?.(true);
+                button.classList.add('actif');
+            });
+            button.addEventListener('pointerup', release);
+            button.addEventListener('pointercancel', release);
+            return;
+        }
         if (hold) {
             const [key, value] = hold;
             const press = (event) => {

@@ -86,8 +86,16 @@ function cleanState(state) {
         owner: state.o === 1,                                      // créateur de la partie (lui seul peut la fermer)
         // Feux allumés (bits : 1 phare, 2 navigation, 4 anticollision, 8 strobes) ; absent : tous sauf le phare
         lights: lightsFromBits(Number.isInteger(state.l) ? state.l : 14),
+        // Combat (F-15) : canon qui tire, dégâts (0 -> 100 %), feu à bord
+        firing: state.f === 1,
+        damage: Math.min(100, Math.max(0, Number(state.d) || 0)),
+        burning: state.fi === 1,
     };
 }
+
+// Coups au but envoyés par un tireur (codes des parties touchées, voir Damage.js)
+const HIT_ZONES = new Set(['f', 'c', 'eL', 'eR', 'wL', 'wR', 't']);
+const MAX_HITS = 30;
 
 class Multiplayer extends EventTarget {
     constructor() {
@@ -114,6 +122,7 @@ class Multiplayer extends EventTarget {
         this._lastPosition = null;
         this._velocity = [0, 0, 0];
         this._state = null;           // dernier état local, renvoyé par la pulsation
+        this._wasFiring = false;
 
         setInterval(() => this._heartbeat(), HEARTBEAT / 2);
         // Le joueur quitte la page du simulateur (autre onglet, fenêtre réduite) ou y revient : les autres le savent tout de suite
@@ -187,7 +196,8 @@ class Multiplayer extends EventTarget {
 
     // À appeler à chaque image avec l'objet piloté, la position des gaz et l'état de crash
     // jet (F-15) : { gear, speedbrake, flaps, ab, canopy } (0 -> 1)
-    update(object, throttle, { crashed = false, crashes = 0, spawns = 0, lights = null, rpm = null, weather = null, jet = null } = {}) {
+    // combat : { firing, damage (0 -> 100), burning }
+    update(object, throttle, { crashed = false, crashes = 0, spawns = 0, lights = null, rpm = null, weather = null, jet = null, combat = null } = {}) {
         if (!this.code) return;
         const now = performance.now();
 
@@ -220,8 +230,14 @@ class Multiplayer extends EventTarget {
             o: this.isHost ? 1 : undefined,
             a: this.aircraft === 'f15' ? 'f15' : undefined,
             j: this.aircraft === 'f15' && jet ? [jet.gear, jet.speedbrake, jet.flaps, jet.ab, jet.canopy].map((v) => Math.round(v * 100) / 100) : undefined,
+            f: combat?.firing ? 1 : undefined,
+            d: combat?.damage ? Math.round(combat.damage) : undefined,
+            fi: combat?.burning ? 1 : undefined,
         };
-        if (this._joined && now - this._lastSend >= MIN_INTERVAL) this._sendState();
+        // Début et fin d'une rafale : envoyés tout de suite (les traceurs chez les autres suivent la détente)
+        const firingChanged = (this._state.f === 1) !== this._wasFiring;
+        this._wasFiring = this._state.f === 1;
+        if (this._joined && (now - this._lastSend >= MIN_INTERVAL || (firingChanged && now - this._lastSend >= 50))) this._sendState();
     }
 
     // Message de la radio de l'aérodrome (contrôle aérien) : entendu par les joueurs sur la même fréquence
@@ -234,6 +250,21 @@ class Multiplayer extends EventTarget {
         if (!this._joined) return false;
         this._publish({ chat: String(text).slice(0, MAX_CHAT) });
         return true;
+    }
+
+    // Combat : coups au but de notre canon sur un joueur (zones touchées)
+    sendHit(to, zones) {
+        if (this._joined && ID_PATTERN.test(to)) this._publish({ hit: { to, z: zones.slice(0, MAX_HITS) } });
+    }
+
+    // Combat : missile tiré (départ, vitesse de l'avion, croix visée) ; les autres refont la même trajectoire
+    sendMissile({ from, velocity, target }) {
+        if (this._joined) this._publish({ missile: { p: from.toArray().map(round), v: velocity.toArray().map(round), t: target.toArray().map(round) } });
+    }
+
+    // Combat : nous venons d'être abattus (by : identifiant du tireur, ou null)
+    sendKill(by, reason) {
+        if (this._joined) this._publish({ kill: { by: by ?? '', r: String(reason).slice(0, 80) } });
     }
 
     // Paquet de voix de la radio (texte base64) ; part tout de suite, sans attendre l'état
@@ -367,6 +398,35 @@ class Multiplayer extends EventTarget {
             const player = this.players.get(id);
             const text = data.chat.replace(/[ -]/g, ' ').trim().slice(0, MAX_CHAT);
             if (player && text) this.dispatchEvent(new CustomEvent('chat', { detail: { id, name: player.name, text } }));
+            return;
+        }
+        // Combat : un joueur nous a touchés avec son canon
+        if (data.hit && typeof data.hit === 'object') {
+            const player = this.players.get(id);
+            if (player && data.hit.to === this.id && Array.isArray(data.hit.z)) {
+                const zones = data.hit.z.filter((z) => HIT_ZONES.has(z)).slice(0, MAX_HITS);
+                if (zones.length) this.dispatchEvent(new CustomEvent('hit', { detail: { id, name: player.name, zones } }));
+            }
+            return;
+        }
+        // Combat : missile air-sol tiré par un joueur
+        if (data.missile && typeof data.missile === 'object') {
+            const player = this.players.get(id);
+            const from = numbers(data.missile.p, 3), velocity = numbers(data.missile.v, 3), target = numbers(data.missile.t, 3);
+            if (player && from && velocity && target) {
+                this.dispatchEvent(new CustomEvent('missile', { detail: { id, name: player.name, from, velocity, target } }));
+            }
+            return;
+        }
+        // Combat : un joueur a été abattu
+        if (data.kill && typeof data.kill === 'object') {
+            const victim = this.players.get(id);
+            if (victim) {
+                const by = typeof data.kill.by === 'string' ? data.kill.by : '';
+                const killer = by === this.id ? this.name : this.players.get(by)?.name ?? null;
+                this.dispatchEvent(new CustomEvent('kill', { detail: { id, name: victim.name, by, byName: killer, mine: by === this.id,
+                    reason: typeof data.kill.r === 'string' ? data.kill.r.slice(0, 80) : '' } }));
+            }
             return;
         }
         // Contrôle aérien : message d'un joueur ou de son contrôleur

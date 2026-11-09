@@ -12,6 +12,7 @@ import { LIVERIES, paintAircraft } from './Liveries.js';
 import { setRegistration } from './C172Model.js';
 import { AircraftLights } from './AircraftLights.js';
 import { cloneF15, paintF15, animateF15, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
+import { SmokeTrail } from './Damage.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
 const POSITION_CORRECTION = 3;  // rapidité du recalage sur la position prédite
@@ -30,6 +31,9 @@ const LANDING_LIGHT = { intensity: 12000, distance: 400, angle: 20 * Math.PI / 1
     position: [-2.2, 1.12, -3], target: [-1.2, -2.4, -80] };
 
 const _forward = new Vector3();
+const _smokePoint = new Vector3();
+// Fumée d'un avion touché : sortie des réacteurs (F-15), moteur à l'avant (Cessna) ; repère avion
+const SMOKE_SOURCE = { f15: new Vector3(0, 0.4, 8.5), c172: new Vector3(0, 0.3, -4) };
 
 // Distance en milles nautiques : 2 décimales de près (0,05 NM = ~90 m), 1 au-delà
 function formatNM(meters) {
@@ -174,6 +178,19 @@ class RemotePlayers extends EventTarget {
         return result;
     }
 
+    // Combat : avions visibles des autres joueurs (cibles du canon) et leur canon ({ id, name, type, group, firing,
+    // velocity })
+    combatList() {
+        const result = [];
+        for (const [id, plane] of this.planes) {
+            const state = this.multiplayer.players.get(id);
+            if (!state || state.crashed || !plane.group.visible || this.isOffline(state)) continue;
+            result.push({ id, name: state.name, type: plane.type, group: plane.group, firing: state.firing,
+                velocity: (plane.velocity ??= new Vector3()).fromArray(state.v ?? [0, 0, 0]) });
+        }
+        return result;
+    }
+
     // Joueur qui n'est plus sur la page du simulateur, ou dont on n'a plus de nouvelles
     isOffline(state) {
         return state.away || performance.now() - state.receivedAt > OFFLINE_DELAY;
@@ -209,6 +226,7 @@ class RemotePlayers extends EventTarget {
                 group.position.copy(this._targetPosition);
                 group.quaternion.copy(this._targetQuaternion);
                 plane.fresh = false;
+                plane.trail?.jump();
             } else {
                 // L'avion avance avec sa vitesse, puis se recale en douceur sur la prédiction
                 group.position.addScaledVector(this._velocity, delta).lerp(this._targetPosition, positionAlpha);
@@ -245,6 +263,13 @@ class RemotePlayers extends EventTarget {
             }));
             plane.crashes = state.crashes;
             group.visible = !state.crashed;
+            // Avion touché : traînée de fumée (de plus en plus épaisse), flammes s'il brûle
+            const smoke = state.crashed ? 0 : Math.min(1, state.damage / 70);
+            if (smoke > 0 || plane.trail) {
+                plane.trail ??= new SmokeTrail(this.scene);
+                _smokePoint.copy(SMOKE_SOURCE[plane.type] ?? SMOKE_SOURCE.c172).applyQuaternion(group.quaternion).add(group.position);
+                plane.trail.update(delta, _smokePoint, smoke, state.burning && !state.crashed, this._velocity);
+            }
             // Feux : les interrupteurs de ce joueur (phare, navigation, anticollision, strobes)
             plane.lights.setSwitches(state.lights);
             if (camera && group.visible) {
@@ -311,6 +336,7 @@ class RemotePlayers extends EventTarget {
                 this.scene.remove(plane.group, plane.label.sprite);
                 plane.label.dispose();
                 plane.engine?.dispose();
+                plane.trail?.dispose();
                 this.planes.delete(id);
             }
         }

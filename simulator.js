@@ -88,6 +88,9 @@ import { loadF15, cloneF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVE
 import { F15Cockpit } from './js/F15Cockpit.js';
 import { JetSound } from './js/JetSound.js';
 import { VERSION, VERSION_DATE } from './js/Version.js';
+import { Weapons } from './js/Weapons.js';
+import { Damage, SmokeTrail } from './js/Damage.js';
+import { WeaponHud } from './js/WeaponHud.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -1567,7 +1570,8 @@ controls.addEventListener('crash', ({ reason }) => {
     crashCount++;
     crashReason.textContent = `${reason} — retour au point de départ…`;
     crashBanner.classList.add('actif');
-    const wreck = aircraft.position.clone().setY(terrain.heightAt(aircraft.position.x, aircraft.position.z));
+    // (abattu en vol : l'explosion a lieu en l'air, là où est l'avion)
+    const wreck = aircraft.position.clone().setY(Math.max(terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.y - WHEEL_HEIGHT));
     // Avion coulé : il reste visible, l'aile au ras de l'eau ; sinon il disparaît dans la boule de feu
     const sinking = sunk;
     sunk = false;
@@ -3609,6 +3613,9 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     flaps: (step) => controls.setFlapLevel(controls.getFlapLevel() + step),
     train: () => toggleGear(),
     aerofrein: () => toggleSpeedbrake(),
+    canon: (on) => setTrigger(on),
+    'air-sol': () => toggleAgMode(),
+    missile: () => fireMissile(),
 });
 // Boutons propres au F-15 (train, aérofrein) : montrés seulement en F-15 ; allumés train sorti / aérofrein sorti
 document.addEventListener('aircraft-change', ({ detail }) => {
@@ -3755,6 +3762,139 @@ function checkPlaneCollisions() {
         playerTrack.clear();
     }
     if (planesCollide(aircraft, otherPlanes, aircraftType)) controls.collide('Collision avec un autre avion');
+}
+
+// --- Combat (F-15) : canon M61, missiles air-sol AGM-65, dégâts (voir Weapons.js, Damage.js, WeaponHud.js) ---------
+// Touches : ↑ (tenir) canon ; ↓ mode air-sol (croix rouge au sol, qui suit la souris ; clic : la poser) ;
+// → missile sur la croix ; ← reprendre la croix posée. Armes seulement en F-15, en vol. Dégâts subis sur les deux avions.
+const weapons = new Weapons(scene, { terrain });
+const damage = new Damage();
+const ownSmoke = new SmokeTrail(scene);
+const weaponHud = new WeaponHud(document.getElementById('armement'), view);
+const OWN_SMOKE_SOURCE = { f15: new THREE.Vector3(0, 0.4, 8.5), c172: new THREE.Vector3(0, 0.3, -4) };
+const _smokeSource = new THREE.Vector3();
+let pointerNdc = null;   // souris sur la vue (coordonnées -1 -> 1) : la croix rouge la suit
+
+const weaponsArmed = () => aircraftType === 'f15' && !choosingSpawn && !inHangar && !inMenu && !controls.isCrashed()
+    && !controls.isOnGround();
+function screenNdc(event) {
+    const r = view.getBoundingClientRect();
+    return { x: (event.clientX - r.left) / r.width * 2 - 1, y: -((event.clientY - r.top) / r.height) * 2 + 1 };
+}
+view.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'mouse') pointerNdc = screenNdc(event);
+});
+view.addEventListener('pointerleave', () => { pointerNdc = null; });
+// Mode air-sol : un clic (sans glisser) pose la croix rouge à l'endroit visé
+view.addEventListener('pointerup', (event) => {
+    if (!weapons.agMode || !weaponsArmed() || dragDistance > 6 || event.button !== 0 || controlAt(event)) return;
+    camera.updateMatrixWorld();
+    weapons.lockAt(camera, screenNdc(event));
+});
+
+function setTrigger(on) {
+    weapons.trigger = on;
+}
+function toggleAgMode() {
+    if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
+    weapons.setAgMode(!weapons.agMode);
+}
+function fireMissile() {
+    if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
+    if (!weaponsArmed()) return weaponHud.message('Armes : en vol seulement');
+    weapons.fireMissile(aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
+}
+window.addEventListener('keydown', (event) => {
+    if (isTypingTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) return;
+    if (inMenu || inHangar || choosingSpawn || document.querySelector('dialog[open]')) return;
+    event.preventDefault();
+    if (event.code === 'ArrowUp') {
+        if (!event.repeat && aircraftType !== 'f15') weaponHud.message('Armes : seulement sur le F-15');
+        setTrigger(true);
+        return;
+    }
+    if (event.repeat) return;
+    if (event.code === 'ArrowDown') toggleAgMode();
+    else if (event.code === 'ArrowRight') fireMissile();
+    else if (event.code === 'ArrowLeft' && weapons.agMode) weapons.unlock();
+});
+window.addEventListener('keyup', (event) => {
+    if (event.code === 'ArrowUp') setTrigger(false);
+});
+window.addEventListener('blur', () => setTrigger(false));
+
+// Nos obus touchent un joueur : envoyé au joueur touché ; nos missiles : refaits chez les autres
+weapons.addEventListener('hits', ({ detail }) => multiplayer.sendHit(detail.id, detail.zones));
+weapons.addEventListener('missile', ({ detail }) => multiplayer.sendMissile(detail));
+weapons.addEventListener('message', ({ detail }) => weaponHud.message(detail.text));
+// Missile qui explose (le nôtre ou celui d'un autre joueur) : boule de feu, bruit (retardé de loin), souffle sur notre avion
+weapons.addEventListener('explosion', ({ detail }) => {
+    const effect = new CrashEffect();
+    effect.start(detail.position);
+    scene.add(effect.group);
+    remoteCrashes.push(effect);
+    const distance = detail.position.distanceTo(camera.position);
+    sounds.play('crash', { volume: THREE.MathUtils.clamp(150 / distance, 0.08, 1), delay: Math.min(4, distance / 343) });
+    if (distance < 400) shake = Math.max(shake, 0.8 * (1 - distance / 400));
+    if (controls.isCrashed() || choosingSpawn || inHangar) return;
+    const attacker = detail.own ? { id: null, name: 'votre propre missile' } : { id: detail.ownerId, name: detail.ownerName };
+    damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType === 'c172');
+});
+multiplayer.addEventListener('missile', ({ detail }) => {
+    weapons.addRemoteMissile({
+        from: new THREE.Vector3().fromArray(detail.from), velocity: new THREE.Vector3().fromArray(detail.velocity),
+        target: new THREE.Vector3().fromArray(detail.target),
+    }, detail.id, detail.name, camera.position);
+});
+// Obus d'un autre joueur sur notre avion
+multiplayer.addEventListener('hit', ({ detail }) => {
+    if (controls.isCrashed() || choosingSpawn || inHangar) return;
+    damage.applyHits(detail.zones, { id: detail.id, name: detail.name }, aircraftType === 'c172');
+});
+damage.addEventListener('hit', () => {
+    weaponHud.flash = 1;
+    shake = Math.max(shake, 0.3);
+    sounds.click(0.7, 260 + Math.random() * 120);
+});
+damage.addEventListener('destroyed', ({ detail }) => {
+    if (controls.isCrashed()) return;
+    controls.collide(detail.reason);
+    multiplayer.sendKill(detail.attackerId, detail.reason);
+});
+multiplayer.addEventListener('kill', ({ detail }) => {
+    chat.add(null, detail.byName ? `💥 ${detail.byName} a abattu ${detail.name}` : `💥 ${detail.name} : ${detail.reason}`);
+    if (detail.mine) weaponHud.message(`${detail.name} abattu !`, true);
+});
+// Nouveau départ : avion réparé, réarmé
+controls.addEventListener('reset', () => {
+    damage.reset();
+    weapons.rearm();
+    ownSmoke.jump();
+});
+
+function updateCombat(frameDelta) {
+    const delta = Math.min(frameDelta, 0.1);   // même pas maximal que le modèle de vol (onglet en arrière-plan, à-coup)
+    const jet = aircraftType === 'f15';
+    if (!jet && weapons.agMode) weapons.agMode = false;
+    const armed = weaponsArmed();
+    const targets = multiplayer.code ? remotePlayers.combatList() : [];
+    camera.updateMatrixWorld();
+    if (weapons.agMode && armed) weapons.aim(camera, pointerNdc);
+    weapons.update(delta, {
+        own: { aircraft, velocity: controls.model.velocity, armed },
+        camera, targets, cabin: !chaseView,
+        shooters: targets.filter((t) => t.firing && t.type === 'f15').map((t) => ({ id: t.id, matrix: t.group.matrixWorld, velocity: t.velocity })),
+    });
+    // Fumée et flammes derrière notre avion touché
+    const crashed = controls.isCrashed();
+    if (!choosingSpawn && !crashed) damage.update(delta, controls.model, jet);
+    _smokeSource.copy(OWN_SMOKE_SOURCE[aircraftType] ?? OWN_SMOKE_SOURCE.c172).applyQuaternion(aircraft.quaternion).add(aircraft.position);
+    ownSmoke.update(delta, _smokeSource, crashed || choosingSpawn ? 0 : damage.smoke, damage.onFire && !crashed && !choosingSpawn, controls.model.velocity);
+    const visible = !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo');
+    weaponHud.update(delta, visible, {
+        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets,
+    });
 }
 
 // --- Chargement et entrée en partie -----------------------------------------------------------------------------
@@ -4037,6 +4177,8 @@ renderer.setAnimationLoop((time)=>{
     if (!choosingSpawn) multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
         crashed: controls.isCrashed(), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
         jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
+        // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
+        combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed() },
     } );
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
@@ -4047,6 +4189,7 @@ renderer.setAnimationLoop((time)=>{
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
     remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime );
     updateRemoteCrashes( delta );
+    updateCombat( delta );
     updateMap( delta );
     // Liste "En ligne" ouverte : distances et altitudes mises à jour chaque seconde
     if ((onlineTimer -= delta) <= 0) {

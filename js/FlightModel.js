@@ -78,6 +78,9 @@ class FlightModel extends EventDispatcher {
 		this.throttle = 0.3;             // 0 -> 1
 		this.enginePower = 1;            // puissance disponible (0 = moteur arrêté), voir Systems.js
 		this.jetThrust = 0;              // réacteurs (aircraft.jet) : poussée au niveau de la mer (N), voir JetSystems.js
+		// Dégâts au combat (voir Damage.js) : poussée restante, portance de chaque demi-aile (gauche, droite), traînée
+		// en plus (trous, tôles arrachées), efficacité des gouvernes (empennage touché)
+		this.damage = { thrust: 1, wingLift: [ 1, 1 ], drag: 0, control: 1 };
 		// Train rentrant (aircraft.gearTime) : demandé sorti ou rentré, position réelle (0 rentré -> 1 sorti) ; aérofrein
 		this.gearDown = true;
 		this.gearPosition = 1;
@@ -305,15 +308,15 @@ class FlightModel extends EventDispatcher {
 	// Poussée de l'hélice (N) : limitée à l'arrêt, puis à puissance constante (elle baisse avec la vitesse)
 	_thrust( speed ) {
 		// Réacteurs : poussée donnée par les systèmes, qui baisse avec la densité de l'air
-		if ( this.aircraft.jet ) return this.jetThrust * ( this.airDensity() / AIR_DENSITY ) ** 0.75;
-		return this.throttle * this.enginePower * Math.min( this.aircraft.staticThrust, this.aircraft.power / Math.max( 1, speed ) );
+		if ( this.aircraft.jet ) return this.jetThrust * this.damage.thrust * ( this.airDensity() / AIR_DENSITY ) ** 0.75;
+		return this.throttle * this.enginePower * this.damage.thrust * Math.min( this.aircraft.staticThrust, this.aircraft.power / Math.max( 1, speed ) );
 	}
 
 	// Coefficient de traînée : forme + volets + induite (réduite près du sol) + hélice au ralenti + aile décrochée
 	_dragCoefficient( lift, groundEffect = 1, speed = 0 ) {
 		const A = this.aircraft;
 		let cd = A.cd0 + A.flapDrag * this.flaps + A.inducedDrag * lift * lift * groundEffect
-			+ A.windmillDrag * ( 1 - this.throttle * this.enginePower ) + ( this.stalled ? A.stallDrag : 0 );
+			+ A.windmillDrag * ( 1 - this.throttle * this.enginePower ) + ( this.stalled ? A.stallDrag : 0 ) + this.damage.drag;
 		// Train sorti, aérofrein ; traînée d'onde à l'approche de Mach 1 (avions rapides)
 		if ( A.gearTime ) cd += A.gearDrag * this.gearPosition + A.speedbrakeDrag * this.speedbrake;
 		if ( A.waveDrag ) cd += A.waveDrag * MathUtils.smoothstep( speed / SPEED_OF_SOUND, A.machCritical, 1.05 );
@@ -399,7 +402,7 @@ class FlightModel extends EventDispatcher {
 			_panelAir.set( 0, w.z * side * arm, - w.y * side * arm ).applyQuaternion( quaternion ).add( _air );
 			const panelSpeed = Math.max( 0.1, _panelAir.length() );
 			const panelAlpha = Math.atan2( - _panelAir.dot( _planeUp ), _panelAir.dot( _forward ) );
-			const panelLift = this._liftCoefficient( panelAlpha, this.stalled ) * groundLift
+			const panelLift = this._liftCoefficient( panelAlpha, this.stalled ) * groundLift * this.damage.wingLift[ side < 0 ? 0 : 1 ]
 				* 0.5 * this.airDensity() * panelSpeed * panelSpeed * A.wingArea / 2;
 			_liftDirection.crossVectors( _right, _panelAir ).normalize();   // perpendiculaire au vent relatif de cette aile
 			_force.addScaledVector( _liftDirection, panelLift );
@@ -426,7 +429,10 @@ class FlightModel extends EventDispatcher {
 		// trop raide), elle ne suffit plus à garder le nez sur la trajectoire qui s'incurve vers le bas : l'incidence
 		// monte et l'avion décroche, comme un vrai (avant : stabilité gardée à 60 %, l'avion tombait à 20 kt sans décrocher)
 		const stability = MathUtils.clamp( ( speed / 25 ) ** 2, A.lowSpeedStability, 1 );
-		const input = this.controls;
+		// Empennage ou commandes touchés : les gouvernes répondent moins
+		const control = this.damage.control;
+		const input = control < 1 ? { ...this.controls, pitch: this.controls.pitch * control, roll: this.controls.roll * control,
+			yaw: this.controls.yaw * control } : this.controls;
 		let trimAlpha = Math.min( this.trimAlpha(), stallAlpha - MathUtils.degToRad( 5 ) ); // trim seul : jamais de décrochage
 		// Aide "envol en douceur" : juste après l'envol, on part de l'incidence d'envol et on rejoint le trim en douceur
 		if ( this._liftoffBlend > 0 ) {

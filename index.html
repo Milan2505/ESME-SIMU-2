@@ -230,6 +230,8 @@
 	
 	<canvas id="ecran" tabindex="0"></canvas>
 	<canvas id="hud" hidden></canvas>
+	<!-- Combat (F-15) : réticule du canon, cadres sur les avions, croix air-sol, dégâts (voir WeaponHud.js) -->
+	<canvas id="armement" hidden></canvas>
 	<div id="astuce-echap" class="cache">Échap : afficher les menus</div>
 	<!-- Commandes tactiles (tablettes, voir TouchControls.js) : manche à gauche, gaz et boutons à droite -->
 	<div id="tactile" hidden>
@@ -248,6 +250,9 @@
 					<button data-tactile="trim-piquer" title="Trim à piquer (tenir)">Trim ▼</button>
 					<button data-tactile="train" data-jet hidden title="Sortir / rentrer le train (F-15, touche Y)">Train</button>
 					<button data-tactile="aerofrein" data-jet hidden title="Aérofrein (F-15, touche U)">Aérofrein</button>
+					<button data-tactile="canon" data-jet hidden title="Canon M61 (tenir ; flèche ↑)">Canon</button>
+					<button data-tactile="air-sol" data-jet hidden title="Mode air-sol : croix rouge au sol, toucher l'image pour la poser (flèche ↓)">Air-sol</button>
+					<button data-tactile="missile" data-jet hidden title="Missile AGM-65 sur la croix rouge (flèche →)">Missile</button>
 					<button data-tactile="frein" class="tactile-frein" title="Freins (tenir)">Freins</button>
 				</div>
 				<!-- Palonnier : glisser à gauche ou à droite (lacet ; au sol, roulette de nez), revient au centre au lâcher -->
