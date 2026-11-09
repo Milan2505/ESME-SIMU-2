@@ -125,16 +125,16 @@ class TouchControls {
     _setupButton(button) {
         const action = button.dataset.tactile;
         const hold = { frein: ['_brake', 1], 'trim-cabrer': ['_trim', 1], 'trim-piquer': ['_trim', -1] }[action];
-        // Canon : tire tant qu'on appuie
-        if (action === 'canon') {
+        // Feu : tire tant qu'on appuie (canon) ; missile : un tir
+        if (action === 'feu') {
             const release = () => {
-                this.actions.canon?.(false);
+                this.actions.feu?.(false);
                 button.classList.remove('actif');
             };
             button.addEventListener('pointerdown', (event) => {
                 event.preventDefault();
                 button.setPointerCapture(event.pointerId);
-                this.actions.canon?.(true);
+                this.actions.feu?.(true);
                 button.classList.add('actif');
             });
             button.addEventListener('pointerup', release);

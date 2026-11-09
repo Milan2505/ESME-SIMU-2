@@ -59,6 +59,11 @@ const MISSILE = {
 };
 const MAX_BULLETS = 500;
 const UNLIMITED = true;              // munitions illimitées (obus et missiles ne s'épuisent pas)
+// Rythme du combat (munitions illimitées) : le canon chauffe, le missile se recharge
+const HEAT_TIME = 4;                  // s de tir continu jusqu'à la surchauffe (~400 obus)
+const COOL_RATE = 0.35;               // refroidissement (fraction par seconde, détente lâchée)
+const COOLED = 0.3;                   // après une surchauffe : le canon retire sous ce niveau
+const MISSILE_RELOAD = 1.5;           // s entre deux missiles (pylône suivant armé)
 const HIT_FLUSH = 0.1;                // s : coups au but regroupés avant envoi
 const TRACER_COLOR = 0xffb347;
 
@@ -426,9 +431,13 @@ class Weapons extends EventTarget {
         this.missiles = MISSILE.count;
         this.trigger = false;          // détente tenue
         this.firing = false;           // obus qui partent (envoyé aux autres joueurs)
-        this.agMode = true;            // croix rouge au sol toujours montrée (plus de mode à choisir)
-        this.target = null;            // point visé au sol (Vector3) ; null : rien sous la croix
-        this.targetLocked = false;     // croix posée (elle ne suit plus la souris)
+        this.selected = 'gun';         // arme choisie : 'gun' (canon) ou 'missile'
+        this.switchFlash = 0;          // s : animation du changement d'arme (affichage)
+        this.heat = 0;                 // chauffe du canon (0 -> 1)
+        this.overheated = false;       // surchauffe : le canon ne tire plus jusqu'à refroidissement
+        this.reload = 0;               // s avant que le missile suivant soit prêt
+        this.target = null;            // point du sol sous la croix rouge (mode missile) ; null : rien
+        this.targetLocked = false;
         this.inFlight = [];            // missiles en vol
         this.hitMarker = 0;            // s : nos obus viennent de toucher un avion
         this._spin = 0;                // tubes lancés (0 -> 1)
@@ -501,6 +510,19 @@ class Weapons extends EventTarget {
         this._spin = 0;
         this.targetLocked = false;
         this.target = null;            // (nouveau départ : plus de croix)
+        this.heat = 0;
+        this.overheated = false;
+        this.reload = 0;
+    }
+
+    // Change d'arme (canon <-> missile) ; arme donnée : celle-là
+    select(weapon = this.selected === 'gun' ? 'missile' : 'gun') {
+        if (weapon === this.selected) return;
+        this.selected = weapon;
+        this.trigger = false;
+        this.switchFlash = 0.5;
+        this.target = null;
+        this.dispatchEvent(new CustomEvent('select', { detail: { weapon } }));
     }
 
     _message(text) {
@@ -539,9 +561,8 @@ class Weapons extends EventTarget {
         return [_a.clone(), _b.clone()];
     }
 
-    // Mode air-sol : la croix suit le point visé (souris, ou centre de l'écran), sauf si elle est posée
+    // Mode missile : la croix suit le point visé (souris, ou centre de l'écran)
     aim(camera, ndc) {
-        if (this.targetLocked) return;
         const [origin, direction] = this._rayFrom(camera, ndc);
         this.target = this.groundPoint(origin, direction, MISSILE.maxRange + 4000, this.target ?? new Vector3());
     }
@@ -559,10 +580,17 @@ class Weapons extends EventTarget {
         this.targetLocked = false;
     }
 
+    // Missile sur le point du sol visé à l'écran (ndc ; null : croix actuelle) : il y arrive exactement
+    fireMissileAt(camera, ndc, aircraft, velocity, ownId, ownName) {
+        if (ndc) this.aim(camera, ndc);
+        return this.fireMissile(aircraft, velocity, ownId, ownName);
+    }
+
     // Tir d'un missile sur la croix ; aircraft : objet de l'avion, velocity : sa vitesse (m/s)
     fireMissile(aircraft, velocity, ownId, ownName) {
         if (this.missiles <= 0) return this._message('Plus de missiles');
-        if (!this.target) return this._message("Posez d'abord la croix : clic droit sur le sol");
+        if (this.reload > 0) return false;   // (pylône suivant pas encore prêt : jauge sur la carte de l'arme)
+        if (!this.target) return this._message('Visez le sol : la croix rouge montre où ira le missile');
         const range = aircraft.position.distanceTo(this.target);
         if (range < MISSILE.minRange) return this._message('Cible trop proche');
         if (range > MISSILE.maxRange) return this._message(`Cible hors de portée (${(range / 1000).toFixed(1)} km > 16 km)`);
@@ -573,6 +601,7 @@ class Weapons extends EventTarget {
         const from = rail.clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
         const data = { from, velocity: velocity.clone(), target: this.target.clone() };
         if (!UNLIMITED) this.missiles--;
+        this.reload = MISSILE_RELOAD;
         this._launch({ ...data, ownerId: ownId, ownerName: ownName, own: true });
         this.dispatchEvent(new CustomEvent('missile', { detail: data }));
         // (la croix reste posée : on peut tirer plusieurs missiles au même endroit)
@@ -589,6 +618,14 @@ class Weapons extends EventTarget {
     _launch(options) {
         const missile = new Missile(this.scene, this._missileMesh, this._glow, options);
         this.inFlight.push(missile);
+        // Nos missiles : point d'impact marqué au sol (croix fixe) jusqu'à l'explosion
+        if (options.own) {
+            missile.marker = this.cross.clone();
+            missile.marker.position.copy(options.target);
+            missile.marker.position.y += 0.3;
+            missile.marker.visible = true;
+            this.group.add(missile.marker);
+        }
         if (options.own) this.sounds.whoosh(1);
         return missile;
     }
@@ -644,7 +681,9 @@ class Weapons extends EventTarget {
         const ground = (x, z) => this.terrain.heightAt(x, z);
 
         // Notre canon : les tubes se lancent, puis 100 obus par seconde tant que la détente est tenue
-        const wantFire = this.trigger && own.armed && this.ammo > 0;
+        this.switchFlash = Math.max(0, this.switchFlash - delta);
+        this.reload = Math.max(0, this.reload - delta);
+        const wantFire = this.trigger && own.armed && this.ammo > 0 && this.selected === 'gun' && !this.overheated;
         this._spin = wantFire ? Math.min(1, this._spin + delta / GUN.spinUp) : 0;
         this.firing = wantFire && this._spin >= 1;
         if (this.trigger && own.armed && this.ammo <= 0 && !this._emptyWarned) {
@@ -668,6 +707,14 @@ class Weapons extends EventTarget {
             this._roundTimer = 0;
             this.muzzleFlash.visible = false;
         }
+        // Chauffe du canon : surchauffe après ~4 s de tir continu, il faut lâcher la détente le temps qu'il refroidisse
+        if (this.firing) this.heat = Math.min(1, this.heat + delta / HEAT_TIME);
+        else this.heat = Math.max(0, this.heat - COOL_RATE * delta);
+        if (this.heat >= 1 && !this.overheated) {
+            this.overheated = true;
+            this.dispatchEvent(new CustomEvent('overheat'));
+        }
+        if (this.overheated && this.heat <= COOLED) this.overheated = false;
 
         // Canons des autres joueurs (traceurs vus de chez nous)
         let remoteLoudness = 0;
@@ -742,6 +789,15 @@ class Weapons extends EventTarget {
                     position: missile.position.clone(), ownerId: missile.ownerId, ownerName: missile.ownerName, own: missile.own,
                 } }));
             }
+            if (missile.marker && (missile.exploded || missile.done)) {
+                this.group.remove(missile.marker);
+                missile.marker = null;
+            }
+            if (missile.marker && cameraPosition) {
+                // Marque d'impact : pulse, assez grande pour se voir de loin
+                const pulse = 1 + 0.15 * Math.sin(missile.age * 12);
+                missile.marker.scale.setScalar(Math.max(8, cameraPosition.distanceTo(missile.target) * 0.03) * pulse);
+            }
             if (missile.done) {
                 missile.dispose();
                 this.inFlight.splice(i, 1);
@@ -749,7 +805,7 @@ class Weapons extends EventTarget {
         }
 
         // Croix rouge : au sol, assez grande pour se voir de loin
-        const showCross = this.target && own.armed;
+        const showCross = this.target && own.armed && this.selected === 'missile';
         this.cross.visible = Boolean(showCross);
         if (showCross) {
             this.cross.position.copy(this.target);
@@ -792,7 +848,10 @@ class Weapons extends EventTarget {
 
     // Plus de missiles ni d'obus dans le ciel (changement de partie)
     clear() {
-        for (const missile of this.inFlight) missile.dispose();
+        for (const missile of this.inFlight) {
+            if (missile.marker) this.group.remove(missile.marker);
+            missile.dispose();
+        }
         this.inFlight.length = 0;
         for (const bullet of this._bullets) bullet.alive = false;
         this.tracers.count = 0;
@@ -805,4 +864,4 @@ class Weapons extends EventTarget {
     }
 }
 
-export { Weapons, GUN, MISSILE, UNLIMITED };
+export { Weapons, GUN, MISSILE, UNLIMITED, MISSILE_RELOAD };

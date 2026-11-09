@@ -3656,8 +3656,8 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     flaps: (step) => controls.setFlapLevel(controls.getFlapLevel() + step),
     train: () => toggleGear(),
     aerofrein: () => toggleSpeedbrake(),
-    canon: (on) => setTrigger(on),
-    missile: () => fireMissile(),
+    feu: (on) => pullTrigger(on),
+    arme: () => switchWeapon(),
 });
 // Boutons propres au F-15 (train, aérofrein) : montrés seulement en F-15 ; allumés train sorti / aérofrein sorti
 document.addEventListener('aircraft-change', ({ detail }) => {
@@ -3824,24 +3824,29 @@ function screenNdc(event) {
     const r = view.getBoundingClientRect();
     return { x: (event.clientX - r.left) / r.width * 2 - 1, y: -((event.clientY - r.top) / r.height) * 2 + 1 };
 }
-// Commandes de tir (F-15, en vol) — simples :
-// - canon : clic gauche maintenu sur l'image (ou touche ↑) ; pendant le tir, la souris ne tourne pas la caméra
-//   (le clic droit glissé, si) ;
-// - missile : clic droit sur le sol = la croix rouge s'y pose et y reste (fixée au sol, même quand l'avion bouge) ;
-//   clic droit sur la croix (ou touche →) : le missile part exactement sur elle. Un clic droit ailleurs la déplace.
-// Tablette : bouton CANON (maintenu), toucher le sol pose la croix, bouton MISSILE.
+// Commandes de tir (F-15, en vol) : deux armes, on en choisit une (cartes en haut de l'écran, voir WeaponHud.js)
+// - clic droit (ou ↓) : changer d'arme (CANON <-> MISSILE) ;
+// - clic gauche (ou ↑) : tirer avec l'arme choisie. Canon : tant qu'on tient (il chauffe : lâcher pour le refroidir) ;
+//   missile : la croix rouge suit la souris au sol, le clic tire le missile exactement là (point d'impact marqué,
+//   compte à rebours), puis le pylône suivant se recharge (1,5 s).
+// Le clic droit glissé tourne toujours la caméra. Tablette : boutons ARME et FEU (missile : ou toucher le sol).
 let mouseFiring = false;
-const CROSS_CLICK = 45;   // px : clic droit à moins de 45 px de la croix = tir
-const _crossScreen = new THREE.Vector3();
 view.addEventListener('pointermove', (event) => {
     if (event.pointerType === 'mouse') pointerNdc = screenNdc(event);
 });
 view.addEventListener('pointerleave', () => { pointerNdc = null; });
 view.addEventListener('pointerdown', (event) => {
-    if (event.pointerType !== 'mouse' || event.button !== 0 || !weaponsArmed() || controlAt(event)) return;
-    mouseFiring = true;
-    setTrigger(true);
-    drag = null;   // (pas de rotation de la caméra pendant le tir)
+    if (event.button !== 0 || !weaponsArmed() || controlAt(event)) return;
+    if (event.pointerType === 'mouse') {
+        drag = null;   // (le clic gauche tire : pas de rotation de la caméra)
+        if (weapons.selected === 'gun') {
+            mouseFiring = true;
+            setTrigger(true);
+        } else {
+            camera.updateMatrixWorld();
+            fireMissile(screenNdc(event));
+        }
+    }
 });
 view.addEventListener('pointerup', (event) => {
     if (event.button === 0 && mouseFiring) {
@@ -3850,47 +3855,56 @@ view.addEventListener('pointerup', (event) => {
         return;
     }
     if (!weaponsArmed() || dragDistance > 6) return;
-    camera.updateMatrixWorld();
-    if (event.pointerType === 'mouse' && event.button === 2) {
-        // Clic droit sur la croix : missile ; ailleurs : la croix s'y pose
-        if (weapons.target) {
-            const r = view.getBoundingClientRect();
-            _crossScreen.copy(weapons.target).project(camera);
-            const x = r.left + (_crossScreen.x + 1) / 2 * r.width, y = r.top + (1 - _crossScreen.y) / 2 * r.height;
-            if (_crossScreen.z < 1 && Math.hypot(event.clientX - x, event.clientY - y) < CROSS_CLICK) {
-                fireMissile();
-                return;
-            }
-        }
-        weapons.lockAt(camera, screenNdc(event));
-        if (weapons.target) weaponHud.message('Croix posée : clic droit dessus (ou →) pour tirer le missile');
-    } else if (event.pointerType !== 'mouse' && !controlAt(event)) {
-        // Doigt : pose la croix
-        weapons.lockAt(camera, screenNdc(event));
+    if (event.pointerType === 'mouse' && event.button === 2) switchWeapon();   // clic droit (sans glisser)
+    else if (event.pointerType !== 'mouse' && weapons.selected === 'missile' && !controlAt(event)) {
+        // Doigt sur le sol, en mode missile : missile sur ce point
+        camera.updateMatrixWorld();
+        fireMissile(screenNdc(event));
     }
 });
 
+function switchWeapon() {
+    if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
+    mouseFiring = false;
+    weapons.select();
+}
+weapons.addEventListener('select', ({ detail }) => {
+    // Petit « clac » du sélecteur d'arme
+    sounds.click(0.6, detail.weapon === 'gun' ? 1800 : 1100);
+    setTimeout(() => sounds.click(0.45, detail.weapon === 'gun' ? 1300 : 800), 70);
+});
+weapons.addEventListener('overheat', () => {
+    weaponHud.message('Canon en surchauffe : lâchez la détente', true);
+    sounds.click(0.5, 500);
+});
 function setTrigger(on) {
     weapons.trigger = on;
     if (on && aircraftType === 'f15' && !weaponsArmed() && inFlightScreen()) {
-        weaponHud.message(controls.isOnGround() ? 'Canon : seulement en vol (décollez d\'abord)' : 'Canon indisponible');
+        weaponHud.message(controls.isOnGround() ? "Armes : seulement en vol (décollez d'abord)" : 'Armes indisponibles');
     }
 }
-function fireMissile() {
+// Missile sur le point visé à l'écran (ndc ; null : là où est la croix, sous la souris ou au centre)
+function fireMissile(ndc = null) {
     if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
-    if (!weaponsArmed()) return weaponHud.message('Missile : seulement en vol (décollez d\'abord)');
-    weapons.fireMissile(aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
+    if (!weaponsArmed()) return weaponHud.message("Armes : seulement en vol (décollez d'abord)");
+    if (weapons.selected !== 'missile') weapons.select('missile');
+    camera.updateMatrixWorld();
+    weapons.fireMissileAt(camera, ndc ?? pointerNdc, aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
+}
+// Tir avec l'arme choisie (clavier ↑, bouton FEU)
+function pullTrigger(on) {
+    if (weapons.selected === 'gun') setTrigger(on);
+    else if (on) fireMissile();
 }
 window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.code !== 'ArrowUp' && event.code !== 'ArrowRight') return;
+    if (event.code !== 'ArrowUp' && event.code !== 'ArrowDown') return;
     if (!inFlightScreen()) return;
     event.preventDefault();
     if (event.repeat) return;
-    if (event.code === 'ArrowUp') {
-        if (aircraftType !== 'f15') weaponHud.message('Armes : seulement sur le F-15');
-        else setTrigger(true);
-    } else fireMissile();
+    if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
+    if (event.code === 'ArrowUp') pullTrigger(true);
+    else switchWeapon();
 });
 window.addEventListener('keyup', (event) => {
     if (event.code === 'ArrowUp') setTrigger(false);
@@ -3982,6 +3996,8 @@ function updateCombat(frameDelta) {
     const armed = weaponsArmed();
     const targets = multiplayer.code ? remotePlayers.combatList() : [];
     camera.updateMatrixWorld();
+    // Mode missile : la croix rouge suit la souris au sol (au centre de l'écran sans souris)
+    if (armed && weapons.selected === 'missile') weapons.aim(camera, pointerNdc);
     weapons.update(delta, {
         own: { aircraft, velocity: controls.model.velocity, armed },
         camera, targets, cabin: !chaseView,

@@ -1,5 +1,5 @@
 import { MathUtils, Vector3 } from 'three';
-import { GUN, MISSILE, UNLIMITED } from './Weapons.js';
+import { GUN, MISSILE, MISSILE_RELOAD } from './Weapons.js';
 
 // Affichage du combat, par-dessus l'écran de vol (vue cabine et extérieure) :
 // - mode air-air : réticule du canon (point où seront les obus à la distance de la cible la plus proche), cadres sur
@@ -115,7 +115,8 @@ class WeaponHud {
                 boxes.push({ t, distance, screen });
                 if (distance < GUN_RANGE && (!nearest || distance < nearest.distance)) nearest = { t, distance, screen };
             }
-            {
+            const gunMode = weapons.selected === 'gun';
+            if (gunMode) {
                 const range = nearest ? nearest.distance : DEFAULT_RANGE;
                 weapons.bulletPoint(s.aircraft, s.velocity, range, _pipper);
                 pipper = this._project(_pipper, camera);
@@ -149,9 +150,9 @@ class WeaponHud {
                         ctx.setLineDash([]);
                     }
                 }
-                // Réticule : cercle, point central, arc de distance (plein à 1 800 m)
+                // Réticule : cercle, point central, arc de distance (plein à 1 800 m) ; rouge en surchauffe
                 if (pipper) {
-                    ctx.strokeStyle = ctx.fillStyle = onTarget ? RED : GREEN;
+                    ctx.strokeStyle = ctx.fillStyle = onTarget || weapons.overheated ? RED : GREEN;
                     ctx.beginPath();
                     ctx.arc(pipper.x, pipper.y, 22, 0, Math.PI * 2);
                     ctx.stroke();
@@ -165,42 +166,60 @@ class WeaponHud {
                         ctx.stroke();
                         ctx.lineWidth = 2;
                     }
-                    if (onTarget) {
-                        ctx.textAlign = 'center';
-                        ctx.fillText('TIR', pipper.x, pipper.y - 38);
-                    }
+                    ctx.textAlign = 'center';
+                    if (weapons.overheated) ctx.fillText('SURCHAUFFE', pipper.x, pipper.y - 38);
+                    else if (onTarget) ctx.fillText('TIR', pipper.x, pipper.y - 38);
                 }
-            }
-            // Croix rouge au sol (cible du missile) : entourée d'un losange, distance ; grise hors de portée
-            {
+            } else {
+                // Mode missile : les avions restent encadrés ; viseur au sol (losange qui tourne), anneau de rechargement
+                ctx.strokeStyle = 'rgba(90, 255, 130, 0.5)';
+                for (const b of boxes) {
+                    const half = MathUtils.clamp(14 / b.distance * focal, 9, 60);
+                    ctx.strokeRect(b.screen.x - half, b.screen.y - half, half * 2, half * 2);
+                }
                 if (weapons.target) {
                     const screen = this._project(weapons.target, camera);
                     const range = weapons.target.distanceTo(s.aircraft.position);
+                    const inRange = range >= MISSILE.minRange && range <= MISSILE.maxRange;
                     if (screen) {
-                        ctx.strokeStyle = ctx.fillStyle = range >= MISSILE.minRange && range <= MISSILE.maxRange ? RED : 'rgba(200,200,200,0.8)';
+                        const ready = weapons.reload <= 0;
+                        ctx.strokeStyle = ctx.fillStyle = inRange ? RED : 'rgba(200,200,200,0.8)';
                         ctx.lineWidth = 2.5;
-                        ctx.beginPath();
-                        ctx.moveTo(screen.x, screen.y - 26); ctx.lineTo(screen.x + 26, screen.y);
-                        ctx.lineTo(screen.x, screen.y + 26); ctx.lineTo(screen.x - 26, screen.y);
-                        ctx.closePath();
-                        ctx.stroke();
+                        ctx.save();
+                        ctx.translate(screen.x, screen.y);
+                        ctx.rotate(inRange && ready ? performance.now() / 600 : Math.PI / 4);
+                        ctx.strokeRect(-20, -20, 40, 40);
+                        ctx.restore();
+                        if (!ready) {
+                            ctx.lineWidth = 4;
+                            ctx.beginPath();
+                            ctx.arc(screen.x, screen.y, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - weapons.reload / MISSILE_RELOAD));
+                            ctx.stroke();
+                        }
                         ctx.lineWidth = 2;
                         ctx.textAlign = 'center';
-                        ctx.fillText(`MISSILE ${formatKm(range)}${range > MISSILE.maxRange ? ' (trop loin)' : range < MISSILE.minRange ? ' (trop près)' : ''}`, screen.x, screen.y + 40);
+                        ctx.font = 'bold 14px DejaVu Sans Mono, monospace';
+                        const label = !inRange ? (range > MISSILE.maxRange ? 'TROP LOIN' : 'TROP PRÈS') : ready ? 'FEU !' : 'RECHARGE…';
+                        ctx.fillText(`${label}  ${formatKm(range)}`, screen.x, screen.y + 48);
+                        ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
                     }
                 }
             }
+            // Nos missiles en vol : point d'impact et compte à rebours (les deux modes)
+            ctx.textAlign = 'center';
+            for (const m of weapons.inFlight) {
+                if (!m.own || m.exploded) continue;
+                const screen = this._project(m.target, camera);
+                if (!screen) continue;
+                ctx.strokeStyle = ctx.fillStyle = RED;
+                ctx.beginPath();
+                ctx.arc(screen.x, screen.y, 12, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillText(`IMPACT ${Math.ceil(m.timeToImpact)} s`, screen.x, screen.y - 22);
+            }
 
-            // Munitions et mode (en haut, au centre)
-            const impact = weapons.nextImpact;
-            const lines = [
-                UNLIMITED ? 'CANON ∞   MISSILES ∞' : `CANON ${String(weapons.ammo).padStart(3, ' ')}   MISSILES ×${weapons.missiles}`,
-                s.touch ? 'Canon : bouton CANON · Missile : toucher le sol, puis MISSILE'
-                    : weapons.target ? 'Clic gauche (ou ↑) : canon · Clic droit sur la croix (ou →) : missile'
-                        : 'Clic gauche (ou ↑) : canon · Clic droit sur le sol : poser la croix du missile',
-            ];
-            if (impact !== null) lines.push(`MISSILE EN VOL · IMPACT ${Math.ceil(impact)} s`);
-            this._box(ctx, W / 2, 62, lines, GREEN);
+            // Cartes des armes (en haut, au centre) : arme choisie en évidence, chauffe du canon, rechargement du missile
+            this._cards(ctx, W, weapons, s.touch);
         }
 
         // Nos obus touchent : croix blanche
@@ -247,6 +266,78 @@ class WeaponHud {
             this._box(ctx, W / 2, H * 0.3, [this._message], this._messageRed ? RED : '#ffffff');
             ctx.globalAlpha = 1;
         }
+    }
+
+    // Deux cartes : CANON / MISSILE ; l'arme choisie est éclairée (et grossit un instant au changement)
+    _cards(ctx, W, weapons, touch) {
+        const cw = 190, ch = 62, gap = 14, top = 18;
+        const x0 = W / 2 - cw - gap / 2;
+        const blink = Math.floor(performance.now() / 250) % 2 === 0;
+        const cards = [
+            { key: 'gun', title: 'CANON M61', color: [90, 255, 130],
+                value: weapons.heat, bar: weapons.overheated ? (blink ? 'SURCHAUFFE' : '') : weapons.heat > 0.7 ? 'CHAUD' : 'CHAUFFE',
+                barColor: weapons.overheated || weapons.heat > 0.7 ? '#ff4a3a' : weapons.heat > 0.4 ? '#ffb000' : '#4cd964' },
+            { key: 'missile', title: 'MISSILE AGM-65', color: [255, 80, 70],
+                value: weapons.reload > 0 ? 1 - weapons.reload / MISSILE_RELOAD : 1, bar: weapons.reload > 0 ? 'RECHARGE' : 'PRÊT',
+                barColor: weapons.reload > 0 ? '#ffb000' : '#4cd964' },
+        ];
+        cards.forEach((card, i) => {
+            const active = weapons.selected === card.key;
+            const grow = active ? 1 + 0.12 * Math.min(1, weapons.switchFlash / 0.5) : 1;
+            const w = cw * grow, h = ch * grow;
+            const x = x0 + i * (cw + gap) + (cw - w) / 2, y = top;
+            const [r, g, b] = card.color;
+            ctx.globalAlpha = active ? 1 : 0.55;
+            ctx.fillStyle = active ? `rgba(${r},${g},${b},0.18)` : 'rgba(10,12,16,0.55)';
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = `rgba(${r},${g},${b},${active ? 1 : 0.5})`;
+            ctx.lineWidth = active ? 3 : 1.5;
+            ctx.strokeRect(x, y, w, h);
+            // Icône : obus (canon) ou missile
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            const ix = x + 12, iy = y + 22;
+            if (card.key === 'gun') {
+                for (let k = 0; k < 3; k++) {
+                    ctx.fillRect(ix + k * 9, iy - 8, 5, 14);
+                    ctx.beginPath();
+                    ctx.arc(ix + k * 9 + 2.5, iy - 8, 2.5, Math.PI, 0);
+                    ctx.fill();
+                }
+            } else {
+                ctx.fillRect(ix, iy - 3, 22, 6);
+                ctx.beginPath();
+                ctx.moveTo(ix + 22, iy - 3); ctx.lineTo(ix + 29, iy); ctx.lineTo(ix + 22, iy + 3);
+                ctx.fill();
+                ctx.fillRect(ix - 2, iy - 7, 5, 14);
+            }
+            ctx.textAlign = 'left';
+            ctx.font = `bold ${active ? 15 : 13}px DejaVu Sans Mono, monospace`;
+            ctx.fillText(card.title, x + 46, y + 20);
+            ctx.font = 'bold 11px DejaVu Sans Mono, monospace';
+            ctx.fillStyle = '#d8dde3';
+            ctx.fillText(active ? 'CHOISI · ∞' : '∞', x + 46, y + 37);
+            // Jauge (chauffe du canon, rechargement du missile)
+            const bx = x + 10, by = y + h - 14, bw = w - 20;
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            ctx.fillRect(bx, by, bw, 7);
+            ctx.fillStyle = card.barColor;
+            ctx.fillRect(bx, by, bw * MathUtils.clamp(card.value, 0, 1), 7);
+            ctx.textAlign = 'right';
+            ctx.fillText(card.bar, x + w - 10, y + 37);
+        });
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 2;
+        ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
+        ctx.textAlign = 'center';
+        const hint = touch ? "ARME : changer d'arme · FEU : tirer (missile : ou toucher le sol)"
+            : weapons.selected === 'gun' ? 'Clic gauche (ou ↑) : tirer · Clic droit (ou ↓) : passer au MISSILE'
+                : 'Clic gauche sur le sol (ou ↑) : missile · Clic droit (ou ↓) : passer au CANON';
+        const tw = ctx.measureText(hint).width + 20;
+        ctx.fillStyle = 'rgba(10,12,16,0.6)';
+        ctx.fillRect(W / 2 - tw / 2, top + ch + 8, tw, 20);
+        ctx.fillStyle = '#e8edf2';
+        ctx.fillText(hint, W / 2, top + ch + 18);
+        ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
     }
 
     _box(ctx, cx, cy, lines, color) {
