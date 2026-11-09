@@ -618,6 +618,11 @@
 
 	<dialog id="multi-dialog">
 		<h3>Multijoueur</h3>
+		<!-- Arrivée par un lien d'invitation : seulement ce bouton (le reste de la fenêtre est caché, voir style.css) -->
+		<div id="multi-invitation" hidden>
+			<p>Vous êtes invité dans la partie <strong id="multi-invitation-code"></strong></p>
+			<button id="multi-invitation-rejoindre">Rejoindre la partie</button>
+		</div>
 		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>
 		<label class="multi-livree">Couleur de l'avion <select id="multi-livree"></select></label>
 		<div class="multi-ligne">

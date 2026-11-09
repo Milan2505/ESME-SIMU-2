@@ -92,6 +92,7 @@ import { Weapons } from './js/Weapons.js';
 import { Damage, SmokeTrail } from './js/Damage.js';
 import { WeaponHud } from './js/WeaponHud.js';
 import { F15Warnings } from './js/F15Warnings.js';
+import { buildF15Stores } from './js/F15Stores.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -494,6 +495,8 @@ function setupJet() {
     jetLoading ??= Promise.all([loadF15(), jetCockpit.load()]).then(([{ model }]) => {
         jetModel = model;
         jetFrame.add(model);
+        // Armement visible : canon, pylônes, AIM-9 et AGM-65 sous les ailes (aussi sur les F-15 des autres joueurs)
+        weapons.setStores(buildF15Stores(model));
         jetLights.setOccluder(model);
         paintF15(model, isF15Livery(multiplayer.livery) ? multiplayer.livery : savedJetLivery());
         remotePlayers.setJetTemplate(cloneF15(model));
@@ -3071,10 +3074,34 @@ updateModes();
 
 // Lien d'invitation : index.html?partie=CODE rejoint directement la partie
 const invitation = new URLSearchParams(location.search).get('partie');
+// Arrivée par le lien envoyé par un autre joueur : une seule chose à faire, cliquer « Rejoindre la partie » ; la
+// fenêtre se ferme toute seule une fois dans la partie et l'on passe au choix de l'aérodrome
+const invitationBox = document.getElementById('multi-invitation');
+const invitationButton = document.getElementById('multi-invitation-rejoindre');
+function endInvitation() {
+    multiDialog.classList.remove('invitation');
+    invitationBox.hidden = true;
+}
 if (invitation) {
-    multiCode.value = invitation.toUpperCase();
-    multiplayer.join(invitation, pseudo());
+    const code = invitation.toUpperCase();
+    multiCode.value = code;
+    document.getElementById('multi-invitation-code').textContent = code;
+    invitationBox.hidden = false;
+    multiDialog.classList.add('invitation');
+    multiStatut.textContent = '';
     openMultiDialog();
+    invitationButton.addEventListener('click', () => {
+        invitationButton.disabled = true;
+        invitationButton.textContent = 'Connexion…';
+        multiplayer.join(code, pseudo());
+    });
+    multiplayer.addEventListener('status', ({ detail }) => {
+        if (!detail.error || invitationBox.hidden) return;
+        invitationButton.disabled = false;
+        invitationButton.textContent = 'Réessayer';
+    });
+    multiplayer.addEventListener('joined', () => { invitationButton.textContent = 'Partie rejointe ✓'; }, { once: true });
+    multiDialog.addEventListener('close', endInvitation, { once: true });
 }
 updateOnlineList();
 
@@ -3925,18 +3952,26 @@ multiplayer.addEventListener('aamissile', ({ detail }) => {
 });
 window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.code !== 'ArrowUp' && event.code !== 'ArrowDown') return;
+    if (event.code !== 'ArrowUp' && event.code !== 'ArrowDown' && event.code !== 'ArrowRight') return;
     if (!inFlightScreen()) return;
     event.preventDefault();
     if (event.repeat) return;
     if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
     if (event.code === 'ArrowUp') pullTrigger(true);
-    else switchWeapon();
+    else if (event.code === 'ArrowRight') {
+        // → tenue : canon, quelle que soit l'arme choisie (on garde son missile prêt)
+        weapons.gunKey = true;
+        if (!weaponsArmed()) weaponHud.message("Armes : seulement en vol (décollez d'abord)");
+    } else switchWeapon();
 });
 window.addEventListener('keyup', (event) => {
     if (event.code === 'ArrowUp') setTrigger(false);
+    if (event.code === 'ArrowRight') weapons.gunKey = false;
 });
-window.addEventListener('blur', () => setTrigger(false));
+window.addEventListener('blur', () => {
+    setTrigger(false);
+    weapons.gunKey = false;
+});
 
 // Nos obus touchent un joueur : envoyé au joueur touché ; nos missiles : refaits chez les autres
 weapons.addEventListener('hits', ({ detail }) => multiplayer.sendHit(detail.id, detail.zones));

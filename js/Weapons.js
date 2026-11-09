@@ -70,7 +70,7 @@ const AAM = {
     turnG: 35,                        // facteur de charge maxi du missile
     life: 20,                         // s : au-delà, autodestruction
     fuse: 12,                         // m : fusée de proximité
-    reload: 2,                        // s entre deux tirs
+    reload: 0.5,                      // s entre deux tirs (rechargé tout de suite)
 };
 const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
 const WEAPON_ORDER = ['gun', 'aa', 'missile'];
@@ -80,7 +80,8 @@ const UNLIMITED = true;              // munitions illimitées (obus et missiles 
 const HEAT_TIME = 4;                  // s de tir continu jusqu'à la surchauffe (~400 obus)
 const COOL_RATE = 0.35;               // refroidissement (fraction par seconde, détente lâchée)
 const COOLED = 0.3;                   // après une surchauffe : le canon retire sous ce niveau
-const MISSILE_RELOAD = 1.5;           // s entre deux missiles (pylône suivant armé)
+const MISSILE_RELOAD = 0.5;           // s entre deux missiles (le pylône est rechargé tout de suite)
+const STORE_RELOAD = 0.5;             // s : le missile parti réapparaît sur son pylône
 const HIT_FLUSH = 0.1;                // s : coups au but regroupés avant envoi
 const TRACER_COLOR = 0xffb347;
 
@@ -563,6 +564,10 @@ class Weapons extends EventTarget {
         this.overheated = false;       // surchauffe : le canon ne tire plus jusqu'à refroidissement
         this.reload = 0;               // s avant que le missile suivant soit prêt
         this.aaReload = 0;             // s avant que le missile air-air suivant soit prêt
+        this.gunKey = false;           // touche → tenue : canon, quelle que soit l'arme choisie
+        this.stores = null;            // missiles visibles sur les pylônes (F15Stores.js) : { aa: [g, d], ag: [g, d] }
+        this._side = { aa: 0, ag: 0 }; // pylône du prochain tir (alterne gauche / droite)
+        this._storeTimers = [];        // missiles partis, qui réapparaissent sur leur pylône
         this.aaInFlight = [];          // missiles air-air en vol (les nôtres et ceux des autres)
         this.lockId = null;            // avion accroché par l'autodirecteur (identifiant du joueur)
         this.lockName = '';
@@ -646,7 +651,30 @@ class Weapons extends EventTarget {
         this.overheated = false;
         this.reload = 0;
         this.aaReload = 0;
+        this.gunKey = false;
+        for (const store of this._storeTimers) store.mesh.visible = true;
+        this._storeTimers.length = 0;
         this._resetLock();
+    }
+
+    // Missiles visibles sous les ailes (F15Stores.js)
+    setStores(stores) {
+        this.stores = stores;
+    }
+
+    // Point de départ d'un missile : celui du pylône (il disparaît, puis réapparaît : rechargé), sinon un rail fixe
+    _launchPoint(kind, aircraft) {
+        const side = this._side[kind];
+        this._side[kind] = 1 - side;
+        const mesh = this.stores?.[kind]?.[side];
+        if (mesh) {
+            aircraft.updateMatrixWorld(true);
+            const point = mesh.getWorldPosition(new Vector3());
+            mesh.visible = false;
+            this._storeTimers.push({ mesh, time: STORE_RELOAD });
+            return point;
+        }
+        return MISSILE.rails[side].clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
     }
 
     _resetLock() {
@@ -740,8 +768,7 @@ class Weapons extends EventTarget {
         _fwd.set(0, 0, -1).applyQuaternion(aircraft.quaternion);
         _d.subVectors(this.target, aircraft.position).normalize();
         if (_fwd.angleTo(_d) > MISSILE.offBoresight) return this._message("Croix trop en arrière de l'avion");
-        const rail = MISSILE.rails[this._railIndex++ % MISSILE.rails.length];
-        const from = rail.clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
+        const from = this._launchPoint('ag', aircraft);
         const data = { from, velocity: velocity.clone(), target: this.target.clone() };
         if (!UNLIMITED) this.missiles--;
         this.reload = MISSILE_RELOAD;
@@ -790,8 +817,7 @@ class Weapons extends EventTarget {
     fireAA(aircraft, velocity, ownId, ownName) {
         if (!this.locked || !this.lockId) return this._message('Pas de verrouillage : gardez un avion dans le cercle');
         if (this.aaReload > 0) return false;
-        const rail = MISSILE.rails[this._railIndex++ % MISSILE.rails.length];
-        const from = rail.clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
+        const from = this._launchPoint('aa', aircraft);
         const data = { from, velocity: velocity.clone(), targetId: this.lockId };
         this.aaReload = AAM.reload;
         this._launchAA({ ...data, ownerId: ownId, ownerName: ownName, own: true });
@@ -891,7 +917,15 @@ class Weapons extends EventTarget {
         this.aaReload = Math.max(0, this.aaReload - delta);
         this._updateLock(delta, own, targets);
         this.sounds.seeker(this.selected === 'aa' && own.armed ? (this.locked ? 'lock' : 'search') : 'off');
-        const wantFire = this.trigger && own.armed && this.ammo > 0 && this.selected === 'gun' && !this.overheated;
+        const wantFire = ((this.trigger && this.selected === 'gun') || this.gunKey) && own.armed && this.ammo > 0 && !this.overheated;
+        // Missiles partis : réapparaissent sur leur pylône
+        for (let i = this._storeTimers.length - 1; i >= 0; i--) {
+            const store = this._storeTimers[i];
+            if ((store.time -= delta) <= 0) {
+                store.mesh.visible = true;
+                this._storeTimers.splice(i, 1);
+            }
+        }
         this._spin = wantFire ? Math.min(1, this._spin + delta / GUN.spinUp) : 0;
         this.firing = wantFire && this._spin >= 1;
         if (this.trigger && own.armed && this.ammo <= 0 && !this._emptyWarned) {

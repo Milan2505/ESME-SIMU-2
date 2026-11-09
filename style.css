@@ -2491,6 +2491,37 @@ body:has(#simulator.jeu) {
   background: rgba(143, 211, 255, 0.18);
   border-color: #8fd3ff;
 }
+/* Lien d'invitation : la fenêtre ne montre qu'un bouton « Rejoindre la partie » (et l'état de la connexion) */
+#multi-dialog.invitation > :not(h3, #multi-invitation, #multi-statut) {
+  display: none;
+}
+#multi-dialog #multi-invitation[hidden] {
+  display: none;
+}
+#multi-dialog #multi-invitation p {
+  margin: 0 0 16px;
+  font-size: 15px;
+  color: #cfe9ff;
+}
+#multi-dialog #multi-invitation strong {
+  font-size: 22px;
+  letter-spacing: 4px;
+  color: #fff;
+}
+#multi-dialog #multi-invitation-rejoindre {
+  width: 100%;
+  padding: 16px;
+  font-size: 18px;
+  background: linear-gradient(90deg, #1d9b5a, #157244);
+  border-color: #3ccf86;
+}
+#multi-dialog #multi-invitation-rejoindre:hover {
+  background: linear-gradient(90deg, #22b569, #198350);
+}
+#multi-dialog #multi-invitation-rejoindre:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 #multi-dialog #multi-creer {
   width: 100%;
   padding: 11px;
