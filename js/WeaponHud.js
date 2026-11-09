@@ -1,5 +1,5 @@
 import { MathUtils, Vector3 } from 'three';
-import { GUN } from './Weapons.js';
+import { GUN, MISSILE } from './Weapons.js';
 
 // Affichage du combat, par-dessus l'écran de vol (vue cabine et extérieure) :
 // - mode air-air : réticule du canon (point où seront les obus à la distance de la cible la plus proche), cadres sur
@@ -115,7 +115,7 @@ class WeaponHud {
                 boxes.push({ t, distance, screen });
                 if (distance < GUN_RANGE && (!nearest || distance < nearest.distance)) nearest = { t, distance, screen };
             }
-            if (!weapons.agMode) {
+            {
                 const range = nearest ? nearest.distance : DEFAULT_RANGE;
                 weapons.bulletPoint(s.aircraft, s.velocity, range, _pipper);
                 pipper = this._project(_pipper, camera);
@@ -170,18 +170,14 @@ class WeaponHud {
                         ctx.fillText('TIR', pipper.x, pipper.y - 38);
                     }
                 }
-            } else {
-                // Mode air-sol : autres avions juste encadrés ; croix entourée d'un losange
-                ctx.strokeStyle = ctx.fillStyle = GREEN;
-                for (const b of boxes) {
-                    const half = MathUtils.clamp(14 / b.distance * focal, 9, 60);
-                    ctx.strokeRect(b.screen.x - half, b.screen.y - half, half * 2, half * 2);
-                }
+            }
+            // Croix rouge au sol (cible du missile) : entourée d'un losange, distance ; grise hors de portée
+            {
                 if (weapons.target) {
                     const screen = this._project(weapons.target, camera);
                     const range = weapons.target.distanceTo(s.aircraft.position);
                     if (screen) {
-                        ctx.strokeStyle = ctx.fillStyle = RED;
+                        ctx.strokeStyle = ctx.fillStyle = range >= MISSILE.minRange && range <= MISSILE.maxRange ? RED : 'rgba(200,200,200,0.8)';
                         ctx.lineWidth = 2.5;
                         ctx.beginPath();
                         ctx.moveTo(screen.x, screen.y - 26); ctx.lineTo(screen.x + 26, screen.y);
@@ -190,7 +186,7 @@ class WeaponHud {
                         ctx.stroke();
                         ctx.lineWidth = 2;
                         ctx.textAlign = 'center';
-                        ctx.fillText(`${weapons.targetLocked ? 'CROIX POSÉE · ' : ''}${formatKm(range)}`, screen.x, screen.y + 40);
+                        ctx.fillText(`MISSILE ${formatKm(range)}${range > MISSILE.maxRange ? ' (trop loin)' : range < MISSILE.minRange ? ' (trop près)' : ''}`, screen.x, screen.y + 40);
                     }
                 }
             }
@@ -198,10 +194,9 @@ class WeaponHud {
             // Munitions et mode (en haut, au centre)
             const impact = weapons.nextImpact;
             const lines = [
-                `${weapons.agMode ? 'AIR-SOL' : 'AIR-AIR'}   M61 ${String(weapons.ammo).padStart(3, ' ')}   AGM-65 ×${weapons.missiles}`,
-                weapons.agMode
-                    ? (weapons.target ? `Clic : poser la croix · → : missile${weapons.targetLocked ? ' · ← : déplacer' : ''}` : 'Visez le sol (souris)')
-                    : '↑ : canon · ↓ : mode air-sol',
+                `CANON ${String(weapons.ammo).padStart(3, ' ')}   MISSILES ×${weapons.missiles}`,
+                s.touch ? 'Canon : bouton CANON · Missile : toucher le sol, puis MISSILE'
+                    : 'Clic gauche (ou ↑) : canon · Clic droit (ou →) : missile sur la croix',
             ];
             if (impact !== null) lines.push(`MISSILE EN VOL · IMPACT ${Math.ceil(impact)} s`);
             this._box(ctx, W / 2, 62, lines, GREEN);

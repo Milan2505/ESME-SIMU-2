@@ -51,9 +51,9 @@ const MISSILE = {
     count: 4,
     maxSpeed: 320,                    // m/s
     acceleration: 75,                 // m/s² (moteur-fusée)
-    minRange: 450,                    // m
+    minRange: 300,                    // m
     maxRange: 16000,                  // m
-    offBoresight: deg(70),            // la croix doit être devant l'avion
+    offBoresight: deg(110),           // la croix ne doit pas être derrière l'avion
     rails: [new Vector3(-2.6, -0.55, 1.2), new Vector3(2.6, -0.55, 1.2)],   // pylônes sous les ailes
     terminalDive: deg(30),            // piqué minimal sur la croix
 };
@@ -425,7 +425,7 @@ class Weapons extends EventTarget {
         this.missiles = MISSILE.count;
         this.trigger = false;          // détente tenue
         this.firing = false;           // obus qui partent (envoyé aux autres joueurs)
-        this.agMode = false;           // mode air-sol : croix rouge au sol
+        this.agMode = true;            // croix rouge au sol toujours montrée (plus de mode à choisir)
         this.target = null;            // point visé au sol (Vector3) ; null : rien sous la croix
         this.targetLocked = false;     // croix posée (elle ne suit plus la souris)
         this.inFlight = [];            // missiles en vol
@@ -501,15 +501,6 @@ class Weapons extends EventTarget {
         this.targetLocked = false;
     }
 
-    setAgMode(on) {
-        this.agMode = on;
-        if (!on) {
-            this.targetLocked = false;
-            this.target = null;
-        }
-        this._message(on ? 'MODE AIR-SOL : croix rouge au sol (clic : poser, flèche → : tirer)' : 'MODE AIR-AIR : canon');
-    }
-
     _message(text) {
         this.dispatchEvent(new CustomEvent('message', { detail: { text } }));
     }
@@ -548,14 +539,13 @@ class Weapons extends EventTarget {
 
     // Mode air-sol : la croix suit le point visé (souris, ou centre de l'écran), sauf si elle est posée
     aim(camera, ndc) {
-        if (!this.agMode || this.targetLocked) return;
+        if (this.targetLocked) return;
         const [origin, direction] = this._rayFrom(camera, ndc);
         this.target = this.groundPoint(origin, direction, MISSILE.maxRange + 4000, this.target ?? new Vector3());
     }
 
     // Pose la croix au point visé (clic)
     lockAt(camera, ndc) {
-        if (!this.agMode) return;
         const [origin, direction] = this._rayFrom(camera, ndc);
         const point = this.groundPoint(origin, direction);
         if (!point) return this._message('Pas de sol sous la croix');
@@ -569,15 +559,14 @@ class Weapons extends EventTarget {
 
     // Tir d'un missile sur la croix ; aircraft : objet de l'avion, velocity : sa vitesse (m/s)
     fireMissile(aircraft, velocity, ownId, ownName) {
-        if (!this.agMode) return this._message('Passez en mode air-sol (flèche ↓) et posez la croix');
         if (this.missiles <= 0) return this._message('Plus de missiles');
-        if (!this.target) return this._message('Pas de cible : visez le sol');
+        if (!this.target) return this._message('Visez le sol avec la souris : la croix rouge montre où ira le missile');
         const range = aircraft.position.distanceTo(this.target);
         if (range < MISSILE.minRange) return this._message('Cible trop proche');
         if (range > MISSILE.maxRange) return this._message(`Cible hors de portée (${(range / 1000).toFixed(1)} km > 16 km)`);
         _fwd.set(0, 0, -1).applyQuaternion(aircraft.quaternion);
         _d.subVectors(this.target, aircraft.position).normalize();
-        if (_fwd.angleTo(_d) > MISSILE.offBoresight) return this._message('Cible hors du champ de l\'autodirecteur (devant l\'avion)');
+        if (_fwd.angleTo(_d) > MISSILE.offBoresight) return this._message("Croix trop en arrière de l'avion");
         const rail = MISSILE.rails[this._railIndex++ % MISSILE.rails.length];
         const from = rail.clone().applyQuaternion(aircraft.quaternion).add(aircraft.position);
         const data = { from, velocity: velocity.clone(), target: this.target.clone() };
@@ -758,7 +747,7 @@ class Weapons extends EventTarget {
         }
 
         // Croix rouge : au sol, assez grande pour se voir de loin
-        const showCross = this.agMode && this.target && own.armed;
+        const showCross = this.target && own.armed;
         this.cross.visible = Boolean(showCross);
         if (showCross) {
             this.cross.position.copy(this.target);

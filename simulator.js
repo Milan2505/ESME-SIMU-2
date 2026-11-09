@@ -3622,7 +3622,6 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
     train: () => toggleGear(),
     aerofrein: () => toggleSpeedbrake(),
     canon: (on) => setTrigger(on),
-    'air-sol': () => toggleAgMode(),
     missile: () => fireMissile(),
 });
 // Boutons propres au F-15 (train, aérofrein) : montrés seulement en F-15 ; allumés train sorti / aérofrein sorti
@@ -3785,47 +3784,71 @@ let pointerNdc = null;   // souris sur la vue (coordonnées -1 -> 1) : la croix 
 
 const weaponsArmed = () => aircraftType === 'f15' && !choosingSpawn && !inHangar && !inMenu && !controls.isCrashed()
     && !controls.isOnGround();
+const inFlightScreen = () => !choosingSpawn && !inHangar && !inMenu && !document.querySelector('dialog[open]');
 function screenNdc(event) {
     const r = view.getBoundingClientRect();
     return { x: (event.clientX - r.left) / r.width * 2 - 1, y: -((event.clientY - r.top) / r.height) * 2 + 1 };
 }
+// Commandes de tir (F-15, en vol) — simples :
+// - canon : clic gauche maintenu sur l'image (ou touche ↑) ; pendant le tir, la souris ne tourne pas la caméra
+//   (le clic droit glissé, si) ;
+// - missile : la croix rouge suit la souris au sol ; clic droit (ou touche →) : le missile part sur la croix.
+// Tablette : bouton CANON (maintenu), toucher le sol pose la croix, bouton MISSILE.
+let mouseFiring = false;
+let touchCross = false;   // croix posée au doigt (tablette) : elle reste où on l'a mise
 view.addEventListener('pointermove', (event) => {
-    if (event.pointerType === 'mouse') pointerNdc = screenNdc(event);
+    if (event.pointerType !== 'mouse') return;
+    pointerNdc = screenNdc(event);
+    touchCross = false;
+    weapons.unlock();   // la croix suit la souris
 });
 view.addEventListener('pointerleave', () => { pointerNdc = null; });
-// Mode air-sol : un clic (sans glisser) pose la croix rouge à l'endroit visé
+view.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0 || !weaponsArmed() || controlAt(event)) return;
+    mouseFiring = true;
+    setTrigger(true);
+    drag = null;   // (pas de rotation de la caméra pendant le tir)
+});
 view.addEventListener('pointerup', (event) => {
-    if (!weapons.agMode || !weaponsArmed() || dragDistance > 6 || event.button !== 0 || controlAt(event)) return;
+    if (event.button === 0 && mouseFiring) {
+        mouseFiring = false;
+        setTrigger(false);
+        return;
+    }
+    if (!weaponsArmed() || dragDistance > 6) return;
     camera.updateMatrixWorld();
-    weapons.lockAt(camera, screenNdc(event));
+    if (event.pointerType === 'mouse' && event.button === 2) {
+        // Clic droit : missile sur le point visé
+        weapons.lockAt(camera, screenNdc(event));
+        fireMissile();
+    } else if (event.pointerType !== 'mouse' && !controlAt(event)) {
+        // Doigt : pose la croix
+        weapons.lockAt(camera, screenNdc(event));
+        touchCross = true;
+    }
 });
 
 function setTrigger(on) {
     weapons.trigger = on;
-}
-function toggleAgMode() {
-    if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
-    weapons.setAgMode(!weapons.agMode);
+    if (on && aircraftType === 'f15' && !weaponsArmed() && inFlightScreen()) {
+        weaponHud.message(controls.isOnGround() ? 'Canon : seulement en vol (décollez d\'abord)' : 'Canon indisponible');
+    }
 }
 function fireMissile() {
     if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
-    if (!weaponsArmed()) return weaponHud.message('Armes : en vol seulement');
+    if (!weaponsArmed()) return weaponHud.message('Missile : seulement en vol (décollez d\'abord)');
     weapons.fireMissile(aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
 }
 window.addEventListener('keydown', (event) => {
     if (isTypingTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) return;
-    if (inMenu || inHangar || choosingSpawn || document.querySelector('dialog[open]')) return;
+    if (event.code !== 'ArrowUp' && event.code !== 'ArrowRight') return;
+    if (!inFlightScreen()) return;
     event.preventDefault();
-    if (event.code === 'ArrowUp') {
-        if (!event.repeat && aircraftType !== 'f15') weaponHud.message('Armes : seulement sur le F-15');
-        setTrigger(true);
-        return;
-    }
     if (event.repeat) return;
-    if (event.code === 'ArrowDown') toggleAgMode();
-    else if (event.code === 'ArrowRight') fireMissile();
-    else if (event.code === 'ArrowLeft' && weapons.agMode) weapons.unlock();
+    if (event.code === 'ArrowUp') {
+        if (aircraftType !== 'f15') weaponHud.message('Armes : seulement sur le F-15');
+        else setTrigger(true);
+    } else fireMissile();
 });
 window.addEventListener('keyup', (event) => {
     if (event.code === 'ArrowUp') setTrigger(false);
@@ -3914,11 +3937,11 @@ function updateF15Warnings(frameDelta) {
 function updateCombat(frameDelta) {
     const delta = Math.min(frameDelta, 0.1);   // même pas maximal que le modèle de vol (onglet en arrière-plan, à-coup)
     const jet = aircraftType === 'f15';
-    if (!jet && weapons.agMode) weapons.agMode = false;
     const armed = weaponsArmed();
     const targets = multiplayer.code ? remotePlayers.combatList() : [];
     camera.updateMatrixWorld();
-    if (weapons.agMode && armed) weapons.aim(camera, pointerNdc);
+    // Croix rouge : sous la souris (ou au centre de l'écran sans souris), sauf posée au doigt
+    if (armed && !touchCross) weapons.aim(camera, pointerNdc);
     weapons.update(delta, {
         own: { aircraft, velocity: controls.model.velocity, armed },
         camera, targets, cabin: !chaseView,
@@ -3931,7 +3954,7 @@ function updateCombat(frameDelta) {
     ownSmoke.update(delta, _smokeSource, crashed || choosingSpawn ? 0 : damage.smoke, damage.onFire && !crashed && !choosingSpawn, controls.model.velocity);
     const visible = !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo');
     weaponHud.update(delta, visible, {
-        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets,
+        camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets, touch: touchControls.enabled,
     });
 }
 
@@ -4212,8 +4235,11 @@ renderer.setAnimationLoop((time)=>{
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
     updateHud(delta);
-    if (!choosingSpawn) multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
-        crashed: controls.isCrashed(), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
+    // Envoyé aussi au menu, au hangar et au choix du départ (avion masqué chez les autres, comme une épave) : avant,
+    // rien ne partait tant que le joueur n'avait pas choisi son départ, et personne ne pouvait rejoindre sa partie
+    // (« Aucune partie avec le code… » alors que le code était bon)
+    multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
+        crashed: controls.isCrashed() || choosingSpawn, crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
         jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
         // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
         combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed() },
