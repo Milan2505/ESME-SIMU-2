@@ -233,6 +233,7 @@ const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound,
     altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight }, registrationFor: (id) => registrationFor(id) });
 remotePlayers.onJetNeeded = () => setupJet().catch(() => {});   // un autre joueur vole en F-15
+remotePlayers.prepare = (object) => prepareForDisplay(object);   // avions des autres : compilés avant d'apparaître
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
@@ -1706,6 +1707,15 @@ document.getElementById('multi-quitter').addEventListener('click', () => multipl
 document.getElementById('multi-fermer').addEventListener('click', () => multiDialog.close());
 // Partie rejointe (code tapé ou lien d'invitation) : la fenêtre se ferme toute seule ; depuis le menu principal, on
 // passe directement au choix de l'aérodrome (voir l'événement close). Le créateur garde la fenêtre (code à partager)
+// Entrée dans une partie (en général au menu) : ce qui figeait le jeu en vol est préparé tout de suite
+// - projecteurs des autres avions ajoutés à la scène (toute nouvelle lumière fait recompiler tous les shaders) ;
+// - F-15 chargé d'avance (sauf tablettes, mémoire limitée) : sinon, en Cessna, il se chargeait (11 Mo, préparation du
+//   modèle) en plein vol, quand un autre joueur prenait un F-15
+multiplayer.addEventListener('status', () => {
+    if (!multiplayer.code) return;
+    if (remotePlayers.ensureSpots() && sceneObjects >= 0) compileScene().catch(() => {});
+    if (!isTablet()) setupJet().catch(() => {});
+});
 multiplayer.addEventListener('joined', ({ detail }) => {
     if (detail.host || !multiDialog.open) return;
     setTimeout(() => { if (multiDialog.open && multiplayer.code === detail.code) multiDialog.close(); }, 1200);
@@ -4185,6 +4195,37 @@ function uploadTextures() {
             for (const uniform of Object.values(material.uniforms ?? {})) upload(uniform?.value);
         }
     });
+}
+
+// Objet qui va apparaître en vol (avion d'un autre joueur) : textures envoyées à la carte graphique et shaders compilés
+// en arrière-plan (compileAsync) pendant que le jeu continue de tourner ; avant, la première image qui le montrait
+// figeait le jeu le temps de tout compiler. Résolu au plus tard après 8 s
+function prepareForDisplay(object) {
+    const seen = new Set();
+    object.traverse((child) => {
+        for (const material of [child.material].flat()) {
+            if (!material) continue;
+            for (const value of [...Object.values(material), ...Object.values(material.uniforms ?? {}).map((u) => u?.value)]) {
+                if (!value?.isTexture || seen.has(value) || value.isRenderTargetTexture) continue;
+                seen.add(value);
+                const image = value.image;
+                if (!image || image.complete === false || (image.width ?? 1) === 0) continue;
+                try { renderer.initTexture(value); } catch { /* envoyée à sa première image */ }
+            }
+        }
+    });
+    const previous = renderer.getRenderTarget();
+    let compiling;
+    try {
+        renderer.setRenderTarget(graphics.composer.renderTarget1);   // (variante des shaders du rendu réel, voir checkNewShaders)
+        object.updateMatrixWorld(true);
+        compiling = renderer.compileAsync(object, camera, scene);
+    } catch (error) {
+        compiling = Promise.reject(error);
+    } finally {
+        renderer.setRenderTarget(previous);
+    }
+    return Promise.race([compiling, new Promise((resolve) => setTimeout(resolve, 8000))]);
 }
 
 // Mise à jour de ce qui dépend de la caméra (sans physique, ni son, ni réseau), comme le fait chaque image du vol

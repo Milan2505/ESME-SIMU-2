@@ -128,6 +128,9 @@ class RemotePlayers extends EventTarget {
         this._targetQuaternion = new Quaternion();
         this._velocity = new Vector3();
         this._labelTimer = 0;
+        // prepare(objet) -> Promise : shaders compilés et textures envoyées à la carte graphique avant que l'avion
+        // apparaisse (voir simulator.js) ; sans : il apparaît tout de suite (la première image qui le montre compile)
+        this.prepare = null;
 
         multiplayer.addEventListener('players', () => this._sync());
     }
@@ -266,7 +269,7 @@ class RemotePlayers extends EventTarget {
                 detail: { name: state.name, position: this._targetPosition.clone() },
             }));
             plane.crashes = state.crashes;
-            group.visible = !state.crashed;
+            group.visible = !state.crashed && plane.ready;
             // Avion touché : traînée de fumée (de plus en plus épaisse), flammes s'il brûle
             const smoke = state.crashed ? 0 : Math.min(1, state.damage / 70);
             if (smoke > 0 || plane.trail) {
@@ -288,7 +291,7 @@ class RemotePlayers extends EventTarget {
             // Étiquette
             const label = plane.label;
             const distance = ownPosition ? group.position.distanceTo(ownPosition) : Infinity;
-            label.sprite.visible = this.showLabels && !state.crashed && distance > LABEL_MIN_DISTANCE;
+            label.sprite.visible = this.showLabels && !state.crashed && plane.ready && distance > LABEL_MIN_DISTANCE;
             label.sprite.position.copy(group.position).y += LABEL_OFFSET;
             if (refreshLabels || plane.label._text === '') {
                 const altitude = Math.max(0, (group.position.y - this._altitudeOffset(state)) / FT);
@@ -300,18 +303,24 @@ class RemotePlayers extends EventTarget {
         this._updateLandingLights(ownPosition);
     }
 
+    // Projecteurs de la réserve : à créer dès qu'on entre dans une partie (au menu), pas à l'arrivée du premier joueur.
+    // Toute lumière ajoutée à la scène oblige three.js à recompiler les shaders de TOUS les matériaux : créés en vol,
+    // à l'arrivée du premier autre joueur, ils figeaient le jeu une à plusieurs secondes
+    ensureSpots() {
+        if (this._spots) return false;
+        this._spots = Array.from({ length: LANDING_SPOTS }, () => {
+            const L = LANDING_LIGHT;
+            const spot = new SpotLight(0xfff3d6, 0, L.distance, L.angle, L.penumbra, L.decay);
+            this.scene.add(spot, spot.target);
+            return spot;
+        });
+        return true;
+    }
+
     // Projecteurs de la réserve placés sur les avions phare allumé les plus proches (de nuit)
     _updateLandingLights(ownPosition) {
         if (!this.planes.size && !this._spots) return;
-        if (!this._spots) {
-            // Créés une fois, à l'arrivée du premier joueur (chaque lumière ajoutée recompile les matériaux)
-            this._spots = Array.from({ length: LANDING_SPOTS }, () => {
-                const L = LANDING_LIGHT;
-                const spot = new SpotLight(0xfff3d6, 0, L.distance, L.angle, L.penumbra, L.decay);
-                this.scene.add(spot, spot.target);
-                return spot;
-            });
-        }
+        this.ensureSpots();
         const lit = this.night >= 0.5 ? [...this.planes.entries()]
             .filter(([id, plane]) => plane.group.visible && this.multiplayer.players.get(id)?.lights.land)
             .map(([, plane]) => plane)
@@ -371,7 +380,7 @@ class RemotePlayers extends EventTarget {
             lights.setNight(this.night);
             const label = new Label();
             this.scene.add(group, label.sprite);
-            this.planes.set(id, {
+            const plane = {
                 group, model, label, type, anim: { time: 0 },
                 propeller: model.getObjectByName('Propeller_Cone'),
                 engine: null,
@@ -380,7 +389,15 @@ class RemotePlayers extends EventTarget {
                 livery: player.livery,
                 crashes: player.crashes,   // les crashs d'avant notre arrivée ne font pas exploser l'avion
                 fresh: true,
-            });
+                ready: !this.prepare,
+            };
+            this.planes.set(id, plane);
+            // Caché le temps que ses shaders se compilent en arrière-plan (quelques dixièmes de seconde) : le jeu continue
+            // de tourner, au lieu de figer à la première image qui le montre
+            if (this.prepare) {
+                group.visible = false;
+                this.prepare(group).catch(() => {}).finally(() => { plane.ready = true; });
+            }
         }
     }
 }

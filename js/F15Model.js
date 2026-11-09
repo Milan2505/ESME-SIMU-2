@@ -21,7 +21,7 @@ import {
     Skeleton,
     SkinnedMesh,
     SRGBColorSpace,
-    TextureLoader,
+    Texture,
     Float32BufferAttribute,
     Uint16BufferAttribute,
     Vector3,
@@ -662,10 +662,24 @@ const liveryTextures = new Map();
 const liveryUsers = new Map();   // livrée -> nombre d'avions qui la portent (une livrée plus portée est libérée)
 function liveryTexture(id) {
     if (!liveryTextures.has(id)) {
-        const texture = new TextureLoader().load(LIVERY_URL(id));
+        // Image décodée en arrière-plan (decode()) avant d'être donnée à la texture : sinon le navigateur la décodait
+        // (2048 × 2048) au moment de l'envoyer à la carte graphique, en pleine image : à-coup quand un autre joueur
+        // arrivait ou changeait de livrée. En attendant, l'avion garde la texture vide (comme avant le chargement)
+        const texture = new Texture();
         texture.flipY = false;   // (textures glTF)
         texture.colorSpace = SRGBColorSpace;
         texture.anisotropy = 4;
+        const image = new Image();
+        image.src = LIVERY_URL(id);
+        const ready = () => {
+            if (liveryTextures.get(id) !== texture) return;   // (livrée abandonnée entre-temps)
+            texture.image = image;
+            texture.needsUpdate = true;
+        };
+        (image.decode ? image.decode() : Promise.reject()).then(ready, () => {
+            if (image.complete && image.naturalWidth) ready();
+            else image.addEventListener('load', ready, { once: true });
+        });
         liveryTextures.set(id, texture);
     }
     return liveryTextures.get(id);

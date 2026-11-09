@@ -805,6 +805,11 @@ class Weapons extends EventTarget {
         }
         missile.traverse((o) => { if (o.isMesh) o.castShadow = true; });
         this._missileMesh = missile;
+        // Copie cachée gardée dans la scène : ses shaders sont compilés au chargement avec le reste (voir compileScene
+        // dans simulator.js) ; avant, le premier missile tiré de la partie figeait le jeu le temps de les compiler
+        const warm = missile.clone();
+        warm.visible = false;
+        this.group.add(warm);
     }
 
     // Réarmement complet (nouveau départ)
