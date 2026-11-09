@@ -91,6 +91,7 @@ import { VERSION, VERSION_DATE } from './js/Version.js';
 import { Weapons } from './js/Weapons.js';
 import { Damage, SmokeTrail } from './js/Damage.js';
 import { WeaponHud } from './js/WeaponHud.js';
+import { F15Warnings } from './js/F15Warnings.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -236,6 +237,7 @@ remotePlayers.onJetNeeded = () => setupJet().catch(() => {});   // un autre joue
 const wind = new Wind();
 // Voix de la radio : voix réalistes (téléchargées à la première ouverture de la fenêtre), sinon voix de l'ordinateur
 const radioVoices = new RadioVoices();
+const f15Warnings = new F15Warnings({ voices: radioVoices });   // alarmes du F-15 (voyants, voix, HUD)
 const atc = new ATC({ airport, wind, voices: radioVoices, sounds, registration: 'F-HESM', aircraftType: 'Cessna 172' });
 const radio = new Radio(multiplayer);
 
@@ -590,7 +592,10 @@ function jetCommand(name, step = 1) {
         const { land, taxi } = sys.switches;
         Object.assign(sys.switches, !land && !taxi ? { taxi: true, land: false } : taxi && !land ? { taxi: false, land: true } : { taxi: false, land: false });
         sys.toggle('_');   // (prévient les feux)
-    } else if (name === 'caution') jetCockpit.acknowledgeCaution();
+    } else if (name === 'caution') {
+        jetCockpit.acknowledgeCaution();
+        f15Warnings.acknowledge();
+    } else if (name === 'gearSilence') f15Warnings.silenceGear();
     else if (name === 'vsdRange') {
         // Écran radar : moitié gauche = échelle plus courte, droite = plus longue
         jetCockpit.displays.stepRange(step < 0 ? -1 : 1);
@@ -1530,9 +1535,11 @@ function unlockSounds() {
 for (const type of ['keydown', 'pointerdown', 'touchend', 'click']) window.addEventListener(type, unlockSounds, true);
 
 const _wingAxis = new THREE.Vector3();
+// Alarmes du Cessna (DÉCROCHAGE, BANK ANGLE, EGPWS) : le F-15 a les siennes (F15Warnings.js, voir updateF15Warnings)
 function updateStallWarning(delta) {
-    alarme.classList.toggle('actif', controls.isStalled());
-    stallWarning.update(aircraftType === 'c172' && controls.isNearStall());
+    const cessna = aircraftType === 'c172';
+    alarme.classList.toggle('actif', cessna && controls.isStalled());
+    stallWarning.update(cessna && controls.isNearStall());
     const p = aircraft.position;
     const height = (p.y - WHEEL_HEIGHT - terrain.heightAt(p.x, p.z)) / 0.3048;
     // Roulis seulement (jamais le tangage) : voir alarmBank
@@ -1544,7 +1551,7 @@ function updateStallWarning(delta) {
     bankAlarm.classList.toggle('actif', bankAngleWarning.active);
     // Proximité du sol (EGPWS) : SINK RATE, TERRAIN TERRAIN, PULL UP
     terrainWarning.update(delta, {
-        airborne: !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn,
+        airborne: cessna && !controls.isOnGround() && !controls.isCrashed() && !choosingSpawn,
         position: p, velocity: controls.model.velocity, height,
         ground: (x, z) => terrain.heightAt(x, z), offset: WHEEL_HEIGHT,
     });
@@ -3140,6 +3147,7 @@ function cockpitState() {
                 sites: airport.list.map((field) => ({ x: field.center.x, z: field.center.z })),
             },
             fuelFlowKgH: jetSystems.engines.map((e) => (e.running ? jetSystems.fuelFlow / Math.max(1, jetSystems.engines.filter((x) => x.running).length) : 0)),
+            alarms: f15Warnings.alarms,   // voyants d'alarme (F15Warnings.js)
         } : null,
     };
 }
@@ -3873,6 +3881,36 @@ controls.addEventListener('reset', () => {
     ownSmoke.jump();
 });
 
+// Alarmes du F-15 (F15Warnings.js) : voyants du cockpit, voix, HUD ; en vue extérieure, voyants allumés en haut de l'écran
+const f15AlarmPanel = document.getElementById('alarmes-f15');
+let f15AlarmText = '';
+function updateF15Warnings(frameDelta) {
+    const delta = Math.min(frameDelta, 0.1);
+    const active = aircraftType === 'f15' && !choosingSpawn && !inMenu && !inHangar;
+    f15Warnings.volume = chaseView ? 0.8 : 1;
+    f15Warnings.update(delta, active ? {
+        powered: jetSystems.busPowered, airborne: !controls.isOnGround(), crashed: controls.isCrashed(),
+        position: aircraft.position, velocity: controls.model.velocity, ground: (x, z) => terrain.heightAt(x, z),
+        wheelHeight: WHEEL_HEIGHT, speed: controls.getSpeed(), g: controls.model.loadFactor, mass: controls.model.aircraft.mass,
+        mach: controls.getSpeed() / 340, gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake,
+        canopy: jetCanopy, fuelKg: jetSystems.fuelKg, engines: jetSystems.engines, systemWarnings: jetSystems.warnings,
+        jfsLow: jetSystems.jfsRunning && !jetSystems.jfsReady, damage,
+    } : null);
+    const show = active && chaseView && !controls.isCrashed() && !simulatorElement.classList.contains('photo');
+    const items = show ? f15Warnings.list() : [];
+    const text = items.map((i) => `${i.warning ? '!' : ''}${i.label}`).join('|');
+    if (text !== f15AlarmText) {
+        f15AlarmText = text;
+        f15AlarmPanel.replaceChildren(...items.map((item) => {
+            const span = document.createElement('span');
+            span.textContent = item.label;
+            if (item.warning) span.className = 'alarme';
+            return span;
+        }));
+    }
+    f15AlarmPanel.hidden = items.length === 0;
+}
+
 function updateCombat(frameDelta) {
     const delta = Math.min(frameDelta, 0.1);   // même pas maximal que le modèle de vol (onglet en arrière-plan, à-coup)
     const jet = aircraftType === 'f15';
@@ -4232,7 +4270,8 @@ renderer.setAnimationLoop((time)=>{
     // vol) ; en cabine, zone resserrée (ombres fines dans l'habitacle)
     shadowCenter.copy(aircraft.position);
     graphics.update( shadowCenter, !chaseView, decorShadowCenter );
-    graphics.setAlarm( controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
+    graphics.setAlarm( aircraftType === 'c172' && controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
+    updateF15Warnings( delta );
     touchControls.update(!inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
     tabletPanels?.update(delta, !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
     flightHud.bottomInset = touchControls.inset;   // jauges du HUD au-dessus des commandes tactiles

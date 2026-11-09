@@ -205,6 +205,17 @@ class RadioVoices extends EventTarget {
         }
     }
 
+    // Phrase calculée sans être jouée ({ samples, sampleRate }) : voix d'alarme du F-15 (voir F15Warnings.js), en
+    // priorité basse (la radio passe avant) ; null si les voix réalistes sont indisponibles
+    async synthesize(text, { model = 'en_GB-jenny_dioco-medium', lengthScale = 0.85 } = {}) {
+        if (this.mode !== 'neural') return null;
+        try {
+            return await this._synthesizeRetry({ model, lengthScale }, text, null, 0);
+        } catch {
+            return null;
+        }
+    }
+
     // --- Voix réalistes ---------------------------------------------------------------------------
     // Morceaux coupés après une virgule ou un point : le premier court (~30 caractères, prêt en ~1,5 s), puis chacun
     // deux fois plus long que le précédent (calculé pendant que le précédent est dit, le calcul va ~2,5 fois plus vite

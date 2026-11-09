@@ -141,16 +141,38 @@ const DRUMS = [
 ];
 
 // Voyants : pièce « allumée » montrée selon l'état (la pièce éteinte, s'il y en a une, est cachée à la place)
+// Alarmes du F-15 (voir F15Warnings.js) : voyant allumé selon s.alarms
+const alarm = (key) => (s) => s.powered && Boolean(s.alarms?.[key]);
+const blink = () => Date.now() % 500 < 250;
 const LAMPS = [
     ['jfs-ready-lamp-on', (s) => s.jfsReady, 'jfs-ready-lamp-off'],
-    ['master-caution-button-on', (s) => s.caution],
-    ['ca-l-gen-out', (s) => s.powered && s.warn.genL],
-    ['ca-r-gen-out', (s) => s.powered && s.warn.genR],
+    ['master-caution-button-on', (s) => (s.alarms ? s.powered && s.alarms.masterCaution : s.caution)],
+    ['ca-l-gen-out', (s) => s.powered && (s.warn.genL || Boolean(s.alarms?.genL))],
+    ['ca-r-gen-out', (s) => s.powered && (s.warn.genR || Boolean(s.alarms?.genR))],
     ['ca-jfs-low', (s) => s.powered && s.jfsRunning && !s.jfsReady],
+    // Panneau d'alarmes (CAUTION LIGHTS)
+    ['ca-oil-press', alarm('oilPress')], ['ca-hydraulic', alarm('hydraulic')],
+    ['ca-l-eng-contr', alarm('engContrL')], ['ca-r-eng-contr', alarm('engContrR')],
+    ['ca-l-inlet', alarm('inletL')], ['ca-r-inlet', alarm('inletR')],
+    ['ca-cas-pitch', alarm('casPitch')], ['ca-cas-roll', alarm('casRoll')], ['ca-cas-yaw', alarm('casYaw')],
+    ['ca-roll-ratio', alarm('rollRatio')], ['ca-pitch-ratio', alarm('casPitch')],
+    ['ca-bingo-fuel', alarm('bingo')], ['ca-fuel-low', alarm('fuelLow')],
+    ['ca-l-bst-pmp', alarm('bstPmp')], ['ca-r-bst-pmp', alarm('bstPmp')], ['ca-bst-sys-mal', alarm('bstPmp')],
+    ['ca-tot-temp-hi', alarm('totTemp')], ['ca-spd-bk-out', alarm('spdBk')],
+    ['ca-l-bleed-air', alarm('fireL')], ['ca-r-bleed-air', alarm('fireR')],
+    ['ca-rud-l-mtr', () => false], ['ca-xfer-pump', () => false], ['ca-ecs', () => false], ['ca-fuel-hot', () => false],
+    ['ca-attitude', () => false], ['ca-av-bit', () => false], ['ca-iff-mode-4', () => false], ['ca-hook', () => false],
+    ['ca-emer-bst-on', () => false], ['ca-inlet-ice', () => false], ['ca-anti-skid', () => false],
+    ['ca-wndshld-hot', () => false], ['ca-oxygen', () => false], ['ca-auto-plt', () => false],
+    // Feu : boutons FIRE (réacteur gauche, droit), AMAD, voyants BURN THRU
+    ['fire-button-left-on', alarm('fireL')], ['fire-button-right-on', alarm('fireR')],
+    ['amad-fire-button-lamp', alarm('amadFire')],
+    ['l-burn-thru-lamp', alarm('burnL')], ['r-burn-thru-lamp', alarm('burnR')],
     ['light-locked-left', (s) => s.powered && s.gear > 0.99],
     ['light-locked-nose', (s) => s.powered && s.gear > 0.99],
     ['light-locked-right', (s) => s.powered && s.gear > 0.99],
-    ['landing-gear-handle-lit', (s) => s.powered && s.gear > 0.01 && s.gear < 0.99, 'landing-gear-handle-unlit'],
+    // Poignée du train : allumée pendant la manœuvre ; clignote quand l'alarme du train sonne
+    ['landing-gear-handle-lit', (s) => s.powered && ((s.gear > 0.01 && s.gear < 0.99) || (Boolean(s.alarms?.gearWarning) && blink())), 'landing-gear-handle-unlit'],
     ['flaps-light-down', (s) => s.powered && s.flaps > 0.98],
     ['flaps-light-transit', (s) => s.powered && s.flaps > 0.02 && s.flaps < 0.98],
     ['canopy-unlocked-light-on', (s) => s.powered && s.canopy > 0.01],
@@ -176,6 +198,7 @@ const CONTROLS = {
     'canopy-unlocked-light': 'jet:canopy', 'canopy-unlocked-light-on': 'jet:canopy',
     'left-throttle-grip': 'throttle', 'throttle-right-grip': 'throttle',
     'master-caution-button': 'jet:caution', 'master-caution-button-on': 'jet:caution',
+    'ldg-warn-silence': 'jet:gearSilence',
 };
 
 // Manche : la poignée d'origine (très simple) est remplacée par celle de mrhers2 (Thingiverse, CC BY), posée sur la
@@ -535,7 +558,7 @@ class F15Cockpit {
             crank: sys.crank ?? -1,
             jfsReady: powered && sys.jfsReady, jfsRunning: sys.jfsRunning,
             caution: powered && this._caution,
-            powered, warn,
+            powered, warn, alarms: jet.alarms ?? null,
             gear: jet.gear ?? 1, flaps: state.flaps, canopy: jet.canopy ?? 0,
         };
         for (const r of this._rotations) r.pivot.quaternion.setFromAxisAngle(r.pivot.userData.axis, deg(r.angle(v) || 0));
@@ -712,6 +735,27 @@ class F15Hud {
         ctx.fillText(`α ${s.alpha.toFixed(1)}`, L + 2, cy + 94);
         ctx.textAlign = 'center';
         ctx.fillText(`${Math.round(s.throttle * 100)} %`, cx, B - 44);   // (au-dessus de l'auvent, qui cache le bas du verre)
+        // Alarmes (voir F15Warnings.js) : anticollision avec le sol = grand X en travers du HUD ; sinon l'alarme la plus
+        // urgente, clignotante, sous le repère de l'avion
+        const al = s.alarms;
+        if (al) {
+            const on = Math.floor(time * 4) % 2 === 0;
+            if (al.pullUp) {
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(cx - 70, cy - 70); ctx.lineTo(cx + 70, cy + 70);
+                ctx.moveTo(cx + 70, cy - 70); ctx.lineTo(cx - 70, cy + 70);
+                ctx.stroke();
+                ctx.lineWidth = 2.5;
+            }
+            const text = al.pullUp ? 'PULL UP' : al.fireL && al.fireR ? 'FIRE L R' : al.fireL ? 'L FIRE' : al.fireR ? 'R FIRE'
+                : al.overG ? 'OVER G' : al.altLow ? 'ALT' : al.gearWarning ? 'GEAR' : al.fuelLow ? 'FUEL LOW' : al.bingo ? 'BINGO' : null;
+            if (text && (on || al.pullUp)) {
+                ctx.font = 'bold 18px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(text, cx, cy + 40);
+            }
+        }
         ctx.restore();
         this.texture.needsUpdate = true;
     }
