@@ -187,13 +187,10 @@ class WeaponHud {
                 _lead.set(0, 0, -3000).applyQuaternion(s.aircraft.quaternion).add(s.aircraft.position);
                 const bore = this._project(_lead, camera);
                 const radius = Math.tan(AAM.seeker) * focal;
+                // (plus de cercle de l'autodirecteur : centré sur l'axe du nez, il chevauchait la symbologie du HUD ; le
+                // triangle rouge montre la cible, le losange et le carré « LOCK » le verrouillage)
                 if (bore) {
-                    ctx.strokeStyle = ctx.fillStyle = weapons.locked ? RED : 'rgba(255, 210, 70, 0.9)';
-                    ctx.setLineDash([10, 8]);
-                    ctx.beginPath();
-                    ctx.arc(bore.x, bore.y, radius, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
+                    ctx.strokeStyle = ctx.fillStyle = weapons.locked ? RED : GREEN;
                     ctx.textAlign = 'center';
                     ctx.fillText(weapons.locked ? 'AIM-9 · LOCK' : weapons.lockId ? 'AIM-9 · VERROUILLAGE…' : 'AIM-9 · CHERCHE', bore.x, bore.y + radius + 14);
                 }
@@ -237,11 +234,6 @@ class WeaponHud {
                     ctx.textAlign = 'center';
                     ctx.fillText('SHOOT', bore.x, bore.y + radius + 42);
                     ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
-                }
-                if (!s.targets.length && bore) {
-                    ctx.fillStyle = 'rgba(255, 210, 70, 0.9)';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('Aucun avion ennemi (multijoueur)', bore.x, bore.y - radius - 12);
                 }
             } else {
                 // Mode missile : les avions restent encadrés ; viseur au sol (losange qui tourne), anneau de rechargement
