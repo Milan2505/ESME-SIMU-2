@@ -1743,11 +1743,34 @@ document.getElementById('multi').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') openMultiDialog();
 });
 
-try { multiPseudo.value = localStorage.getItem('pseudo') ?? ''; } catch { /* stockage indisponible */ }
+// Pseudo : fenêtre Multijoueur et menu Profil (en vol), les deux champs restent d'accord. Changé en cours de partie, il
+// part avec le prochain message d'état (plusieurs fois par seconde) : les autres le voient aussitôt sur l'étiquette de
+// notre avion, dans la liste des joueurs et le salon
+const profilePseudo = document.getElementById('profil-pseudo');
+try { multiPseudo.value = profilePseudo.value = localStorage.getItem('pseudo') ?? ''; } catch { /* stockage indisponible */ }
 function pseudo() {
-    const name = multiPseudo.value.trim() || 'Pilote';
+    const name = multiPseudo.value.replace(/\s+/g, ' ').trim().slice(0, 20) || 'Pilote';
     try { localStorage.setItem('pseudo', name); } catch { /* stockage indisponible */ }
     return name;
+}
+function renamePilot(source) {
+    multiPseudo.value = profilePseudo.value = source.value.replace(/\s+/g, ' ').trim().slice(0, 20);
+    const name = pseudo();
+    if (name === multiplayer.name) return;
+    multiplayer.name = name;
+    if (multiplayer.code) {
+        multiplayer.dispatchEvent(new CustomEvent('players', { detail: [...multiplayer.players.keys()] }));   // listes refaites
+        chat.add(null, `Vous vous appelez maintenant ${name}`);
+    }
+}
+for (const field of [multiPseudo, profilePseudo]) {
+    field.addEventListener('change', () => renamePilot(field));
+    field.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            renamePilot(field);
+            field.blur();   // (rend le clavier au pilotage)
+        }
+    });
 }
 
 document.getElementById('multi-creer').addEventListener('click', () => {

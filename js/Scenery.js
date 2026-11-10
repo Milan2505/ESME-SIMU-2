@@ -39,11 +39,10 @@ import { Nature } from './Nature.js';
 // - Rochers et prairies fleuries : voir Nature.js.
 // Tout est placé de la même façon à chaque partie (tirage à graine fixe).
 
-// Générateur d'arbres EZ-Tree (Daniel Greenheck, licence MIT, voir asset/vendor/ez-tree-LICENSE.txt) : 4 Mo, textures
-// comprises. Copie servie avec le jeu en premier (avant : seulement depuis le CDN ; une connexion lente ou filtrée le
-// faisait échouer, et tout le décor restait bloqué sur « Impossible de charger »), CDN en secours
+// Générateur d'arbres EZ-Tree (Daniel Greenheck, licence MIT) : 4 Mo, textures comprises, depuis deux CDN l'un après
+// l'autre. (Une copie servie avec le jeu a été essayée : ce fichier d'une seule ligne de 4 Mo faisait passer chaque mise
+// en ligne GitHub Pages de 30 s à ~10 min, jusqu'à l'échec.) Aucun ne répond : décor sans arbres, voir _build
 const EZ_TREE_URLS = [
-    'asset/vendor/ez-tree-1.1.0.es.js',
     'https://cdn.jsdelivr.net/npm/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js',
     'https://unpkg.com/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js',
 ];

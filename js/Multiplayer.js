@@ -597,9 +597,10 @@ class Multiplayer extends EventTarget {
         const state = cleanState(data);
         if (!state) return;
 
-        const isNew = !this.players.has(id);
+        const previous = this.players.get(id);
         this.players.set(id, { ...state, age: 0, receivedAt: now });
-        if (isNew) this._emitPlayers();
+        // Nouveau joueur, ou pseudo changé en cours de partie (menu Profil) : listes des joueurs refaites
+        if (!previous || previous.name !== state.name) this._emitPlayers();
 
         // Rejoindre : la partie existe ; on laisse arriver les autres joueurs avant de vérifier qu'il reste de la place
         if (!this._joined && !this._counting) {
