@@ -39,7 +39,15 @@ import { Nature } from './Nature.js';
 // - Rochers et prairies fleuries : voir Nature.js.
 // Tout est placé de la même façon à chaque partie (tirage à graine fixe).
 
-const EZ_TREE_URL = 'https://cdn.jsdelivr.net/npm/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js';
+// Générateur d'arbres EZ-Tree (Daniel Greenheck, licence MIT, voir asset/vendor/ez-tree-LICENSE.txt) : 4 Mo, textures
+// comprises. Copie servie avec le jeu en premier (avant : seulement depuis le CDN ; une connexion lente ou filtrée le
+// faisait échouer, et tout le décor restait bloqué sur « Impossible de charger »), CDN en secours
+const EZ_TREE_URLS = [
+    'asset/vendor/ez-tree-1.1.0.es.js',
+    'https://cdn.jsdelivr.net/npm/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js',
+    'https://unpkg.com/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js',
+];
+const TEXTURE_WAIT = 15000;      // ms : textures d'un arbre attendues au plus (sinon on continue, elles arriveront)
 const SPECIES = [
     { preset: 'Oak Medium', height: [12, 17], weight: 3, kind: 'leafy' },
     { preset: 'Ash Medium', height: [15, 21], weight: 3, kind: 'leafy' },
@@ -223,9 +231,23 @@ class Scenery {
         const rnd = random(1729);
         const villages = this._placeVillages(rnd);
         const report = (fraction) => this.onProgress?.(fraction);
-        // (nouvel essai après un échec du réseau : autre adresse, le navigateur peut garder en mémoire l'import raté)
-        const treeModule = import(this._attempts ? `${EZ_TREE_URL}?essai=${this._attempts}` : EZ_TREE_URL);
-        const [{ Tree }, houseModels] = await Promise.all([treeModule, this._loadHouses()]);
+        // Chaque source à tour de rôle (nouvel essai après un échec : autre adresse, le navigateur peut garder en mémoire
+        // l'import raté). Toutes en échec : le décor se fait quand même (maisons, rochers, fleurs), sans arbres
+        const treeModule = (async () => {
+            let failure;
+            for (const url of EZ_TREE_URLS) {
+                try {
+                    return await import(new URL(this._attempts ? `${url}?essai=${this._attempts}` : url, document.baseURI).href);
+                } catch (error) {
+                    failure = error;
+                    console.warn(`Générateur d'arbres indisponible (${url}) :`, error);
+                }
+            }
+            throw failure;
+        })().catch((error) => ({ error }));
+        const [treeLoaded, houseModels] = await Promise.all([treeModule, this._loadHouses()]);
+        const Tree = treeLoaded.error ? null : treeLoaded.Tree;
+        this.treesMissing = !Tree;
         report(0.3);
         // Construction par morceaux, en rendant la main au navigateur entre chacun : la page ne fige pas (portables)
         const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -239,7 +261,7 @@ class Scenery {
         const trees = this._placeTrees(rnd, villages);
         report(0.4);
         await breathe();
-        for (const [index, def] of SPECIES.entries()) {
+        for (const [index, def] of (Tree ? SPECIES : []).entries()) {
             const source = new Tree();
             source.loadPreset(def.preset);
             const o = source.options;
@@ -291,8 +313,11 @@ class Scenery {
         tree.traverse((child) => {
             for (const key of ['map', 'normalMap', 'roughnessMap', 'aoMap']) if (child.material?.[key]) maps.push(child.material[key]);
         });
+        const start = performance.now();
         return Promise.all(maps.map((map) => new Promise((resolve) => {
-            const check = () => (map.image && (map.image.complete ?? true) && (map.image.width || map.image.naturalWidth)) ? resolve() : setTimeout(check, 30);
+            // (au plus TEXTURE_WAIT ms : une image qui n'arrive pas ne bloque plus le chargement indéfiniment)
+            const check = () => (map.image && (map.image.complete ?? true) && (map.image.width || map.image.naturalWidth))
+                || performance.now() - start > TEXTURE_WAIT ? resolve() : setTimeout(check, 30);
             check();
         })));
     }

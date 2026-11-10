@@ -84,9 +84,9 @@ const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
 // avant la salve suivante. Chaque missile air-air qui nous poursuit a une chance de partir sur un leurre (decoyChance) :
 // plus grande quand le missile est à moyenne distance et derrière nous (il voit les leurres se séparer de l'avion, face
 // aux tuyères), plus faible en postcombustion (les réacteurs brillent bien plus qu'un leurre), nulle à moins de 250 m
-// (trop tard : il ne se laisse plus tromper). Avant : 70 % de chances à chaque salve, une salve toutes les 1,2 s, le
-// missile était presque toujours leurré
-const FLARE = { count: 4, interval: 0.12, cooldown: 3, life: 4, decoy: 0.5, minRange: 250, maxRange: 5000 };
+// (trop tard : il ne se laisse plus tromper). Au mieux (missile derrière, à moyenne distance, sans postcombustion) :
+// ~75 % par salve ; ~45 % en postcombustion ou missile de face
+const FLARE = { count: 4, interval: 0.12, cooldown: 3, life: 4, decoy: 0.75, minRange: 250, maxRange: 5000 };
 
 // Chance qu'une salve trompe un missile : distance (m), aspect (-1 : missile droit devant, 1 : droit derrière),
 // postcombustion (0 -> 1)
@@ -94,8 +94,8 @@ function decoyChance(distance, aspect, afterburner) {
     if (distance < FLARE.minRange || distance > FLARE.maxRange) return 0;
     const range = distance < 600 ? (distance - FLARE.minRange) / (600 - FLARE.minRange)
         : distance > 2500 ? 1 - 0.6 * (distance - 2500) / (FLARE.maxRange - 2500) : 1;
-    const rear = 0.5 + 0.5 * Math.max(0, aspect);
-    const engines = 1 - 0.6 * MathUtils.clamp(afterburner, 0, 1);
+    const rear = 0.6 + 0.4 * Math.max(0, aspect);
+    const engines = 1 - 0.4 * MathUtils.clamp(afterburner, 0, 1);
     return FLARE.decoy * range * rear * engines;
 }
 const WEAPON_ORDER = ['gun', 'aa', 'missile'];
