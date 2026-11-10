@@ -51,8 +51,10 @@ const GUN = {
 };
 const MISSILE = {
     count: 4,
-    maxSpeed: 320,                    // m/s
-    acceleration: 75,                 // m/s² (moteur-fusée)
+    maxSpeed: 320,                    // m/s : vitesse de croisière du missile…
+    boost: 180,                       // … ou au moins la vitesse de l'avion + boost (m/s) : il part toujours devant
+                                      // (avant : plafonné à 320 m/s, un F-15 plus rapide le rattrapait et le dépassait)
+    acceleration: 110,                // m/s² (moteur-fusée ; avant 75)
     minRange: 300,                    // m
     maxRange: 16000,                  // m
     offBoresight: deg(110),           // la croix ne doit pas être derrière l'avion
@@ -86,7 +88,7 @@ const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
 // aux tuyères), plus faible en postcombustion (les réacteurs brillent bien plus qu'un leurre), nulle à moins de 250 m
 // (trop tard : il ne se laisse plus tromper). Au mieux (missile derrière, à moyenne distance, sans postcombustion) :
 // ~75 % par salve ; ~45 % en postcombustion ou missile de face
-const FLARE = { count: 4, interval: 0.12, cooldown: 3, life: 4, decoy: 0.75, minRange: 250, maxRange: 5000 };
+const FLARE = { count: 8, interval: 0.15, cooldown: 3, life: 4, decoy: 0.75, minRange: 250, maxRange: 5000 };
 
 // Chance qu'une salve trompe un missile : distance (m), aspect (-1 : missile droit devant, 1 : droit derrière),
 // postcombustion (0 -> 1)
@@ -271,6 +273,7 @@ class Missile {
         scene.add(this.object);
         this.trail = new SmokeTrail(scene, { count: 160, color: 0xd8d8d8, size: 2.2, life: 5 });
         this.speed = Math.max(120, velocity.length());
+        this.topSpeed = Math.max(MISSILE.maxSpeed, this.speed + MISSILE.boost);
         this.age = 0;
         this.travelled = 0;
         this.done = false;
@@ -347,7 +350,7 @@ class Missile {
             return false;
         }
         this.age += delta;
-        this.speed = Math.min(MISSILE.maxSpeed, this.speed + MISSILE.acceleration * delta);
+        this.speed = Math.min(this.topSpeed, this.speed + MISSILE.acceleration * delta);
         this.travelled += this.speed * delta;
         this._place(this.travelled);
         this.flame.scale.setScalar(1.8 + Math.random() * 0.8);
@@ -620,7 +623,7 @@ class WeaponSounds {
 // deux appels de dessin pour tous les leurres et leurs fumées
 const FLARE_COLOR = new Color(0xfff4d8).multiplyScalar(10);   // > 1 : halo du bloom
 const FLARE_SMOKE = new Color(0xe4e4e4);
-const FLARE_PUFFS = 1200;
+const FLARE_PUFFS = 2000;
 class Flares {
     constructor(group, glow, puff) {
         this._flares = Array.from({ length: 48 }, () => ({ alive: false, age: 0, smoke: 0, position: new Vector3(), velocity: new Vector3() }));
@@ -635,24 +638,32 @@ class Flares {
         this._active = false;
     }
 
-    // Salve : leurres éjectés à FLARE.interval s d'intervalle, le long de la trajectoire de l'avion (position et
-    // vitesse au début de la salve)
+    // Salve : leurres éjectés par paires, un à gauche et un à droite (lance-leurres de chaque côté du fuselage, comme
+    // sur le vrai F-15), une paire toutes les FLARE.interval s, le long de la trajectoire de l'avion (position et
+    // vitesse au début de la salve). Ils s'écartent en V de part et d'autre de l'avion en tombant
     burst(position, velocity, count = FLARE.count) {
         for (let i = 0; i < count; i++) {
-            this._pending.push({ at: i * FLARE.interval, elapsed: 0, position: position.clone(), velocity: velocity.clone() });
+            this._pending.push({ at: (i >> 1) * FLARE.interval, elapsed: 0, side: i % 2 ? 1 : -1,
+                position: position.clone(), velocity: velocity.clone() });
         }
         this._active = true;
     }
 
-    _eject(position, velocity) {
+    // side : -1 gauche, 1 droite (par rapport à la trajectoire de l'avion : même éjection chez tous les joueurs, qui
+    // ne reçoivent que la position et la vitesse de la salve)
+    _eject(position, velocity, side) {
         const flare = this._flares[this._next];
         this._next = (this._next + 1) % this._flares.length;
-        flare.position.copy(position);
+        _right.copy(velocity).cross(_up.set(0, 1, 0));
+        if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0);
+        _right.normalize();
+        flare.position.copy(position).addScaledVector(_right, side * 1.2);   // (de chaque côté du fuselage)
         flare.age = 0;
         flare.smoke = 0;
-        // Éjectés vers le bas et un peu sur le côté (~30 m/s), avec une partie de la vitesse de l'avion
+        // Éjectés sur le côté (~30 m/s) et vers le bas, avec une partie de la vitesse de l'avion
         flare.velocity.copy(velocity).multiplyScalar(0.7)
-            .add(_v.set((Math.random() - 0.5) * 24, -22 - Math.random() * 10, (Math.random() - 0.5) * 24));
+            .addScaledVector(_right, side * (26 + Math.random() * 10))
+            .add(_v.set((Math.random() - 0.5) * 6, -14 - Math.random() * 8, (Math.random() - 0.5) * 6));
         flare.alive = true;
     }
 
@@ -662,7 +673,7 @@ class Flares {
             const p = this._pending[i];
             p.elapsed += delta;
             if (p.elapsed < p.at) continue;
-            this._eject(p.position.addScaledVector(p.velocity, p.elapsed), p.velocity);   // (l'avion a avancé depuis)
+            this._eject(p.position.addScaledVector(p.velocity, p.elapsed), p.velocity, p.side);   // (l'avion a avancé depuis)
             this._pending.splice(i, 1);
         }
         let alive = this._pending.length;
