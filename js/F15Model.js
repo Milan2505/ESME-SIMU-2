@@ -500,6 +500,7 @@ class PetalMesh extends SkinnedMesh {
     raycast() {}
 }
 
+const petalMaterials = new Map();   // matériau d'origine -> sa copie pour les pétales réunis (voir skinPetals)
 function skinPetals(root, meshes, name) {
     root.updateMatrixWorld(true);
     const toRoot = new Matrix4().copy(root.matrixWorld).invert();
@@ -533,7 +534,11 @@ function skinPetals(root, meshes, name) {
         for (const g of geometries) g.dispose();
         if (!geometry) continue;
         const first = list[0];
-        const skinned = new PetalMesh(geometry, first.material);
+        // Matériau propre aux pétales réunis : partagé avec des pièces sans os, three.js passait à chaque image d'une
+        // variante du programme de dessin à l'autre (avec / sans os) et la recalculait à chaque fois (~8 % du temps de
+        // calcul par F-15 affiché). Une copie par matériau d'origine, partagée entre les pétales seulement
+        const material = (petalMaterials.get(first.material) ?? petalMaterials.set(first.material, first.material.clone()).get(first.material));
+        const skinned = new PetalMesh(geometry, material);
         skinned.name = name;
         skinned.castShadow = first.castShadow;
         skinned.receiveShadow = first.receiveShadow;

@@ -440,6 +440,16 @@ const jetTaxiLight = new THREE.SpotLight(0xfff3d6, 0, 140, THREE.MathUtils.degTo
 jetTaxiLight.position.set(0, -1.0, -3.7);
 jetTaxiLight.target.position.set(0, -3.5, -30);
 jetFrame.add(jetLandingLight, jetLandingLight.target, jetTaxiLight, jetTaxiLight.target);
+// Avion non piloté (Cessna en F-15, F-15 en Cessna) et son cockpit : cachés, leurs positions ne sont plus recalculées à
+// chaque image. three.js le faisait même pour les objets cachés (~1 000 pièces de trop, ~8 % du temps de calcul) ;
+// redevenus visibles, ils sont recalculés avant d'être dessinés
+function skipWhenHidden(object) {
+    const update = object.updateMatrixWorld;
+    object.updateMatrixWorld = function (force) {
+        if (this.visible) update.call(this, force);
+    };
+}
+for (const object of [airframe, jetFrame, cessnaCockpit.group, jetCockpit.group]) skipWhenHidden(object);
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
 // verraient pas et chaque lumière alourdit le rendu)
@@ -481,6 +491,7 @@ function setupAircraft() {
         paintAircraft(model, multiplayer.livery);
         cessnaLights.setOccluder(model);
         cessnaLights.setRudder(parts.pivots.rudder);
+        singlePassTransparents(aircraft);   // (Cessna et sa cabine, voir singlePassTransparents)
         remotePlayers.setTemplate(template);
         airport.addParkedPlanes(template, WHEEL_HEIGHT, (plane, livery, registration) => {
             setRegistration(plane, registration);
@@ -3796,6 +3807,8 @@ try {
     previousFreeze = JSON.parse(sessionStorage.getItem('esme-freeze-precedent') ?? 'null');
     sessionStorage.removeItem('esme-freeze-precedent');
 } catch { /* stockage indisponible */ }
+// Accès de diagnostic depuis la console (F12) : scène, moteur de rendu, caméra
+window.esmeDebug = { scene, renderer, camera };
 window.esmeFreezes = () => ({ aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
     ...(previousFreeze ? { avantRechargement: previousFreeze } : {}) });
 
@@ -4453,7 +4466,20 @@ function uploadTextures() {
 // Objet qui va apparaître en vol (avion d'un autre joueur) : textures envoyées à la carte graphique et shaders compilés
 // en arrière-plan (compileAsync) pendant que le jeu continue de tourner ; avant, la première image qui le montrait
 // figeait le jeu le temps de tout compiler. Résolu au plus tard après 8 s
+// Matériaux transparents visibles des deux côtés : three.js les dessine en deux passes (faces arrière, puis avant) et les
+// marque « modifiés » à chaque passe, ce qui lui fait recalculer leur programme de dessin deux fois par image et par
+// objet (cockpit du F-15 : ~2 500 fois par seconde, ~7 % du temps de calcul en vol). Sur les avions (vitres,
+// instruments, chiffres, HUD, pièces plates), une seule passe donne la même image
+function singlePassTransparents(root) {
+    root.traverse((child) => {
+        for (const material of [child.material].flat()) {
+            if (material?.transparent && material.side === THREE.DoubleSide) material.forceSinglePass = true;
+        }
+    });
+}
+
 function prepareForDisplay(object) {
+    singlePassTransparents(object);
     const seen = new Set();
     object.traverse((child) => {
         for (const material of [child.material].flat()) {
