@@ -3967,7 +3967,9 @@ if (previousFreeze?.partie && previousFreeze.score) {
     });
 }
 // Accès de diagnostic depuis la console (F12) : scène, moteur de rendu, caméra
-window.esmeDebug = { scene, renderer, camera, controls, multiplayer, airport, terrain };
+// (armes, dégâts et cibles : créés plus bas dans le fichier, lus seulement à l'usage)
+window.esmeDebug = { scene, renderer, camera, controls, multiplayer, airport, terrain,
+    get weapons() { return weapons; }, get damage() { return damage; }, cibles: () => lastCombatTargets.map((t) => t.name) };
 window.esmeFreezes = () => ({ erreurs: loopErrors.slice(), aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
     ...(previousFreeze ? { avantRechargement: previousFreeze } : {}) });
 
@@ -4706,16 +4708,22 @@ function updateF15Warnings(frameDelta) {
     f15AlarmPanel.hidden = items.length === 0;
 }
 
+let lastCombatTargets = [];   // (diagnostic : cibles de la dernière image, voir esmeDebug.cibles)
 function updateCombat(frameDelta) {
     const delta = Math.min(frameDelta, 0.1);   // même pas maximal que le modèle de vol (onglet en arrière-plan, à-coup)
     const jet = aircraftType === 'f15';
     const armed = weaponsArmed();
     // Cibles : seulement les avions en vol (ceux au sol ne peuvent être ni touchés ni verrouillés : pas de spawn-kill)
-    const targets = multiplayer.code ? remotePlayers.combatList().filter((t) => {
+    // Cibles : ennemis en vol seulement. Wardog : les équipiers n'apparaissent pas dans le viseur (ni triangle, ni cadre, ni
+    // verrouillage de l'AIM-9) et nos obus ne peuvent pas les toucher (coups au but calculés sur ces cibles seulement ; chez
+    // eux, un coup venu d'un équipier est de toute façon ignoré)
+    const planes = multiplayer.code ? remotePlayers.combatList() : [];
+    const targets = planes.filter((t) => {
         const p = t.group.position;
         t.agl = p.y - (AIRCRAFT_PROFILES[t.type]?.wheelHeight ?? 0) - terrain.heightAt(p.x, p.z);   // hauteur sol (m), pour le radar
-        return t.agl > 4 && isEnemy(t.id);   // (Wardog : les équipiers ne sont ni des cibles ni verrouillables)
-    }) : [];
+        return t.agl > 4 && isEnemy(t.id);
+    });
+    lastCombatTargets = targets;
     // Alerte radar : un autre joueur nous accroche ou nous a verrouillés
     let threat = { state: 'off', name: '' };
     if (multiplayer.code && !controls.isCrashed() && !choosingSpawn) {
@@ -4732,7 +4740,8 @@ function updateCombat(frameDelta) {
     weapons.update(delta, {
         own: { aircraft, velocity: controls.model.velocity, armed, id: multiplayer.id, alive: !controls.isCrashed() && !choosingSpawn },
         camera, targets, cabin: !chaseView,
-        shooters: targets.filter((t) => t.firing && t.type === 'f15').map((t) => ({ id: t.id, matrix: t.group.matrixWorld, velocity: t.velocity })),
+        // (traçantes du canon de tous les autres joueurs, équipiers compris : purement visuelles, sans dégâts)
+        shooters: planes.filter((t) => t.firing && t.type === 'f15').map((t) => ({ id: t.id, matrix: t.group.matrixWorld, velocity: t.velocity })),
     });
     // Fumée et flammes derrière notre avion touché
     const crashed = controls.isCrashed();
