@@ -3801,15 +3801,49 @@ try {
         }
     }).observe({ type: 'longtask', buffered: false });
 } catch { /* navigateur sans tâches longues (Safari) */ }
+// Erreurs JavaScript pendant le jeu (40 dernières, regroupées par message) : partie du jeu, message, début de la pile,
+// nombre de fois, dernière fois. Consultables dans esmeFreezes().erreurs (gardées après un rechargement automatique)
+const loopErrors = [];
+function recordError(part, error) {
+    const message = String(error?.message ?? error).slice(0, 200);
+    const stack = String(error?.stack ?? '').split(String.fromCharCode(10)).slice(1, 5).map((l) => l.trim().replace(/https?:\/\/[^/]+\//, '')).join(' < ');
+    const known = loopErrors.find((e) => e.partie === part && e.message === message);
+    if (known) {
+        known.fois++;
+        known.derniere = Math.round(performance.now() / 1000);
+        return;
+    }
+    loopErrors.push({ partie: part, message, pile: stack, fois: 1, premiere: Math.round(performance.now() / 1000), derniere: Math.round(performance.now() / 1000) });
+    if (loopErrors.length > 40) loopErrors.shift();
+    console.error(`Erreur (${part}) :`, error);
+}
+function guard(part, work) {
+    try {
+        work();
+    } catch (error) {
+        recordError(part, error);
+    }
+}
+window.addEventListener('error', (event) => recordError('page', event.error ?? event.message));
+window.addEventListener('unhandledrejection', (event) => recordError('promesse', event.reason));
+
 // Rapport de la session précédente, si elle s'est terminée par un rechargement automatique (voir recoverFromFreeze)
 let previousFreeze = null;
 try {
     previousFreeze = JSON.parse(sessionStorage.getItem('esme-freeze-precedent') ?? 'null');
     sessionStorage.removeItem('esme-freeze-precedent');
 } catch { /* stockage indisponible */ }
+// Retour dans la même partie après un rechargement automatique : le score d'avant est repris (victoires, fois abattu)
+if (previousFreeze?.partie && previousFreeze.score) {
+    multiplayer.addEventListener('joined', ({ detail }) => {
+        if (detail.code !== previousFreeze.partie || previousFreeze.scoreRestored) return;
+        previousFreeze.scoreRestored = true;
+        multiplayer.score = { kills: previousFreeze.score.kills | 0, deaths: previousFreeze.score.deaths | 0 };
+    });
+}
 // Accès de diagnostic depuis la console (F12) : scène, moteur de rendu, caméra
-window.esmeDebug = { scene, renderer, camera };
-window.esmeFreezes = () => ({ aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
+window.esmeDebug = { scene, renderer, camera, controls, multiplayer };
+window.esmeFreezes = () => ({ erreurs: loopErrors.slice(), aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
     ...(previousFreeze ? { avantRechargement: previousFreeze } : {}) });
 
 // --- Filet de sécurité contre le jeu figé pour de bon -----------------------------------------------------------------
@@ -3826,7 +3860,7 @@ function recoverFromFreeze(reason) {
     const code = multiplayer.code;
     try {
         sessionStorage.setItem('esme-freeze-precedent', JSON.stringify({ raison: reason, le: new Date().toISOString(), partie: code,
-            aCoups: freezeLog.slice(-20), tachesLongues: longTasks.slice(-20), messagesLents: multiplayer.slowMessages.slice(-20) }));
+            score: code ? multiplayer.score : null, erreurs: loopErrors.slice(-20), aCoups: freezeLog.slice(-20), tachesLongues: longTasks.slice(-20), messagesLents: multiplayer.slowMessages.slice(-20) }));
     } catch { /* stockage indisponible */ }
     console.warn('Jeu figé, rechargement automatique :', reason);
     location.href = code ? `${location.pathname}?partie=${code}` : location.pathname;
@@ -4266,14 +4300,28 @@ damage.addEventListener('hit', () => {
     shake = Math.max(shake, 0.3);
     sounds.click(0.7, 260 + Math.random() * 120);
 });
-damage.addEventListener('destroyed', ({ detail }) => {
-    if (controls.isCrashed()) return;
-    controls.collide(detail.reason);
-    multiplayer.sendKill(detail.attackerId, detail.reason);
+// Abattu : annoncé une seule fois par vie (le tireur s'ajoute la victoire, voir l'événement 'kill'), compté dans notre
+// score. Avant, seule la destruction par les dégâts comptait : un avion touché qui finissait au sol (réacteurs coupés,
+// commandes molles) ne rapportait rien à personne, et c'était le cas le plus fréquent
+let deathReported = false;
+const KILL_CREDIT_TIME = 30000;   // ms : crash dans les 30 s après un coup reçu -> victoire au dernier tireur
+function reportDeath(attackerId, reason) {
+    if (deathReported) return;
+    deathReported = true;
+    multiplayer.sendKill(attackerId, reason);
     if (multiplayer.code) {
         multiplayer.score.deaths++;   // (score : voir updateScores)
-        flashScore(detail.attackerId);
+        flashScore(attackerId);
     }
+}
+damage.addEventListener('destroyed', ({ detail }) => {
+    if (controls.isCrashed()) return;
+    reportDeath(detail.attackerId, detail.reason);
+    controls.collide(detail.reason);
+});
+controls.addEventListener('crash', ({ reason }) => {
+    if (deathReported || !damage.attackerId || performance.now() - damage.lastHit > KILL_CREDIT_TIME) return;
+    reportDeath(damage.attackerId, `Abattu par ${damage.attacker} (${reason.toLowerCase()})`);
 });
 multiplayer.addEventListener('kill', ({ detail }) => {
     chat.add(null, detail.byName ? `💥 ${detail.byName} a abattu ${detail.name}` : `💥 ${detail.name} : ${detail.reason}`);
@@ -4323,6 +4371,7 @@ setInterval(updateScores, 1000);
 multiplayer.addEventListener('players', () => updateScores());
 // Nouveau départ : avion réparé, réarmé
 controls.addEventListener('reset', () => {
+    deathReported = false;
     damage.reset();
     weapons.rearm();
     ownSmoke.jump();
@@ -4632,7 +4681,19 @@ try {
     if (localStorage.getItem('avion') === 'f15') setAircraftType('f15').catch(() => setAircraftType('c172'));
 } catch { /* stockage indisponible */ }
 
-renderer.setAnimationLoop((time)=>{
+// Boucle d'images protégée : une erreur dans une image ne l'arrête plus. three.js ne redemande l'image suivante qu'après
+// la fin de celle-ci : une seule erreur figeait le jeu pour de bon (image immobile, réseau toujours actif), puis le
+// filet de sécurité rechargeait la page (« déconnecté », score perdu). L'image fautive est sautée, l'erreur notée
+// (voir recordError) et le jeu continue
+renderer.setAnimationLoop((time) => {
+    try {
+        drawFrame(time);
+    } catch (error) {
+        recordError('image', error);
+        try { graphics.render(); } catch { /* rien de plus à faire pour cette image */ }
+    }
+});
+function drawFrame(time) {
     lastLoopAt = performance.now();   // (filet de sécurité : la boucle tourne, voir watchFreeze)
     // Écran de chargement : rien n'est dessiné derrière lui (sauf les images du préchauffage, voir warmUpWorld) ; toute
     // la puissance va au chargement
@@ -4724,18 +4785,18 @@ renderer.setAnimationLoop((time)=>{
     updateSounds();
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
-    updateHud(delta);
+    guard('HUD', () => updateHud(delta));
     lap('systèmes, sons, HUD');
     // Envoyé aussi au menu, au hangar et au choix du départ (avion masqué chez les autres, comme une épave) : avant,
     // rien ne partait tant que le joueur n'avait pas choisi son départ, et personne ne pouvait rejoindre sa partie
     // (« Aucune partie avec le code… » alors que le code était bon)
-    multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
+    guard('réseau', () => multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
         crashed: controls.isCrashed() || choosingSpawn, crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
         jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
         // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
         combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed(),
             lock: weapons.lockId, locked: weapons.locked },
-    } );
+    } ));
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
     wind.setShared(host?.weather ? METARS[host.weather] ?? null : null);
@@ -4744,12 +4805,12 @@ renderer.setAnimationLoop((time)=>{
     jetSound.setListener( camera );
     lap('réseau (envoi)');
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
-    remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime );
-    updateRemoteCrashes( delta );
+    guard('autres joueurs', () => remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime ));
+    guard('explosions', () => updateRemoteCrashes( delta ));
     lap('autres joueurs');
-    updateCombat( delta );
+    guard('combat', () => updateCombat( delta ));
     lap('combat');
-    updateMap( delta );
+    guard('carte', () => updateMap( delta ));
     // Liste "En ligne" ouverte : distances et altitudes mises à jour chaque seconde
     if ((onlineTimer -= delta) <= 0) {
         onlineTimer = 1;
@@ -4826,7 +4887,7 @@ renderer.setAnimationLoop((time)=>{
     lap('rendu');
     freezeFrameEnd();
     updatePerf(performance.now() - frameStart);
-});
+}
 
 // Démarrage réussi (voir index.html : écran d'erreur et nouvel essai si le simulateur ne démarre pas)
 window.esmeStarted = true;
