@@ -1501,9 +1501,14 @@ document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 function onFullscreenChange() {
     const label = fullscreenElement() ? 'Quitter le plein écran' : 'Plein écran';
     for (const button of fullscreenButtons) (button.querySelector('.libelle') ?? button).textContent = label;
-    // La fenêtre Paramètres passerait sous l'écran plein : on la rouvre par-dessus
-    const dialog = document.getElementById('reglages-dialog');
-    if (dialog.open) {
+    // Fenêtres ouvertes (Multijoueur, Paramètres, Masse et centrage…) : le plein écran se termine après le clic qui les
+    // a ouvertes et passe par-dessus elles. Cachées dessous mais toujours « modales », elles bloquaient tous les clics :
+    // plus rien n'était cliquable. Rouvertes par-dessus (leur fermeture éclair est invisible pour le reste du jeu :
+    // l'événement « close » est arrêté, sinon fermer la fenêtre Multijoueur lançait la partie)
+    if (!fullscreenElement()) return;
+    for (const dialog of document.querySelectorAll('dialog[open]')) {
+        if (!dialog.matches(':modal')) continue;
+        dialog.addEventListener('close', (event) => event.stopImmediatePropagation(), { capture: true, once: true });
         dialog.close();
         dialog.showModal();
     }
@@ -3749,7 +3754,8 @@ function countSceneObjects() {
     visit(scene);
     return objects;
 }
-const MAX_RENDER_PAUSE = 250;   // ms : le dessin n'attend jamais plus longtemps une compilation en arrière-plan
+const MAX_RENDER_PAUSE = 250;
+const MENU_FPS = 30;            // images/s au plus derrière le menu principal   // ms : le dessin n'attend jamais plus longtemps une compilation en arrière-plan
 let shaderWarmupStart = 0;
 function checkNewShaders(now) {
     if (shaderWarmup || now > warmCheckUntil || now < nextWarmCheck) return;
@@ -4430,8 +4436,12 @@ renderer.setAnimationLoop((time)=>{
     // la puissance va au chargement
     if (loadingScreen.active) return;
     // Limite d'images par seconde (réglage) : on saute les rafraîchissements d'écran en trop
-    if (fpsLimit > 0) {
-        const interval = 1000 / fpsLimit;
+    // Menu principal : décor du fond (survol lent de l'aérodrome) à MENU_FPS images/s au plus. Avant, il était redessiné
+    // à pleine vitesse pendant que tout le reste se chargeait derrière lui (relief, arbres, avions, sons) : la moitié du
+    // temps de l'ordinateur y passait, le chargement et le menu en étaient ralentis
+    const limit = inMenu ? (fpsLimit > 0 ? Math.min(fpsLimit, MENU_FPS) : MENU_FPS) : fpsLimit;
+    if (limit > 0) {
+        const interval = 1000 / limit;
         if (time < nextFrameTime - 1.5) return;
         nextFrameTime = Math.max(nextFrameTime + interval, time); // rattrape le retard sans s'emballer
     }
@@ -4607,7 +4617,10 @@ renderer.setAnimationLoop((time)=>{
     checkNewShaders(performance.now());
     // Compilation en arrière-plan : le dessin l'attend au plus MAX_RENDER_PAUSE ms (avant : jusqu'à 8 s, et sans fin si
     // three.js ne signalait jamais la fin, par exemple après une erreur dans un shader)
-    if (!shaderWarmup || performance.now() - shaderWarmupStart > MAX_RENDER_PAUSE) graphics.render();
+    // (en vol seulement ; au menu, au hangar et au choix du départ, l'image attend la fin de la compilation comme avant :
+    // dessiner plus tôt forçait toute la compilation d'un coup, la page figeait jusqu'à 3,5 s pendant le chargement)
+    const renderPause = inMenu || inHangar || choosingSpawn ? 8000 : MAX_RENDER_PAUSE;
+    if (!shaderWarmup || performance.now() - shaderWarmupStart > renderPause) graphics.render();
     lap('rendu');
     freezeFrameEnd();
     updatePerf(performance.now() - frameStart);
