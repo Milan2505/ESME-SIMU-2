@@ -3679,11 +3679,27 @@ window.addEventListener('keyup', (event) => {
 function watchNewShaders(seconds = 30) {
     warmCheckUntil = Math.max(warmCheckUntil, performance.now() + seconds * 1000);
 }
+// Objets dessinés de la scène, sans les objets passagers (missiles, fumées, explosions, leurres, avions des autres
+// joueurs : marqués userData.transient, leurs shaders sont prêts d'avance ou compilés à part, voir prepareForDisplay).
+// Avant, ils étaient comptés : en combat, leur nombre changeait sans cesse, et pendant les 30 s qui suivent chaque
+// apparition (départ, touche R, retour après avoir été abattu) toute la scène était recompilée chaque seconde, le
+// dessin suspendu pendant ce temps : le jeu se figeait par à-coups, plusieurs secondes d'affilée
+function countSceneObjects() {
+    let objects = 0;
+    const visit = (o) => {
+        if (o.userData.transient) return;
+        if (o.isMesh || o.isPoints || o.isLine || o.isSprite) objects++;
+        for (const child of o.children) visit(child);
+    };
+    visit(scene);
+    return objects;
+}
+const MAX_RENDER_PAUSE = 250;   // ms : le dessin n'attend jamais plus longtemps une compilation en arrière-plan
+let shaderWarmupStart = 0;
 function checkNewShaders(now) {
     if (shaderWarmup || now > warmCheckUntil || now < nextWarmCheck) return;
     nextWarmCheck = now + 1000;
-    let objects = 0;
-    scene.traverse((o) => { if (o.isMesh || o.isPoints || o.isLine || o.isSprite) objects++; });
+    const objects = countSceneObjects();
     if (objects === sceneObjects) return;
     sceneObjects = objects;
     const timeout = new Promise((resolve) => setTimeout(resolve, 8000));
@@ -3693,6 +3709,7 @@ function checkNewShaders(now) {
     renderer.setRenderTarget(graphics.composer.renderTarget1);
     const compiling = renderer.compileAsync(scene, camera);
     renderer.setRenderTarget(previous);
+    shaderWarmupStart = now;
     shaderWarmup = Promise.race([compiling, timeout]).catch(() => {}).finally(() => { shaderWarmup = null; });
 }
 watchNewShaders(120);
@@ -4326,8 +4343,7 @@ async function warmUpWorld() {
         applyLights();
         aircraft.updateMatrixWorld();
         // Objets déjà compilés : pas de nouvelle compilation au prochain contrôle (voir checkNewShaders)
-        sceneObjects = 0;
-        scene.traverse((o) => { if (o.isMesh || o.isPoints || o.isLine || o.isSprite) sceneObjects++; });
+        sceneObjects = countSceneObjects();
     }
 }
 
@@ -4523,7 +4539,9 @@ renderer.setAnimationLoop((time)=>{
         simulatorElement.style.setProperty('--tactile-largeur-droite', `${touchControls.insetWidth.right}px`);
     }
     checkNewShaders(performance.now());
-    if (!shaderWarmup) graphics.render();
+    // Compilation en arrière-plan : le dessin l'attend au plus MAX_RENDER_PAUSE ms (avant : jusqu'à 8 s, et sans fin si
+    // three.js ne signalait jamais la fin, par exemple après une erreur dans un shader)
+    if (!shaderWarmup || performance.now() - shaderWarmupStart > MAX_RENDER_PAUSE) graphics.render();
     updatePerf(performance.now() - frameStart);
 });
 

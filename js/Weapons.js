@@ -262,6 +262,7 @@ class Missile {
         this.own = own;
         this.target = target.clone();
         this.object = mesh.clone();
+        this.object.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
         this.flame = new Sprite(new SpriteMaterial({ map: glow, color: 0xffa040, blending: AdditiveBlending, transparent: true, depthWrite: false }));
         this.flame.material.color.multiplyScalar(5);
         this.flame.scale.setScalar(2.2);
@@ -386,6 +387,7 @@ class AAMissile {
         this.ownerName = ownerName;
         this.own = own;
         this.object = mesh.clone();
+        this.object.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
         this.object.scale.setScalar(1.2);
         this.flame = new Sprite(new SpriteMaterial({ map: glow, color: 0xffb060, blending: AdditiveBlending, transparent: true, depthWrite: false }));
         this.flame.material.color.multiplyScalar(6);
@@ -1062,6 +1064,7 @@ class Weapons extends EventTarget {
         // Nos missiles : point d'impact marqué au sol (croix fixe) jusqu'à l'explosion
         if (options.own) {
             missile.marker = this.cross.clone();
+            missile.marker.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
             missile.marker.position.copy(options.target);
             missile.marker.position.y += 0.3;
             missile.marker.visible = true;

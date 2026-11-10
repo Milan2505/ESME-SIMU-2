@@ -78,6 +78,7 @@ class SmokeTrail {
         this._last = null;
         this._alive = 0;
         this.group = new Group();   // (gardé : ajouté à la scène, contient les deux lots)
+        this.group.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
         this.group.add(this._smokeBatch, this._fireBatch);
         scene.add(this.group);
     }

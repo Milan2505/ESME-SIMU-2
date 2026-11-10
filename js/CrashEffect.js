@@ -41,6 +41,7 @@ const _world = new Vector3();
 class CrashEffect {
     constructor() {
         this.group = new Group();
+        this.group.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
         this.group.visible = false;
         this._time = 0;
         const map = puffTexture();

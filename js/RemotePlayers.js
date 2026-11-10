@@ -338,6 +338,28 @@ class RemotePlayers extends EventTarget {
         });
     }
 
+    // Avion retiré : ce qui lui appartient est rendu à la carte graphique (os des pétales des tuyères, matériaux et
+    // géométries propres à sa copie : livrée, feux…), pas ce qu'il partage avec le modèle d'origine. Avant, chaque
+    // joueur qui partait et revenait (page cachée plus de 8 s, coupure réseau, changement d'avion) en laissait un peu
+    _release(plane) {
+        const template = plane.type === 'f15' ? this.jetTemplate : this.template;
+        this._shared ??= new WeakMap();
+        let shared = template ? this._shared.get(template) : null;
+        if (template && !shared) {
+            shared = new Set();
+            template.traverse((o) => {
+                if (o.geometry) shared.add(o.geometry);
+                for (const m of [o.material].flat()) if (m) shared.add(m);
+            });
+            this._shared.set(template, shared);
+        }
+        plane.group.traverse((o) => {
+            if (o.isSkinnedMesh) o.skeleton?.dispose();
+            if (o.geometry && !shared?.has(o.geometry)) o.geometry.dispose();
+            for (const m of [o.material].flat()) if (m && !shared?.has(m)) m.dispose();
+        });
+    }
+
     // Crée / supprime les avions selon la liste des joueurs
     _sync() {
         if (!this.template) return;
@@ -350,6 +372,7 @@ class RemotePlayers extends EventTarget {
                 plane.label.dispose();
                 plane.engine?.dispose();
                 plane.trail?.dispose();
+                this._release(plane);
                 this.planes.delete(id);
             }
         }
@@ -379,6 +402,7 @@ class RemotePlayers extends EventTarget {
             lights.setOccluder(model);
             lights.setNight(this.night);
             const label = new Label();
+            group.userData.transient = label.sprite.userData.transient = true;   // (shaders préparés à part, voir prepare)
             this.scene.add(group, label.sprite);
             const plane = {
                 group, model, label, type, anim: { time: 0 },
