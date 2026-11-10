@@ -279,6 +279,8 @@
 	</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
+	<!-- Wardog : points des équipes et terrains (propriétaire, capture en cours), voir updateWardog -->
+	<div id="wardog" hidden></div>
 	<!-- Tableau des scores (multijoueur) : victoires, fois abattu, points ; voir updateScores -->
 	<div id="scores" hidden>
 		<table>
@@ -635,6 +637,12 @@
 		</div>
 		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>
 		<label class="multi-livree">Couleur de l'avion <select id="multi-livree"></select></label>
+		<!-- Mode de la partie à créer : Vol libre (classique) ou Wardog (équipes, capture des terrains) -->
+		<div id="multi-modes" class="multi-ligne" role="group" aria-label="Mode de la partie">
+			<button type="button" data-mode="libre" class="actif">Vol libre</button>
+			<button type="button" data-mode="wardog">Wardog</button>
+		</div>
+		<p id="multi-mode-aide">Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.</p>
 		<div class="multi-ligne">
 			<button id="multi-creer">Créer une partie privée</button>
 		</div>
@@ -658,6 +666,14 @@
 		<div class="multi-ligne" id="multi-partage" hidden>
 			<input id="multi-lien" readonly>
 			<button id="multi-copier">Copier le lien</button>
+		</div>
+		<!-- Wardog : choix de l'équipe (places restantes) -->
+		<div id="multi-equipes" hidden>
+			<span class="multi-salon-titre">Choisissez votre équipe</span>
+			<div class="multi-ligne">
+				<button type="button" id="equipe-bleu" data-equipe="bleu"></button>
+				<button type="button" id="equipe-rouge" data-equipe="rouge"></button>
+			</div>
 		</div>
 		<ul id="multi-joueurs"></ul>
 		<div class="multi-ligne">

@@ -103,7 +103,28 @@ function cleanState(state) {
         lockOnLocked: state.lkd === 1,
         // Score de la partie (compté par le joueur lui-même, voir Multiplayer.score) : avions abattus, fois abattu
         score: scoreFrom(state.sc),
+        // Mode de la partie (celui du créateur fait foi), équipe (Wardog), capture des terrains (arbitre seulement)
+        mode: state.m === 'w' ? 'wardog' : 'libre',
+        team: teamFrom(state.tm),
+        capture: captureFrom(state.cp),
     };
+}
+
+// Mode Wardog : deux équipes (bleue, rouge), TEAM_MAX joueurs chacune. Équipe envoyée par chaque joueur ('b' / 'r') ;
+// état de la capture des terrains publié par un seul joueur, l'arbitre (voir Multiplayer.referee)
+const TEAMS = { b: 'bleu', r: 'rouge' };
+const TEAM_MAX = 6;
+const teamFrom = (code) => TEAMS[code] ?? null;
+const teamCode = (team) => (team === 'bleu' ? 'b' : team === 'rouge' ? 'r' : undefined);
+// Capture : { fields: [{ owner, progress (0 -> 1), attacker }], points: { bleu, rouge }, winner, round } ; null si invalide
+function captureFrom(value) {
+    if (!value || typeof value !== 'object' || !Array.isArray(value.f) || value.f.length > 4) return null;
+    const fields = value.f.map((f) => (Array.isArray(f) ? { owner: teamFrom(f[0]), progress: Math.min(1, Math.max(0, Number(f[1]) || 0)),
+        attacker: teamFrom(f[2]) } : null));
+    if (fields.some((f) => !f)) return null;
+    const points = numbers(value.s, 2) ?? [0, 0];
+    return { fields, points: { bleu: Math.max(0, Math.floor(points[0])), rouge: Math.max(0, Math.floor(points[1])) },
+        winner: teamFrom(value.w), round: Math.max(1, Math.floor(Number(value.n) || 1)) };
 }
 
 function scoreFrom(value) {
@@ -146,6 +167,9 @@ class Multiplayer extends EventTarget {
         // voir sendKill : le tireur s'ajoute la victoire) et l'envoie avec son état : tous les joueurs voient le même
         // tableau, même ceux arrivés en cours de partie. Remis à zéro en quittant la partie
         this.score = { kills: 0, deaths: 0 };
+        this.mode = 'libre';          // 'libre' (vol libre à plusieurs) ou 'wardog' (équipes, capture des terrains)
+        this.team = null;             // Wardog : 'bleu' ou 'rouge' (null : pas encore choisie)
+        this.capture = null;          // Wardog, arbitre : état de la capture à publier (voir captureFrom), fourni par simulator.js
         this.lobby = new Map();       // parties annoncées au salon : id du créateur -> { host, players, names, seenAt }
         this._lobbySeq = new Map();   // id du créateur -> numéro de sa dernière annonce reçue (copies en retard ignorées)
         this.listed = true;           // notre partie (créée par nous) s'annonce au salon
@@ -165,9 +189,46 @@ class Multiplayer extends EventTarget {
     }
 
     // Crée une partie privée et renvoie son code
-    create(name) {
+    // mode : 'libre' ou 'wardog' ; Wardog : le créateur commence dans l'équipe bleue (il peut en changer)
+    create(name, mode = 'libre') {
         this.join(randomString(CODE_CHARS, 6), name, true);
+        this.mode = mode === 'wardog' ? 'wardog' : 'libre';
+        this.team = this.mode === 'wardog' ? 'bleu' : null;
         return this.code;
+    }
+
+    // Wardog : joueurs par équipe (nous compris)
+    teamCounts() {
+        const counts = { bleu: 0, rouge: 0 };
+        if (this.team) counts[this.team]++;
+        for (const p of this.players.values()) if (p.team) counts[p.team]++;
+        return counts;
+    }
+
+    // Wardog : places restantes dans une équipe (sans nous compter si nous y sommes déjà)
+    teamRoom(team) {
+        return TEAM_MAX - this.teamCounts()[team] + (this.team === team ? 1 : 0);
+    }
+
+    // Wardog : rejoindre une équipe ; false si elle est complète
+    setTeam(team) {
+        if (this.mode !== 'wardog' || !['bleu', 'rouge'].includes(team) || this.teamRoom(team) <= 0) return false;
+        this.team = team;
+        this._lastSend = 0;   // (envoyé à la prochaine image)
+        this.dispatchEvent(new CustomEvent('team', { detail: { team } }));
+        return true;
+    }
+
+    // Arbitre de la capture (Wardog) : le créateur s'il est là, sinon le joueur au plus petit identifiant
+    get referee() {
+        const owner = this.isHost ? this.id : [...this.players].find(([, p]) => p.owner)?.[0];
+        return owner ?? [this.id, ...this.players.keys()].sort()[0];
+    }
+
+    // État de la capture en vigueur (celui de l'arbitre)
+    get captureState() {
+        const referee = this.referee;
+        return referee === this.id ? this.capture : this.players.get(referee)?.capture ?? null;
     }
 
     join(code, name, create = false) {
@@ -220,6 +281,9 @@ class Multiplayer extends EventTarget {
         this.players.clear();
         this._lastSeq.clear();
         this.score = { kills: 0, deaths: 0 };
+        this.mode = 'libre';
+        this.team = null;
+        this.capture = null;
         this._emitPlayers();
         this._status('Hors ligne');
     }
@@ -266,6 +330,12 @@ class Multiplayer extends EventTarget {
             lk: combat?.lock ?? undefined,
             lkd: combat?.lock && combat.locked ? 1 : undefined,
             sc: this.score.kills || this.score.deaths ? [this.score.kills, this.score.deaths] : undefined,
+            m: this.mode === 'wardog' ? 'w' : undefined,
+            tm: this.mode === 'wardog' ? teamCode(this.team) : undefined,
+            cp: this.mode === 'wardog' && this.capture && this.referee === this.id ? {
+                f: this.capture.fields.map((f) => [teamCode(f.owner) ?? '', Math.round(f.progress * 100) / 100, teamCode(f.attacker) ?? '']),
+                s: [this.capture.points.bleu, this.capture.points.rouge], w: teamCode(this.capture.winner) ?? '', n: this.capture.round,
+            } : undefined,
         };
         // Début et fin d'une rafale : envoyés tout de suite (les traceurs chez les autres suivent la détente)
         const firingChanged = (this._state.f === 1) !== this._wasFiring;
@@ -355,7 +425,10 @@ class Multiplayer extends EventTarget {
     _announce() {
         this._lastAnnounce = performance.now();
         const names = [this.name, ...[...this.players.values()].map((p) => p.name)].slice(0, 8);
-        this._publishTo(`${LOBBY_PREFIX}/${this.id}`, { host: this.name, n: this.players.size + 1, names, s: ++this._seq });
+        const teams = this.teamCounts();
+        this._publishTo(`${LOBBY_PREFIX}/${this.id}`, { host: this.name, n: this.players.size + 1, names, s: ++this._seq,
+            m: this.mode === 'wardog' ? 'w' : undefined, b: this.mode === 'wardog' ? teams.bleu : undefined,
+            r: this.mode === 'wardog' ? teams.rouge : undefined });
     }
 
     _unlist() {
@@ -386,11 +459,14 @@ class Multiplayer extends EventTarget {
             host: text(data.host) || 'Pilote',
             players: Math.min(MAX_PLAYERS, Math.max(1, Math.floor(Number(data.n) || 1))),
             names: Array.isArray(data.names) ? data.names.slice(0, 8).map(text).filter(Boolean) : [],
+            mode: data.m === 'w' ? 'wardog' : 'libre',
+            teams: { bleu: Math.min(TEAM_MAX, Math.max(0, Math.floor(Number(data.b) || 0))),
+                rouge: Math.min(TEAM_MAX, Math.max(0, Math.floor(Number(data.r) || 0))) },
             seenAt: performance.now(),
         };
         const before = this.lobby.get(id);
         this.lobby.set(id, entry);
-        if (!before || before.players !== entry.players || before.host !== entry.host || before.names.join() !== entry.names.join()) this._emitLobby();
+        if (!before || JSON.stringify({ ...before, seenAt: 0 }) !== JSON.stringify({ ...entry, seenAt: 0 })) this._emitLobby();
     }
 
     _emitLobby() {
@@ -613,6 +689,14 @@ class Multiplayer extends EventTarget {
 
         const previous = this.players.get(id);
         this.players.set(id, { ...state, age: 0, receivedAt: now });
+        // Mode de la partie : celui du créateur (les joueurs arrivés en cours de partie l'apprennent ainsi)
+        if (state.owner && !this.isHost && state.mode !== this.mode) {
+            this.mode = state.mode;
+            if (this.mode !== 'wardog') this.team = null;
+            this.dispatchEvent(new CustomEvent('mode', { detail: { mode: this.mode } }));
+        }
+        // Équipe changée : listes refaites (couleurs, places restantes)
+        if (previous && previous.team !== state.team) this._emitPlayers();
         // Nouveau joueur, ou pseudo changé en cours de partie (menu Profil) : listes des joueurs refaites
         if (!previous || previous.name !== state.name) this._emitPlayers();
 
@@ -654,4 +738,4 @@ class Multiplayer extends EventTarget {
     }
 }
 
-export { Multiplayer, cleanRegistration };
+export { Multiplayer, cleanRegistration, TEAM_MAX };

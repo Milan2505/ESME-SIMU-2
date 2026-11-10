@@ -136,6 +136,7 @@ class RemotePlayers extends EventTarget {
         // prepare(objet) -> Promise : shaders compilés et textures envoyées à la carte graphique avant que l'avion
         // apparaisse (voir simulator.js) ; sans : il apparaît tout de suite (la première image qui le montre compile)
         this.prepare = null;
+        this.colorFor = null;   // (id, état) -> couleur de l'étiquette et de la carte, ou null : celle de la livrée (Wardog : équipe)
 
         multiplayer.addEventListener('players', () => this._sync());
     }
@@ -177,7 +178,7 @@ class RemotePlayers extends EventTarget {
                 id,
                 name: state.name,
                 type: plane.type,
-                color: RemotePlayers.color(state.livery),
+                color: this.colorFor?.(id, state) ?? RemotePlayers.color(state.livery),
                 position: plane.group.position,
                 quaternion: plane.group.quaternion,
                 heading: (Math.atan2(_forward.x, -_forward.z) * 180 / Math.PI + 360) % 360,
@@ -315,7 +316,7 @@ class RemotePlayers extends EventTarget {
                 const altitude = Math.max(0, (group.position.y - this._altitudeOffset(state)) / FT);
                 const detail = `${formatNM(distance)} NM · `
                     + `${(Math.round(altitude / 10) * 10).toLocaleString('fr-FR')} ft`;
-                label.draw(state.name, detail, RemotePlayers.color(state.livery), this.speaking.has(id), offline);
+                label.draw(state.name, detail, this.colorFor?.(id, state) ?? RemotePlayers.color(state.livery), this.speaking.has(id), offline);
             }
         }
         this._updateLandingLights(ownPosition);

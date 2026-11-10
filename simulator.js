@@ -9,7 +9,7 @@ import { StallWarning } from './js/StallWarning.js';
 import { EngineSound } from './js/EngineSound.js';
 import { SoundEffects } from './js/SoundEffects.js';
 import { Graphics } from './js/Graphics.js';
-import { Multiplayer, cleanRegistration } from './js/Multiplayer.js';
+import { Multiplayer, cleanRegistration, TEAM_MAX } from './js/Multiplayer.js';
 import { Chat } from './js/Chat.js';
 import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
 import { AirportNetwork } from './js/Airport.js';
@@ -235,7 +235,9 @@ const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound,
     altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight }, registrationFor: (id) => registrationFor(id) });
 remotePlayers.onJetNeeded = () => setupJet().catch(() => {});   // un autre joueur vole en F-15
-remotePlayers.prepare = (object) => prepareForDisplay(object);   // avions des autres : compilés avant d'apparaître
+remotePlayers.prepare = (object) => prepareForDisplay(object);
+// Wardog : étiquettes (et carte) à la couleur de l'équipe
+remotePlayers.colorFor = (id, state) => (multiplayer.mode === 'wardog' && state.team ? { bleu: '#3d8fd6', rouge: '#e0473c' }[state.team] : null);   // avions des autres : compilés avant d'apparaître
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
@@ -1731,7 +1733,9 @@ function renderLobby(games) {
         const title = document.createElement('strong');
         title.textContent = `Partie de ${game.host}`;
         const detail = document.createElement('small');
-        detail.textContent = `${game.players} joueur${game.players > 1 ? 's' : ''}${game.names.length ? ` · ${game.names.join(', ')}` : ''}`;
+        const mode = game.mode === 'wardog'
+            ? `Wardog · bleus ${game.teams.bleu}/${TEAM_MAX} · rouges ${game.teams.rouge}/${TEAM_MAX}` : 'Vol libre';
+        detail.textContent = `${mode} · ${game.players} joueur${game.players > 1 ? 's' : ''}${game.names.length ? ` · ${game.names.join(', ')}` : ''}`;
         button.append(title, detail);
         button.addEventListener('click', () => {
             lobbyChoice = game.id;
@@ -1784,9 +1788,68 @@ for (const field of [multiPseudo, profilePseudo]) {
     });
 }
 
+// Mode de la partie à créer : Vol libre (classique) ou Wardog (deux équipes, capture des terrains)
+let createMode = 'libre';
+const modeHelp = document.getElementById('multi-mode-aide');
+const MODE_HELP = {
+    libre: 'Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.',
+    wardog: `Wardog : équipe bleue (départ ESME) contre équipe rouge (départ ${airport.list[1]?.label ?? 'Aix'}), ${TEAM_MAX} pilotes au plus par `
+        + 'équipe. Capturez le terrain adverse : restez dans sa zone (2 km, sous 300 m) sans ennemi pendant 30 s.',
+};
+for (const button of document.querySelectorAll('#multi-modes button')) {
+    button.addEventListener('click', () => {
+        createMode = button.dataset.mode;
+        for (const other of document.querySelectorAll('#multi-modes button')) other.classList.toggle('actif', other === button);
+        modeHelp.textContent = MODE_HELP[createMode];
+    });
+}
 document.getElementById('multi-creer').addEventListener('click', () => {
     multiplayer.setListed(lobbyVisible.checked);
-    multiplayer.create(pseudo());
+    multiplayer.create(pseudo(), createMode);
+    renderTeams();
+});
+
+// Wardog : choix de l'équipe, avec les places restantes ; une équipe complète ne peut pas être choisie
+const teamsBox = document.getElementById('multi-equipes');
+const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
+function renderTeams() {
+    const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
+    teamsBox.hidden = !wardog;
+    document.getElementById('multi-modes').hidden = modeHelp.hidden = Boolean(multiplayer.code);
+    if (!wardog) return;
+    for (const team of ['bleu', 'rouge']) {
+        const button = document.getElementById(`equipe-${team}`);
+        const room = multiplayer.teamRoom(team);
+        const mine = multiplayer.team === team;
+        button.textContent = mine ? `${TEAM_LABELS[team]} ✓ (votre équipe)` : `${TEAM_LABELS[team]} · ${room > 0 ? `${room} place${room > 1 ? 's' : ''}` : 'complète'}`;
+        button.disabled = !mine && room <= 0;
+        button.classList.toggle('actif', mine);
+    }
+}
+for (const team of ['bleu', 'rouge']) {
+    document.getElementById(`equipe-${team}`).addEventListener('click', () => {
+        if (!multiplayer.setTeam(team)) {
+            multiStatut.textContent = `${TEAM_LABELS[team]} complète (${TEAM_MAX} pilotes au plus)`;
+            multiStatut.classList.add('erreur');
+        }
+        renderTeams();
+    });
+}
+for (const type of ['players', 'mode', 'team', 'status']) multiplayer.addEventListener(type, () => renderTeams());
+// Fenêtre fermée en Wardog sans équipe choisie : l'équipe qui a le moins de pilotes
+multiDialog.addEventListener('close', () => {
+    if (multiplayer.code && multiplayer.mode === 'wardog' && !multiplayer.team) {
+        const counts = multiplayer.teamCounts();
+        multiplayer.setTeam(counts.bleu <= counts.rouge ? 'bleu' : 'rouge');
+    }
+});
+// Le mode n'est connu qu'en recevant l'état du créateur : la partie rejointe se révèle Wardog -> choix de l'équipe
+multiplayer.addEventListener('mode', ({ detail }) => {
+    if (detail.mode === 'wardog' && !multiplayer.team) {
+        multiStatut.classList.remove('erreur');
+        multiStatut.textContent = 'Partie Wardog : choisissez votre équipe';
+        if (!multiDialog.open) openMultiDialog();
+    }
 });
 // Rejoindre : le code tapé. Celui de la partie où l'on est déjà (créée dans cette fenêtre) : on y reste. Avant,
 // « Rejoindre » quittait d'abord la partie (seul dedans, elle disparaissait), puis la cherchait : « Aucune partie avec le
@@ -2088,7 +2151,7 @@ function renderAirportTabs() {
         if (button.dataset.vue === 'rwy36') button.textContent = `Piste ${first.name}`;
         if (button.dataset.vue === 'rwy18') button.textContent = `Piste ${second.name}`;
     }
-    airportTabs.replaceChildren(...airport.list.map((field) => {
+    airportTabs.replaceChildren(...allowedFields().map((field) => {
         const button = document.createElement('button');
         button.textContent = `${field.label} · ${field.runways.map((rw) => rw.name).join('/')}`;
         button.title = field.description;
@@ -2250,7 +2313,10 @@ function openAirportChoice() {
     spawnMarkers.visible = false;
     airportPanel.hidden = false;
     setSpawnView('ensemble', true);
-    airportList.replaceChildren(...airport.list.map((field, i) => {
+    // (Wardog : seulement les terrains tenus par notre équipe)
+    const allowed = allowedFields();
+    if (!allowed.includes(airport.current)) selectAirport(allowed[0]);
+    airportList.replaceChildren(...airport.list.filter((field) => allowed.includes(field)).map((field, i) => {
         const button = document.createElement('button');
         const number = document.createElement('span');
         number.className = 'depart-numero';
@@ -3842,7 +3908,7 @@ if (previousFreeze?.partie && previousFreeze.score) {
     });
 }
 // Accès de diagnostic depuis la console (F12) : scène, moteur de rendu, caméra
-window.esmeDebug = { scene, renderer, camera, controls, multiplayer };
+window.esmeDebug = { scene, renderer, camera, controls, multiplayer, airport, terrain };
 window.esmeFreezes = () => ({ erreurs: loopErrors.slice(), aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
     ...(previousFreeze ? { avantRechargement: previousFreeze } : {}) });
 
@@ -4280,6 +4346,7 @@ weapons.addEventListener('explosion', ({ detail }) => {
     if (controls.isCrashed() || choosingSpawn || inHangar) return;
     if (detail.kind === 'aa') return;   // (missile air-air : les dégâts viennent du tireur, voir Weapons.js)
     if (controls.isOnGround()) return;   // au sol : intouchable (anti spawn-kill)
+    if (!detail.own && !isEnemy(detail.ownerId)) return;   // (Wardog : missile d'un équipier, sans effet sur nous)
     const attacker = detail.own ? { id: null, name: 'votre propre missile' } : { id: detail.ownerId, name: detail.ownerName };
     damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType === 'c172');
 });
@@ -4291,8 +4358,8 @@ multiplayer.addEventListener('missile', ({ detail }) => {
 });
 // Obus d'un autre joueur sur notre avion
 multiplayer.addEventListener('hit', ({ detail }) => {
-    // Au sol : intouchable (pas d'avion abattu au départ, au parking ou en roulant)
-    if (controls.isCrashed() || choosingSpawn || inHangar || controls.isOnGround()) return;
+    // Au sol : intouchable (pas d'avion abattu au départ, au parking ou en roulant) ; Wardog : pas de tir ami
+    if (controls.isCrashed() || choosingSpawn || inHangar || controls.isOnGround() || !isEnemy(detail.id)) return;
     damage.applyHits(detail.zones, { id: detail.id, name: detail.name }, aircraftType === 'c172');
 });
 damage.addEventListener('hit', () => {
@@ -4332,6 +4399,160 @@ multiplayer.addEventListener('kill', ({ detail }) => {
     flashScore(detail.mine ? multiplayer.id : detail.by);
 });
 
+// --- Mode Wardog : deux équipes, capture des terrains ---------------------------------------------------------------
+// Équipe bleue au départ d'ESME (premier aérodrome), rouge au départ du second. Un terrain se capture en restant dans sa
+// zone (CAPTURE_RADIUS, sous CAPTURE_HEIGHT au-dessus du sol) sans ennemi : CAPTURE_TIME s pour un pilote, plus vite à
+// plusieurs (3 au plus) ; un défenseur dans la zone la bloque, et sans attaquant elle redescend. Terrain pris :
+// CAPTURE_POINTS points ; une équipe qui tient tous les terrains gagne la manche (WIN_POINTS), puis les terrains
+// reviennent à leur équipe de départ. Un seul joueur, l'arbitre (le créateur, ou un autre s'il part), fait ces calculs
+// et les publie avec son état ; on ne peut partir que d'un terrain tenu par son équipe
+const TEAM_COLORS = { bleu: '#3d8fd6', rouge: '#e0473c' };
+const TEAM_NAMES = { bleu: 'bleue', rouge: 'rouge' };
+const HOME_TEAMS = ['bleu', 'rouge'];   // équipe de départ de chaque aérodrome (ordre de airport.list)
+const CAPTURE_RADIUS = 2000, CAPTURE_HEIGHT = 300, CAPTURE_TIME = 30, CAPTURE_DECAY = 15, CAPTURE_POINTS = 300, WIN_POINTS = 1000;
+const ROUND_PAUSE = 15000;   // ms entre la victoire et la manche suivante
+const wardog = () => Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
+const teamOf = (id) => (id === multiplayer.id ? multiplayer.team : multiplayer.players.get(id)?.team ?? null);
+// Adversaire (hors Wardog : tout le monde)
+function isEnemy(id) {
+    if (!wardog() || !id) return true;
+    const team = teamOf(id);
+    return !team || !multiplayer.team || team !== multiplayer.team;
+}
+function initialCapture(round = 1, points = { bleu: 0, rouge: 0 }) {
+    return { fields: airport.list.map((field, i) => ({ owner: HOME_TEAMS[i] ?? null, progress: 0, attacker: null })),
+        points: { ...points }, winner: null, round };
+}
+// Terrains d'où notre équipe peut partir (tous hors Wardog ; aucun tenu : celui de départ de l'équipe)
+function allowedFields() {
+    if (!wardog() || !multiplayer.team) return airport.list;
+    const capture = multiplayer.captureState ?? initialCapture();
+    const owned = airport.list.filter((field, i) => capture.fields[i]?.owner === multiplayer.team);
+    return owned.length ? owned : [airport.list[HOME_TEAMS.indexOf(multiplayer.team)] ?? airport.list[0]];
+}
+// Arbitre : une fois par seconde
+let winnerAt = 0, lastCapture = null;
+function refereeTick() {
+    if (!wardog()) {
+        multiplayer.capture = null;
+        return;
+    }
+    if (multiplayer.referee !== multiplayer.id) {
+        multiplayer.capture = null;
+        return;
+    }
+    // (devenu arbitre en cours de partie : on reprend l'état publié par le précédent)
+    const capture = multiplayer.capture ??= lastCapture ? structuredClone(lastCapture) : initialCapture();
+    const now = performance.now();
+    if (capture.winner) {
+        winnerAt ||= now;
+        if (now - winnerAt >= ROUND_PAUSE) {
+            multiplayer.capture = initialCapture(capture.round + 1, capture.points);
+            winnerAt = 0;
+        }
+        return;
+    }
+    // Pilotes en vol : nous, et les autres joueurs (position reçue), avec leur équipe
+    const pilots = [];
+    if (multiplayer.team && !controls.isCrashed() && !choosingSpawn && !inHangar) {
+        const p = aircraft.position;
+        pilots.push({ team: multiplayer.team, x: p.x, z: p.z, agl: p.y - WHEEL_HEIGHT - terrain.heightAt(p.x, p.z) });
+    }
+    for (const player of multiplayer.players.values()) {
+        if (!player.team || player.crashed || player.away) continue;
+        const [x, y, z] = player.p;
+        const wheel = AIRCRAFT_PROFILES[player.aircraft]?.wheelHeight ?? 0;
+        pilots.push({ team: player.team, x, z, agl: y - wheel - terrain.heightAt(x, z) });
+    }
+    airport.list.forEach((field, i) => {
+        const f = capture.fields[i];
+        if (!f) return;
+        const inZone = pilots.filter((pl) => Math.hypot(pl.x - field.center.x, pl.z - field.center.z) < CAPTURE_RADIUS && pl.agl < CAPTURE_HEIGHT);
+        const attackers = inZone.filter((pl) => pl.team !== f.owner);
+        const defenders = inZone.filter((pl) => pl.team === f.owner);
+        if (attackers.length && !defenders.length) {
+            const team = attackers[0].team;
+            if (f.attacker !== team) {
+                f.attacker = team;
+                f.progress = 0;
+            }
+            f.progress += Math.min(3, attackers.length) / CAPTURE_TIME;
+            if (f.progress >= 1) {
+                f.owner = team;
+                f.progress = 0;
+                f.attacker = null;
+                capture.points[team] += CAPTURE_POINTS;
+            }
+        } else if (!attackers.length) {
+            f.progress = Math.max(0, f.progress - 1 / CAPTURE_DECAY);
+            if (f.progress === 0) f.attacker = null;
+        }   // (attaquants et défenseurs : capture bloquée)
+    });
+    const owners = new Set(capture.fields.map((f) => f.owner));
+    if (owners.size === 1 && [...owners][0]) {
+        capture.winner = [...owners][0];
+        capture.points[capture.winner] += WIN_POINTS;
+        winnerAt = now;
+    }
+}
+setInterval(() => { guard('wardog', refereeTick); guard('wardog', updateWardog); }, 1000);
+
+// Bandeau Wardog (en haut au centre) et annonces dans le tchat : terrain pris, manche gagnée, nouvelle manche
+const wardogPanel = document.getElementById('wardog');
+let wardogKey = '', previousCapture = null;
+function teamPoints(capture) {
+    const points = { bleu: capture?.points.bleu ?? 0, rouge: capture?.points.rouge ?? 0 };
+    if (multiplayer.team) points[multiplayer.team] += multiplayer.score.kills * POINTS_PER_KILL;
+    for (const player of multiplayer.players.values()) if (player.team) points[player.team] += (player.score?.kills ?? 0) * POINTS_PER_KILL;
+    return points;
+}
+function updateWardog() {
+    const show = wardog() && !inMenu && !inHangar;
+    wardogPanel.hidden = !show;
+    if (!wardog()) {
+        previousCapture = lastCapture = null;
+        return;
+    }
+    const capture = multiplayer.captureState;
+    if (capture) lastCapture = capture;
+    // Annonces (chez tous les joueurs, d'après l'état de l'arbitre)
+    if (capture && previousCapture && capture.round === previousCapture.round) {
+        capture.fields.forEach((f, i) => {
+            const before = previousCapture.fields[i];
+            if (before && f.owner !== before.owner && f.owner) {
+                chat.add(null, `🚩 L'équipe ${TEAM_NAMES[f.owner]} a capturé ${airport.list[i]?.label ?? 'un terrain'} !`);
+                if (f.owner === multiplayer.team) weaponHud.message(`${airport.list[i]?.label} capturé ! +${CAPTURE_POINTS} points`, true);
+                else if (before.owner === multiplayer.team) weaponHud.message(`${airport.list[i]?.label} perdu !`, true);
+            }
+        });
+        if (capture.winner && !previousCapture.winner) {
+            chat.add(null, `🏆 Victoire de l'équipe ${TEAM_NAMES[capture.winner]} (+${WIN_POINTS} points) : nouvelle manche dans ${ROUND_PAUSE / 1000} s`);
+            weaponHud.message(capture.winner === multiplayer.team ? 'VICTOIRE !' : 'DÉFAITE…', true);
+        }
+    }
+    if (capture && previousCapture && capture.round !== previousCapture.round) {
+        chat.add(null, `🔄 Manche ${capture.round} : chaque équipe reprend son terrain`);
+    }
+    previousCapture = capture ? structuredClone(capture) : null;
+    if (!show) return;
+    const points = teamPoints(capture);
+    const fields = (capture ?? initialCapture()).fields.map((f, i) => {
+        const name = airport.list[i]?.label ?? `Terrain ${i + 1}`;
+        const owner = f.owner ? `<span class="${f.owner}">■</span>` : '□';
+        const bar = f.attacker && f.progress > 0
+            ? `<span class="barre"><span style="width:${Math.round(f.progress * 100)}%;background:${TEAM_COLORS[f.attacker]}"></span></span>` : '';
+        return `<span>${owner} ${name}${bar}</span>`;
+    }).join('');
+    const notice = capture?.winner ? `<div class="annonce">Victoire de l'équipe ${TEAM_NAMES[capture.winner]} !</div>` : '';
+    const team = multiplayer.team ? `<span class="${multiplayer.team}">vous : ${TEAM_NAMES[multiplayer.team]}</span> · ` : '';
+    const html = `<div class="equipes"><span class="bleu">BLEUS ${points.bleu}</span> · <span class="rouge">ROUGES ${points.rouge}</span></div>`
+        + `<div class="terrains">${team}${fields}</div>${notice}`;
+    if (html !== wardogKey) {
+        wardogKey = html;
+        wardogPanel.innerHTML = html;   // (contenu fait ici : noms des terrains et nombres, aucun texte venu du réseau)
+    }
+}
+
 // --- Tableau des scores (multijoueur) --------------------------------------------------------------------------------
 // Chaque joueur compte ses victoires et le nombre de fois où il a été abattu, et les envoie avec son état
 // (Multiplayer.score) : tout le monde voit le même tableau. POINTS_PER_KILL points par avion abattu. En haut à droite
@@ -4350,12 +4571,28 @@ function updateScores() {
     if (!show) return;
     const rows = [{ id: multiplayer.id, name: multiplayer.name, ...multiplayer.score, me: true },
         ...[...multiplayer.players].map(([id, p]) => ({ id, name: p.name, ...(p.score ?? { kills: 0, deaths: 0 }), me: false }))];
-    rows.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.name.localeCompare(b.name));
+    const teams = wardog();
+    for (const row of rows) row.team = teams ? teamOf(row.id) : null;
+    const order = { bleu: 0, rouge: 1, null: 2 };
+    rows.sort((a, b) => (teams ? order[a.team] - order[b.team] : 0) || b.kills - a.kills || a.deaths - b.deaths || a.name.localeCompare(b.name));
     const flashId = performance.now() < scoreFlash.until ? scoreFlash.id : null;
-    const key = JSON.stringify([rows, flashId]);
+    const key = JSON.stringify([rows, flashId, teams ? teamPoints(multiplayer.captureState) : null]);
     if (key === scoresKey) return;   // (rien de changé : pas de reconstruction)
     scoresKey = key;
-    scoresBody.replaceChildren(...rows.map((row) => {
+    const points = teams ? teamPoints(multiplayer.captureState) : null;
+    let currentTeam;
+    scoresBody.replaceChildren(...rows.flatMap((row) => {
+        const lines = [];
+        if (teams && row.team !== currentTeam) {
+            currentTeam = row.team;
+            const header = document.createElement('tr');
+            header.className = `equipe ${row.team ?? ''}`;
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.textContent = row.team ? `Équipe ${TEAM_NAMES[row.team]} · ${points[row.team]} pts` : 'Sans équipe';
+            header.append(td);
+            lines.push(header);
+        }
         const tr = document.createElement('tr');
         tr.classList.toggle('moi', row.me);
         tr.classList.toggle('flash', row.id === flashId);
@@ -4364,7 +4601,9 @@ function updateScores() {
             td.textContent = String(value);
             tr.append(td);
         }
-        return tr;
+        if (row.team) tr.firstChild.style.color = TEAM_COLORS[row.team];
+        lines.push(tr);
+        return lines;
     }));
 }
 setInterval(updateScores, 1000);
@@ -4415,7 +4654,7 @@ function updateCombat(frameDelta) {
     const targets = multiplayer.code ? remotePlayers.combatList().filter((t) => {
         const p = t.group.position;
         t.agl = p.y - (AIRCRAFT_PROFILES[t.type]?.wheelHeight ?? 0) - terrain.heightAt(p.x, p.z);   // hauteur sol (m), pour le radar
-        return t.agl > 4;
+        return t.agl > 4 && isEnemy(t.id);   // (Wardog : les équipiers ne sont ni des cibles ni verrouillables)
     }) : [];
     // Alerte radar : un autre joueur nous accroche ou nous a verrouillés
     let threat = { state: 'off', name: '' };
