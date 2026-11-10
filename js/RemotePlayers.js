@@ -147,7 +147,7 @@ class RemotePlayers extends EventTarget {
 
     setJetTemplate(model) {
         this.jetTemplate = model;
-        this.jetLowTemplate = lowDetailF15(model);   // version fusionnée (configuration lisse), voir update
+        this.jetLowTemplate = null;   // version fusionnée (configuration lisse, voir update) : faite au premier F-15 d'un autre joueur
         this._sync();
     }
 
@@ -414,7 +414,10 @@ class RemotePlayers extends EventTarget {
                 if (child.isMesh) child.castShadow = true;
             });
             // F-15 : version fusionnée en plus (configuration lisse, voir update), cachée au départ
-            const low = type === 'f15' && this.jetLowTemplate ? cloneF15(this.jetLowTemplate) : null;
+            // (faite seulement quand un autre joueur vole en F-15 : en solo, ni le temps de la construire ni sa mémoire,
+            // ~10 Mo, qui comptent sur téléphone et tablette)
+            if (type === 'f15') this.jetLowTemplate ??= lowDetailF15(this.jetTemplate);
+            const low = type === 'f15' ? cloneF15(this.jetLowTemplate) : null;
             if (low) {
                 low.traverse((child) => { if (child.isMesh) child.castShadow = true; });
                 paintF15(low, player.livery);
