@@ -1837,11 +1837,21 @@ function renderTeams() {
 }
 for (const team of ['bleu', 'rouge']) {
     document.getElementById(`equipe-${team}`).addEventListener('click', () => {
+        const first = !multiplayer.team;
         if (!multiplayer.setTeam(team)) {
             multiStatut.textContent = `${TEAM_LABELS[team]} complète (${TEAM_MAX} pilotes au plus)`;
             multiStatut.classList.add('erreur');
+            renderTeams();
+            return;
         }
+        multiStatut.classList.remove('erreur');
+        multiStatut.textContent = `Vous êtes dans l'${TEAM_LABELS[team].toLowerCase()}`;
         renderTeams();
+        // Premier choix en arrivant (pas le créateur) : la fenêtre se ferme, on passe au choix du terrain
+        if (first && !multiplayer.isHost) {
+            const code = multiplayer.code;
+            setTimeout(() => { if (multiDialog.open && multiplayer.code === code) multiDialog.close(); }, 900);
+        }
     });
 }
 for (const type of ['players', 'mode', 'team', 'status']) multiplayer.addEventListener(type, () => renderTeams());
@@ -1892,6 +1902,14 @@ multiplayer.addEventListener('status', () => {
 });
 multiplayer.addEventListener('joined', ({ detail }) => {
     if (detail.host || !multiDialog.open) return;
+    // Wardog : la fenêtre reste ouverte pour choisir son équipe (elle se ferme une fois l'équipe choisie). Avant, elle se
+    // fermait au bout de 1,2 s et l'équipe était tirée d'office
+    if (multiplayer.mode === 'wardog' && !multiplayer.team) {
+        multiStatut.classList.remove('erreur');
+        multiStatut.textContent = `Partie ${detail.code} rejointe (Wardog) : choisissez votre équipe`;
+        renderTeams();
+        return;
+    }
     setTimeout(() => { if (multiDialog.open && multiplayer.code === detail.code) multiDialog.close(); }, 1200);
 });
 

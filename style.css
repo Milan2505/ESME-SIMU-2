@@ -2596,7 +2596,7 @@ body:has(#simulator.jeu) {
   border-color: #8fd3ff;
 }
 /* Lien d'invitation : la fenêtre ne montre qu'un bouton « Rejoindre la partie » (et l'état de la connexion) */
-#multi-dialog.invitation > :not(h3, #multi-invitation, #multi-statut) {
+#multi-dialog.invitation > :not(h3, #multi-invitation, #multi-statut, #multi-equipes) {
   display: none;
 }
 #multi-dialog #multi-invitation[hidden] {
