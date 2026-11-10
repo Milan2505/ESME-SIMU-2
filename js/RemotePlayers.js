@@ -11,7 +11,7 @@ import {
 import { LIVERIES, paintAircraft } from './Liveries.js';
 import { setRegistration } from './C172Model.js';
 import { AircraftLights } from './AircraftLights.js';
-import { cloneF15, paintF15, animateF15, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
+import { cloneF15, lowDetailF15, paintF15, animateF15, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
 import { SmokeTrail } from './Damage.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
@@ -25,7 +25,12 @@ const LABEL_HEIGHT = 0.065;     // hauteur de l'étiquette : ~6,5 % de la hauteu
 const LABEL_OFFSET = 3;         // étiquette au-dessus de l'avion (m)
 const LABEL_REFRESH = 0.5;      // distance et altitude de l'étiquette mises à jour toutes les 0,5 s
 const OFFLINE_DELAY = 3000;     // sans nouvelles depuis 3 s : joueur hors ligne (retiré au bout de 8 s, voir Multiplayer.js)
-const LABEL_MIN_DISTANCE = 12;  // tout près : étiquette masquée (elle cacherait l'avion)
+const LABEL_MIN_DISTANCE = 12;
+// F-15 des autres en configuration lisse (train, volets, aérofrein rentrés, verrière fermée) à plus de LOW_DETAIL_DISTANCE :
+// version fusionnée (voir lowDetailF15), même image avec ~3 fois moins d'appels de dessin ; de près, le modèle complet
+// (soufflantes qui tournent dans les entrées d'air)
+const LOW_DETAIL_DISTANCE = 80;
+const CLEAN = 0.01;  // tout près : étiquette masquée (elle cacherait l'avion)
 const FT = 0.3048, NM = 1852;
 // Phare des autres avions : même lumière que celui du joueur (simulator.js). Réserve de 2 projecteurs, attribués aux
 // avions phare allumé les plus proches (une lumière par avion alourdirait trop le rendu)
@@ -142,6 +147,7 @@ class RemotePlayers extends EventTarget {
 
     setJetTemplate(model) {
         this.jetTemplate = model;
+        this.jetLowTemplate = lowDetailF15(model);   // version fusionnée (configuration lisse), voir update
         this._sync();
     }
 
@@ -249,7 +255,17 @@ class RemotePlayers extends EventTarget {
                 const j = state.jet ?? {};
                 const n2 = plane.rpm / 27, ab = j.ab ?? 0;
                 plane.anim.time += delta;
-                animateF15(plane.model, {
+                const clean = (j.gear ?? 1) < CLEAN && (j.flaps ?? 0) < CLEAN && (j.speedbrake ?? 0) < CLEAN && (j.canopy ?? 0) < CLEAN;
+                const useLow = Boolean(plane.low) && clean && ownPosition && group.position.distanceTo(ownPosition) > LOW_DETAIL_DISTANCE;
+                // La version non affichée est détachée (pas cachée) : three.js recalcule les positions de tout ce qui est
+                // attaché, même caché (~600 pièces par F-15)
+                if (plane.low && useLow !== plane.usingLow) {
+                    plane.usingLow = useLow;
+                    group.remove(useLow ? plane.model : plane.low);
+                    group.add(useLow ? plane.low : plane.model);
+                    plane.lights.occluder = useLow ? plane.low : plane.model;   // (occultation des feux)
+                }
+                animateF15(useLow ? plane.low : plane.model, {
                     pitch: 0, roll: 0, yaw: 0, flaps: j.flaps ?? 0, speedbrake: j.speedbrake ?? 0, canopy: j.canopy ?? 0,
                     gear: j.gear ?? 1, steer: 0, wheelSpeed: 0, onGround: false, n2: [n2, n2], ab: [ab, ab], time: plane.anim.time,
                 }, delta);
@@ -258,8 +274,10 @@ class RemotePlayers extends EventTarget {
             // Livrée changée en cours de partie
             if (state.livery !== plane.livery) {
                 plane.livery = state.livery;
-                if (plane.type === 'f15') paintF15(plane.model, state.livery);
-                else paintAircraft(plane.model, state.livery);
+                if (plane.type === 'f15') {
+                    paintF15(plane.model, state.livery);
+                    if (plane.low) paintF15(plane.low, state.livery);
+                } else paintAircraft(plane.model, state.livery);
             }
             // Immatriculation choisie ou changée en cours de partie (peinte sur le Cessna)
             if (this.registrationFor && plane.type !== 'f15') setRegistration(plane.model, this.registrationFor(id));
@@ -342,22 +360,29 @@ class RemotePlayers extends EventTarget {
     // géométries propres à sa copie : livrée, feux…), pas ce qu'il partage avec le modèle d'origine. Avant, chaque
     // joueur qui partait et revenait (page cachée plus de 8 s, coupure réseau, changement d'avion) en laissait un peu
     _release(plane) {
-        const template = plane.type === 'f15' ? this.jetTemplate : this.template;
+        const templates = plane.type === 'f15' ? [this.jetTemplate, this.jetLowTemplate] : [this.template];
         this._shared ??= new WeakMap();
-        let shared = template ? this._shared.get(template) : null;
-        if (template && !shared) {
-            shared = new Set();
-            template.traverse((o) => {
-                if (o.geometry) shared.add(o.geometry);
-                for (const m of [o.material].flat()) if (m) shared.add(m);
-            });
-            this._shared.set(template, shared);
+        const shared = new Set();
+        for (const template of templates) {
+            if (!template) continue;
+            if (!this._shared.has(template)) {
+                const set = new Set();
+                template.traverse((o) => {
+                    if (o.geometry) set.add(o.geometry);
+                    for (const m of [o.material].flat()) if (m) set.add(m);
+                });
+                this._shared.set(template, set);
+            }
+            for (const item of this._shared.get(template)) shared.add(item);
         }
-        plane.group.traverse((o) => {
+        const release = (o) => {
             if (o.isSkinnedMesh) o.skeleton?.dispose();
             if (o.geometry && !shared?.has(o.geometry)) o.geometry.dispose();
             for (const m of [o.material].flat()) if (m && !shared?.has(m)) m.dispose();
-        });
+        };
+        plane.group.traverse(release);
+        if (plane.low && !plane.low.parent) plane.low.traverse(release);
+        if (!plane.model.parent) plane.model.traverse(release);
     }
 
     // Crée / supprime les avions selon la liste des joueurs
@@ -388,13 +413,19 @@ class RemotePlayers extends EventTarget {
             model.traverse((child) => {
                 if (child.isMesh) child.castShadow = true;
             });
+            // F-15 : version fusionnée en plus (configuration lisse, voir update), cachée au départ
+            const low = type === 'f15' && this.jetLowTemplate ? cloneF15(this.jetLowTemplate) : null;
+            if (low) {
+                low.traverse((child) => { if (child.isMesh) child.castShadow = true; });
+                paintF15(low, player.livery);
+            }
             if (type === 'f15') paintF15(model, player.livery);
             else {
                 paintAircraft(model, player.livery);
                 if (this.registrationFor) setRegistration(model, this.registrationFor(id));
             }
             const group = new Group();
-            group.add(model);
+            group.add(model);   // (version fusionnée attachée à sa place quand elle sert, voir update)
             // Feux : les mêmes que sur notre avion, cachés par leur propre avion quand il est entre eux et nous
             const airframe = new Group();
             group.add(airframe);
@@ -405,7 +436,7 @@ class RemotePlayers extends EventTarget {
             group.userData.transient = label.sprite.userData.transient = true;   // (shaders préparés à part, voir prepare)
             this.scene.add(group, label.sprite);
             const plane = {
-                group, model, label, type, anim: { time: 0 },
+                group, model, low, label, type, anim: { time: 0 },
                 propeller: model.getObjectByName('Propeller_Cone'),
                 engine: null,
                 lights,
@@ -420,7 +451,11 @@ class RemotePlayers extends EventTarget {
             // de tourner, au lieu de figer à la première image qui le montre
             if (this.prepare) {
                 group.visible = false;
-                this.prepare(group).catch(() => {}).finally(() => { plane.ready = true; });
+                // (version fusionnée attachée le temps de l'appel : prepare compile tout de suite ce qui est attaché)
+                if (low) group.add(low);
+                const preparing = this.prepare(group);
+                if (low) group.remove(low);
+                preparing.catch(() => {}).finally(() => { plane.ready = true; });
             }
         }
     }

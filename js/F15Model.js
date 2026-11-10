@@ -112,7 +112,18 @@ async function loadF15() {
 
 // Copie pour les autres joueurs et les avions garés : pièces mobiles retrouvées dans la copie
 function cloneF15(model) {
-    const copy = model.clone();
+    // userData du modèle (liste des pièces mobiles : des objets 3D) mis de côté pendant la copie : three.js recopie les
+    // userData en les passant par JSON, ce qui sérialisait tout le modèle, textures comprises (chaque image 2048 × 2048
+    // réencodée en PNG) : ~5 s de jeu figé à chaque arrivée d'un joueur en F-15. La copie reçoit ses propres pièces
+    // juste après (rebind)
+    const userData = model.userData;
+    model.userData = {};
+    let copy;
+    try {
+        copy = model.clone();
+    } finally {
+        model.userData = userData;
+    }
     const parts = rebind(model.userData.parts, model, copy);
     // Pétales des tuyères (voir skinPetals) : la copie suit ses propres pétales, pas ceux du modèle copié
     const from = [], to = [];
@@ -132,6 +143,51 @@ function cloneF15(model) {
     });
     copy.userData = { ...model.userData, parts, livery: null };
     return copy;
+}
+
+// Version allégée pour les F-15 des autres joueurs en configuration lisse (train et volets rentrés, aérofrein rentré,
+// verrière fermée) : leurs gouvernes ne bougent pas chez nous (manche inconnu), seules les tuyères et la postcombustion
+// s'animent. Toutes les pièces fixes, train compris (rentré), fusionnées par matériau : la même image, avec ~3 fois
+// moins d'appels de dessin. Pétales (maillage à os), flammes et intérieur des tuyères gardés animés. À copier avec
+// cloneF15 (géométries fusionnées partagées)
+function lowDetailF15(model) {
+    const userData = model.userData;
+    model.userData = {};
+    let low;
+    try {
+        low = model.clone();   // (matériaux partagés avec le modèle : la fusion les regroupe, cloneF15 les copie ensuite)
+    } finally {
+        model.userData = userData;
+    }
+    low.userData = { ...userData, parts: rebind(userData.parts, model, low), livery: null };
+    {
+        const from = [], to = [];
+        model.traverse((o) => from.push(o));
+        low.traverse((o) => to.push(o));
+        const map = new Map(from.map((o, i) => [o, to[i]]));
+        from.forEach((source, i) => {
+            if (source.isSkinnedMesh) to[i].bind(new Skeleton(source.skeleton.bones.map((bone) => map.get(bone)), source.skeleton.boneInverses), source.bindMatrix);
+        });
+    }
+    // Pose lisse : train, trappes, volets, aérofrein et verrière rentrés
+    animateF15(low, { pitch: 0, roll: 0, yaw: 0, flaps: 0, speedbrake: 0, canopy: 0, gear: 0, steer: 0, wheelSpeed: 0,
+        onGround: false, n2: [70, 70], ab: [0, 0], time: 0 }, 0);
+    // Livrée : chaque pièce du modèle copié a sa propre copie du matériau (cloneF15) ; une seule par matériau d'origine
+    // (même image), sinon rien ne se regroupe
+    const liveries = new Map();
+    low.traverse((o) => {
+        const m = o.isMesh && !o.isSkinnedMesh ? o.material : null;
+        if (!m?.userData.livery) return;
+        const key = [m.type, m.name, m.map?.uuid, m.normalMap?.uuid, m.roughnessMap?.uuid, m.metalnessMap?.uuid, m.side, m.transparent].join('|');
+        if (!liveries.has(key)) liveries.set(key, m);
+        o.material = liveries.get(key);
+    });
+    const P = low.userData.parts;
+    const keep = new Set(P.flames);
+    low.traverse((o) => { if (o.isSkinnedMesh || (o.isMesh && o.material?.userData.flame)) keep.add(o); });
+    mergeStatic(low, (o) => keep.has(o));
+    low.userData.lowDetail = true;
+    return low;
 }
 
 function rebind(parts, from, to) {
@@ -791,6 +847,6 @@ function animateF15(model, state, delta) {
 }
 
 export {
-    loadF15, cloneF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT,
+    loadF15, cloneF15, lowDetailF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT,
     WHEEL_BOTTOM as F15_WHEEL_BOTTOM, COCKPIT_EYE as F15_COCKPIT_EYE,
 };
