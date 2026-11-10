@@ -464,9 +464,9 @@ class WeaponHud {
         ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
         ctx.textAlign = 'center';
         const hint = touch ? "ARME : changer d'arme · FEU : tirer (air-sol : ou toucher le sol)"
-            : weapons.selected === 'gun' ? 'Clic gauche (ou ↑ / →) : tirer · Clic droit (ou ↓) : arme suivante · ← : leurres'
-                : weapons.selected === 'aa' ? 'Gardez l\'avion dans le petit cercle : verrou · Clic gauche (ou ↑) : tir · → : canon · ← : leurres'
-                    : 'Clic gauche sur le sol (ou ↑) : missile · → : canon · Clic droit (ou ↓) : arme suivante';
+            : weapons.selected === 'gun' ? 'Clic gauche ou → : tirer (tenir) · Clic droit (ou ↓) : arme suivante · ← : leurres'
+                : weapons.selected === 'aa' ? 'Gardez l\'avion dans l\'axe du nez : verrou · Clic gauche ou → : tir · Clic droit (ou ↓) : arme suivante · ← : leurres'
+                    : 'Clic gauche sur le sol ou → (croix rouge) : missile · Clic droit (ou ↓) : arme suivante · ← : leurres';
         const tw = ctx.measureText(hint).width + 20;
         ctx.fillStyle = 'rgba(10,12,16,0.6)';
         ctx.fillRect(W / 2 - tw / 2, top + ch + 8, tw, 20);

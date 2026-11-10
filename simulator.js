@@ -4083,7 +4083,7 @@ function screenNdc(event) {
 }
 // Commandes de tir (F-15, en vol) : deux armes, on en choisit une (cartes en haut de l'écran, voir WeaponHud.js)
 // - clic droit (ou ↓) : changer d'arme (CANON <-> MISSILE) ;
-// - clic gauche (ou ↑) : tirer avec l'arme choisie. Canon : tant qu'on tient (il chauffe : lâcher pour le refroidir) ;
+// - clic gauche (ou → ou ↑) : tirer avec l'arme choisie. Canon : tant qu'on tient (il chauffe : lâcher pour le refroidir) ;
 //   missile : la croix rouge suit la souris au sol, le clic tire le missile exactement là (point d'impact marqué,
 //   compte à rebours), puis le pylône suivant se recharge (1,5 s).
 // Le clic droit glissé tourne toujours la caméra. Tablette : boutons ARME et FEU (missile : ou toucher le sol).
@@ -4203,17 +4203,14 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     if (event.repeat) return;
     if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
-    if (event.code === 'ArrowUp') pullTrigger(true);
+    // → (ou ↑) : tire avec l'arme choisie, comme le clic gauche (canon : tant qu'on la tient ; AIM-9 : sur l'avion
+    // verrouillé ; AGM-65 : sur la croix rouge). Avant, → tirait toujours au canon, quelle que soit l'arme choisie
+    if (event.code === 'ArrowUp' || event.code === 'ArrowRight') pullTrigger(true);
     else if (event.code === 'ArrowLeft') dropFlares();
-    else if (event.code === 'ArrowRight') {
-        // → tenue : canon, quelle que soit l'arme choisie (on garde son missile prêt)
-        weapons.gunKey = true;
-        if (!weaponsArmed()) weaponHud.message("Armes : seulement en vol (décollez d'abord)");
-    } else switchWeapon();
+    else switchWeapon();
 });
 window.addEventListener('keyup', (event) => {
-    if (event.code === 'ArrowUp') setTrigger(false);
-    if (event.code === 'ArrowRight') weapons.gunKey = false;
+    if (event.code === 'ArrowUp' || event.code === 'ArrowRight') setTrigger(false);
 });
 window.addEventListener('blur', () => {
     setTrigger(false);
