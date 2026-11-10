@@ -194,6 +194,8 @@ const renderer = new THREE.WebGLRenderer({ canvas: view, antialias: false });
 view.addEventListener('webglcontextlost', (event) => {
     event.preventDefault();
     document.getElementById('contexte-perdu').hidden = false;
+    // Pas revenue d'elle-même en 4 s : rechargement automatique, retour dans la partie (voir recoverFromFreeze)
+    setTimeout(() => { if (renderer.getContext().isContextLost()) recoverFromFreeze('carte graphique perdue'); }, 4000);
 });
 view.addEventListener('webglcontextrestored', () => { document.getElementById('contexte-perdu').hidden = true; });
 document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
@@ -3762,7 +3764,53 @@ try {
         }
     }).observe({ type: 'longtask', buffered: false });
 } catch { /* navigateur sans tâches longues (Safari) */ }
-window.esmeFreezes = () => ({ aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice() });
+// Rapport de la session précédente, si elle s'est terminée par un rechargement automatique (voir recoverFromFreeze)
+let previousFreeze = null;
+try {
+    previousFreeze = JSON.parse(sessionStorage.getItem('esme-freeze-precedent') ?? 'null');
+    sessionStorage.removeItem('esme-freeze-precedent');
+} catch { /* stockage indisponible */ }
+window.esmeFreezes = () => ({ aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
+    ...(previousFreeze ? { avantRechargement: previousFreeze } : {}) });
+
+// --- Filet de sécurité contre le jeu figé pour de bon -----------------------------------------------------------------
+// Page visible, code libre (le contrôle ci-dessous tourne à l'heure), mais plus aucune image depuis FREEZE_STALL ms :
+// l'affichage est bloqué (carte graphique plantée ou perdue, image figée sans fin). La page se recharge alors d'elle-
+// même, ce qui libère toute la mémoire (le « vidage » le plus complet), et propose de revenir dans la partie en cours
+// (lien d'invitation, un clic). Le rapport d'à-coups d'avant est gardé : esmeFreezes().avantRechargement
+// (Un blocage du code lui-même empêche tout contrôle : seul le navigateur peut alors arrêter la page)
+const FREEZE_STALL = 8000;
+let lastLoopAt = performance.now(), lastWatch = performance.now(), stalledChecks = 0, recovering = false;
+function recoverFromFreeze(reason) {
+    if (recovering) return;
+    recovering = true;
+    const code = multiplayer.code;
+    try {
+        sessionStorage.setItem('esme-freeze-precedent', JSON.stringify({ raison: reason, le: new Date().toISOString(), partie: code,
+            aCoups: freezeLog.slice(-20), tachesLongues: longTasks.slice(-20), messagesLents: multiplayer.slowMessages.slice(-20) }));
+    } catch { /* stockage indisponible */ }
+    console.warn('Jeu figé, rechargement automatique :', reason);
+    location.href = code ? `${location.pathname}?partie=${code}` : location.pathname;
+}
+setInterval(() => {
+    const now = performance.now();
+    const onTime = now - lastWatch < 1500;   // contrôle à l'heure : le code n'est pas bloqué
+    lastWatch = now;
+    if (document.hidden || !onTime || now - lastLoopAt < FREEZE_STALL) {
+        stalledChecks = 0;
+        return;
+    }
+    if (++stalledChecks >= 3) recoverFromFreeze('affichage bloqué (plus aucune image)');
+}, 1000);
+document.addEventListener('visibilitychange', () => { lastLoopAt = performance.now(); });
+
+// Ménage régulier (toutes les 2 min) : listes de dessin de three.js refaites, explosions de réserve au-delà de 4
+// libérées, suivi des joueurs partis oublié
+setInterval(() => {
+    renderer.renderLists.dispose();
+    while (spareCrashes.length > 4) spareCrashes.pop().dispose();
+    for (const id of playerTrack.keys()) if (!multiplayer.players.has(id)) playerTrack.delete(id);
+}, 120000);
 
 let nextFrameTime = 0;
 let lastTrim = controls.getTrim(), trimTravel = 0, lastFlaps = 0, flapsMoving = false;
@@ -4490,6 +4538,7 @@ try {
 } catch { /* stockage indisponible */ }
 
 renderer.setAnimationLoop((time)=>{
+    lastLoopAt = performance.now();   // (filet de sécurité : la boucle tourne, voir watchFreeze)
     // Écran de chargement : rien n'est dessiné derrière lui (sauf les images du préchauffage, voir warmUpWorld) ; toute
     // la puissance va au chargement
     if (loadingScreen.active) return;
