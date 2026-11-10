@@ -21,6 +21,11 @@ const BROKERS = [
     'wss://test.mosquitto.org:8081/mqtt',
 ];
 const TOPIC_PREFIX = 'esme-fs/v2';  // sujets : esme-fs/v2/<CODE>/<id joueur>
+// Salon : chaque partie s'y annonce (créateur, nombre et pseudos des joueurs), sans son code. La fenêtre Multijoueur
+// affiche ces annonces (« Parties en cours ») ; pour rejoindre, il faut toujours taper le code
+const LOBBY_PREFIX = `${TOPIC_PREFIX}/salon`;   // sujets : esme-fs/v2/salon/<id du créateur>
+const LOBBY_EVERY = 2000;       // annonce renvoyée toutes les 2 s (ms)
+const LOBBY_STALE = 7000;       // partie retirée de la liste sans annonce depuis 7 s (ms)
 
 const MIN_INTERVAL = 150;       // au plus ~7 messages par seconde (ms)
 const HEARTBEAT = 1000;         // état renvoyé au moins chaque seconde, même onglet en arrière-plan (ms)
@@ -129,6 +134,11 @@ class Multiplayer extends EventTarget {
         this._state = null;           // dernier état local, renvoyé par la pulsation
         this._wasFiring = false;
         this.slowMessages = [];       // messages lents à traiter (40 derniers) : { at (s), ms, type }
+        this.lobby = new Map();       // parties annoncées au salon : id du créateur -> { host, players, names, seenAt }
+        this._lobbySeq = new Map();   // id du créateur -> numéro de sa dernière annonce reçue (copies en retard ignorées)
+        this.listed = true;           // notre partie (créée par nous) s'annonce au salon
+        this._watchingLobby = false;
+        this._lastAnnounce = 0;
 
         setInterval(() => this._heartbeat(), HEARTBEAT / 2);
         // Le joueur quitte la page du simulateur (autre onglet, fenêtre réduite) ou y revient : les autres le savent tout de suite
@@ -187,6 +197,7 @@ class Multiplayer extends EventTarget {
 
     leave() {
         if (!this.code) return;
+        if (this._joined && this.isHost) this._unlist();
         if (this._joined) this._publish({ leave: true });
         for (const client of this._clients) client.unsubscribe(this._topic(this.code));
         clearTimeout(this._joinTimer);
@@ -292,7 +303,85 @@ class Multiplayer extends EventTarget {
         if (this._joined) this._publish({ voice: data, end });
     }
 
+    // Salon : écoute des parties annoncées (fenêtre Multijoueur ouverte) ; événement 'lobby' à chaque changement
+    watchLobby(on) {
+        if (on === this._watchingLobby) return;
+        this._watchingLobby = on;
+        if (!on) {
+            for (const client of this._clients) client.unsubscribe(`${LOBBY_PREFIX}/+`);
+            this.lobby.clear();
+            return;
+        }
+        this._connect().then(() => {
+            if (this._watchingLobby) for (const client of this._clients) client.subscribe(`${LOBBY_PREFIX}/+`, { qos: 0 });
+        }).catch(() => {});
+    }
+
+    // Connexion aux relais d'avance (survol du bouton Multijoueur) : la liste des parties arrive plus vite
+    preconnect() {
+        this._connect().catch(() => {});
+    }
+
+    // Notre partie visible ou non au salon (créateur seulement)
+    setListed(listed) {
+        this.listed = listed;
+        if (!listed && this._joined && this.isHost) this._unlist();
+        this._lastAnnounce = 0;
+    }
+
     // private
+
+    _publishTo(topic, message) {
+        const payload = JSON.stringify(message);
+        for (const client of this._clients) {
+            if (client.connected) client.publish(topic, payload, { qos: 0 });
+        }
+    }
+
+    _announce() {
+        this._lastAnnounce = performance.now();
+        const names = [this.name, ...[...this.players.values()].map((p) => p.name)].slice(0, 8);
+        this._publishTo(`${LOBBY_PREFIX}/${this.id}`, { host: this.name, n: this.players.size + 1, names, s: ++this._seq });
+    }
+
+    _unlist() {
+        this._publishTo(`${LOBBY_PREFIX}/${this.id}`, { gone: true, s: ++this._seq });
+    }
+
+    _onLobby(id, payload) {
+        if (!ID_PATTERN.test(id ?? '') || id === this.id) return;
+        let data;
+        try {
+            data = JSON.parse(payload.toString());
+        } catch {
+            return;
+        }
+        this._kind = 'salon';
+        // Chaque annonce arrive par chaque relais : une copie en retard (relais plus lent) ne doit pas remettre dans la
+        // liste une partie qui vient d'être retirée
+        if (Number.isFinite(data.s)) {
+            if (data.s <= (this._lobbySeq.get(id) ?? 0)) return;
+            this._lobbySeq.set(id, data.s);
+        }
+        if (data.gone) {
+            if (this.lobby.delete(id)) this._emitLobby();
+            return;
+        }
+        const text = (v) => String(v ?? '').replace(/[ -]/g, ' ').trim().slice(0, 20);
+        const entry = {
+            host: text(data.host) || 'Pilote',
+            players: Math.min(MAX_PLAYERS, Math.max(1, Math.floor(Number(data.n) || 1))),
+            names: Array.isArray(data.names) ? data.names.slice(0, 8).map(text).filter(Boolean) : [],
+            seenAt: performance.now(),
+        };
+        const before = this.lobby.get(id);
+        this.lobby.set(id, entry);
+        if (!before || before.players !== entry.players || before.host !== entry.host || before.names.join() !== entry.names.join()) this._emitLobby();
+    }
+
+    _emitLobby() {
+        this.dispatchEvent(new CustomEvent('lobby', { detail: [...this.lobby.entries()].map(([id, e]) => ({ id, ...e })) }));
+    }
 
     _topic(code) {
         return `${TOPIC_PREFIX}/${code}/+`;
@@ -310,6 +399,7 @@ class Multiplayer extends EventTarget {
                     everConnected = true;
                     // (Re)connexion : abonnement à la partie en cours
                     if (this.code) client.subscribe(this._topic(this.code), { qos: 0 });
+                    if (this._watchingLobby) client.subscribe(`${LOBBY_PREFIX}/+`, { qos: 0 });
                     resolve();
                 });
                 client.on('message', (topic, payload) => this._onMessage(topic, payload));
@@ -348,8 +438,19 @@ class Multiplayer extends EventTarget {
     // Toutes les 0,5 s, même onglet en arrière-plan : renvoie l'état s'il n'est pas parti depuis 1 s,
     // et retire les joueurs partis sans prévenir
     _heartbeat() {
-        if (!this.code) return;
         const now = performance.now();
+        if (this._watchingLobby) {
+            let changed = false;
+            for (const [id, entry] of this.lobby) {
+                if (now - entry.seenAt > LOBBY_STALE) {
+                    this.lobby.delete(id);
+                    changed = true;
+                }
+            }
+            if (changed) this._emitLobby();
+        }
+        if (!this.code) return;
+        if (this._joined && this.isHost && this.listed && now - this._lastAnnounce >= LOBBY_EVERY) this._announce();
         if (this._joined && now - this._lastSend >= HEARTBEAT) this._sendState();
         let changed = false;
         for (const [id, player] of this.players) {
@@ -377,6 +478,7 @@ class Multiplayer extends EventTarget {
 
     _handleMessage(topic, payload) {
         const [, , code, id] = topic.split('/');
+        if (code === 'salon') return this._onLobby(id, payload);
         if (code !== this.code || !ID_PATTERN.test(id)) return;
         let data;
         try {

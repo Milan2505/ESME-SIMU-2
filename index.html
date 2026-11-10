@@ -630,6 +630,12 @@
 		<div class="multi-ligne">
 			<button id="multi-creer">Créer une partie privée</button>
 		</div>
+		<label class="multi-coche"><input type="checkbox" id="multi-visible" checked> Afficher ma partie dans « Parties en cours » (le code reste secret)</label>
+		<!-- Parties annoncées au salon (voir Multiplayer.watchLobby) : en choisir une, puis taper son code -->
+		<div id="multi-salon">
+			<span class="multi-salon-titre">Parties en cours</span>
+			<ul id="multi-parties"><li class="multi-salon-vide">Recherche des parties…</li></ul>
+		</div>
 		<div class="multi-ligne">
 			<input id="multi-code" maxlength="6" placeholder="CODE" autocomplete="off">
 			<button id="multi-rejoindre">Rejoindre</button>

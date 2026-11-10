@@ -2541,6 +2541,77 @@ body:has(#simulator.jeu) {
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* Partie visible au salon : case à cocher sur une ligne */
+#multi-dialog label.multi-coche {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 12px;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb2c4;
+  cursor: pointer;
+}
+#multi-dialog label.multi-coche input {
+  width: auto;
+  margin: 0;
+  accent-color: #3d8fd6;
+}
+/* Parties en cours (salon) : liste cliquable ; la partie choisie est encadrée, son code reste à taper */
+#multi-dialog #multi-salon {
+  margin: 8px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#multi-dialog .multi-salon-titre {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+}
+#multi-dialog #multi-parties {
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+#multi-dialog #multi-parties li + li {
+  margin-top: 6px;
+}
+#multi-dialog #multi-parties button {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  font-weight: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#multi-dialog #multi-parties button strong {
+  font-size: 14px;
+}
+#multi-dialog #multi-parties button small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #9fb2c4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#multi-dialog #multi-parties button.choisie {
+  background: rgba(143, 211, 255, 0.16);
+  border-color: #8fd3ff;
+}
+#multi-dialog .multi-salon-vide {
+  padding: 8px 2px;
+  font-size: 13px;
+  color: #6f86a0;
+}
 /* Code de la partie en cours : en grand, bien visible */
 #multi-dialog #multi-code-partie {
   display: flex;

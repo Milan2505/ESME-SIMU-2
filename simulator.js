@@ -1682,7 +1682,60 @@ const multiResume = document.getElementById('multi-resume');
 
 function openMultiDialog() {
     multiDialog.showModal();
+    multiplayer.watchLobby(true);   // « Parties en cours » : annonces écoutées tant que la fenêtre est ouverte
+    renderLobby(null);
 }
+multiDialog.addEventListener('close', () => multiplayer.watchLobby(false));
+
+// Parties en cours (salon, voir Multiplayer.watchLobby) : créateur, nombre et pseudos des joueurs. En choisir une
+// prépare le champ du code : il faut toujours le taper (demandé au créateur), il n'est jamais affiché
+const lobbyBox = document.getElementById('multi-salon');
+const lobbyList = document.getElementById('multi-parties');
+const lobbyVisible = document.getElementById('multi-visible');
+let lobbyChoice = null, lobbyOpenedAt = 0;
+function renderLobby(games) {
+    if (games === null) lobbyOpenedAt = performance.now();
+    games ??= [...multiplayer.lobby.entries()].map(([id, e]) => ({ id, ...e }));
+    const inGame = Boolean(multiplayer.code);
+    lobbyBox.hidden = inGame;
+    lobbyVisible.parentElement.hidden = inGame;
+    if (inGame) return;
+    if (!games.length) {
+        const searching = performance.now() - lobbyOpenedAt < 4000;
+        const empty = document.createElement('li');
+        empty.className = 'multi-salon-vide';
+        empty.textContent = searching ? 'Recherche des parties…' : "Aucune partie en cours pour l'instant : créez-en une !";
+        lobbyList.replaceChildren(empty);
+        if (searching) setTimeout(() => { if (multiDialog.open && !multiplayer.lobby.size) renderLobby(); }, 4200);
+        return;
+    }
+    games.sort((a, b) => b.players - a.players || a.host.localeCompare(b.host));
+    lobbyList.replaceChildren(...games.map((game) => {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.classList.toggle('choisie', game.id === lobbyChoice);
+        const title = document.createElement('strong');
+        title.textContent = `Partie de ${game.host}`;
+        const detail = document.createElement('small');
+        detail.textContent = `${game.players} joueur${game.players > 1 ? 's' : ''}${game.names.length ? ` · ${game.names.join(', ')}` : ''}`;
+        button.append(title, detail);
+        button.addEventListener('click', () => {
+            lobbyChoice = game.id;
+            multiCode.value = '';
+            multiCode.focus();
+            multiStatut.classList.remove('erreur');
+            multiStatut.textContent = `Partie de ${game.host} : tapez son code (demandez-le à ${game.host}), puis « Rejoindre »`;
+            renderLobby();
+        });
+        item.append(button);
+        return item;
+    }));
+}
+multiplayer.addEventListener('lobby', ({ detail }) => { if (multiDialog.open) renderLobby(detail); });
+// Partie rejointe ou quittée : la liste est cachée en partie, remontrée après
+multiplayer.addEventListener('status', () => { if (multiDialog.open) renderLobby(); });
+lobbyVisible.addEventListener('change', () => multiplayer.setListed(lobbyVisible.checked));
 document.getElementById('multi').addEventListener('click', openMultiDialog);
 document.getElementById('multi').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') openMultiDialog();
@@ -1695,7 +1748,10 @@ function pseudo() {
     return name;
 }
 
-document.getElementById('multi-creer').addEventListener('click', () => multiplayer.create(pseudo()));
+document.getElementById('multi-creer').addEventListener('click', () => {
+    multiplayer.setListed(lobbyVisible.checked);
+    multiplayer.create(pseudo());
+});
 // Rejoindre : le code tapé. Celui de la partie où l'on est déjà (créée dans cette fenêtre) : on y reste. Avant,
 // « Rejoindre » quittait d'abord la partie (seul dedans, elle disparaissait), puis la cherchait : « Aucune partie avec le
 // code… » alors que le code était bon
@@ -2333,6 +2389,8 @@ document.getElementById('mp-vol-libre').addEventListener('click', () => {
     enterGame(openAirportChoice);
 });
 document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
+// Survol ou toucher du bouton : connexion aux relais commencée tout de suite (liste des parties plus vite à l'ouverture)
+for (const type of ['pointerenter', 'focus', 'pointerdown']) document.getElementById('mp-multi').addEventListener(type, () => multiplayer.preconnect());
 // Partie créée ou rejointe depuis le menu : fenêtre fermée -> au hangar
 multiDialog.addEventListener('close', () => {
     if (!inMenu || !multiplayer.code) return;
