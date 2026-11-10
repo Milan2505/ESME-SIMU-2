@@ -2725,13 +2725,78 @@ body:has(#simulator.jeu) {
   color: #6f86a0;
 }
 /* Mode de la partie (Vol libre / Wardog) et choix de l'équipe */
-#multi-dialog #multi-modes button,
 #multi-dialog #multi-equipes button {
   flex: 1;
 }
+#multi-dialog #multi-modes[hidden],
+#multi-dialog #multi-modes-titre[hidden] {
+  display: none;
+}
+/* Mode de jeu : deux grandes cartes, la choisie éclairée à sa couleur avec une coche */
+#multi-dialog #multi-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+#multi-dialog #multi-modes button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px 12px;
+  text-align: center;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb2c4;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  opacity: 0.75;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s, transform 0.15s;
+}
+#multi-dialog #multi-modes button:hover {
+  opacity: 1;
+}
+#multi-dialog #multi-modes .mode-icone {
+  font-size: 26px;
+  line-height: 1;
+}
+#multi-dialog #multi-modes strong {
+  font-size: 16px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#multi-dialog #multi-modes small {
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.35;
+}
 #multi-dialog #multi-modes button.actif {
-  background: rgba(143, 211, 255, 0.2);
-  border-color: #8fd3ff;
+  opacity: 1;
+  color: #e8eef4;
+  transform: translateY(-1px);
+}
+#multi-dialog #multi-modes button[data-mode="libre"].actif {
+  background: linear-gradient(160deg, rgba(61, 143, 214, 0.45), rgba(26, 79, 134, 0.35));
+  border-color: #5aa9ff;
+  box-shadow: 0 0 14px rgba(90, 169, 255, 0.45);
+}
+#multi-dialog #multi-modes button[data-mode="wardog"].actif {
+  background: linear-gradient(160deg, rgba(61, 120, 214, 0.4), rgba(214, 70, 55, 0.45));
+  border-color: #ff8a5a;
+  box-shadow: 0 0 14px rgba(255, 110, 80, 0.45);
+}
+#multi-dialog #multi-modes button.actif::after {
+  content: "✓";
+  position: absolute;
+  top: 6px;
+  right: 9px;
+  font-size: 14px;
+  font-weight: bold;
+  color: #fff;
 }
 #multi-dialog #multi-equipes {
   margin: 10px 0 4px;

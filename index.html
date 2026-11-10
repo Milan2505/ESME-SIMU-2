@@ -638,9 +638,14 @@
 		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>
 		<label class="multi-livree">Couleur de l'avion <select id="multi-livree"></select></label>
 		<!-- Mode de la partie à créer : Vol libre (classique) ou Wardog (équipes, capture des terrains) -->
-		<div id="multi-modes" class="multi-ligne" role="group" aria-label="Mode de la partie">
-			<button type="button" data-mode="libre" class="actif">Vol libre</button>
-			<button type="button" data-mode="wardog">Wardog</button>
+		<span class="multi-salon-titre" id="multi-modes-titre">Mode de jeu</span>
+		<div id="multi-modes" role="radiogroup" aria-labelledby="multi-modes-titre">
+			<button type="button" data-mode="libre" class="actif" role="radio" aria-checked="true">
+				<span class="mode-icone">✈</span><strong>Vol libre</strong><small>Volez ensemble où vous voulez, combat libre en F-15</small>
+			</button>
+			<button type="button" data-mode="wardog" role="radio" aria-checked="false">
+				<span class="mode-icone">⚔</span><strong>Wardog</strong><small>Bleus contre rouges : capturez le terrain adverse</small>
+			</button>
 		</div>
 		<p id="multi-mode-aide">Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.</p>
 		<div class="multi-ligne">

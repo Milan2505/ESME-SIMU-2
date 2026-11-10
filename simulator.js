@@ -1799,7 +1799,10 @@ const MODE_HELP = {
 for (const button of document.querySelectorAll('#multi-modes button')) {
     button.addEventListener('click', () => {
         createMode = button.dataset.mode;
-        for (const other of document.querySelectorAll('#multi-modes button')) other.classList.toggle('actif', other === button);
+        for (const other of document.querySelectorAll('#multi-modes button')) {
+            other.classList.toggle('actif', other === button);
+            other.setAttribute('aria-checked', String(other === button));
+        }
         modeHelp.textContent = MODE_HELP[createMode];
     });
 }
@@ -1815,7 +1818,7 @@ const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
 function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
     teamsBox.hidden = !wardog;
-    document.getElementById('multi-modes').hidden = modeHelp.hidden = Boolean(multiplayer.code);
+    document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden = Boolean(multiplayer.code);
     if (!wardog) return;
     for (const team of ['bleu', 'rouge']) {
         const button = document.getElementById(`equipe-${team}`);
