@@ -33,6 +33,8 @@ const CODE_PATTERN = /^[A-Z2-9]{6}$/;
 const ID_PATTERN = /^[a-z0-9]{8,32}$/;
 const MAX_VOICE = 4000;         // taille max d'un paquet de voix (caractères base64, ~0,3 s de son)
 const MAX_CHAT = 200;           // taille max d'un message du tchat (caractères)
+const MESSAGE_KINDS = ['hello', 'leave', 'close', 'voice', 'chat', 'hit', 'missile', 'aam', 'flr', 'kill', 'atc'];
+const SLOW_MESSAGE = 30;        // ms : message lent à traiter, noté (voir slowMessages)
 
 function randomString(chars, length) {
     return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -126,6 +128,7 @@ class Multiplayer extends EventTarget {
         this._velocity = [0, 0, 0];
         this._state = null;           // dernier état local, renvoyé par la pulsation
         this._wasFiring = false;
+        this.slowMessages = [];       // messages lents à traiter (40 derniers) : { at (s), ms, type }
 
         setInterval(() => this._heartbeat(), HEARTBEAT / 2);
         // Le joueur quitte la page du simulateur (autre onglet, fenêtre réduite) ou y revient : les autres le savent tout de suite
@@ -358,7 +361,21 @@ class Multiplayer extends EventTarget {
         if (changed) this._emitPlayers();
     }
 
+    // Message reçu : traité, et noté s'il a pris plus de SLOW_MESSAGE ms (ce qu'il a déclenché compris : arrivée d'un
+    // avion, missile, explosion…), pour l'enregistreur d'à-coups (voir esmeFreezes dans simulator.js)
     _onMessage(topic, payload) {
+        const start = performance.now();
+        this._kind = null;
+        this._handleMessage(topic, payload);
+        const kind = this._kind;
+        const ms = performance.now() - start;
+        if (ms >= SLOW_MESSAGE) {
+            this.slowMessages.push({ at: Math.round(start / 1000), ms: Math.round(ms), type: kind ?? '?' });
+            if (this.slowMessages.length > 40) this.slowMessages.shift();
+        }
+    }
+
+    _handleMessage(topic, payload) {
         const [, , code, id] = topic.split('/');
         if (code !== this.code || !ID_PATTERN.test(id)) return;
         let data;
@@ -367,6 +384,7 @@ class Multiplayer extends EventTarget {
         } catch {
             return;
         }
+        this._kind = MESSAGE_KINDS.find((k) => k in data) ?? 'état';
         const now = performance.now();
 
         // Le même message arrive par chaque relais : on ne le traite qu'une fois

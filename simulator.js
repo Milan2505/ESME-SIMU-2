@@ -504,6 +504,11 @@ function setupJet() {
         jetSound.unlock().catch(() => {});
         jetCockpit.setNight(weather?.night ?? 0);
         jetCockpit.setExterior(chaseView);
+        // Shaders et textures du F-15 et de son cockpit préparés tout de suite, en arrière-plan (au hangar, ou au menu en
+        // multijoueur) : l'écran de chargement n'avait préparé que le Cessna, et la première image en F-15 figeait
+        // ~0,7 s, puis ~8 s de petits à-coups (textures du cockpit envoyées à la carte graphique au fil des vues)
+        prepareForDisplay(jetFrame).catch(() => {});
+        prepareForDisplay(jetCockpit.group).catch(() => {});
     }).catch((error) => {
         jetLoading = null;
         throw error;
@@ -3641,10 +3646,60 @@ function updatePerf(cpuTime) {
 `
         + `${Math.round(perf.calls / n)} appels de dessin  ·  ${(perf.triangles / n / 1000).toFixed(0)} k triangles
 `
-        + `résolution ×${renderer.getPixelRatio().toFixed(2)}  ·  ${view.width}×${view.height}`;
+        + `résolution ×${renderer.getPixelRatio().toFixed(2)}  ·  ${view.width}×${view.height}`
+        + (freezeLog.length ? `
+à-coups : ${freezeLog.length}  ·  dernier : ${Math.max(freezeLog.at(-1).image, freezeLog.at(-1).horsImage)} ms`
+            + ` (${freezeLog.at(-1).parts[0] ?? (freezeLog.at(-1).horsImage >= FREEZE_MS ? 'hors image' : '?')})` : '');
     perfPanel.dataset.fps = (n / elapsed).toFixed(1);
     Object.assign(perf, { frames: 0, cpu: 0, calls: 0, triangles: 0, last: now });
 }
+
+// --- Enregistreur d'à-coups -----------------------------------------------------------------------------------------
+// Chaque image de plus de FREEZE_MS, ou chaque trou de plus de FREEZE_MS entre deux images, est noté avec le temps
+// passé dans chaque partie de la boucle (vol, réseau, autres joueurs, combat, relief, rendu…). Un trou sans image lente
+// vient d'ailleurs : message réseau, chargement, ramasse-miettes (tâches longues relevées à part, et messages réseau
+// lents par Multiplayer.js). Consultable dans la console : esmeFreezes() ; résumé dans le panneau de performances
+const FREEZE_MS = 100;
+const freezeLog = [];           // 40 derniers à-coups
+const longTasks = [];           // 40 dernières tâches longues du navigateur (> 100 ms), dans ou hors des images
+let frameSections = {}, sectionStart = 0, lastFrameEnd = 0;
+function freezeFrameStart(now) {
+    frameSections = {};
+    sectionStart = now;
+    freezeFrameStart.gap = lastFrameEnd ? now - lastFrameEnd : 0;   // temps hors image depuis la précédente
+}
+function lap(name) {
+    const now = performance.now();
+    frameSections[name] = (frameSections[name] ?? 0) + now - sectionStart;
+    sectionStart = now;
+}
+function freezeFrameEnd() {
+    const now = performance.now();
+    const frame = Object.values(frameSections).reduce((a, b) => a + b, 0);
+    const gap = freezeFrameStart.gap;
+    lastFrameEnd = now;
+    if (frame < FREEZE_MS && gap < FREEZE_MS) return;
+    const parts = Object.entries(frameSections).filter(([, ms]) => ms >= 5).sort((a, b) => b[1] - a[1])
+        .map(([name, ms]) => `${name} ${Math.round(ms)} ms`);
+    freezeLog.push({
+        at: Math.round(now / 1000), image: Math.round(frame), horsImage: Math.round(gap), parts,
+        joueurs: multiplayer.players.size, missiles: weapons.inFlight.length + weapons.aaInFlight.length,
+        avion: aircraftType, vue: chaseView ? 'extérieure' : 'cabine',
+    });
+    if (freezeLog.length > 40) freezeLog.shift();
+}
+// Onglet caché : le navigateur suspend les images ; au retour, ce trou n'est pas un à-coup
+document.addEventListener('visibilitychange', () => { lastFrameEnd = 0; });
+try {
+    new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+            if (entry.duration < FREEZE_MS || document.hidden) continue;
+            longTasks.push({ at: Math.round(entry.startTime / 1000), ms: Math.round(entry.duration) });
+            if (longTasks.length > 40) longTasks.shift();
+        }
+    }).observe({ type: 'longtask', buffered: false });
+} catch { /* navigateur sans tâches longues (Safari) */ }
+window.esmeFreezes = () => ({ aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice() });
 
 let nextFrameTime = 0;
 let lastTrim = controls.getTrim(), trimTravel = 0, lastFlaps = 0, flapsMoving = false;
@@ -4384,6 +4439,7 @@ renderer.setAnimationLoop((time)=>{
     // l'image affichée était vide (éclair noir) jusqu'à l'image suivante
     graphics.adaptResolution();
     const frameStart = performance.now();
+    freezeFrameStart(frameStart);
     const delta = clock.getDelta();
 
     wind.update();
@@ -4394,6 +4450,7 @@ renderer.setAnimationLoop((time)=>{
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
     lastAircraftPosition.copy(aircraft.position);
+    lap('vol');
 
     // Secousses : s'amortissent, entretenues au roulage (plus fort dans l'herbe). Elles croissent avec la vitesse
     // jusqu'à ~40 km/h, puis diminuent : à l'approche du décollage, l'aile porte l'avion et déleste les roues
@@ -4411,6 +4468,7 @@ renderer.setAnimationLoop((time)=>{
     updateSpawnMarkers();
     updateAtc( delta );
     updateCamera( delta );
+    lap('caméra, ATC, initiation');
     // Molette de trim (touches W / X, ou à la souris) : un cran entendu tous les 0,6°
     trimTravel += Math.abs(controls.getTrim() - lastTrim);
     lastTrim = controls.getTrim();
@@ -4455,6 +4513,7 @@ renderer.setAnimationLoop((time)=>{
     waterSpray.update(delta, controls.getSurface() === 'water' && controls.isOnGround() && !controls.isCrashed());
     updateLoad();
     updateHud(delta);
+    lap('systèmes, sons, HUD');
     // Envoyé aussi au menu, au hangar et au choix du départ (avion masqué chez les autres, comme une épave) : avant,
     // rien ne partait tant que le joueur n'avait pas choisi son départ, et personne ne pouvait rejoindre sa partie
     // (« Aucune partie avec le code… » alors que le code était bon)
@@ -4471,10 +4530,13 @@ renderer.setAnimationLoop((time)=>{
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     jetSound.setListener( camera );
+    lap('réseau (envoi)');
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
     remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime );
     updateRemoteCrashes( delta );
+    lap('autres joueurs');
     updateCombat( delta );
+    lap('combat');
     updateMap( delta );
     // Liste "En ligne" ouverte : distances et altitudes mises à jour chaque seconde
     if ((onlineTimer -= delta) <= 0) {
@@ -4489,6 +4551,7 @@ renderer.setAnimationLoop((time)=>{
     }
     nightSky.update( camera );
     storm.update( delta, camera, aircraftVelocity, chaseView ? 0 : 3 );
+    lap('carte, nuages, ciel');
     // PAPI : couleur vue de l'œil du pilote, même en vue extérieure
     pilotEyeWorld.copy(cockpit.eye).multiplyScalar(CABIN_SCALE).add(COCKPIT_POSITION).applyMatrix4(aircraft.matrixWorld);
     // Dessin limité à ce qui est visible : dalles du terrain et aérodromes au-delà du brouillard cachés
@@ -4499,6 +4562,7 @@ renderer.setAnimationLoop((time)=>{
     decorShadowCenter.set(aircraft.position.x, terrain.heightAt(aircraft.position.x, aircraft.position.z), aircraft.position.z);
     scenery.update( camera.position, clock.elapsedTime, decorShadowCenter );
     terrain.animate( clock.elapsedTime );
+    lap('relief, aérodromes, décor');
     crashEffect.update( delta );
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls(delta);
@@ -4512,6 +4576,7 @@ renderer.setAnimationLoop((time)=>{
     if (!chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
     updateFog();
     updateStallWarning(delta);
+    lap('cabine, instruments');
 
     // Ombres : zone centrée sur l'avion (elle s'étend dans l'axe du soleil : l'ombre de l'avion au sol y reste, même en
     // vol) ; en cabine, zone resserrée (ombres fines dans l'habitacle)
@@ -4538,10 +4603,13 @@ renderer.setAnimationLoop((time)=>{
         simulatorElement.style.setProperty('--tactile-largeur-gauche', `${touchControls.insetWidth.left}px`);
         simulatorElement.style.setProperty('--tactile-largeur-droite', `${touchControls.insetWidth.right}px`);
     }
+    lap('ombres, alarmes, tactile');
     checkNewShaders(performance.now());
     // Compilation en arrière-plan : le dessin l'attend au plus MAX_RENDER_PAUSE ms (avant : jusqu'à 8 s, et sans fin si
     // three.js ne signalait jamais la fin, par exemple après une erreur dans un shader)
     if (!shaderWarmup || performance.now() - shaderWarmupStart > MAX_RENDER_PAUSE) graphics.render();
+    lap('rendu');
+    freezeFrameEnd();
     updatePerf(performance.now() - frameStart);
 });
 
