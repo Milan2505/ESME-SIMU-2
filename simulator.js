@@ -508,6 +508,12 @@ track('avion', 'Cessna 172 (c172p.glb)', setupAircraft).catch(() => {});
 let jetModel = null, jetLoading = null;
 function setupJet() {
     if (jetModel) return Promise.resolve();
+    if (!jetLoading) {
+        markHeavyLoad(true);   // (F-15 : ~11 Mo de modèles et cockpit, voir LOAD_MARK)
+        setTimeout(() => {
+            jetLoading?.finally(() => setTimeout(() => markHeavyLoad(false), 3000)).catch(() => {});
+        }, 0);
+    }
     jetLoading ??= Promise.all([loadF15(), jetCockpit.load()]).then(([{ model }]) => {
         jetModel = model;
         jetFrame.add(model);
@@ -3758,7 +3764,39 @@ window.addEventListener('keydown', (event) => {
 
 // Paramètres graphiques : menu ouvert depuis la case "Paramètre" du bandeau ou le bouton ⚙ Qualité
 // Tablette : qualité « Moyen » par défaut (« Haut » faisait chuter les images par seconde en vol sur iPad)
-const settings = new Settings({ defaultPreset: isTablet() ? 'moyen' : 'haut' });
+// Qualité par défaut (tant que le joueur n'a rien choisi) : téléphone « Bas » (sa mémoire est bien plus petite : en « Moyen »,
+// anticrénelage, ombres, halo et décor faisaient dépasser la limite de Safari, qui fermait la page au chargement de la
+// partie), tablette « Moyen », ordinateur « Haut »
+const settings = new Settings({ defaultPreset: isPhone() ? 'bas' : isTablet() ? 'moyen' : 'haut' });
+
+// Page morte pendant un chargement lourd (partie, F-15) : sur téléphone et tablette, Safari ferme la page sans prévenir
+// quand elle dépasse sa mémoire. Le chargement est marqué dans le stockage du navigateur pendant qu'il dure ; marque
+// encore là à l'ouverture suivante = la page est morte en chargeant : qualité ramenée à « Bas » et joueur prévenu
+const LOAD_MARK = 'esme-chargement-en-cours';
+function markHeavyLoad(on) {
+    try {
+        if (on) localStorage.setItem(LOAD_MARK, String(Date.now()));
+        else localStorage.removeItem(LOAD_MARK);
+    } catch { /* stockage indisponible */ }
+}
+let crashedWhileLoading = false;
+try {
+    const mark = Number(localStorage.getItem(LOAD_MARK));
+    crashedWhileLoading = mark > 0 && Date.now() - mark < 20 * 60 * 1000;
+    localStorage.removeItem(LOAD_MARK);
+} catch { /* stockage indisponible */ }
+if (crashedWhileLoading && settings.preset !== 'bas') {
+    settings.applyPreset('bas');
+    const notice = document.createElement('section');
+    notice.className = 'mp-carte';
+    const title = document.createElement('h2');
+    title.textContent = 'Qualité réduite automatiquement';
+    const text = document.createElement('p');
+    text.textContent = 'La page s\'est fermée pendant le dernier chargement (mémoire de l\'appareil dépassée) : la qualité graphique '
+        + 'est passée à « Bas ». Vous pourrez la remonter dans Paramètres.';
+    notice.append(title, text);
+    document.getElementById('mp-astuce-ipad').before(notice);
+}
 const settingsDialog = document.getElementById('reglages-dialog');
 let fpsLimit = 0;   // 0 = pas de limite (fréquence de l'écran)
 
@@ -4569,7 +4607,8 @@ function flashScore(id) {
     updateScores();
 }
 function updateScores() {
-    const show = Boolean(multiplayer.code) && multiplayer.players.size > 0 && !inMenu && !inHangar;
+    // (en Wardog : toujours, même seul dans la partie, avec les points des équipes et les terrains en tête)
+    const show = Boolean(multiplayer.code) && (multiplayer.players.size > 0 || wardog()) && !inMenu && !inHangar;
     scoresPanel.hidden = !show;
     if (!show) return;
     const rows = [{ id: multiplayer.id, name: multiplayer.name, ...multiplayer.score, me: true },
@@ -4906,11 +4945,16 @@ async function enterGame(start) {
         start();
         return;
     }
-    await loadingScreen.open(async () => {
-        if (worldWarm) return;
-        await warmUpWorld();
-        worldWarm = true;
-    });
+    markHeavyLoad(true);   // (page fermée d'ici la fin : qualité réduite à la prochaine ouverture, voir LOAD_MARK)
+    try {
+        await loadingScreen.open(async () => {
+            if (worldWarm) return;
+            await warmUpWorld();
+            worldWarm = true;
+        });
+    } finally {
+        markHeavyLoad(false);
+    }
     clock.getDelta();              // (pas de saut du temps après l'attente)
     graphics.holdResolution();     // ni de baisse de résolution : les i/s de l'attente ne comptent pas
     start();

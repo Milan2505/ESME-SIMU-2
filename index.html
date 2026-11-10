@@ -279,10 +279,10 @@
 	</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
-	<!-- Wardog : points des équipes et terrains (propriétaire, capture en cours), voir updateWardog -->
-	<div id="wardog" hidden></div>
-	<!-- Tableau des scores (multijoueur) : victoires, fois abattu, points ; voir updateScores -->
+	<!-- Tableau des scores (multijoueur) : victoires, fois abattu, points ; voir updateScores. En Wardog, en tête : points
+	     des équipes et terrains (propriétaire, capture en cours), voir updateWardog -->
 	<div id="scores" hidden>
+		<div id="wardog" hidden></div>
 		<table>
 			<thead><tr><th>Pilote</th><th title="Avions abattus">Vict.</th><th title="Fois abattu">Abattu</th><th>Points</th></tr></thead>
 			<tbody id="scores-lignes"></tbody>

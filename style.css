@@ -535,23 +535,15 @@ img{margin: 0px;
     border-radius: 5px;
     pointer-events: none;
   }
-  /* Wardog : bandeau des équipes et des terrains, en haut au centre de la vue */
+  /* Wardog : en tête du tableau des scores, points des équipes et terrains */
   #wardog {
-    grid-column: 4/15;
-    grid-row: 10/17;
-    align-self: start;
-    justify-self: center;
-    z-index: 2;
-    margin: 8px;
-    padding: 6px 12px;
-    font-family: DejaVu Sans Mono, monospace;
-    font-size: 12px;
-    color: #e8eef4;
+    margin: 0 0 6px;
+    padding-bottom: 6px;
     text-align: center;
-    background: rgba(8, 16, 28, 0.66);
-    border: 1px solid rgba(143, 211, 255, 0.25);
-    border-radius: 6px;
-    pointer-events: none;
+    border-bottom: 1px solid rgba(143, 211, 255, 0.2);
+  }
+  #wardog .terrains > span {
+    white-space: nowrap;
   }
   #wardog .equipes {
     font-size: 15px;
@@ -562,7 +554,8 @@ img{margin: 0px;
   #wardog .rouge { color: #ff5a4e; }
   #wardog .terrains {
     display: flex;
-    gap: 14px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
     justify-content: center;
     margin-top: 4px;
   }
@@ -601,7 +594,7 @@ img{margin: 0px;
     align-self: start;
     justify-self: end;
     z-index: 2;
-    margin: 8px;
+    margin: 140px 8px 8px;   /* (sous les cartes d'armes et l'aide du F-15, dessinées en haut de la vue) */
     padding: 6px 10px 7px;
     font-family: DejaVu Sans Mono, monospace;
     font-size: 12px;
@@ -971,7 +964,6 @@ img{margin: 0px;
   #simulator:is(:fullscreen, .jeu) > #crash,
   #simulator:is(:fullscreen, .jeu) > #perf,
   #simulator:is(:fullscreen, .jeu) > #scores,
-  #simulator:is(:fullscreen, .jeu) > #wardog,
   #simulator:is(:fullscreen, .jeu) > #ils-bouton,
   #simulator:is(:fullscreen, .jeu) > #ils-panneau,
   #simulator:is(:fullscreen, .jeu) > #carte,
@@ -3201,7 +3193,6 @@ html.tablette #simulator.jeu > #commandes {
 #simulator.photo > #astuce-echap,
 #simulator.photo > #perf,
 #simulator.photo > #scores,
-#simulator.photo > #wardog,
 #simulator.photo > #radio-indicateur,
 #simulator.photo > #atc-sous-titre,
 #simulator.photo > #tchat {
