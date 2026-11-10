@@ -279,6 +279,13 @@
 	</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
+	<!-- Tableau des scores (multijoueur) : victoires, fois abattu, points ; voir updateScores -->
+	<div id="scores" hidden>
+		<table>
+			<thead><tr><th>Pilote</th><th title="Avions abattus">Vict.</th><th title="Fois abattu">Abattu</th><th>Points</th></tr></thead>
+			<tbody id="scores-lignes"></tbody>
+		</table>
+	</div>
 	<button id="ils-bouton" hidden title="Guidage ILS (touche I)">ILS</button>
 	<!-- Indicateurs de navigation (vue extérieure) : une seule zone, en bas au centre, entre les jauges et les commandes tactiles -->
 	<div id="nav-zone">

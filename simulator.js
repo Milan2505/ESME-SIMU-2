@@ -2590,12 +2590,15 @@ function updateOnlineList() {
         onlineListe.replaceChildren();
         return;
     }
+    // (score de la partie au bout de la ligne : victoires / fois abattu, voir updateScores)
+    const scoreText = (score) => (score && (score.kills || score.deaths) ? ` · ${score.kills} V / ${score.deaths} A` : '');
     const rows = [playerRow(`${multiplayer.name} (vous)`, RemotePlayers.color(multiplayer.livery),
-        formatAltitude((aircraft.position.y - WHEEL_HEIGHT) / 0.3048), radio.talking)];
+        formatAltitude((aircraft.position.y - WHEEL_HEIGHT) / 0.3048) + scoreText(multiplayer.score), radio.talking)];
     for (const player of remotePlayers.list()) {
         const distance = formatNM(player.position.distanceTo(aircraft.position));
+        const score = scoreText(multiplayer.players.get(player.id)?.score);
         rows.push(playerRow(player.name, player.color,
-            player.crashed ? 'crash' : player.offline ? 'hors ligne' : `${distance} NM · ${formatAltitude(player.altitude)}`, player.speaking));
+            (player.crashed ? 'crash' : player.offline ? 'hors ligne' : `${distance} NM · ${formatAltitude(player.altitude)}`) + score, player.speaking));
     }
     // Joueurs connus dont l'avion n'est pas encore affiché (modèle 3D en cours de chargement)
     for (const [id, player] of multiplayer.players) {
@@ -4254,11 +4257,57 @@ damage.addEventListener('destroyed', ({ detail }) => {
     if (controls.isCrashed()) return;
     controls.collide(detail.reason);
     multiplayer.sendKill(detail.attackerId, detail.reason);
+    if (multiplayer.code) {
+        multiplayer.score.deaths++;   // (score : voir updateScores)
+        flashScore(detail.attackerId);
+    }
 });
 multiplayer.addEventListener('kill', ({ detail }) => {
     chat.add(null, detail.byName ? `💥 ${detail.byName} a abattu ${detail.name}` : `💥 ${detail.name} : ${detail.reason}`);
-    if (detail.mine) weaponHud.message(`${detail.name} abattu !`, true);
+    if (detail.mine) {
+        multiplayer.score.kills++;   // la victime nous désigne comme tireur : victoire pour nous
+        weaponHud.message(`${detail.name} abattu ! +${POINTS_PER_KILL} points`, true);
+    }
+    flashScore(detail.mine ? multiplayer.id : detail.by);
 });
+
+// --- Tableau des scores (multijoueur) --------------------------------------------------------------------------------
+// Chaque joueur compte ses victoires et le nombre de fois où il a été abattu, et les envoie avec son état
+// (Multiplayer.score) : tout le monde voit le même tableau. POINTS_PER_KILL points par avion abattu. En haut à droite
+// pendant une partie à plusieurs ; la ligne du tireur s'éclaire un instant à chaque victoire
+const POINTS_PER_KILL = 100;
+const scoresPanel = document.getElementById('scores');
+const scoresBody = document.getElementById('scores-lignes');
+let scoreFlash = { id: null, until: 0 }, scoresKey = '';
+function flashScore(id) {
+    if (id) scoreFlash = { id, until: performance.now() + 3000 };
+    updateScores();
+}
+function updateScores() {
+    const show = Boolean(multiplayer.code) && multiplayer.players.size > 0 && !inMenu && !inHangar;
+    scoresPanel.hidden = !show;
+    if (!show) return;
+    const rows = [{ id: multiplayer.id, name: multiplayer.name, ...multiplayer.score, me: true },
+        ...[...multiplayer.players].map(([id, p]) => ({ id, name: p.name, ...(p.score ?? { kills: 0, deaths: 0 }), me: false }))];
+    rows.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.name.localeCompare(b.name));
+    const flashId = performance.now() < scoreFlash.until ? scoreFlash.id : null;
+    const key = JSON.stringify([rows, flashId]);
+    if (key === scoresKey) return;   // (rien de changé : pas de reconstruction)
+    scoresKey = key;
+    scoresBody.replaceChildren(...rows.map((row) => {
+        const tr = document.createElement('tr');
+        tr.classList.toggle('moi', row.me);
+        tr.classList.toggle('flash', row.id === flashId);
+        for (const value of [row.me ? `${row.name} (vous)` : row.name, row.kills, row.deaths, row.kills * POINTS_PER_KILL]) {
+            const td = document.createElement('td');
+            td.textContent = String(value);
+            tr.append(td);
+        }
+        return tr;
+    }));
+}
+setInterval(updateScores, 1000);
+multiplayer.addEventListener('players', () => updateScores());
 // Nouveau départ : avion réparé, réarmé
 controls.addEventListener('reset', () => {
     damage.reset();

@@ -30,7 +30,8 @@ const LOBBY_STALE = 7000;       // partie retirée de la liste sans annonce depu
 const MIN_INTERVAL = 150;       // au plus ~7 messages par seconde (ms)
 const HEARTBEAT = 1000;         // état renvoyé au moins chaque seconde, même onglet en arrière-plan (ms)
 const HELLO_REPEAT = 1500;      // en rejoignant, "bonjour" répété tant que personne n'a répondu (ms)
-const JOIN_TIMEOUT = 8000;      // sans réponse d'aucun joueur, la partie n'existe pas (ms)
+const JOIN_TIMEOUT = 15000;     // sans réponse d'aucun joueur, la partie n'existe pas (ms) ; avant 8 s : un créateur sur son
+                                // écran de chargement (page occupée plusieurs secondes) ne répondait pas à temps
 const STALE = 8000;             // un joueur silencieux depuis 8 s est retiré (ms)
 const MAX_PLAYERS = 16;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -100,7 +101,14 @@ function cleanState(state) {
         // Autodirecteur : joueur que celui-ci accroche (lk), verrouillé (lkd) — alerte radar chez la cible
         lockOn: typeof state.lk === 'string' && ID_PATTERN.test(state.lk) ? state.lk : null,
         lockOnLocked: state.lkd === 1,
+        // Score de la partie (compté par le joueur lui-même, voir Multiplayer.score) : avions abattus, fois abattu
+        score: scoreFrom(state.sc),
     };
+}
+
+function scoreFrom(value) {
+    const v = numbers(value, 2);
+    return { kills: v ? Math.min(9999, Math.max(0, Math.floor(v[0]))) : 0, deaths: v ? Math.min(9999, Math.max(0, Math.floor(v[1]))) : 0 };
 }
 
 // Coups au but envoyés par un tireur (codes des parties touchées, voir Damage.js)
@@ -134,6 +142,10 @@ class Multiplayer extends EventTarget {
         this._state = null;           // dernier état local, renvoyé par la pulsation
         this._wasFiring = false;
         this.slowMessages = [];       // messages lents à traiter (40 derniers) : { at (s), ms, type }
+        // Score de la partie en cours : avions abattus et fois abattu. Chacun compte le sien (un abattu annonce son tireur,
+        // voir sendKill : le tireur s'ajoute la victoire) et l'envoie avec son état : tous les joueurs voient le même
+        // tableau, même ceux arrivés en cours de partie. Remis à zéro en quittant la partie
+        this.score = { kills: 0, deaths: 0 };
         this.lobby = new Map();       // parties annoncées au salon : id du créateur -> { host, players, names, seenAt }
         this._lobbySeq = new Map();   // id du créateur -> numéro de sa dernière annonce reçue (copies en retard ignorées)
         this.listed = true;           // notre partie (créée par nous) s'annonce au salon
@@ -207,6 +219,7 @@ class Multiplayer extends EventTarget {
         this._joined = false;
         this.players.clear();
         this._lastSeq.clear();
+        this.score = { kills: 0, deaths: 0 };
         this._emitPlayers();
         this._status('Hors ligne');
     }
@@ -252,6 +265,7 @@ class Multiplayer extends EventTarget {
             fi: combat?.burning ? 1 : undefined,
             lk: combat?.lock ?? undefined,
             lkd: combat?.lock && combat.locked ? 1 : undefined,
+            sc: this.score.kills || this.score.deaths ? [this.score.kills, this.score.deaths] : undefined,
         };
         // Début et fin d'une rafale : envoyés tout de suite (les traceurs chez les autres suivent la détente)
         const firingChanged = (this._state.f === 1) !== this._wasFiring;

@@ -535,6 +535,57 @@ img{margin: 0px;
     border-radius: 5px;
     pointer-events: none;
   }
+  /* Tableau des scores (multijoueur), en haut à droite de la vue */
+  #scores {
+    grid-column: 4/15;
+    grid-row: 10/17;
+    align-self: start;
+    justify-self: end;
+    z-index: 2;
+    margin: 8px;
+    padding: 6px 10px 7px;
+    font-family: DejaVu Sans Mono, monospace;
+    font-size: 12px;
+    color: #e8eef4;
+    background: rgba(8, 16, 28, 0.62);
+    border: 1px solid rgba(143, 211, 255, 0.25);
+    border-radius: 6px;
+    pointer-events: none;
+  }
+  #scores table {
+    border-collapse: collapse;
+  }
+  #scores th {
+    padding: 0 6px 3px;
+    font-size: 10px;
+    font-weight: normal;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #8fd3ff;
+    text-align: right;
+  }
+  #scores td {
+    padding: 2px 6px;
+    text-align: right;
+  }
+  #scores th:first-child,
+  #scores td:first-child {
+    max-width: 130px;
+    overflow: hidden;
+    text-align: left;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  #scores td:last-child {
+    font-weight: bold;
+    color: #ffd24a;
+  }
+  #scores tr.moi td:first-child {
+    color: #9f9;
+  }
+  #scores tr.flash td {
+    background: rgba(255, 210, 74, 0.25);
+  }
   /* Nom de la caméra de la cabine (Tab, 1 à 9), affiché un instant */
   #nom-vue {
     grid-column: 4/15;
@@ -860,6 +911,7 @@ img{margin: 0px;
   #simulator:is(:fullscreen, .jeu) > #nom-vue,
   #simulator:is(:fullscreen, .jeu) > #crash,
   #simulator:is(:fullscreen, .jeu) > #perf,
+  #simulator:is(:fullscreen, .jeu) > #scores,
   #simulator:is(:fullscreen, .jeu) > #ils-bouton,
   #simulator:is(:fullscreen, .jeu) > #ils-panneau,
   #simulator:is(:fullscreen, .jeu) > #carte,
@@ -2994,6 +3046,7 @@ html.tablette #simulator.jeu > #commandes {
 #simulator.photo > #nav-zone,
 #simulator.photo > #astuce-echap,
 #simulator.photo > #perf,
+#simulator.photo > #scores,
 #simulator.photo > #radio-indicateur,
 #simulator.photo > #atc-sous-titre,
 #simulator.photo > #tchat {
