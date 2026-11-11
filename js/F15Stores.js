@@ -23,12 +23,14 @@ const DARK = new MeshStandardMaterial({ color: 0x1d2024, roughness: 0.35, metaln
 const GLASS = new MeshStandardMaterial({ color: 0x223040, roughness: 0.05, metalness: 0.9 });
 const BAND = new MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5 });   // bande jaune : charge militaire
 
-// Emplacements (repère avion)
+// Emplacements (repère avion). Intrados de l'aile mesuré sur le modèle au droit du pylône (x = 3,2 m) : 0,52 à 0,56 m
+// de haut selon z ; le pylône monte jusque dans l'aile (avant : son haut à 0,27 m, il flottait à ~26 cm sous l'aile)
 const PYLON_X = 3.2;
+const WING_UNDERSIDE = 0.565;   // haut du pylône : juste dans l'aile sur toute sa longueur
 const STATIONS = {
-    pylon: { y: 0.12, z: 3.0 },
-    ag: { y: -0.27, z: 2.7 },      // AGM-65 sous le pylône
-    aa: { x: 3.62, y: 0.0, z: 2.5 },   // AIM-9 sur le rail extérieur
+    pylon: { bottom: 0.23, z: 3.0 },
+    ag: { y: -0.01, z: 2.7 },      // AGM-65 sous le pylône, sur son rail de lancement
+    aa: { x: 3.62, y: 0.26, z: 2.5 },   // AIM-9 sur le rail extérieur
 };
 const GUN_MUZZLE = [1.75, 0.75, -1.4];
 
@@ -108,9 +110,15 @@ function buildF15Stores(model) {
     group.name = 'emports';
     const aa = [], ag = [];
     for (const side of [-1, 1]) {
-        const pylon = new Mesh(new BoxGeometry(0.14, 0.3, 1.9), GREY);
-        pylon.position.set(side * PYLON_X, STATIONS.pylon.y, STATIONS.pylon.z);
+        const pylonHeight = WING_UNDERSIDE - STATIONS.pylon.bottom;
+        const pylon = new Mesh(new BoxGeometry(0.14, pylonHeight, 1.9), GREY);
+        pylon.position.set(side * PYLON_X, STATIONS.pylon.bottom + pylonHeight / 2, STATIONS.pylon.z);
         pylon.castShadow = true;
+        // Rail de lancement du Maverick : du dessous du pylône au dos du missile (avant : ~9 cm de vide entre les deux)
+        const agTop = STATIONS.ag.y + 0.153;
+        const launcher = new Mesh(new BoxGeometry(0.1, STATIONS.pylon.bottom - agTop + 0.02, 1.6), GREY);
+        launcher.position.set(side * PYLON_X, (STATIONS.pylon.bottom + agTop) / 2, STATIONS.ag.z);
+        launcher.castShadow = true;
         // Rail de l'AIM-9 sur le côté extérieur du pylône
         const rail = new Mesh(new BoxGeometry(0.34, 0.05, 1.5), GREY);
         rail.position.set(side * (PYLON_X + 0.2), STATIONS.aa.y + 0.09, STATIONS.aa.z);
@@ -118,7 +126,7 @@ function buildF15Stores(model) {
         maverick.position.set(side * PYLON_X, STATIONS.ag.y, STATIONS.ag.z);
         const sidewinder = aim9();
         sidewinder.position.set(side * STATIONS.aa.x, STATIONS.aa.y, STATIONS.aa.z);
-        group.add(pylon, rail, maverick, sidewinder);
+        group.add(pylon, launcher, rail, maverick, sidewinder);
         ag.push(maverick);
         aa.push(sidewinder);
     }
