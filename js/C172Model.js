@@ -28,6 +28,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { releaseAfterUpload } from './CanvasMemory.js';
+import { isTablet } from './Device.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // Cessna 172P du projet FlightGear (équipe c172p, licence GPL-2.0 : asset/c172p-LICENCE.txt), converti en GLB
@@ -40,7 +41,10 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // 2,45 m de haut) paraissait petit à côté du décor ; agrandi, il retrouve la taille de l'ancien modèle du simulateur
 // (9,7 m de long). Les cotes ci-dessous sont avant agrandissement.
 
-const MODEL_URL = 'asset/c172p.glb';
+// Appareils tactiles (iPhone, iPad, tablettes) : textures en 1024 au lieu de 2048 (asset/c172p-mobile.glb, fait par
+// asset/blender/shrink_glb.py), ~50 Mo de mémoire graphique en moins. Le Cessna est chargé même en F-15 (hangar, autres
+// joueurs) : sur téléphone, Safari ferme l'onglet sans prévenir quand la page dépasse sa mémoire
+const MODEL_URL = isTablet() ? 'asset/c172p-mobile.glb' : 'asset/c172p.glb';
 const AIRCRAFT_SCALE = 1.18;
 const MODEL_OFFSET = new Vector3(0, 0.637, -2.23);
 const GROUND_Y = (-1.326 + MODEL_OFFSET.y) * AIRCRAFT_SCALE;   // bas des roues principales (agrandi : repère avion)

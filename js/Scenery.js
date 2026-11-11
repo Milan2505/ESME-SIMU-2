@@ -29,6 +29,7 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Nature } from './Nature.js';
+import { isTablet } from './Device.js';
 
 // Décor réaliste (réglage « Style du décor ») : forêts d'arbres réalistes et villages autour de l'aérodrome.
 // - Arbres : générés par EZ-Tree (Daniel Greenheck, licence MIT, https://github.com/dgreenheck/ez-tree), écorce et
@@ -47,6 +48,10 @@ const EZ_TREE_URLS = [
     'https://unpkg.com/@dgreenheck/ez-tree@1.1.0/build/ez-tree.es.js',
 ];
 const TEXTURE_WAIT = 15000;      // ms : textures d'un arbre attendues au plus (sinon on continue, elles arriveront)
+// Téléphones et tablettes : textures des arbres (écorce et feuillage, 1024 × 1024 chez EZ-Tree, 16 images ~90 Mo de
+// mémoire graphique) réduites à ce côté, soit ~4 fois moins. Safari ferme l'onglet sans prévenir quand la page dépasse sa
+// mémoire ; de près on ne voit pas la différence sur un petit écran, et de loin les arbres sont des imposteurs
+const TREE_TEXTURE_MOBILE = isTablet() ? 512 : 0;
 const SPECIES = [
     { preset: 'Oak Medium', height: [12, 17], weight: 3, kind: 'leafy' },
     { preset: 'Ash Medium', height: [15, 21], weight: 3, kind: 'leafy' },
@@ -288,6 +293,7 @@ class Scenery {
             source.leavesMesh.material = leaves;
             this._instancedLeaves(leaves);
             await this._texturesLoaded(source);
+            if (TREE_TEXTURE_MOBILE) this._shrinkTextures(source, TREE_TEXTURE_MOBILE);
             this.species.push(this._makeSpecies(source, def, trees.filter((t) => t.species === index)));
             report(0.4 + 0.6 * (index + 1) / SPECIES.length);
             await breathe();
@@ -325,6 +331,28 @@ class Scenery {
                 || performance.now() - start > TEXTURE_WAIT ? resolve() : setTimeout(check, 30);
             check();
         })));
+    }
+
+    // Textures d'un arbre ramenées à size pixels de côté au plus (voir TREE_TEXTURE_MOBILE). L'image d'origine est lâchée
+    // (la texture garde la copie réduite) ; une texture partagée entre espèces n'est réduite qu'une fois
+    _shrinkTextures(tree, size) {
+        this._shrunk ??= new WeakSet();
+        tree.traverse((child) => {
+            for (const key of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
+                const texture = child.material?.[key];
+                const image = texture?.image;
+                const w = image?.naturalWidth || image?.width, h = image?.naturalHeight || image?.height;
+                if (!texture || this._shrunk.has(texture) || !w || !h || Math.max(w, h) <= size) continue;
+                this._shrunk.add(texture);
+                const k = size / Math.max(w, h);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(w * k));
+                canvas.height = Math.max(1, Math.round(h * k));
+                canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                texture.image = canvas;
+                texture.needsUpdate = true;
+            }
+        });
     }
 
     // --- Placement --------------------------------------------------------------------------------------------

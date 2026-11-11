@@ -6,5 +6,8 @@ Fichier converti depuis Models/c172-common.ac et ses textures (fuselage.png, tai
 du dépôt c172p : extérieur seulement (intérieur, zones cliquables et effets de lumière retirés), textures
 opaques enregistrées en JPEG. Ce fichier converti reste sous licence GPL-2.0.
 
+asset/c172p-mobile.glb : le même fichier, textures réduites en 1024 × 1024 pour les téléphones et tablettes
+(asset/blender/shrink_glb.py). Même licence GPL-2.0.
+
 asset/c172p-yoke.glb : volants (yokes) du même Cessna 172P, convertis depuis Models/Interior/Yoke/yoke.ac et sa
 texture yoke.png du dépôt c172p (volants seuls, recentrés sur l'axe de leur colonne). Même licence GPL-2.0.
