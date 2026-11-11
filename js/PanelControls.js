@@ -177,9 +177,9 @@ function drawPedestal(ctx, hotspots, w, h, systems, trim) {
 // --- Sélecteur de réservoir (plancher, entre les sièges) ------------------------------------
 
 function drawFuelSelector(ctx, hotspots, w, h, systems) {
-    ctx.fillStyle = '#4d4038';
+    ctx.fillStyle = '#26282b';   // plaque noire mate (vrai C172)
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#2b231e';
+    ctx.strokeStyle = '#141517';
     ctx.lineWidth = 6;
     ctx.strokeRect(3, 3, w - 6, h - 6);
     label(ctx, 'TAKEOFF\nLANDING', w / 2 - 40, 16, 8);

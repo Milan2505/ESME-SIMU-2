@@ -54,7 +54,10 @@ const PX_PER_M = 1280;
 // Face plane, dans le prolongement du bas du tableau (comme le vrai C172) ; avant, un bloc avançait de 15 cm vers les
 // sièges. Haut juste sous le bossage du tableau
 const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.657, z: -0.744 };
-const FUEL_PLATE = { width: 0.2, height: 0.156, x: 0, y: -0.884, z: -0.45 };
+// Sélecteur de réservoir : sur un caisson surélevé (~14 cm) au pied du pupitre, comme le vrai C172 ; avant, posé à plat
+// au plancher, détaché du pupitre
+const FUEL_PLATE = { width: 0.2, height: 0.156, x: 0, y: -0.76, z: -0.64 };
+const FLOOR_Y = -0.9;
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
 const FT = 1 / 0.3048;    // m -> pieds
@@ -532,12 +535,17 @@ class Cockpit {
             this._hotspots[name] = new Hotspots();
             return { mesh, ctx: canvas.getContext('2d'), texture };
         };
-        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.y + PEDESTAL.height / 2 + 0.9, 0.16), plastic), 0, (PEDESTAL.y + PEDESTAL.height / 2 - 0.9) / 2, PEDESTAL.z - 0.082);   // jusqu'au plancher, derrière la face
+        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.y + PEDESTAL.height / 2 - FLOOR_Y, 0.16), plastic), 0, (PEDESTAL.y + PEDESTAL.height / 2 + FLOOR_Y) / 2, PEDESTAL.z - 0.082);   // jusqu'au plancher, derrière la face
         this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
         add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);
         this._fuelPlate = canvasPlane(FUEL_PLATE, 'fuel');
         this._fuelPlate.mesh.rotation.x = -Math.PI / 2;
         add(this._fuelPlate.mesh, FUEL_PLATE.x, FUEL_PLATE.y, FUEL_PLATE.z);
+        // Caisson sous la plaque : du pied du pupitre jusqu'un peu au-delà de la plaque, côté sièges
+        {
+            const back = PEDESTAL.z - 0.004, front = FUEL_PLATE.z + FUEL_PLATE.height / 2 + 0.02, top = FUEL_PLATE.y - 0.002;
+            add(new Mesh(new BoxGeometry(0.22, top - FLOOR_Y, front - back), plastic), 0, (top + FLOOR_Y) / 2, (back + front) / 2);
+        }
 
         // Commandes en 3D du sous-panneau, du pupitre et du plancher
         const pixel = (spec, cx, cy) => new Vector3(spec.x - spec.width / 2 + cx / PX_PER_M, spec.y + spec.height / 2 - cy / PX_PER_M, spec.z);
