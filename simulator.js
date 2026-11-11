@@ -84,7 +84,7 @@ import { LIVERIES, DEFAULT_LIVERY, isLivery, paintAircraft } from './js/Liveries
 import { CESSNA_172 } from './js/Cessna172.js';
 import { F15 } from './js/F15.js';
 import { JetSystems, JET_MIL } from './js/JetSystems.js';
-import { loadF15, cloneF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT, F15_WHEEL_BOTTOM } from './js/F15Model.js';
+import { loadF15, cloneF15, paintF15, animateF15, inletSchedule, moveInlets, INLET_MAX, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT, F15_WHEEL_BOTTOM } from './js/F15Model.js';
 import { F15Cockpit } from './js/F15Cockpit.js';
 import { JetSound } from './js/JetSound.js';
 import { VERSION, VERSION_DATE } from './js/Version.js';
@@ -591,13 +591,20 @@ function updateJet(delta) {
     if (quiet) model.speedbrake = model.speedbrakeOut ? 1 : 0;
     if (!jetModel) return;
     const inputs = controls.getInputs();
+    // Entrées d'air : commande du calculateur (Mach, incidence, au sol, pression hydraulique : réacteurs tournants),
+    // suivie par les vérins (voir inletSchedule)
+    const hydraulics = jetSystems.engines.some((e) => e.running && e.n2 > 40);
+    moveInlets(jetInlet, inletSchedule({ mach: model.airspeed / 340, alphaDeg: THREE.MathUtils.radToDeg(model.alpha),
+        onGround: controls.isOnGround(), hydraulics, airspeed: model.airspeed }), delta);
     animateF15(jetModel, {
         pitch: inputs.pitch, roll: inputs.roll, yaw: inputs.yaw, flaps: controls.getFlaps(), speedbrake: model.speedbrake,
         canopy: jetCanopy, gear, steer: THREE.MathUtils.clamp(inputs.yaw + inputs.roll * 0.5, -1, 1),
         wheelSpeed: controls.getSpeed(), onGround: controls.isOnGround(),
         n2: jetSystems.engines.map((e) => e.n2), ab: jetSystems.engines.map((e) => e.ab), time: clock.elapsedTime,
+        inlet: jetInlet.inlet, ramp4: jetInlet.ramp4,
     }, delta);
 }
+const jetInlet = { inlet: INLET_MAX, ramp4: INLET_MAX };   // position des entrées d'air (degrés), voir inletSchedule
 
 // Train (touche Y, poignée du cockpit) ; aérofrein (touche U, bouton de la manette des gaz)
 function toggleGear() {

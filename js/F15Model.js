@@ -169,9 +169,9 @@ function lowDetailF15(model) {
             if (source.isSkinnedMesh) to[i].bind(new Skeleton(source.skeleton.bones.map((bone) => map.get(bone)), source.skeleton.boneInverses), source.bindMatrix);
         });
     }
-    // Pose lisse : train, trappes, volets, aérofrein et verrière rentrés
+    // Pose lisse : train, trappes, volets, aérofrein et verrière rentrés ; entrées d'air en croisière (Mach 0,8, incidence ~3°)
     animateF15(low, { pitch: 0, roll: 0, yaw: 0, flaps: 0, speedbrake: 0, canopy: 0, gear: 0, steer: 0, wheelSpeed: 0,
-        onGround: false, n2: [70, 70], ab: [0, 0], time: 0 }, 0);
+        onGround: false, n2: [70, 70], ab: [0, 0], time: 0, inlet: 9, ramp4: 0 }, 0);
     // Livrée : chaque pièce du modèle copié a sa propre copie du matériau (cloneF15) ; une seule par matériau d'origine
     // (même image), sinon rien ne se regroupe
     const liveries = new Map();
@@ -384,6 +384,16 @@ function prepare(scene) {
             { group: pivot(`${side}Door3`, find(`${side} Main door 3a`, `${side} Main door 3b`), fg(2.0028, y * 1.4783, -0.5905), fg(1, 0, 0)), gear: side, angle: table([[0, 0], [0.2, -s * 90], [0.8, -s * 90]]) },
         );
     }
+    // --- Entrées d'air mobiles ---
+    // Tout l'avant de chaque entrée d'air (rampe 1, extérieure, avec les rampes 2 et 3) pivote sur un axe transversal
+    // sous sa lèvre ; la rampe 4, au fond, a son propre axe. Axes et pièces : f15c.xml de FlightGear (F-15 de Richard
+    // Harrison, d'où vient ce modèle) ; angles : voir inletSchedule
+    const inlets = {
+        left: pivot('inletL', find('IntakeRampL0', 'IntakeRampL2', 'IntakeRampL3'), fg(-2.06031, -0.87825, -0.16711), fg(0, -1, 0)),
+        right: pivot('inletR', find('IntakeRampR0', 'IntakeRampR2', 'IntakeRampR3'), fg(-2.06031, 0.87825, -0.16711), fg(0, -1, 0)),
+        rampL4: pivot('ramp4L', find('IntakeRampL4'), fg(-0.3691, -1.1025, 0.5479), fg(0, -1, 0)),
+        rampR4: pivot('ramp4R', find('IntakeRampR4'), fg(-0.3691, 1.1025, 0.5479), fg(0, -1, 0)),
+    };
     const wheelRadius = new Box3().setFromObject(noseWheel[0]).getSize(new Vector3()).y / 2;
     const mainRadius = new Box3().setFromObject(left.spin).getSize(new Vector3()).y / 2;
 
@@ -488,7 +498,7 @@ function prepare(scene) {
     liveryUsers.set(F15_DEFAULT_LIVERY, (liveryUsers.get(F15_DEFAULT_LIVERY) ?? 0) + 1);
     root.userData = {
         livery: F15_DEFAULT_LIVERY,
-        parts: { ...p, noseGear, noseSteer, noseSpin, left, right, doors, fans, nozzles, flames, burners, wheelRadius, mainRadius },
+        parts: { ...p, noseGear, noseSteer, noseSpin, left, right, doors, inlets, fans, nozzles, flames, burners, wheelRadius, mainRadius },
     };
     return root;
 }
@@ -770,6 +780,32 @@ function paintF15(model, id) {
     });
 }
 
+// Entrées d'air mobiles du F-15 : l'avant de l'entrée d'air bascule pour rester face à l'écoulement (calculateur de
+// données air). Loi de commande du F-15 de FlightGear (Systems/f-15-cadc.xml, d'après NASA TP-3627, fig. 10) :
+// rampe 1 (extérieure, la partie visible) = part due au Mach (0° jusqu'à Mach 0,2, 4° à Mach 0,8) + part due à
+// l'incidence (16° à 9° d'incidence), entre 0 et 16° ; au sol, pression hydraulique présente : 16° (abaissée) ; sans
+// pression (réacteurs arrêtés) : abaissée au sol, poussée en butée haute par l'air en vol. Rampe 4 (au fond) : seulement
+// en supersonique (12° à Mach 2). Une seule commande pour les deux entrées (comme sur l'avion, hors secours)
+const INLET_MAX = 16;          // degrés
+const INLET_RATE = 10;         // degrés par seconde : les entrées bougent lentement (vérins hydrauliques)
+function inletSchedule({ mach, alphaDeg, onGround, hydraulics, airspeed }) {
+    if (!hydraulics) return { inlet: !onGround && airspeed > 15 ? 0 : INLET_MAX, ramp4: !onGround && mach > 0.6 ? 0 : INLET_MAX };
+    if (onGround) return { inlet: INLET_MAX, ramp4: 0 };
+    const fromMach = MathUtils.clamp((mach - 0.2) / 0.6, 0, 1) * 4;
+    const fromAlpha = Math.max(0, alphaDeg) / 9 * 16;
+    return {
+        inlet: MathUtils.clamp(fromMach + fromAlpha, 0, INLET_MAX),
+        ramp4: MathUtils.clamp((mach - 1) * 12, 0, INLET_MAX),
+    };
+}
+// Position suivie par les vérins : rapprochée de la commande d'au plus INLET_RATE °/s ; current : { inlet, ramp4 }
+function moveInlets(current, target, delta) {
+    const step = INLET_RATE * Math.max(0, delta);
+    current.inlet += MathUtils.clamp(target.inlet - current.inlet, -step, step);
+    current.ramp4 += MathUtils.clamp(target.ramp4 - current.ramp4, -step, step);
+    return current;
+}
+
 // Animation : state = { pitch, roll, yaw (-1 -> 1, + = cabrer / gauche), flaps (0 -> 1), speedbrake (0 -> 1),
 // canopy (0 -> 1), gear (0 rentré -> 1 sorti), steer (-1 -> 1), wheelSpeed (m/s), onGround, n2 [g, d] (%),
 // ab [g, d] (0 -> 1), time (s) }
@@ -781,6 +817,12 @@ function animateF15(model, state, delta) {
     if (!P) return;
     const set = (pivot, degrees) => pivot?.quaternion.setFromAxisAngle(pivot.userData.axis, FG_SIGN * deg(degrees));
     const rot = (pivot, degrees) => pivot?.quaternion.setFromAxisAngle(pivot.userData.axis, deg(degrees));
+    // Entrées d'air (degrés, voir inletSchedule) ; absentes : abaissées (avion à l'arrêt, sans pression hydraulique)
+    const inlet = state.inlet ?? INLET_MAX, ramp4 = state.ramp4 ?? INLET_MAX;
+    set(P.inlets?.left, inlet);
+    set(P.inlets?.right, inlet);
+    set(P.inlets?.rampL4, ramp4);
+    set(P.inlets?.rampR4, ramp4);
     // Stabilisateurs : ensemble pour le tangage, en différentiel pour le roulis ; bord d'attaque vers le bas pour cabrer
     const pitch = -state.pitch * 20, roll = state.roll * 10;
     rot(P.stabL, MathUtils.clamp(pitch - roll, -29, 29));
@@ -853,6 +895,6 @@ function animateF15(model, state, delta) {
 }
 
 export {
-    loadF15, cloneF15, lowDetailF15, paintF15, animateF15, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT,
+    loadF15, cloneF15, lowDetailF15, paintF15, animateF15, inletSchedule, moveInlets, INLET_MAX, F15_LIVERIES, F15_DEFAULT_LIVERY, isF15Livery, F15_LIGHT_LAYOUT,
     WHEEL_BOTTOM as F15_WHEEL_BOTTOM, COCKPIT_EYE as F15_COCKPIT_EYE,
 };

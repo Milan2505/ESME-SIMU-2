@@ -11,7 +11,7 @@ import {
 import { LIVERIES, paintAircraft } from './Liveries.js';
 import { setRegistration } from './C172Model.js';
 import { AircraftLights } from './AircraftLights.js';
-import { cloneF15, lowDetailF15, paintF15, animateF15, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
+import { cloneF15, lowDetailF15, paintF15, animateF15, inletSchedule, moveInlets, INLET_MAX, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
 import { SmokeTrail } from './Damage.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
@@ -43,6 +43,7 @@ const LANDING_LIGHT = { intensity: 12000, distance: 400, angle: 20 * Math.PI / 1
     position: [-2.2, 1.12, -3], target: [-1.2, -2.4, -80] };
 
 const _forward = new Vector3();
+const _bodyUp = new Vector3();
 const _smokePoint = new Vector3();
 // Fumée d'un avion touché : sortie des réacteurs (F-15), moteur à l'avant (Cessna) ; repère avion
 const SMOKE_SOURCE = { f15: new Vector3(0, 0.4, 8.5), c172: new Vector3(0, 0.3, -4) };
@@ -283,9 +284,19 @@ class RemotePlayers extends EventTarget {
                     group.add(useLow ? plane.low : plane.model);
                     plane.lights.occluder = useLow ? plane.low : plane.model;   // (occultation des feux)
                 }
+                // Entrées d'air : même loi que chez le joueur (voir inletSchedule), d'après ce qu'on reçoit : incidence tirée
+                // de son orientation et de sa vitesse, au sol s'il roule lentement train sorti, réacteurs tournants (N2)
+                const speed = this._velocity.length();
+                _forward.set(0, 0, -1).applyQuaternion(group.quaternion);
+                _bodyUp.set(0, 1, 0).applyQuaternion(group.quaternion);
+                const alphaDeg = speed > 5 ? Math.atan2(-this._velocity.dot(_bodyUp), this._velocity.dot(_forward)) * 180 / Math.PI : 0;
+                plane.inlet ??= { inlet: INLET_MAX, ramp4: INLET_MAX };
+                moveInlets(plane.inlet, inletSchedule({ mach: speed / 340, alphaDeg, onGround: (j.gear ?? 1) > 0.5 && speed < 40,
+                    hydraulics: n2 > 40 && !state.crashed, airspeed: speed }), delta);
                 animateF15(useLow ? plane.low : plane.model, {
                     pitch: 0, roll: 0, yaw: 0, flaps: j.flaps ?? 0, speedbrake: j.speedbrake ?? 0, canopy: j.canopy ?? 0,
                     gear: j.gear ?? 1, steer: 0, wheelSpeed: 0, onGround: false, n2: [n2, n2], ab: [ab, ab], time: plane.anim.time,
+                    inlet: plane.inlet.inlet, ramp4: plane.inlet.ramp4,
                 }, delta);
             }
 
