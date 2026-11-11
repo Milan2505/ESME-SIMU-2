@@ -287,7 +287,7 @@ class Controls3D {
         this._parts.trimWheel = wheel;
 
         // Sélecteur de réservoir : poignée blanche effilée sur le plancher
-        const selRoot = this._add('fuelSelector', floorPoint(128, 100 + pedestalLayout.fuelSelector.y));
+        const selRoot = this._add('fuelSelector', floorPoint(null, 100 + pedestalLayout.fuelSelector.y));
         const selector = new Group();
         const pointer = new Mesh(new BoxGeometry(0.018, 0.016, 0.075), white);
         pointer.position.set(0, 0.008, -0.03);

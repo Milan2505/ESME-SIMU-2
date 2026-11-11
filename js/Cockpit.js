@@ -56,7 +56,9 @@ const PX_PER_M = 1280;
 const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.657, z: -0.744 };
 // Sélecteur de réservoir : sur un caisson surélevé (~14 cm) au pied du pupitre, comme le vrai C172 ; avant, posé à plat
 // au plancher, détaché du pupitre
-const FUEL_PLATE = { width: 0.2, height: 0.156, x: 0, y: -0.76, z: -0.64 };
+// Étroit (14 cm) : il passe entre les palonniers de gauche et de droite sans les toucher
+const FUEL_PLATE = { width: 0.14, height: 0.156, x: 0, y: -0.76, z: -0.64 };
+const CONSOLE_WIDTH = 0.15;   // caisson du sélecteur et bas du pupitre, entre les palonniers
 const FLOOR_Y = -0.9;
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
@@ -535,7 +537,12 @@ class Cockpit {
             this._hotspots[name] = new Hotspots();
             return { mesh, ctx: canvas.getContext('2d'), texture };
         };
-        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.y + PEDESTAL.height / 2 - FLOOR_Y, 0.16), plastic), 0, (PEDESTAL.y + PEDESTAL.height / 2 + FLOOR_Y) / 2, PEDESTAL.z - 0.082);   // jusqu'au plancher, derrière la face
+        // Pupitre : large (22 cm) à hauteur de sa plaque, étroit plus bas, entre les palonniers, jusqu'au plancher
+        {
+            const top = PEDESTAL.y + PEDESTAL.height / 2, waist = FUEL_PLATE.y;
+            add(new Mesh(new BoxGeometry(0.22, top - waist, 0.16), plastic), 0, (top + waist) / 2, PEDESTAL.z - 0.082);
+            add(new Mesh(new BoxGeometry(CONSOLE_WIDTH, waist - FLOOR_Y, 0.16), plastic), 0, (waist + FLOOR_Y) / 2, PEDESTAL.z - 0.082);
+        }
         this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
         add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);
         this._fuelPlate = canvasPlane(FUEL_PLATE, 'fuel');
@@ -544,7 +551,7 @@ class Cockpit {
         // Caisson sous la plaque : du pied du pupitre jusqu'un peu au-delà de la plaque, côté sièges
         {
             const back = PEDESTAL.z - 0.004, front = FUEL_PLATE.z + FUEL_PLATE.height / 2 + 0.02, top = FUEL_PLATE.y - 0.002;
-            add(new Mesh(new BoxGeometry(0.22, top - FLOOR_Y, front - back), plastic), 0, (top + FLOOR_Y) / 2, (back + front) / 2);
+            add(new Mesh(new BoxGeometry(CONSOLE_WIDTH, top - FLOOR_Y, front - back), plastic), 0, (top + FLOOR_Y) / 2, (back + front) / 2);
         }
 
         // Commandes en 3D du sous-panneau, du pupitre et du plancher
@@ -554,7 +561,8 @@ class Cockpit {
             px: panelLength,
             layout: PANEL_LAYOUT,
             pedestalPoint: (cx, cy) => pixel(PEDESTAL, cx, cy),
-            floorPoint: (cx, cy) => new Vector3(FUEL_PLATE.x - FUEL_PLATE.width / 2 + cx / PX_PER_M, FUEL_PLATE.y,
+            // (cx null : milieu de la plaque)
+            floorPoint: (cx, cy) => new Vector3(cx === null ? FUEL_PLATE.x : FUEL_PLATE.x - FUEL_PLATE.width / 2 + cx / PX_PER_M, FUEL_PLATE.y,
                 FUEL_PLATE.z - FUEL_PLATE.height / 2 + cy / PX_PER_M),
             pedestalLayout: PEDESTAL_LAYOUT,
         });
