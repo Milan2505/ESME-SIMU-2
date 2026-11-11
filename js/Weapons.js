@@ -494,6 +494,13 @@ class AAMissile {
 const GUN_SAMPLE = 'asset/sounds/f15/m61a1.wav';
 const GUN_LOOP = [0.05, 1.45];   // s : partie continue de l'enregistrement
 const GUN_LEVEL = { outside: 0.6, cabin: 0.45, remote: 0.6 };
+// Autres sons de combat enregistrés (même source) : départ de missile, obus qui frappent le fuselage, explosion de missile
+const COMBAT_SAMPLES = { launch: 'aim-discharge', strike: 'fuselage-strike', explosion: 'aim-explosion' };
+// Détecteur d'alerte radar (RWR, famille ALR-56 du F-15) : tonalités du vrai système (documentation reprise par Falcon
+// BMS et DCS) : nouvelle menace (« new guy ») = 3 salves en 1,5 s ; radar en veille qui nous balaie = brève salve à
+// chaque passage ; verrouillage = tonalité continue ; tir de missile = 1 000 Hz, 100 ms oui / 100 ms non pendant 2 s,
+// repris toutes les 15 s plus grave (515 Hz) tant que le missile vole vers nous
+const RWR = { emitter: 1350, sweep: 2.2, launch: 1000, recycle: 515, recycleEvery: 15 };
 
 class WeaponSounds {
     constructor() {
@@ -512,6 +519,33 @@ class WeaponSounds {
             this.sampled = true;
             for (const loop of [this.own, this.remote]) this._restart(loop);
         }).catch(() => { /* son synthétisé conservé */ });
+        this.samples ??= {};
+        for (const [key, file] of Object.entries(COMBAT_SAMPLES)) {
+            loadSound(this.ctx, `asset/sounds/f15/${file}.wav`).then((buffer) => { this.samples[key] = buffer; }).catch(() => {});
+        }
+    }
+
+    // Son enregistré joué une fois (null : pas encore chargé)
+    _playSample(key, volume, delay = 0) {
+        const buffer = this.samples?.[key];
+        if (!buffer || !this.ctx || this.ctx.state !== 'running' || volume <= 0) return null;
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = this.ctx.createGain();
+        gain.gain.value = volume;
+        source.connect(gain).connect(this.master);
+        source.start(this.ctx.currentTime + delay);
+        return source;
+    }
+
+    // Obus ennemis qui frappent notre avion
+    strike(volume = 1) {
+        if (this._init()) this._playSample('strike', 0.9 * volume);
+    }
+
+    // Explosion d'un missile (volume selon la distance) ; false : pas encore chargée (le jeu joue alors son bruit d'explosion)
+    explosion(volume, delay = 0) {
+        return Boolean(this._init() && this._playSample('explosion', volume, delay));
     }
 
     _source() {
@@ -598,25 +632,74 @@ class WeaponSounds {
         this.remote.filter.frequency.setTargetAtTime(1200 + 3000 * remote, now, 0.05);
     }
 
-    // Alerte radar (RWR) : un autre joueur nous accroche ('search' : bip lent) ou nous a verrouillés ('lock' : bips
-    // rapides et aigus)
-    rwr(state) {
-        if (state === 'off' || !this._init() || this.ctx.state !== 'running') return;
-        const now = this.ctx.currentTime;
-        if (now < (this._rwrNext ?? 0)) return;
-        const lock = state === 'lock';
-        this._rwrNext = now + (lock ? 0.16 : 0.8);
-        const osc = this.ctx.createOscillator();
+    // Salve de tonalité du RWR (fréquence en Hz, début et durée en s, volume) : onde carrée adoucie (casque)
+    _tone(frequency, start, duration, volume) {
+        const ctx = this.ctx;
+        const osc = ctx.createOscillator();
         osc.type = 'square';
-        osc.frequency.value = lock ? 1600 : 900;
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.09, now + 0.005);
-        gain.gain.setValueAtTime(0.09, now + (lock ? 0.08 : 0.12));
-        gain.gain.linearRampToValueAtTime(0, now + (lock ? 0.09 : 0.13));
-        osc.connect(gain).connect(this.master);
-        osc.start(now);
-        osc.stop(now + 0.15);
+        osc.frequency.value = frequency;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 3200;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(volume, start + 0.004);
+        gain.gain.setValueAtTime(volume, start + duration - 0.006);
+        gain.gain.linearRampToValueAtTime(0, start + duration);
+        osc.connect(filter).connect(gain).connect(this.master);
+        osc.start(start);
+        osc.stop(start + duration + 0.02);
+    }
+
+    // Alerte radar (RWR). state : 'off', 'search' (un radar nous balaie), 'lock' (verrouillés) ; source : qui (nouvelle
+    // menace : « new guy ») ; incoming : nombre de missiles air-air en vol vers nous
+    rwr(state, source = '', incoming = 0) {
+        if ((state === 'off' && !incoming && !this._lockTone) || !this._init() || this.ctx.state !== 'running') {
+            if (state === 'off') this._rwrSource = '';
+            if (!incoming) this._incoming = 0;
+            return;
+        }
+        const ctx = this.ctx, now = ctx.currentTime;
+        // Nouvelle menace : 3 salves en 1,5 s
+        if (state !== 'off' && source !== this._rwrSource) {
+            for (let i = 0; i < 3; i++) this._tone(RWR.emitter, now + i * 0.5, 0.3, 0.1);
+            this._rwrNext = now + 1.5 + RWR.sweep;
+        }
+        this._rwrSource = state === 'off' ? '' : source;
+        // Radar en veille : brève salve à chaque passage du faisceau sur nous
+        if (state === 'search' && now >= (this._rwrNext ?? 0)) {
+            this._tone(RWR.emitter, now, 0.14, 0.08);
+            this._rwrNext = now + RWR.sweep;
+        }
+        // Verrouillage : tonalité continue (le radar de tir reste sur nous)
+        if (state === 'lock' && !this._lockTone) {
+            const osc = ctx.createOscillator();
+            osc.type = 'square';
+            osc.frequency.value = RWR.emitter;
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 3200;
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.07, now + 0.02);
+            osc.connect(filter).connect(gain).connect(this.master);
+            osc.start(now);
+            this._lockTone = { osc, gain };
+        } else if (state !== 'lock' && this._lockTone) {
+            this._lockTone.gain.gain.setTargetAtTime(0, now, 0.02);
+            this._lockTone.osc.stop(now + 0.1);
+            this._lockTone = null;
+        }
+        // Tir de missile sur nous : 1 000 Hz haché pendant 2 s ; repris toutes les 15 s à 515 Hz tant qu'il vole
+        if (incoming > (this._incoming ?? 0)) {
+            for (let t = 0; t < 2; t += 0.2) this._tone(RWR.launch, now + t, 0.1, 0.16);
+            this._recycleAt = now + RWR.recycleEvery;
+        } else if (incoming && now >= (this._recycleAt ?? Infinity)) {
+            for (let t = 0; t < 2; t += 0.2) this._tone(RWR.recycle, now + t, 0.1, 0.14);
+            this._recycleAt = now + RWR.recycleEvery;
+        }
+        if (!incoming) this._recycleAt = Infinity;
+        this._incoming = incoming;
     }
 
     // Autodirecteur de l'AIM-9 dans le casque : 'off', 'search' (grondement grave), 'lock' (tonalité aiguë)
@@ -649,17 +732,24 @@ class WeaponSounds {
             lfo.start();
             this._seeker = { osc, lfo, depth, filter, gain };
         }
+        // « Brrrr » de l'autodirecteur : faible et grave sans cible ; une cible chaude dans le cercle le rend plus fort et
+        // plus aigu, d'autant plus qu'elle est près du centre (signal) et que le verrouillage avance (progress) ;
+        // verrouillé : sifflement aigu continu. Niveaux relevés : il se perdait sous le bruit des réacteurs
         const now = this.ctx.currentTime, k = this._seeker;
-        const level = { off: 0, search: 0.035, track: 0.09 + 0.05 * progress, lock: 0.12 }[state] ?? 0;
+        const signal = this.seekerSignal ?? 0;
+        const strength = Math.min(1, 0.35 * signal + 0.65 * progress);
+        const level = { off: 0, search: 0.06, track: 0.12 + 0.2 * strength, lock: 0.26 }[state] ?? 0;
         k.gain.gain.setTargetAtTime(level, now, 0.04);
-        k.osc.frequency.setTargetAtTime(state === 'lock' ? 1150 : state === 'track' ? 190 + 160 * progress : 150, now, 0.05);
-        k.lfo.frequency.setTargetAtTime(state === 'track' ? 24 + 10 * progress : 20, now, 0.05);
+        k.osc.frequency.setTargetAtTime(state === 'lock' ? 1150 : state === 'track' ? 160 + 360 * strength : 115, now, 0.05);
+        k.lfo.frequency.setTargetAtTime(state === 'track' ? 22 + 16 * strength : 18, now, 0.05);
         k.depth.gain.setTargetAtTime(state === 'lock' ? 0.05 : 0.5, now, 0.05);
-        k.filter.frequency.setTargetAtTime(state === 'lock' ? 4000 : 900 + 900 * progress, now, 0.05);
+        k.filter.frequency.setTargetAtTime(state === 'lock' ? 4000 : 900 + 1600 * strength, now, 0.05);
     }
 
     whoosh(volume = 1) {
         if (!this._init()) return;
+        // Enregistrement du départ d'un missile (F-15 de FlightGear) ; en attendant : souffle synthétisé
+        if (this._playSample('launch', 0.9 * volume)) return;
         const source = this.ctx.createBufferSource();
         source.buffer = this.whooshBuffer;
         const filter = this.ctx.createBiquadFilter();
@@ -1041,6 +1131,8 @@ class Weapons extends EventTarget {
             return _fwd.angleTo(_d.subVectors(t.group.position, own.aircraft.position));
         };
         let current = this.lockId ? targets.find((t) => t.id === this.lockId) : null;
+        // Signal de l'autodirecteur (0 -> 1) : cible près du centre du cercle (le « brrrr » s'intensifie, voir seeker)
+        this.sounds.seekerSignal = current ? Math.max(0, 1 - angleTo(current) / AAM.seeker) : 0;
         if (current && angleTo(current) > AAM.keep) current = null;
         if (!current) {
             if (this.lockId) this._resetLock();
@@ -1203,7 +1295,10 @@ class Weapons extends EventTarget {
         this.aaReload = Math.max(0, this.aaReload - delta);
         this.flareReload = Math.max(0, this.flareReload - delta);
         this.flares.update(delta);
-        this.sounds.rwr(this.threat);
+        // Missiles air-air en vol vers nous (pas ceux partis sur un leurre)
+        let incoming = 0;
+        if (own.id) for (const m of this.aaInFlight) if (m.targetId === own.id && !m.exploded && !m.decoy) incoming++;
+        this.sounds.rwr(this.threat, this.threatName ?? '', incoming);
         this._updateLock(delta, own, targets);
         this.sounds.seeker(this.selected === 'aa' && own.armed ? (this.locked ? 'lock' : this.lockId ? 'track' : 'search') : 'off', this.lockProgress);
         const wantFire = ((this.trigger && this.selected === 'gun') || this.gunKey) && own.armed && this.ammo > 0 && !this.overheated;

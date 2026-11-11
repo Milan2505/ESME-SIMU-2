@@ -1,4 +1,4 @@
-import { sharedAudioContext } from './AudioUnlock.js';
+import { sharedAudioContext, loadSound } from './AudioUnlock.js';
 
 // Alarmes du F-15 (seulement sur le F-15 : les alarmes du Cessna — DÉCROCHAGE, BANK ANGLE, SINK RATE / PULL UP de
 // l'EGPWS Airbus — n'y sonnent plus). Comme sur le vrai avion :
@@ -12,8 +12,13 @@ import { sharedAudioContext } from './AudioUnlock.js';
 //   avec la masse : 9 g léger, 7,33 g lourd), « ALTITUDE » (sous la hauteur d'alerte de la sonde radar), « BINGO »,
 //   « FUEL LOW », « LEFT / RIGHT ENGINE OUT », « HYDRAULIC », « FLIGHT CONTROLS » ;
 // - avertisseur d'incidence (bip haché du vrai F-15, déjà dans JetSound.js : inchangé).
-// La voix : voix neuronale de la radio (RadioVoices.synthesize), filtrée comme un casque ; en attendant qu'elle soit
-// calculée, ou si elle est indisponible, voix de l'ordinateur.
+// Sons enregistrés du F-15 (projet FlightGear F-15 de Richard Harrison, comme les réacteurs ; voir
+// asset/sounds/LICENSE.txt), joués dans les mêmes conditions que dans FlightGear (f15-sound.xml) : « WARNING » à
+// l'allumage du MASTER CAUTION, « BINGO FUEL », « FUEL LOW », avertisseur de surcharge (OWS : tonalités à 85, 92 et 96 %
+// du facteur de charge permis, puis la voix « OVER G » au-delà), tonalité d'alarme du train. Les autres annonces, sans
+// enregistrement libre de droits : voix neuronale de la radio (RadioVoices.synthesize), filtrée comme un casque ; en
+// attendant qu'elle soit calculée, ou si elle est indisponible, voix de l'ordinateur. Même repli pour un enregistrement
+// pas encore chargé.
 
 const FT = 0.3048, KT = 1.944;
 const BINGO_KG = 1360;          // 3 000 lb : réglage du BINGO
@@ -30,7 +35,7 @@ const PHRASES = {
     missile:  { text: 'Missile. Missile.', priority: 1, repeat: 0 },     // missile air-air tiré sur nous
     fireL:    { text: 'Warning. Engine fire left. Engine fire left.', priority: 1, repeat: 5 },
     fireR:    { text: 'Warning. Engine fire right. Engine fire right.', priority: 1, repeat: 5 },
-    overG:    { text: 'Over G. Over G.', priority: 2, repeat: 2.5 },
+    overG:    { text: 'Over G. Over G.', priority: 2, repeat: 0.3 },   // (en boucle tant que dure la surcharge, comme dans FlightGear)
     lock:     { text: 'Lock. Lock.', priority: 2, repeat: 0 },
     fox2:     { text: 'Fox two!', priority: 2, repeat: 0 },                 // missile air-air tiré           // autodirecteur de l'AIM-9 verrouillé : tirez
     altitude: { text: 'Altitude. Altitude.', priority: 2, repeat: 0 },
@@ -54,6 +59,20 @@ const LABELS = {
     bstPmp: 'BST PMP', spdBk: 'SPD BK OUT', canopy: 'CANOPY', jfsLow: 'JFS LOW',
 };
 const WARNINGS = ['pullUp', 'fireL', 'fireR', 'amadFire', 'overG', 'altLow', 'gearWarning'];
+const SOUND_DIR = 'asset/sounds/f15/';
+// Annonces enregistrées (voix du F-15) : phrase -> fichier
+const RECORDED = { bingo: 'betty-bingo-fuel', fuelLow: 'betty-fuel-low', overG: 'betty-ows-overload' };
+const CAUTION_VOICE = 'betty-warning';
+const GEAR_TONE = 'f-15-warning-tone';
+// Avertisseur de surcharge (OWS) : part du facteur de charge permis -> tonalité, en boucle (f-15-cadc.xml : ows-overg-*)
+const OWS_TONES = [[0.96, 'ows-overload-96'], [0.92, 'ows-overload-92'], [0.85, 'ows-overload-85']];
+const SAMPLE_FILES = [...Object.values(RECORDED), CAUTION_VOICE, GEAR_TONE, ...OWS_TONES.map(([, f]) => f)];
+// Niveau de chaque enregistrement, calculé sur les fichiers : volume perçu égalisé (voix ~0,2 efficace en sortie,
+// tonalités un peu moins), crête sous 0,95 (pas de saturation) ; les originaux vont du faible à la saturation (« Over G »)
+const SAMPLE_GAIN = {
+    'betty-warning': 0.79, 'betty-bingo-fuel': 1.16, 'betty-fuel-low': 0.79, 'betty-ows-overload': 0.42,
+    'ows-overload-85': 0.22, 'ows-overload-92': 0.25, 'ows-overload-96': 0.22, 'f-15-warning-tone': 1.11,
+};
 
 class F15Warnings {
     constructor({ voices = null } = {}) {
@@ -76,6 +95,48 @@ class F15Warnings {
         this._audio = null;
         this.volume = 1;
         this._announced = new Set();      // annonces ponctuelles demandées (lock, missile)
+        this._samples = new Map();        // fichier -> AudioBuffer (sons enregistrés du F-15)
+        this._ows = null;                 // tonalité de l'avertisseur de surcharge en cours : { file, source, gain }
+    }
+
+    // Sons enregistrés : chargés une fois (dès que le son est possible)
+    _loadSamples() {
+        if (this._samplesLoading) return;
+        this._samplesLoading = true;
+        for (const file of SAMPLE_FILES) {
+            loadSound(this._audio, `${SOUND_DIR}${file}.wav`).then((buffer) => this._samples.set(file, buffer)).catch(() => {});
+        }
+    }
+
+    // Joue un son enregistré ; null s'il n'est pas (encore) chargé
+    _playSample(file, gainValue = SAMPLE_GAIN[file] ?? 1, destination = this._out) {
+        const buffer = this._samples.get(file);
+        const ctx = this._audio;
+        if (!buffer || !ctx || ctx.state !== 'running') return null;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = ctx.createGain();
+        gain.gain.value = gainValue * this.volume;
+        source.connect(gain).connect(destination);
+        source.start();
+        return { source, gain, duration: buffer.duration };
+    }
+
+    // Avertisseur de surcharge : tonalité en boucle selon la part du facteur de charge permis (null : aucune)
+    _owsTone(file) {
+        if (this._ows?.file === file) {
+            this._ows.gain.gain.value = SAMPLE_GAIN[file] * this.volume;
+            return;
+        }
+        if (this._ows) {
+            try { this._ows.source.stop(); } catch { /* déjà arrêtée */ }
+            this._ows = null;
+        }
+        if (!file) return;
+        const played = this._playSample(file);
+        if (!played) return;
+        played.source.loop = true;
+        this._ows = { file, ...played };
     }
 
     // Calcul des phrases à l'avance (une fois, voix neuronale)
@@ -120,6 +181,7 @@ class F15Warnings {
         const gain = ctx.createGain();
         gain.gain.value = 1.8;
         this._voiceIn.connect(low).connect(gain).connect(this._out);
+        this._loadSamples();
         return ctx;
     }
 
@@ -144,8 +206,9 @@ class F15Warnings {
         osc.stop(t + duration + 0.05);
     }
 
-    // MASTER CAUTION : deux notes
+    // MASTER CAUTION : voix « WARNING » du F-15 (en attendant qu'elle soit chargée : deux notes)
     _cautionTone() {
+        if (this._playSample(CAUTION_VOICE)) return;
         this._beep(1000, 0.16, 0);
         this._beep(750, 0.16, 0.2);
     }
@@ -153,6 +216,14 @@ class F15Warnings {
     // Phrase de la voix d'alarme
     _say(key) {
         const phrase = PHRASES[key];
+        // Annonce enregistrée du F-15
+        const recorded = RECORDED[key] && this._context() && this._playSample(RECORDED[key]);
+        if (recorded) {
+            const speaking = { key, priority: phrase.priority, done: false, stop: () => { try { recorded.source.stop(); } catch { /* déjà fini */ } } };
+            recorded.source.onended = () => { speaking.done = true; };
+            this._speaking = speaking;
+            return;
+        }
         const buffer = this._buffers.get(key);
         const ctx = this._context();
         if (buffer && ctx && ctx.state === 'running') {
@@ -217,6 +288,7 @@ class F15Warnings {
             this._altArmed = false;
             if (this._speaking && !this._speaking.done) this._speaking.stop();
             this._speaking = null;
+            this._owsTone(null);
             return;
         }
         if (!this._buffers.size && this._time >= (this._retryAt ?? 0)) this._prepare();
@@ -309,14 +381,23 @@ class F15Warnings {
         a.gearSilenced = this._gearSilenced;
         this.alarms = a;
 
-        // Bip du train : 0,25 s toutes les 0,5 s
+        // Tonalité d'alarme du train (enregistrement du F-15, enchaîné ; en attendant : bip de 0,25 s toutes les 0,5 s)
         if (a.gearWarning && !this._gearSilenced) {
             this._gearBeep -= delta;
             if (this._gearBeep <= 0) {
-                this._gearBeep = 0.5;
-                this._beep(1250, 0.25, 0, 0.12);
+                const tone = this._playSample(GEAR_TONE);
+                if (tone) this._gearBeep = tone.duration;
+                else {
+                    this._gearBeep = 0.5;
+                    this._beep(1250, 0.25, 0, 0.12);
+                }
             }
         } else this._gearBeep = 0;
+
+        // Avertisseur de surcharge : tonalités de plus en plus pressantes à 85, 92 et 96 % du facteur de charge permis
+        // (au-delà : la voix « OVER G », voir conditions)
+        const owsShare = flying && powered ? s.g / allowed : 0;
+        this._owsTone(a.overG ? null : OWS_TONES.find(([share]) => owsShare >= share)?.[1] ?? null);
 
         // Voix : phrases dont la condition est vraie
         const conditions = {

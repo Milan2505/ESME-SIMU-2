@@ -4486,7 +4486,7 @@ multiplayer.addEventListener('aamissile', ({ detail }) => {
     weapons.addRemoteAA({ from: new THREE.Vector3().fromArray(detail.from), velocity: new THREE.Vector3().fromArray(detail.velocity),
         targetId: detail.targetId, missileId: detail.missileId }, detail.id, detail.name, camera.position);
     if (detail.atMe && !controls.isCrashed()) {
-        if (aircraftType === 'f15') f15Warnings.announce('missile');
+        // (alerte de tir : tonalité du détecteur radar du vrai F-15, voir WeaponSounds.rwr ; plus de voix « Missile »)
         weaponHud.message(`MISSILE EN APPROCHE ! (${detail.name}) ← : LEURRES`, true);
     }
 });
@@ -4519,7 +4519,9 @@ weapons.addEventListener('message', ({ detail }) => weaponHud.message(detail.tex
 weapons.addEventListener('explosion', ({ detail }) => {
     startExplosion(detail.position);
     const distance = detail.position.distanceTo(camera.position);
-    sounds.play('crash', { volume: THREE.MathUtils.clamp(150 / distance, 0.08, 1), delay: Math.min(4, distance / 343) });
+    // Explosion de missile enregistrée (F-15 de FlightGear) ; pas encore chargée : bruit d'explosion du jeu
+    const blastVolume = THREE.MathUtils.clamp(150 / distance, 0.08, 1), blastDelay = Math.min(4, distance / 343);
+    if (!weapons.sounds.explosion(blastVolume, blastDelay)) sounds.play('crash', { volume: blastVolume, delay: blastDelay });
     if (distance < 400) shake = Math.max(shake, 0.8 * (1 - distance / 400));
     if (controls.isCrashed() || choosingSpawn || inHangar) return;
     if (detail.kind === 'aa') return;   // (missile air-air : les dégâts viennent du tireur, voir Weapons.js)
@@ -4543,7 +4545,7 @@ multiplayer.addEventListener('hit', ({ detail }) => {
 damage.addEventListener('hit', () => {
     weaponHud.flash = 1;
     shake = Math.max(shake, 0.3);
-    sounds.click(0.7, 260 + Math.random() * 120);
+    weapons.sounds.strike();   // obus qui frappent le fuselage (enregistrement du F-15)
 });
 // Abattu : annoncé une seule fois par vie (le tireur s'ajoute la victoire, voir l'événement 'kill'), compté dans notre
 // score. Avant, seule la destruction par les dégâts comptait : un avion touché qui finissait au sol (réacteurs coupés,
@@ -4940,6 +4942,7 @@ function updateCombat(frameDelta) {
         }
     }
     weapons.threat = threat.state;
+    weapons.threatName = threat.name;   // (RWR : nouvelle menace, « new guy »)
     camera.updateMatrixWorld();
     // Mode missile : la croix rouge suit la souris au sol (au centre de l'écran sans souris)
     if (armed && weapons.selected === 'missile') weapons.aim(camera, pointerNdc);
