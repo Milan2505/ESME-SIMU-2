@@ -697,8 +697,10 @@ class Multiplayer extends EventTarget {
         }
         // Équipe changée : listes refaites (couleurs, places restantes)
         if (previous && previous.team !== state.team) this._emitPlayers();
-        // Nouveau joueur, ou pseudo changé en cours de partie (menu Profil) : listes des joueurs refaites
-        if (!previous || previous.name !== state.name) this._emitPlayers();
+        // Nouveau joueur, pseudo changé en cours de partie (menu Profil) ou autre avion (Cessna <-> F-15, choisi au hangar
+        // après avoir rejoint la partie) : listes des joueurs et avions refaits. Avant, le changement d'avion n'était pas
+        // signalé : les autres continuaient de voir un Cessna à la place d'un F-15
+        if (!previous || previous.name !== state.name || previous.aircraft !== state.aircraft) this._emitPlayers();
 
         // Rejoindre : la partie existe ; on laisse arriver les autres joueurs avant de vérifier qu'il reste de la place
         if (!this._joined && !this._counting) {

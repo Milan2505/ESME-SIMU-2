@@ -235,6 +235,11 @@ class RemotePlayers extends EventTarget {
         for (const [id, plane] of this.planes) {
             const state = this.multiplayer.players.get(id);
             if (!state) continue;
+            // Filet de sécurité : avion affiché d'un autre type que celui que le joueur pilote -> refait (voir _sync)
+            if ((state.aircraft === 'f15' ? 'f15' : 'c172') !== plane.type && !this._resyncing) {
+                this._resyncing = true;
+                queueMicrotask(() => { this._resyncing = false; this._sync(); });
+            }
 
             // Prédiction : position reçue + vitesse × ancienneté du message
             // (temps depuis la réception + attente sur le serveur + trajets réseau aller/retour)
