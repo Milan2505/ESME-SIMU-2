@@ -403,7 +403,7 @@ class Graphics {
     // Densité de pixels max en résolution automatique : celle de l'écran, dans la limite du budget de pixels
     _autoMaxRatio() {
         const { width, height } = this._cssSize;
-        return Math.max(this._autoMinRatio(), Math.min(this.maxPixelRatio, Math.sqrt(PIXEL_BUDGET / (width * height))));
+        return Math.max(this._autoMinRatio(), Math.min(this.maxPixelRatio, Math.sqrt((this.pixelBudget ?? PIXEL_BUDGET) / (width * height))));
     }
 
     // Densité de pixels min en résolution automatique (celle de l'écran si elle est plus basse)

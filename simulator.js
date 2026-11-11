@@ -238,6 +238,10 @@ const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // au-delà : très coûteux, gain à peine visible (+ MSAA)
 const graphics = new Graphics(renderer, scene, camera, sunLight);
+// Téléphone : au plus ~0,9 million de pixels calculés par image en résolution automatique (2,1 millions ailleurs). Sur un
+// écran très dense (3 pixels physiques par pixel CSS), il en calculait autant qu'un ordinateur en Full HD : ~40 Mo de
+// tampons d'image en mémoire graphique, pour une image à peine plus fine sur un si petit écran
+if (isPhone()) graphics.pixelBudget = 0.9e6;
 const multiplayer = new Multiplayer();
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound,
     altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight }, registrationFor: (id) => registrationFor(id) });
@@ -2190,7 +2194,14 @@ function runwayFlaps() {
 }
 controls.addEventListener('reset', runwayFlaps);
 
+// Départ : relief proche construit en entier, shaders compilés, cabine affichée : pic de mémoire. Page fermée pendant ces
+// secondes (téléphone) : qualité réduite d'un cran à la réouverture (voir LOAD_MARK). Avant, seuls l'écran de chargement
+// et le chargement du F-15 étaient couverts
+let spawnMarkTimer = 0;
 function spawnAt(spawn) {
+    markHeavyLoad(true);
+    clearTimeout(spawnMarkTimer);
+    spawnMarkTimer = setTimeout(() => { if (!jetLoading || jetModel) markHeavyLoad(false); }, 15000);
     watchNewShaders();
     currentSpawn = spawn;
     aircraft.position.set(spawn.x, 0, spawn.z);
@@ -3898,15 +3909,18 @@ try {
     crashedWhileLoading = mark > 0 && Date.now() - mark < 20 * 60 * 1000;
     localStorage.removeItem(LOAD_MARK);
 } catch { /* stockage indisponible */ }
-if (crashedWhileLoading && settings.preset !== 'bas') {
-    settings.applyPreset('bas');
+// Page fermée pendant un chargement ou un départ : un cran plus bas (Bas, puis Très bas : décor d'origine, sans nuages).
+// Avant, seulement « Bas » : sur téléphone, c'était déjà le réglage par défaut, rien ne changeait et la page refermait
+const lowerPreset = settings.preset === 'tresbas' ? null : settings.preset === 'bas' ? 'tresbas' : 'bas';
+if (crashedWhileLoading && lowerPreset) {
+    settings.applyPreset(lowerPreset);
     const notice = document.createElement('section');
     notice.className = 'mp-carte';
     const title = document.createElement('h2');
     title.textContent = 'Qualité réduite automatiquement';
     const text = document.createElement('p');
     text.textContent = 'La page s\'est fermée pendant le dernier chargement (mémoire de l\'appareil dépassée) : la qualité graphique '
-        + 'est passée à « Bas ». Vous pourrez la remonter dans Paramètres.';
+        + `est passée à « ${lowerPreset === 'tresbas' ? 'Très bas' : 'Bas'} ». Vous pourrez la remonter dans Paramètres.`;
     notice.append(title, text);
     document.getElementById('mp-astuce-ipad').before(notice);
 }

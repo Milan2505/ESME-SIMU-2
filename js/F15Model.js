@@ -367,7 +367,8 @@ function prepare(scene) {
         const spin = pivot(`${side}Spin`, wheel, wheelCenter(wheel), new Vector3(1, s * 0.0436, 0));
         const parts = [spin, ...find(`${side} Main Upper oleo`, `${side} Main lower oleo`, `${side} Main retraction linkage`, `${side} Main retract strut`)];
         const twist = pivot(`${side}Twist`, parts, fg(1.9641, s * 1.32, -0.4794), fg(-0.7, 0, 2.7));
-        const fold = pivot(`${side}Fold`, [twist], fg(side === 'Left' ? 1.95 : 1.9, s * 1.32, -0.483), fg(0, 1, 0));
+        // (même axe des deux côtés : à 1,90 m à droite, la jambe repliée dépassait de ses trappes d'une dizaine de cm)
+        const fold = pivot(`${side}Fold`, [twist], fg(1.95, s * 1.32, -0.483), fg(0, 1, 0));
         return { spin, twist, fold, s };
     };
     const left = main('Left'), right = main('Right');

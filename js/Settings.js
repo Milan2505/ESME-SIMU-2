@@ -50,6 +50,9 @@ const OPTIONS = {
 const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, labels: true, radioVolume: 1 };
 
 const PRESETS = {
+    // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages
+    // générés, le plus gros poste de mémoire du décor), pas de nuages
+    tresbas: { label: 'Très bas', fps: 30, resolution: 'auto', antialias: 0, shadows: 0, clouds: 0, cloudLayer: false, terrain: 128, visibility: 3000, decor: 0.25, decorStyle: 'classique', bloom: false },
     bas:   { label: 'Bas',   fps: 30, resolution: 'auto', antialias: 0, shadows: 0,    clouds: 0.5, cloudLayer: false, terrain: 128, visibility: 3000, decor: 0.25, decorStyle: 'realiste', bloom: false },
     moyen: { label: 'Moyen', fps: 60, resolution: 'auto', antialias: 2, shadows: 1024, clouds: 0.5, cloudLayer: true,  terrain: 256, visibility: 6000, decor: 0.5,  decorStyle: 'realiste', bloom: true },
     haut:  { label: 'Haut',  fps: 60, resolution: 'auto', antialias: 4, shadows: 2048, clouds: 1,   cloudLayer: true,  terrain: 384, visibility: 6000, decor: 1,    decorStyle: 'realiste', bloom: true },
