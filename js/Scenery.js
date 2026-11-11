@@ -492,14 +492,18 @@ class Scenery {
         const camera = new OrthographicCamera(-half, half, box.max.y * 1.01, box.max.y * 1.01 - half * 4, 0.1, 1000);
         camera.position.set((box.min.x + box.max.x) / 2, 0, 500);
         camera.lookAt(camera.position.x, 0, 0);
-        const renderer = this.renderer, previous = renderer.getRenderTarget(), clear = renderer.getClearAlpha();
-        const color = renderer.getClearColor(new Color());
-        renderer.setRenderTarget(target);
-        renderer.setClearColor(0x000000, 0);
-        renderer.clear();
-        renderer.render(scene, camera);
-        renderer.setRenderTarget(previous);
-        renderer.setClearColor(color, clear);
+        const draw = () => {
+            const renderer = this.renderer, previous = renderer.getRenderTarget(), clear = renderer.getClearAlpha();
+            const color = renderer.getClearColor(new Color());
+            renderer.setRenderTarget(target);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear();
+            renderer.render(scene, camera);
+            renderer.setRenderTarget(previous);
+            renderer.setClearColor(color, clear);
+        };
+        draw();
+        (this._impostorDraws ??= []).push(draw);
         // Un panneau (largeur 2 * half, hauteur 4 * half), pied à la base de l'image
         const bottom = box.max.y * 1.01 - half * 4;
         const geometry = new PlaneGeometry(half * 2, half * 4);
@@ -614,6 +618,11 @@ class Scenery {
 
     // --- Réglages et image ------------------------------------------------------------------------------------
     // Part des arbres affichés (réglage « Arbres et décor »)
+    // Après une perte du contexte WebGL : les textures des imposteurs reviennent vides (arbres lointains invisibles)
+    redrawImpostors() {
+        for (const draw of this._impostorDraws ?? []) draw();
+    }
+
     setDensity(density) {
         this.density = density;
         this._lastLayout = null;

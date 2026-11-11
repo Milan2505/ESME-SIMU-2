@@ -197,7 +197,14 @@ view.addEventListener('webglcontextlost', (event) => {
     // Pas revenue d'elle-même en 4 s : rechargement automatique, retour dans la partie (voir recoverFromFreeze)
     setTimeout(() => { if (renderer.getContext().isContextLost()) recoverFromFreeze('carte graphique perdue'); }, 4000);
 });
-view.addEventListener('webglcontextrestored', () => { document.getElementById('contexte-perdu').hidden = true; });
+view.addEventListener('webglcontextrestored', () => {
+    document.getElementById('contexte-perdu').hidden = true;
+    // Textures calculées une seule fois (ciel, imposteurs d'arbres) : revenues vides, on les redessine (sinon ciel noir,
+    // fréquent sur tablette et téléphone). À l'image suivante : three.js a fini de recréer son état
+    requestAnimationFrame(() => {
+        try { graphics.redrawSky(); scenery.redrawImpostors(); } catch { /* ciel uni à défaut */ }
+    });
+});
 document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
 // Aérodromes (ESME, MONTVAL) : airport répond comme un aérodrome seul, celui choisi au départ (airport.current)
 const airport = new AirportNetwork();

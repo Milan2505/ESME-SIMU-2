@@ -435,8 +435,15 @@ class Graphics {
             uniforms.turbidity.value = atmosphere.turbidity;
             uniforms.rayleigh.value = atmosphere.rayleigh;
             uniforms.sunPosition.value.copy(this.sunDirection);
-            this.skyCamera.update(this.renderer, this.skyScene);
+            this.redrawSky();
         }
+    }
+
+    // Recalcule la cubemap du ciel. Aussi après une perte du contexte WebGL (fréquente sur tablette et téléphone :
+    // mise en veille, appel, mémoire) : three.js recrée les textures, mais vides ; le ciel, calculé une seule fois,
+    // restait noir jusqu'au prochain changement de météo
+    redrawSky() {
+        if (this.skyDome.visible) this.skyCamera.update(this.renderer, this.skyScene);
     }
 
     setAlarm(level) {
