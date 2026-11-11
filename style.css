@@ -2681,6 +2681,20 @@ body:has(#simulator.jeu) {
 #multi-dialog #multi-creer:hover {
   background: linear-gradient(90deg, #2580d1, #1d5c9c);
 }
+#multi-dialog #multi-entrer {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  font-weight: bold;
+  background: linear-gradient(90deg, #1f8a4c, #176a3a);
+  border-color: #3fbf73;
+}
+#multi-dialog #multi-entrer:hover {
+  background: linear-gradient(90deg, #26a35a, #1b7c44);
+}
+#multi-dialog #multi-entrer[hidden] {
+  display: none;
+}
 #multi-dialog #multi-quitter:hover {
   background: rgba(220, 70, 70, 0.25);
   border-color: #e06666;
@@ -4774,4 +4788,10 @@ html.telephone .tb-etat {
 #simulator:not(#_) #hangar-panneau .immat.invalide {
   color: #ff8a80;
   outline-color: #ff8a80;
+}
+
+/* Wardog : pas de choix de l'aérodrome (celui de l'équipe), boutons masqués (voir updateAircraftChoice) */
+#hangar-aerodromes[hidden],
+#retour-aerodrome[hidden] {
+  display: none !important;
 }

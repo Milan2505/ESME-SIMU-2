@@ -1712,6 +1712,7 @@ function openMultiDialog() {
     multiDialog.showModal();
     multiplayer.watchLobby(true);   // « Parties en cours » : annonces écoutées tant que la fenêtre est ouverte
     renderLobby(null);
+    renderTeams();   // (équipes, « Entrer dans la partie » : selon qu'on est au menu ou en vol)
 }
 multiDialog.addEventListener('close', () => multiplayer.watchLobby(false));
 
@@ -1828,10 +1829,15 @@ document.getElementById('multi-creer').addEventListener('click', () => {
 // Wardog : choix de l'équipe, avec les places restantes ; une équipe complète ne peut pas être choisie
 const teamsBox = document.getElementById('multi-equipes');
 const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
+const enterButton = document.getElementById('multi-entrer');
 function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
     teamsBox.hidden = !wardog;
     document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden = Boolean(multiplayer.code);
+    // « Entrer dans la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : l'équipe choisie, c'est
+    // le choix de l'équipe qui fait entrer ; le bouton reste pour qui a refermé la fenêtre entre-temps)
+    enterButton.hidden = !(inMenu && multiplayer.code && (!wardog || multiplayer.team));
+    updateAircraftChoice();
     if (!wardog) return;
     for (const team of ['bleu', 'rouge']) {
         const button = document.getElementById(`equipe-${team}`);
@@ -1854,26 +1860,52 @@ for (const team of ['bleu', 'rouge']) {
         multiStatut.classList.remove('erreur');
         multiStatut.textContent = `Vous êtes dans l'${TEAM_LABELS[team].toLowerCase()}`;
         renderTeams();
-        // Premier choix en arrivant (pas le créateur) : la fenêtre se ferme, on passe au choix du terrain
-        if (first && !multiplayer.isHost) {
+        // Équipe choisie (créateur compris) : on entre dans la partie, au hangar du terrain de l'équipe (pas de choix de
+        // l'aérodrome : chaque équipe a le sien). En cours de partie, changer d'équipe ramène de même au hangar de la
+        // nouvelle équipe (avant : l'avion restait là où il était, souvent sur la base adverse)
+        if (first || !inMenu) {
             const code = multiplayer.code;
-            setTimeout(() => { if (multiDialog.open && multiplayer.code === code) multiDialog.close(); }, 900);
-        } else if (!first && !inMenu) {
-            // Changement d'équipe en cours de partie : on repart d'un terrain de la nouvelle équipe (choix de l'aérodrome).
-            // Avant, l'avion restait là où il était, souvent sur la base adverse
-            const code = multiplayer.code;
-            setTimeout(() => {
-                if (multiplayer.code !== code) return;
-                if (multiDialog.open) multiDialog.close();
-                backToAirportChoice();
-            }, 900);
+            setTimeout(() => { if (multiplayer.code === code) enterMultiplayerGame(); }, 700);
         }
     });
 }
+// Entrer dans la partie créée ou rejointe : fenêtre fermée, puis Wardog -> hangar du terrain de l'équipe (F-15) ;
+// vol libre -> choix de l'aérodrome. En vol (fenêtre rouverte) : Wardog -> hangar de l'équipe, sinon rien
+function enterMultiplayerGame() {
+    if (!multiplayer.code) return;
+    const team = wardog();
+    if (team && !multiplayer.team) return;   // (l'équipe d'abord)
+    if (multiDialog.open) multiDialog.close();
+    if (inMenu) {
+        closeMainMenu();
+        enterGame(team ? openTeamHangar : openAirportChoice);
+    } else if (team) openTeamHangar();
+}
+enterButton.addEventListener('click', () => enterMultiplayerGame());
+// Wardog : hangar du terrain de l'équipe (le sien au départ, d'ailleurs l'un de ceux qu'elle tient), en F-15 : le Cessna
+// n'est pas fait pour le combat
+async function openTeamHangar() {
+    leaveFlightScreens();
+    leaveHangar();
+    airportPanel.hidden = true;
+    const allowed = allowedFields();
+    const home = airport.list[HOME_TEAMS.indexOf(multiplayer.team)];
+    selectAirport(allowed.includes(home) ? home : allowed[0]);
+    if (aircraftType !== 'f15') {
+        try {
+            await setAircraftType('f15');
+        } catch (error) {
+            console.error(error);
+            showRadioMessage('F-15 : chargement impossible (vérifiez la connexion), réessayez');
+        }
+    }
+    openHangar();
+}
 for (const type of ['players', 'mode', 'team', 'status']) multiplayer.addEventListener(type, () => renderTeams());
-// Fenêtre fermée en Wardog sans équipe choisie : l'équipe qui a le moins de pilotes
+// Fenêtre fermée en vol, en Wardog, sans équipe (partie révélée Wardog après coup) : l'équipe qui a le moins de pilotes.
+// Au menu, on peut la refermer sans choisir : on n'entre dans la partie qu'une fois l'équipe choisie
 multiDialog.addEventListener('close', () => {
-    if (multiplayer.code && multiplayer.mode === 'wardog' && !multiplayer.team) {
+    if (!inMenu && multiplayer.code && multiplayer.mode === 'wardog' && !multiplayer.team) {
         const counts = multiplayer.teamCounts();
         multiplayer.setTeam(counts.bleu <= counts.rouge ? 'bleu' : 'rouge');
     }
@@ -1926,7 +1958,8 @@ multiplayer.addEventListener('joined', ({ detail }) => {
         renderTeams();
         return;
     }
-    setTimeout(() => { if (multiDialog.open && multiplayer.code === detail.code) multiDialog.close(); }, 1200);
+    // (vol libre : on entre tout de suite, au choix de l'aérodrome)
+    setTimeout(() => { if (multiDialog.open && multiplayer.code === detail.code && inMenu) enterMultiplayerGame(); }, 1200);
 });
 
 const multiPartage = document.getElementById('multi-partage');
@@ -2348,6 +2381,7 @@ function leaveFlightScreens() {
     view.style.cursor = '';
 }
 function backToHangar() {
+    if (wardog() && multiplayer.team) return openTeamHangar();   // (en F-15, au terrain de l'équipe)
     leaveFlightScreens();
     openHangar();
 }
@@ -2469,7 +2503,15 @@ const HANGAR_DESCRIPTIONS = {
         + 'chaque réacteur (voir le manuel). Train : touche Y, aérofrein : U, postcombustion : gaz au-delà de 85 %.',
 };
 function updateAircraftChoice() {
-    for (const button of aircraftButtons) button.classList.toggle('actif', button.dataset.avion === aircraftType);
+    // Wardog : F-15 seulement (le Cessna n'est pas fait pour le combat)
+    const jetOnly = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';   // (pas wardog() : appelé dès le chargement)
+    for (const button of aircraftButtons) {
+        button.classList.toggle('actif', button.dataset.avion === aircraftType);
+        button.disabled = jetOnly && button.dataset.avion !== 'f15';
+        button.title = button.disabled ? 'Wardog : F-15 seulement' : '';
+    }
+    // Wardog : le terrain est celui de l'équipe, pas de choix de l'aérodrome
+    for (const id of ['hangar-aerodromes', 'retour-aerodrome']) document.getElementById(id).hidden = jetOnly;
     document.getElementById('hangar-description').textContent = HANGAR_DESCRIPTIONS[aircraftType];
     // Immatriculation : peinte sur le Cessna ; sur le F-15, le numéro est celui de la livrée (indicatif radio seulement)
     for (const input of registrationInputs) input.title = aircraftType === 'f15' ? 'Indicatif radio (le numéro peint est celui de la livrée)' : '';
@@ -2490,6 +2532,7 @@ for (const button of aircraftButtons) {
         } finally {
             button.textContent = label;
             for (const b of aircraftButtons) b.disabled = false;
+            updateAircraftChoice();   // (Wardog : Cessna toujours grisé)
             button.blur();
         }
     });
@@ -2565,12 +2608,8 @@ document.getElementById('mp-vol-libre').addEventListener('click', () => {
 document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
 // Survol ou toucher du bouton : connexion aux relais commencée tout de suite (liste des parties plus vite à l'ouverture)
 for (const type of ['pointerenter', 'focus', 'pointerdown']) document.getElementById('mp-multi').addEventListener(type, () => multiplayer.preconnect());
-// Partie créée ou rejointe depuis le menu : fenêtre fermée -> au hangar
-multiDialog.addEventListener('close', () => {
-    if (!inMenu || !multiplayer.code) return;
-    closeMainMenu();
-    enterGame(openAirportChoice);
-});
+// (fermer la fenêtre au menu n'entre plus dans la partie : bouton « Entrer dans la partie » ou choix de l'équipe, voir
+// enterMultiplayerGame ; « Multijoueur » la rouvre)
 document.getElementById('mp-initiation').addEventListener('click', () => openInitiation());
 document.getElementById('mp-parametres').addEventListener('click', () => openSettings());
 const menuWeather = document.getElementById('mp-meteo');

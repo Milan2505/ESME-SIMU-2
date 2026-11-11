@@ -189,11 +189,11 @@ class Multiplayer extends EventTarget {
     }
 
     // Crée une partie privée et renvoie son code
-    // mode : 'libre' ou 'wardog' ; Wardog : le créateur commence dans l'équipe bleue (il peut en changer)
+    // mode : 'libre' ou 'wardog' ; Wardog : le créateur choisit son équipe comme les autres (fenêtre Multijoueur)
     create(name, mode = 'libre') {
         this.join(randomString(CODE_CHARS, 6), name, true);
         this.mode = mode === 'wardog' ? 'wardog' : 'libre';
-        this.team = this.mode === 'wardog' ? 'bleu' : null;
+        this.team = null;
         return this.code;
     }
 

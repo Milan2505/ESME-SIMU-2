@@ -678,15 +678,17 @@
 			<input id="multi-lien" readonly>
 			<button id="multi-copier">Copier le lien</button>
 		</div>
-		<!-- Wardog : choix de l'équipe (places restantes) -->
+		<!-- Wardog : choix de l'équipe (places restantes) ; le choix fait entrer dans la partie, au hangar de l'équipe -->
 		<div id="multi-equipes" hidden>
-			<span class="multi-salon-titre">Choisissez votre équipe</span>
+			<span class="multi-salon-titre">Choisissez votre équipe pour entrer dans la partie</span>
 			<div class="multi-ligne">
 				<button type="button" id="equipe-bleu" data-equipe="bleu"></button>
 				<button type="button" id="equipe-rouge" data-equipe="rouge"></button>
 			</div>
 		</div>
 		<ul id="multi-joueurs"></ul>
+		<!-- Entrer dans la partie créée ou rejointe (avant : il fallait cliquer sur « Fermer ») -->
+		<button id="multi-entrer" hidden>Entrer dans la partie →</button>
 		<div class="multi-ligne">
 			<button id="multi-fermer-partie" hidden title="Termine la partie pour tous les joueurs">Fermer la partie</button>
 			<button id="multi-quitter">Quitter la partie</button>
