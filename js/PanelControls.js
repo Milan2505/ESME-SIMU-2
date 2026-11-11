@@ -6,7 +6,8 @@ const FONT = '"Arial Narrow", Arial, sans-serif';
 
 // Position des commandes (px des canvas du pupitre et du plancher)
 const PEDESTAL_LAYOUT = {
-    trimWheel: { x: 30, y: 34, w: 46, h: 186 },
+    trimWheel: { x: 94, y: 46, w: 20, h: 148 },   // fente où dépasse la roulette (Controls3D.js)
+    trimIndicator: { x: 64, top: 124, bottom: 212 }, // fente de l'indicateur de position (bille), à gauche de la roulette
     fuelShutoff: { x: 200, y: 254 },
     fuelSelector: { y: 18 },     // centre : décalage vertical depuis le milieu de la plaque
 };
@@ -50,36 +51,88 @@ function label(ctx, text, x, y, size = 11, color = '#e8e8e8', align = 'center') 
 
 // --- Pupitre central : molette de trim et repère, micro, prises, robinet carburant ---------------------------
 
+// Fente creusée dans la plaque : fond sombre, bord ombré en haut à gauche, éclairé en bas à droite
+function slot(ctx, x, y, w, h, r) {
+    ctx.fillStyle = '#16171a';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.beginPath();
+    ctx.roundRect(x - 1, y - 1, w + 2, h + 2, r + 1);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.beginPath();
+    ctx.roundRect(x + 1, y + 2, w, h, r);
+    ctx.stroke();
+}
+
+// Molette de trim du C172 (comme le vrai pupitre) : roulette fine à droite (3D, dans sa fente), et à sa gauche
+// « NOSE DOWN » / double flèche / « NOSE UP », la fente de l'indicateur où glisse une bille, et le repère ▶ TAKE OFF
+function drawTrim(ctx, hotspots, trim) {
+    const { x: wx, y: wy, w: ww, h: wh } = PEDESTAL_LAYOUT.trimWheel;
+    const { x: ix, top, bottom } = PEDESTAL_LAYOUT.trimIndicator;
+    slot(ctx, wx, wy, ww, wh, 4);
+    hotspots.rect('trimWheel', wx - 8, wy - 4, ww + 16, wh + 8);
+    // Sens : texte et double flèche au-dessus de l'indicateur
+    const ax = ix + 2;
+    label(ctx, 'NOSE\nDOWN', ax, 22, 9, '#e9eaec');
+    label(ctx, 'NOSE\nUP', ax, 106, 9, '#e9eaec');
+    ctx.strokeStyle = '#e9eaec';
+    ctx.fillStyle = '#e9eaec';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(ax, 42);
+    ctx.lineTo(ax, 86);
+    ctx.stroke();
+    for (const [y, dir] of [[38, -1], [90, 1]]) {
+        ctx.beginPath();
+        ctx.moveTo(ax, y);
+        ctx.lineTo(ax - 3.5, y - dir * 8);
+        ctx.lineTo(ax + 3.5, y - dir * 8);
+        ctx.fill();
+    }
+    // Indicateur : bille dans sa fente (NOSE DOWN en haut), position réelle du tab
+    const sw = 18;
+    slot(ctx, ix - sw / 2, top - 4, sw, bottom - top + 8, sw / 2);
+    const yOf = (d) => top + 6 + ((d - trim.min) / (trim.max - trim.min)) * (bottom - top - 12);
+    // Repère décollage : « TAKE » ▶ « OFF », à gauche de la fente
+    const ty = yOf(trim.takeoff);
+    label(ctx, 'TAKE', ix - 34, ty - 15, 9, '#e9eaec');
+    label(ctx, 'OFF', ix - 34, ty + 15, 9, '#e9eaec');
+    ctx.fillStyle = '#f2f2f2';
+    ctx.beginPath();
+    ctx.moveTo(ix - 14, ty);
+    ctx.lineTo(ix - 25, ty - 6);
+    ctx.lineTo(ix - 25, ty + 6);
+    ctx.fill();
+    const by = yOf(trim.deg), r = 6.5;
+    const ball = ctx.createRadialGradient(ix - 2, by - 2, 1, ix, by, r);
+    ball.addColorStop(0, '#ffffff');
+    ball.addColorStop(0.6, '#d9d9d6');
+    ball.addColorStop(1, '#8e8e8a');
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.beginPath();
+    ctx.arc(ix + 1, by + 1.5, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = ball;
+    ctx.beginPath();
+    ctx.arc(ix, by, r, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 function drawPedestal(ctx, hotspots, w, h, systems, trim) {
-    ctx.fillStyle = '#1b1c1e';
+    // Plaque grise (comme le pupitre du C172), léger dégradé de lumière
+    const plate = ctx.createLinearGradient(0, 0, w, h);
+    plate.addColorStop(0, '#6c6e72');
+    plate.addColorStop(1, '#55575b');
+    ctx.fillStyle = plate;
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#2c2d30';
+    ctx.strokeStyle = '#3e4044';
     ctx.lineWidth = 3;
     ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
-    const { x: wx, y: wy, w: ww, h: wh } = PEDESTAL_LAYOUT.trimWheel;
-    ctx.fillStyle = '#0a0a0b';
-    ctx.fillRect(wx - 6, wy - 6, ww + 12, wh + 12);
-    label(ctx, 'NOSE\nDOWN', wx + ww / 2, 14, 9);
-    label(ctx, 'NOSE\nUP', wx + ww / 2, wy + wh + 18, 9);
-    hotspots.rect('trimWheel', wx - 6, wy - 6, ww + 12, wh + 12);
-    // Repère de trim : index qui suit le tab, marque TAKE OFF
-    const sx = 96, s0 = wy + 10, s1 = wy + wh - 10;
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(sx - 4, s0 - 6, 18, s1 - s0 + 12);
-    const yOf = (d) => s0 + ((d - trim.min) / (trim.max - trim.min)) * (s1 - s0);
-    ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(sx + 14, yOf(trim.takeoff) - 1, 10, 2);
-    ctx.save();
-    ctx.translate(sx + 32, yOf(trim.takeoff));
-    ctx.rotate(Math.PI / 2);
-    label(ctx, 'TAKE OFF', 0, 0, 9);
-    ctx.restore();
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(sx + 12, yOf(trim.deg));
-    ctx.lineTo(sx, yOf(trim.deg) - 6);
-    ctx.lineTo(sx, yOf(trim.deg) + 6);
-    ctx.fill();
+    drawTrim(ctx, hotspots, trim);
     // Micro accroché (décor) et son cordon
     label(ctx, 'MIC JACK', 214, 12, 8);
     ctx.fillStyle = '#2a2a2c';

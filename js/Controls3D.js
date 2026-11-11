@@ -14,6 +14,7 @@ import {
     TorusGeometry,
     Vector3
 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';
 
 // Commandes de la cabine en 3D : clé des magnétos, rockers master / avionique / ELT, disjoncteurs, interrupteurs à
@@ -257,15 +258,31 @@ class Controls3D {
             zone.add(hit);
         }
 
-        // Molette de trim : roue verticale crantée qui dépasse du pupitre
+        // Molette de trim (comme le vrai C172) : roue fine, grise, à nervures en relief, dont seul un arc dépasse de sa
+        // fente dans le pupitre (TRIM_VISIBLE de haut, TRIM_PROUD en saillie) ; rayon (~8 cm) qui la garde entière dans
+        // le pupitre (plus grande, elle ressortait par le dessus)
         const t = pedestalLayout.trimWheel;
         const trimRoot = this._add('trimWheel', pedestalPoint(t.x + t.w / 2, t.y + t.h / 2));
-        const wheelGeometry = new CylinderGeometry(0.075, 0.075, 0.034, 40);
-        wheelGeometry.rotateZ(Math.PI / 2);
-        const ridges = ridgesTexture(24);
-        ridges.repeat.set(3, 1);
-        const wheel = new Mesh(wheelGeometry, [new MeshStandardMaterial({ map: ridges, roughness: 0.6 }), blackPlastic, blackPlastic]);
-        wheel.position.z = -0.047;
+        const TRIM_VISIBLE = 0.108, TRIM_PROUD = 0.02, TRIM_WIDTH = 0.011, TRIM_RIBS = 64;
+        const half = TRIM_VISIBLE / 2;
+        const radius = (half * half + TRIM_PROUD * TRIM_PROUD) / (2 * TRIM_PROUD);
+        const wheel = new Group();
+        const body = new CylinderGeometry(radius - 0.0012, radius - 0.0012, TRIM_WIDTH, 96);
+        body.rotateZ(Math.PI / 2);
+        wheel.add(new Mesh(body, new MeshStandardMaterial({ color: 0x9fa2a6, metalness: 0.25, roughness: 0.45 })));
+        // Nervures : barrettes en travers de la jante (un peu plus larges que la roue), fusionnées en un seul maillage
+        const ribs = [];
+        for (let i = 0; i < TRIM_RIBS; i++) {
+            const a = (i / TRIM_RIBS) * Math.PI * 2;
+            const rib = new BoxGeometry(TRIM_WIDTH + 0.0016, 0.0032, 0.0026);   // (x : axe de la roue)
+            rib.translate(0, 0, radius - 0.0002);
+            rib.rotateX(a);
+            ribs.push(rib);
+        }
+        const ribMesh = new Mesh(mergeGeometries(ribs), new MeshStandardMaterial({ color: 0xc4c7ca, metalness: 0.3, roughness: 0.35 }));
+        for (const rib of ribs) rib.dispose();
+        wheel.add(ribMesh);
+        wheel.position.z = -(radius - TRIM_PROUD);
         trimRoot.add(wheel);
         this._parts.trimWheel = wheel;
 
