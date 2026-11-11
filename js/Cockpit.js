@@ -51,7 +51,9 @@ const YOKE_TURN = Math.PI / 2;    // 90° de chaque côté
 const YOKE_OUT = 0.16;            // longueur de colonne hors du tableau au neutre
 // Pupitre central (molette de trim, robinet carburant) et sélecteur de réservoir au plancher : 1 280 px par mètre
 const PX_PER_M = 1280;
-const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.657, z: -0.598 };   // haut juste sous le bossage du tableau
+// Face plane, dans le prolongement du bas du tableau (comme le vrai C172) ; avant, un bloc avançait de 15 cm vers les
+// sièges. Haut juste sous le bossage du tableau
+const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.657, z: -0.744 };
 const FUEL_PLATE = { width: 0.2, height: 0.156, x: 0, y: -0.884, z: -0.45 };
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
@@ -530,7 +532,7 @@ class Cockpit {
             this._hotspots[name] = new Hotspots();
             return { mesh, ctx: canvas.getContext('2d'), texture };
         };
-        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.y + PEDESTAL.height / 2 + 0.9, 0.16), plastic), 0, (PEDESTAL.y + PEDESTAL.height / 2 - 0.9) / 2, PEDESTAL.z - 0.082);   // jusqu'au plancher
+        add(new Mesh(new BoxGeometry(0.22, PEDESTAL.y + PEDESTAL.height / 2 + 0.9, 0.16), plastic), 0, (PEDESTAL.y + PEDESTAL.height / 2 - 0.9) / 2, PEDESTAL.z - 0.082);   // jusqu'au plancher, derrière la face
         this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
         add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);
         this._fuelPlate = canvasPlane(FUEL_PLATE, 'fuel');

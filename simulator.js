@@ -803,7 +803,7 @@ const CESSNA_VIEWS = {
     5: { label: 'Volets, aération, boîte à gants', eye: [0.2, -0.1, -0.3], target: [0.27, -0.45, -0.75], fov: 50, close: true },
     6: { label: 'Radios (NAV/COM, DME, transpondeur)', eye: [0.0, -0.05, -0.3], target: [0.09, -0.27, -0.75], fov: 45, close: true },
     7: { label: 'Gaz, mixture, éclairage', eye: [-0.05, -0.12, -0.3], target: [0.02, -0.46, -0.75], fov: 45, close: true },
-    8: { label: 'Pupitre (trim, robinet)', eye: [-0.1, -0.2, -0.25], target: [0, -0.657, -0.6], fov: 50, close: true },
+    8: { label: 'Pupitre (trim, robinet)', eye: [-0.1, -0.2, -0.25], target: [0, -0.657, -0.744], fov: 50, close: true },
     9: { label: 'Sélecteur de réservoir', eye: [-0.05, -0.3, -0.25], target: [0, -0.884, -0.45], fov: 50, close: true },
     0: { label: 'Côté gauche', yaw: 1.0, pitch: 0.25, fov: 75 },
 };
