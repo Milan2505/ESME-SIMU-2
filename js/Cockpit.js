@@ -52,8 +52,8 @@ const YOKE_OUT = 0.16;            // longueur de colonne hors du tableau au neut
 // Pupitre central (molette de trim, robinet carburant) et sélecteur de réservoir au plancher : 1 280 px par mètre
 const PX_PER_M = 1280;
 // Face plane, dans le prolongement du bas du tableau (comme le vrai C172) ; avant, un bloc avançait de 15 cm vers les
-// sièges. Haut juste sous le bossage du tableau
-const PEDESTAL = { width: 0.2, height: 0.25, x: 0, y: -0.657, z: -0.744 };
+// sièges. Haut juste sous le bossage du tableau. Étroit (15 cm) : il passe entre les palonniers (à 20 cm, il les touchait)
+const PEDESTAL = { width: 0.15, height: 0.25, x: 0, y: -0.657, z: -0.744 };
 // Sélecteur de réservoir : sur un caisson surélevé (~14 cm) au pied du pupitre, comme le vrai C172 ; avant, posé à plat
 // au plancher, détaché du pupitre
 // Étroit (14 cm) : il passe entre les palonniers de gauche et de droite sans les toucher
@@ -537,11 +537,10 @@ class Cockpit {
             this._hotspots[name] = new Hotspots();
             return { mesh, ctx: canvas.getContext('2d'), texture };
         };
-        // Pupitre : large (22 cm) à hauteur de sa plaque, étroit plus bas, entre les palonniers, jusqu'au plancher
+        // Pupitre : de la largeur de sa plaque, jusqu'au plancher, entre les palonniers
         {
-            const top = PEDESTAL.y + PEDESTAL.height / 2, waist = FUEL_PLATE.y;
-            add(new Mesh(new BoxGeometry(0.22, top - waist, 0.16), plastic), 0, (top + waist) / 2, PEDESTAL.z - 0.082);
-            add(new Mesh(new BoxGeometry(CONSOLE_WIDTH, waist - FLOOR_Y, 0.16), plastic), 0, (waist + FLOOR_Y) / 2, PEDESTAL.z - 0.082);
+            const top = PEDESTAL.y + PEDESTAL.height / 2;
+            add(new Mesh(new BoxGeometry(CONSOLE_WIDTH, top - FLOOR_Y, 0.16), plastic), 0, (top + FLOOR_Y) / 2, PEDESTAL.z - 0.082);
         }
         this._pedestal = canvasPlane(PEDESTAL, 'pedestal');
         add(this._pedestal.mesh, PEDESTAL.x, PEDESTAL.y, PEDESTAL.z);

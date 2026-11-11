@@ -8,7 +8,7 @@ const FONT = '"Arial Narrow", Arial, sans-serif';
 const PEDESTAL_LAYOUT = {
     trimWheel: { x: 94, y: 46, w: 20, h: 148 },   // fente où dépasse la roulette (Controls3D.js)
     trimIndicator: { x: 64, top: 124, bottom: 212 }, // fente de l'indicateur de position (bille), à gauche de la roulette
-    fuelShutoff: { x: 200, y: 254 },
+    fuelShutoff: { x: 156, y: 254 },
     fuelSelector: { y: 18 },     // centre : décalage vertical depuis le milieu de la plaque
 };
 
@@ -133,24 +133,24 @@ function drawPedestal(ctx, hotspots, w, h, systems, trim) {
     ctx.lineWidth = 3;
     ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
     drawTrim(ctx, hotspots, trim);
-    // Micro accroché (décor) et son cordon
-    label(ctx, 'MIC JACK', 214, 12, 8);
+    // Micro accroché (décor) et son cordon : colonne de droite (pupitre étroit, 192 px : il passe entre les palonniers)
+    label(ctx, 'MIC JACK', 156, 12, 8);
     ctx.fillStyle = '#2a2a2c';
     ctx.beginPath();
-    ctx.roundRect(150, 26, 58, 150, 18);
+    ctx.roundRect(128, 26, 44, 132, 14);
     ctx.fill();
     ctx.strokeStyle = '#b39b5a';
     ctx.lineWidth = 2;
     ctx.stroke();
-    label(ctx, 'Cessna', 179, 44, 10);
+    label(ctx, 'Cessna', 150, 42, 8);
     ctx.fillStyle = '#111';
-    ctx.fillRect(171, 64, 16, 44);
+    ctx.fillRect(143, 60, 14, 40);
     ctx.strokeStyle = '#3a3a3c';
     ctx.lineWidth = 3;
     ctx.beginPath();
     for (let y = 30; y < 200; y += 6) {
-        ctx.moveTo(228, y);
-        ctx.lineTo(240, y + 4);
+        ctx.moveTo(177, y);
+        ctx.lineTo(186, y + 4);
     }
     ctx.stroke();
     // Prises (décor)
@@ -166,10 +166,10 @@ function drawPedestal(ctx, hotspots, w, h, systems, trim) {
     label(ctx, 'POWER\nOUTLET', 110, 262, 6);
     // Robinet carburant (tirer = fermé)
     const { x: cx, y: cy } = PEDESTAL_LAYOUT.fuelShutoff;
-    label(ctx, 'FUEL SHUTOFF\nPULL OFF', cx, cy + 26, 8);
+    label(ctx, 'FUEL SHUTOFF\nPULL OFF', cx, cy + 26, 7);
     ctx.fillStyle = systems.fuelShutoff ? '#ffd34d' : '#c0392b';
     ctx.beginPath();
-    ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 16, 0, Math.PI * 2);
     ctx.fill();
     hotspots.circle('fuelShutoff', cx, cy, 22);
 }
