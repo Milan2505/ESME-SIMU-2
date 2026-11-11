@@ -1832,7 +1832,7 @@ const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
 const enterButton = document.getElementById('multi-entrer');
 function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
-    if (!wardog) multiDialog.classList.remove('etape-equipe');
+    if (!wardog) setTeamStep(false);
     document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden = Boolean(multiplayer.code);
     // « Rejoindre la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : mène au choix de l'équipe) ;
     // en vol, en Wardog : « Changer d'équipe »
@@ -1880,14 +1880,19 @@ function enterMultiplayerGame() {
     } else if (team) openTeamHangar();
 }
 // Wardog : étape du choix de l'équipe (le reste de la fenêtre est masqué, voir style.css : etape-equipe)
+// Derrière, seulement l'aérodrome d'ESME en direct (survol du menu) : textes et cases du menu principal masqués
+function setTeamStep(on) {
+    multiDialog.classList.toggle('etape-equipe', on);
+    document.getElementById('menu-principal').classList.toggle('vue-seule', on);
+}
 function showTeamStep() {
-    multiDialog.classList.add('etape-equipe');
+    setTeamStep(true);
     if (!multiDialog.open) openMultiDialog();
     renderTeams();
 }
 enterButton.addEventListener('click', () => (wardog() ? showTeamStep() : enterMultiplayerGame()));
-document.getElementById('equipe-retour').addEventListener('click', () => multiDialog.classList.remove('etape-equipe'));
-multiDialog.addEventListener('close', () => multiDialog.classList.remove('etape-equipe'));
+document.getElementById('equipe-retour').addEventListener('click', () => setTeamStep(false));
+multiDialog.addEventListener('close', () => setTeamStep(false));
 // Wardog : hangar du terrain de l'équipe (le sien au départ, d'ailleurs l'un de ceux qu'elle tient), en F-15 : le Cessna
 // n'est pas fait pour le combat
 async function openTeamHangar() {

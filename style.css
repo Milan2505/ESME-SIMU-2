@@ -2681,7 +2681,19 @@ body:has(#simulator.jeu) {
 #multi-dialog #multi-creer:hover {
   background: linear-gradient(90deg, #2580d1, #1d5c9c);
 }
-/* Wardog : choix de l'équipe, étape à part (seuls le titre, l'état et les équipes restent affichés) */
+/* Wardog : choix de l'équipe, étape à part (seuls le titre, l'état et les équipes restent affichés). Derrière : seulement
+   l'aérodrome d'ESME en direct, sans les textes du menu principal ni voile flou */
+#menu-principal.vue-seule {
+  overflow: hidden;   /* (sans sa barre de défilement) */
+  background: none;
+}
+#menu-principal.vue-seule > * {
+  visibility: hidden;
+}
+#multi-dialog.etape-equipe::backdrop {
+  background: rgba(4, 10, 18, 0.15);
+  backdrop-filter: none;
+}
 #multi-dialog:not(.etape-equipe) #multi-equipes {
   display: none !important;
 }
