@@ -122,7 +122,20 @@ class FlightHud {
         ];
         const half = (W - 2 * m - HUD_CENTER_GAP) / 2;
         this._row(left, m, bottomLeft, half, 'left');
-        this._row(right, W - m, bottomRight, half, 'right');
+        // topRightReserve { left, bottom } (px de l'écran, dans le calque) : boutons posés en haut à droite (SOL, SYSTÈMES…
+        // de la tablette). Si les jauges de droite, remontées au-dessus des commandes tactiles, arrivent à leur hauteur,
+        // elles passent à leur gauche (avant : altitude et variomètre sous RADIO et AFFICHAGE)
+        let rightEdge = W - m, rightSpace = half;
+        const reserve = this.topRightReserve;
+        if (reserve) {
+            const k = this.ratio / u, total = right.reduce((sum, [w]) => sum + w, 0) + HUD_GAP * (right.length - 1);
+            const top = bottomRight - Math.max(...right.map(([, h]) => h)) * Math.min(1, half / total);
+            if (top < reserve.bottom * k + HUD_GAP && reserve.left * k < rightEdge) {
+                rightEdge = reserve.left * k - HUD_GAP;
+                rightSpace = Math.max(0, Math.min(half, rightEdge - (W + HUD_CENTER_GAP) / 2));
+            }
+        }
+        this._row(right, rightEdge, bottomRight, rightSpace, 'right');
     }
 
     // Rangée de blocs [largeur, hauteur, dessin(x, y, w, h)] alignés en bas sur bottom, séparés de HUD_GAP ; ancrée à

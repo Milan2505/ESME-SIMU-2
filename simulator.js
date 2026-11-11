@@ -4677,6 +4677,95 @@ function updateScores() {
 }
 setInterval(updateScores, 1000);
 multiplayer.addEventListener('players', () => updateScores());
+// Tablette, téléphone : tableau des joueurs replié par défaut, déplié d'un toucher (voir layoutTouchOverlays)
+const scoresToggle = document.getElementById('scores-bascule');
+scoresToggle.addEventListener('click', () => {
+    const open = scoresToggle.getAttribute('aria-expanded') !== 'true';
+    scoresToggle.setAttribute('aria-expanded', String(open));
+    scoresToggle.textContent = open ? 'Joueurs ▴' : 'Joueurs ▾';
+    layoutTouchOverlays();
+});
+
+// --- Panneaux de l'écran de vol sur tablette et téléphone --------------------------------------------------------------
+// Sur un écran tactile, les jauges remontent au-dessus du manche et des gaz, et la colonne SOL / SYSTÈMES / RADIO occupe
+// le haut à droite : à leurs places fixes, le tableau des scores (Wardog), le tchat et le panneau des dégâts passaient
+// dessus (et dessous les uns des autres sur téléphone). Ils sont posés ici dans une place libre : hors des jauges, de la
+// rose des caps, des commandes tactiles, des boutons de l'iPad, des cartes d'armes et les uns des autres
+const OVERLAY_MARGIN = 8, OVERLAY_STEP = 8;
+const overlaps = (a, b) => a.x < b.x + b.w + OVERLAY_MARGIN && b.x < a.x + a.w + OVERLAY_MARGIN
+    && a.y < b.y + b.h + OVERLAY_MARGIN && b.y < a.y + a.h + OVERLAY_MARGIN;
+const rectOf = (node) => {
+    if (!node || node.hidden || !node.offsetWidth) return null;
+    const r = node.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+};
+// Première place libre de taille w × h dans bounds, de haut en bas ; sur une même hauteur, la plus à gauche (side 'left')
+// ou la plus à droite ('right'). Aucune : null
+function freeSpot(w, h, bounds, obstacles, side) {
+    const xMin = bounds.x + OVERLAY_MARGIN, xMax = bounds.x + bounds.w - w - OVERLAY_MARGIN;
+    for (let y = bounds.y + OVERLAY_MARGIN; y <= bounds.y + bounds.h - h - OVERLAY_MARGIN; y += OVERLAY_STEP) {
+        for (let i = 0; xMin + i * OVERLAY_STEP <= xMax + OVERLAY_STEP - 1; i++) {
+            const x = side === 'left' ? Math.min(xMax, xMin + i * OVERLAY_STEP) : Math.max(xMin, xMax - i * OVERLAY_STEP);
+            const spot = { x, y, w, h };
+            if (!obstacles.some((o) => overlaps(spot, o))) return spot;
+        }
+    }
+    return null;
+}
+function layoutTouchOverlays() {
+    if (!simulatorElement.classList.contains('jeu')) return;
+    const area = simulatorElement.getBoundingClientRect(), screen = view.getBoundingClientRect();
+    const bounds = { x: screen.left, y: screen.top, w: screen.width, h: screen.height };
+    const obstacles = [];
+    const hud = document.getElementById('hud');
+    if (!hud.hidden && flightHud.boxes) {
+        const r = hud.getBoundingClientRect();
+        for (const b of flightHud.boxes) obstacles.push({ x: r.left + b.x, y: r.top + b.y, w: b.w, h: b.h });
+    }
+    const tactile = document.getElementById('tactile');
+    if (!tactile.hidden) for (const node of tactile.children) obstacles.push(rectOf(node));
+    const column = rectOf(document.querySelector('.tb-colonne'));
+    // Jauges de droite du HUD : à gauche de ces boutons s'ils sont à leur hauteur (voir FlightHud.topRightReserve)
+    const hudRect = hud.getBoundingClientRect();
+    flightHud.topRightReserve = column ? { left: column.x - hudRect.left, bottom: column.y + column.h - hudRect.top } : null;
+    obstacles.push(column, rectOf(document.getElementById('moniteur')), rectOf(document.getElementById('ils-bouton')),
+        rectOf(document.getElementById('alarmes-f15')), ...[...document.getElementById('nav-zone').children].map(rectOf));
+    // Cartes d'armes (en haut, au centre) : sous les boutons de l'iPad s'ils sont en ligne au-dessus (téléphone)
+    const cardsWidth = Math.min(3 * 180 + 24, screen.width - 24);
+    const cardsLeft = screen.left + (screen.width - cardsWidth) / 2;
+    const underColumn = column && column.y + column.h - screen.top < 100 && column.x < cardsLeft + cardsWidth && column.x + column.w > cardsLeft;
+    weaponHud.layout.top = underColumn ? Math.max(0, column.y + column.h - screen.top + 6 - 18) : 0;
+    const cards = weaponHud.areas.cards;
+    if (cards) obstacles.push({ x: screen.left + cards.x, y: screen.top + cards.y, w: cards.w, h: cards.h });
+    const place = (node, w, h, side) => {
+        const spot = freeSpot(w, h, bounds, obstacles.filter(Boolean), side);
+        if (!spot) return null;
+        obstacles.push(spot);
+        if (node) Object.assign(node.style, { left: `${spot.x - area.left}px`, top: `${spot.y - area.top}px` });
+        return spot;
+    };
+    // Tableau des scores : en haut à droite de préférence (comme sur ordinateur)
+    if (!scoresPanel.hidden) place(scoresPanel, scoresPanel.offsetWidth, scoresPanel.offsetHeight, 'right');
+    // Dégâts (place gardée dès qu'il est affiché) : à gauche, sous la rose des caps de préférence
+    if (weaponHud.areas.damage || damage.damaged) {
+        const size = weaponHud.damageSize.w ? weaponHud.damageSize : { w: 162, h: 138 };
+        const spot = place(null, size.w, size.h, 'left');
+        weaponHud.layout.damage = spot ? { x: spot.x - screen.left, y: spot.y - screen.top } : null;
+    }
+    // Tchat : place réservée pour quelques messages (sinon il sauterait d'une place à l'autre à chaque message)
+    // Faute de place (téléphone), plus étroit et moins haut
+    const chatPanel = document.getElementById('tchat');
+    if (!chatPanel.hidden) {
+        for (const [w, h] of [[320, 90], [240, 64], [180, 64]]) {
+            const width = Math.min(w, screen.width * 0.45);
+            const spot = place(null, width, h, 'left');
+            if (!spot) continue;
+            Object.assign(chatPanel.style, { left: `${spot.x - area.left}px`, top: `${spot.y - area.top}px`, width: `${width}px` });
+            break;
+        }
+    }
+}
+if (isTablet()) setInterval(layoutTouchOverlays, 250);
 // Nouveau départ : avion réparé, réarmé
 controls.addEventListener('reset', () => {
     deathReported = false;

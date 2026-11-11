@@ -607,6 +607,52 @@ img{margin: 0px;
   #scores table {
     border-collapse: collapse;
   }
+  #scores-bascule {
+    display: none;
+  }
+  /* Tablette, téléphone : placé par simulator.js (layoutTouchOverlays) dans une zone libre de l'écran de vol ; tableau des
+     joueurs replié par défaut, déplié en touchant le bouton */
+  html.tablette #simulator.jeu > #scores {
+    position: absolute;
+    margin: 0;
+    font-size: 11px;
+    padding: 5px 8px 6px;
+  }
+  html.tablette #scores-bascule {
+    display: block;
+    width: 100%;
+    min-height: 30px;
+    padding: 2px 8px;
+    font: bold 11px DejaVu Sans Mono, monospace;
+    letter-spacing: 1px;
+    color: #8fd3ff;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(143, 211, 255, 0.25);
+    border-radius: 5px;
+    pointer-events: auto;
+    touch-action: manipulation;
+  }
+  html.tablette #scores-bascule[aria-expanded="true"] {
+    margin-bottom: 4px;
+  }
+  html.tablette #scores-bascule[aria-expanded="false"] + table {
+    display: none;
+  }
+  html.tablette #wardog {
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+  }
+  html.tablette #wardog .equipes {
+    font-size: 13px;
+  }
+  html.tablette #wardog .annonce {
+    font-size: 13px;
+  }
+  html.tablette #simulator.jeu > #tchat {
+    position: absolute;
+    margin: 0;
+    width: min(320px, 45vw);   /* (largeur ajustée à la place trouvée par layoutTouchOverlays) */
+  }
   #scores th {
     padding: 0 6px 3px;
     font-size: 10px;

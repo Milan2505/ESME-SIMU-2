@@ -41,6 +41,13 @@ class WeaponHud {
         this._messageTime = 0;
         this._messageRed = false;
         this.flash = 0;   // écran rouge (touché)
+        // Placement réglé de l'extérieur (tablette, téléphone : voir layoutTouchOverlays dans simulator.js), px CSS de la vue :
+        // top : décalage des cartes d'armes vers le bas (sous les boutons SOL, SYSTÈMES… du téléphone) ;
+        // damage : coin haut gauche du panneau des dégâts (null : place par défaut, à gauche)
+        this.layout = { top: 0, damage: null };
+        // Zones dessinées à la dernière image (px CSS de la vue, null si absentes) : les autres panneaux s'en écartent
+        this.areas = { cards: null, damage: null };
+        this.damageSize = { w: 0, h: 0 };   // taille du panneau des dégâts (même caché : pour lui trouver une place)
     }
 
     message(text, red = false) {
@@ -77,6 +84,7 @@ class WeaponHud {
         this._messageTime = Math.max(0, this._messageTime - delta);
         this.flash = Math.max(0, this.flash - delta * 1.5);
         const show = visible && s && (s.jet || s.damage.damaged || this._messageTime > 0 || this.flash > 0);
+        this.areas.cards = this.areas.damage = null;
         if (!show) {
             if (this._shown) {
                 this._shown = false;
@@ -300,7 +308,7 @@ class WeaponHud {
             ctx.fillStyle = 'rgba(255, 240, 192, 0.9)';
             ctx.textAlign = 'center';
             ctx.font = 'bold 12px DejaVu Sans Mono, monospace';
-            ctx.fillText(`LEURRES ${Math.ceil(weapons.flareReload)} s`, W / 2, 122);
+            ctx.fillText(`LEURRES ${Math.ceil(weapons.flareReload)} s`, W / 2, 122 + this.layout.top);
             ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
         }
 
@@ -321,7 +329,11 @@ class WeaponHud {
         // Dégâts : barres à gauche (vert -> orange -> rouge, feu clignotant)
         if (s.damage.damaged) {
             const items = s.damage.status(s.jet);
-            const x = 14, y0 = 110, rowH = 18, w = 150;
+            const rowH = 18, w = 150;
+            const corner = this.layout.damage ?? { x: 8, y: 88 };
+            const x = corner.x + 6, y0 = corner.y + 22;
+            this.damageSize = { w: w + 12, h: items.length * rowH + 30 };
+            this.areas.damage = { x: corner.x, y: corner.y, ...this.damageSize };
             ctx.fillStyle = 'rgba(10,12,16,0.6)';
             ctx.fillRect(x - 6, y0 - 22, w + 12, items.length * rowH + 30);
             ctx.textAlign = 'left';
@@ -399,7 +411,7 @@ class WeaponHud {
 
     // Deux cartes : CANON / MISSILE ; l'arme choisie est éclairée (et grossit un instant au changement)
     _cards(ctx, W, weapons, touch) {
-        const gap = 12, ch = 62, top = 18;
+        const gap = 12, ch = 62, top = 18 + this.layout.top;
         const cw = Math.min(180, (W - 24 - 2 * gap) / 3);
         const x0 = W / 2 - (3 * cw + 2 * gap) / 2;
         const blink = Math.floor(performance.now() / 250) % 2 === 0;
@@ -473,6 +485,9 @@ class WeaponHud {
         ctx.fillStyle = '#e8edf2';
         ctx.fillText(hint, W / 2, top + ch + 18);
         ctx.font = 'bold 13px DejaVu Sans Mono, monospace';
+        // (jusqu'au texte des leurres en recharge, dessous)
+        const left = Math.min(x0, W / 2 - tw / 2), right = Math.max(x0 + 3 * cw + 2 * gap, W / 2 + tw / 2);
+        this.areas.cards = { x: left, y: top, w: right - left, h: 110 };
     }
 
     _box(ctx, cx, cy, lines, color) {
