@@ -32,6 +32,9 @@ function tabletRegistry(sim) {
                     id: 'depart', label: 'DÉPART', tiles: [
                         { id: 'reset', label: 'RÉINITIALISER', type: 'button', action: () => sim.click('reset') },
                         { id: 'changer-depart', label: 'CHANGER DE DÉPART', type: 'button', action: () => sim.click('depart') },
+                        { id: 'hangar', label: 'HANGAR (CHANGER D’AVION)', type: 'button', action: () => sim.click('retour-hangar') },
+                        { id: 'aerodrome', label: 'CHANGER D’AÉRODROME', type: 'button', action: () => sim.click('retour-aerodrome') },
+                        { id: 'multijoueur', label: 'MULTIJOUEUR (ÉQUIPE)', type: 'button', action: () => sim.click('online-multi') },
                         { id: 'frein-parking', label: 'FREIN DE PARKING', type: 'toggle', action: cockpit('brake'), value: () => controls.parkingBrake, states: ['DESSERRÉ', 'SERRÉ'] },
                         { id: 'quitter', label: 'QUITTER LA PARTIE', type: 'button', action: () => sim.click('quitter-partie'), danger: true },
                     ],

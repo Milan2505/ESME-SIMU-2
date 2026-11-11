@@ -160,6 +160,8 @@
 				<button id="volets" title="Sortir un cran de volets (touches G / T)">Volets : 0°</button>
 				<button id="reset" title="Revenir au point de départ (touche R)">Réinitialiser</button>
 				<button id="depart" title="Choisir un autre point de départ">Changer de départ</button>
+				<button id="retour-hangar" title="Retour au hangar : changer d'avion, de livrée, d'immatriculation">Hangar (changer d'avion)</button>
+				<button id="retour-aerodrome" title="Retour au choix de l'aérodrome">Changer d'aérodrome</button>
 				<button id="nav-panneaux" title="Afficher ou masquer les indicateurs VOR et ILS en vue extérieure (touche O : VOR seul)">VOR / ILS : masqués</button>
 			</div>
 			<table class="aide">
@@ -393,6 +395,7 @@
 		<label class="profil-livree">Immatriculation <input id="hangar-immat" class="immat" maxlength="8" spellcheck="false" autocomplete="off" placeholder="F-HESM"></label>
 		<p class="depart-aide">4 à 8 lettres ou chiffres, tiret possible (F-GABC, N172SP). Peinte sur l'avion ; les contrôleurs l'utilisent pour vous appeler.</p>
 		<button id="hangar-partir">Choisir le départ →</button>
+		<button id="hangar-aerodromes" class="mp-retour">← Choix de l'aérodrome</button>
 		<button id="hangar-menu" class="mp-retour">← Menu principal</button>
 	</div>
 
@@ -406,6 +409,7 @@
 		<div id="depart-liste"></div>
 		<p id="depart-voix" class="depart-aide" hidden></p>
 		<p class="depart-aide">Piste : prêt à décoller. Parking : avion éteint, à mettre en route (vue cabine, touche Tab ou 3 à 9).</p>
+		<button id="depart-hangar" class="mp-retour">← Hangar (changer d'avion)</button>
 	</div>
 
 	<div id="radio-indicateur" hidden></div>

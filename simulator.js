@@ -1858,6 +1858,15 @@ for (const team of ['bleu', 'rouge']) {
         if (first && !multiplayer.isHost) {
             const code = multiplayer.code;
             setTimeout(() => { if (multiDialog.open && multiplayer.code === code) multiDialog.close(); }, 900);
+        } else if (!first && !inMenu) {
+            // Changement d'équipe en cours de partie : on repart d'un terrain de la nouvelle équipe (choix de l'aérodrome).
+            // Avant, l'avion restait là où il était, souvent sur la base adverse
+            const code = multiplayer.code;
+            setTimeout(() => {
+                if (multiplayer.code !== code) return;
+                if (multiDialog.open) multiDialog.close();
+                backToAirportChoice();
+            }, 900);
         }
     });
 }
@@ -2325,6 +2334,35 @@ document.getElementById('depart').addEventListener('click', (event) => {
     openSpawnDialog();
     event.currentTarget.blur();
 });
+// Retours en arrière depuis le vol (menu Commandes, panneau SOL de la tablette), le choix du départ ou le hangar : au
+// hangar (changer d'avion, de livrée) ou au choix de l'aérodrome. Avant, une fois en vol, seul le départ se changeait :
+// pour prendre un autre avion, il fallait repasser par le menu principal (et quitter la partie multijoueur)
+function leaveFlightScreens() {
+    if (initiation?.active) initiation.stop();   // (la leçon se fait sur le Cessna, au départ prévu)
+    closeMenus();
+    setMenuBar(false);
+    tabletPanels?.closeAll();
+    spawnDialog.hidden = true;
+    spawnHover = null;
+    spawnMarkers.visible = false;
+    view.style.cursor = '';
+}
+function backToHangar() {
+    leaveFlightScreens();
+    openHangar();
+}
+function backToAirportChoice() {
+    leaveFlightScreens();
+    leaveHangar();
+    openAirportChoice();
+}
+for (const [id, action] of [['retour-hangar', backToHangar], ['depart-hangar', backToHangar], ['retour-aerodrome', backToAirportChoice],
+    ['hangar-aerodromes', backToAirportChoice]]) {
+    document.getElementById(id).addEventListener('click', (event) => {
+        action();
+        event.currentTarget.blur();
+    });
+}
 // Hangar : au lancement, l'avion est présenté dans le hangar de l'aéro-club, éteint, portes ouvertes et plafonniers
 // allumés (l'avion est tout près des portes, voir Airport.updateHangars). À côté : livrée et immatriculation ; le
 // bouton passe au choix du départ. Comme pendant le choix du départ, rien ne bouge (ni physique, ni son, ni réseau)
