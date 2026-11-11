@@ -1,6 +1,9 @@
 import {
     BufferAttribute,
     BufferGeometry,
+    DataTexture,
+    LinearFilter,
+    RedFormat,
     Group,
     Mesh,
     MeshStandardMaterial,
@@ -31,6 +34,10 @@ const BUILD_AT_ONCE = 9;     // reconstruction complète (départ, saut de camé
 // Lacs : rive à 1,4 × le rayon au plus (sol relevé au-dessus de l'eau entre 1,25 et 1,4) ; profondeur au centre (m)
 const LAKE_RIM = 1.4;
 const LAKE_DEPTH = 8;   // (assez creux : vu de loin, la précision de profondeur ne confond pas le fond et l'eau)
+// Zones sans champs (voir setFarmMask) : finesse de la carte, marge autour des villages et des bois, largeur du fondu (m)
+const FARM_MASK_SIZE = 1024;
+const FARM_MASK_MARGIN = -10;   // (bois : les arbres du bord sont un peu en deçà du rayon du massif)
+const FARM_MASK_FADE = 30;
 
 function smoothstep(edge0, edge1, x) {
     const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -81,6 +88,8 @@ class Terrain {
 
         this.size = size;
         this._waterTime = { value: 0 };   // vagues de l'eau et reflets ondulants sur le fond des lacs (voir animate)
+        // Zones sans champs (villages, bois) : carte de tout le terrain, 0 = champs possibles, 1 = non (voir setFarmMask)
+        this._farmMask = { value: Terrain._maskTexture(new Uint8Array(1), 1) };
         this.material = this._createMaterial(renderer, { snowHeight, tile, grassTint });
         // Groupe des dalles (scene.add(terrain.mesh) ; receiveShadow transmis aux dalles)
         this.mesh = new Group();
@@ -108,6 +117,37 @@ class Terrain {
         this._viewer = new Vector3(0, 0, 0);
         this._range = 3000;
         this.setDetail(segments);
+    }
+
+    static _maskTexture(data, n) {
+        const texture = new DataTexture(data, n, n, RedFormat);
+        texture.magFilter = texture.minFilter = LinearFilter;
+        texture.unpackAlignment = 1;   // (lignes d'un octet par pixel)
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    // Villages et bois (cercles { x, z, radius } posés par le décor, Scenery.js) : pas de parcelles cultivées dessous ni
+    // juste autour (avant : champs de blé ou labours sous les maisons et sous les arbres). Carte de FARM_MASK_SIZE² pixels
+    // (~25 m) sur tout le terrain, bord adouci ; vide : null (décor classique)
+    setFarmMask(circles) {
+        const n = circles?.length ? FARM_MASK_SIZE : 1, data = new Uint8Array(n * n);
+        const cell = this.size / n;
+        for (const c of circles ?? []) {
+            const reach = c.radius + FARM_MASK_MARGIN + FARM_MASK_FADE;
+            const i0 = Math.max(0, Math.floor((c.x - reach) / cell + n / 2)), i1 = Math.min(n - 1, Math.ceil((c.x + reach) / cell + n / 2));
+            const j0 = Math.max(0, Math.floor((c.z - reach) / cell + n / 2)), j1 = Math.min(n - 1, Math.ceil((c.z + reach) / cell + n / 2));
+            for (let j = j0; j <= j1; j++) {
+                for (let i = i0; i <= i1; i++) {
+                    const x = (i + 0.5 - n / 2) * cell, z = (j + 0.5 - n / 2) * cell;
+                    const d = Math.hypot(x - c.x, z - c.z) - c.radius - FARM_MASK_MARGIN;
+                    const v = Math.round(255 * (1 - smoothstep(0, FARM_MASK_FADE, d)));
+                    if (v > data[j * n + i]) data[j * n + i] = v;
+                }
+            }
+        }
+        this._farmMask.value.dispose();
+        this._farmMask.value = Terrain._maskTexture(data, n);
     }
 
     // Finesse du maillage (réglage "Détail du sol", segments pour 6000 m) ; les collisions utilisent heightAt
@@ -547,6 +587,8 @@ class Terrain {
                 uTile: { value: tile },
                 uSnowHeight: { value: snowHeight },
                 uWaterTime: this._waterTime,
+                tFarmMask: this._farmMask,
+                uFarmMaskScale: { value: 1 / this.size },
             });
 
             shader.vertexShader = shader.vertexShader
@@ -572,6 +614,8 @@ class Terrain {
                     uniform float uTile;
                     uniform float uSnowHeight;
                     uniform float uWaterTime;
+                    uniform sampler2D tFarmMask;
+                    uniform float uFarmMaskScale;
                     varying float vLakeDepth;
                     varying float vFarm;
                     varying vec3 vTerrainPos;
@@ -604,7 +648,9 @@ class Terrain {
                         vec3 meadow = mix(vec3(0.052, 0.088, 0.027), vec3(0.090, 0.126, 0.040), smoothstep(0.30, 0.50, n));
                         meadow = mix(meadow, vec3(0.135, 0.135, 0.065), smoothstep(0.58, 0.80, n));   // herbe sèche
                         vec3 color = meadow;
-                        if (vFarm > 0.01) {
+                        // Terres cultivées, sauf sous les villages et les bois (carte lue sans dérivées : dans un "if")
+                        float farmland = vFarm > 0.01 ? vFarm * (1.0 - textureLod(tFarmMask, pos.xz * uFarmMaskScale + 0.5, 0.0).r) : 0.0;
+                        if (farmland > 0.01) {
                             // Grille de parcelles tournée (pas dans l'axe des pistes), bords légèrement ondulés
                             vec2 q = mat2(0.906, 0.423, -0.423, 0.906) * p;
                             q += 14.0 * vec2(sin(q.y * 0.0093), sin(q.x * 0.0107));
@@ -628,7 +674,7 @@ class Terrain {
                             // Haie ou chemin au bord : bande sombre de ~4 m (au loin : teinte moyenne)
                             float hedge = (1.0 - smoothstep(2.0, 4.0 + footprint, edge)) * mix(0.25, 1.0, fine);
                             field = mix(field, vec3(0.030, 0.050, 0.020), hedge * step(0.5, terrainHash(vec2(column, row) + 5.3)) * 0.85);
-                            color = mix(meadow, field, vFarm);
+                            color = mix(meadow, field, farmland);
                         }
                         return color * detail;
                     }

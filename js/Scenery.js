@@ -258,6 +258,12 @@ class Scenery {
             regions: this.regions });
         await breathe();
         const trees = this._placeTrees(rnd, villages);
+        // Ni champs ni labours sous les villages et les bois (voir Terrain.setFarmMask)
+        this._farmFree = [...villages, ...this._patches];
+        if (this.group.visible) {
+            this._farmMaskShown = true;
+            this.terrain.setFarmMask?.(this._farmFree);
+        }
         report(0.4);
         await breathe();
         for (const [index, def] of (Tree ? SPECIES : []).entries()) {
@@ -377,6 +383,7 @@ class Scenery {
             if (!this._free(x, z, villages, 40) || !this._grass(x, z, TREE_SLOPE)) continue;
             patches.push({ x, z, radius: 80 + rnd() * 160, pine: rnd() < 0.4 });
         }
+        this._patches = patches;
         const weights = SPECIES.map((s) => s.weight);
         const pick = (pine) => {
             const candidates = SPECIES.map((s, i) => i).filter((i) => (SPECIES[i].kind === 'pine') === pine || rnd() < 0.12);
@@ -641,6 +648,11 @@ class Scenery {
 
     setVisible(visible) {
         this.group.visible = visible;
+        // Champs : arrêtés aux villages et aux bois de ce décor ; décor classique (celui-ci caché) : partout
+        if (this._farmFree && this._farmMaskShown !== visible) {
+            this._farmMaskShown = visible;
+            this.terrain.setFarmMask?.(visible ? this._farmFree : null);
+        }
         if (visible) this.build().catch(() => { /* signalé par build ; refait au prochain appel */ });
     }
 
