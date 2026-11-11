@@ -254,6 +254,21 @@ class Impacts {
     }
 }
 
+// Flamme du moteur des missiles : un matériau par couleur, partagé par tous les missiles et jamais libéré. Avant, chaque
+// missile avait le sien et le libérait en disparaissant : si c'était le dernier à se servir de ce shader, three.js le
+// détruisait, et le missile suivant le recompilait à la première image où il entrait dans la vue (jeu figé ~0,1 à 1 s,
+// surtout sur iPad, où Safari ne compile pas en arrière-plan). Mesuré en partie à deux : à chaque AIM-9 reçu
+const _flameMaterials = new Map();
+function flameMaterial(glow, color, strength) {
+    const key = `${color}/${strength}`;
+    if (!_flameMaterials.has(key)) {
+        const material = new SpriteMaterial({ map: glow, color, blending: AdditiveBlending, transparent: true, depthWrite: false });
+        material.color.multiplyScalar(strength);
+        _flameMaterials.set(key, material);
+    }
+    return _flameMaterials.get(key);
+}
+
 // Missile AGM-65 : corps blanc, quatre ailettes, jet du moteur ; trajectoire = courbe de Bézier cubique de la
 // position de tir à la croix, parcourue à la vitesse du missile (table des longueurs d'arc)
 class Missile {
@@ -265,8 +280,7 @@ class Missile {
         this.target = target.clone();
         this.object = mesh.clone();
         this.object.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
-        this.flame = new Sprite(new SpriteMaterial({ map: glow, color: 0xffa040, blending: AdditiveBlending, transparent: true, depthWrite: false }));
-        this.flame.material.color.multiplyScalar(5);
+        this.flame = new Sprite(flameMaterial(glow, 0xffa040, 5));
         this.flame.scale.setScalar(2.2);
         this.flame.position.set(0, 0, 1.4);
         this.object.add(this.flame);
@@ -373,7 +387,7 @@ class Missile {
 
     dispose() {
         this.scene.remove(this.object);
-        this.flame.material.dispose();
+        // (matériau de la flamme partagé, gardé : voir flameMaterial)
         this.trail.dispose();
     }
 }
@@ -392,8 +406,7 @@ class AAMissile {
         this.object = mesh.clone();
         this.object.userData.transient = true;   // (objet passager : voir countSceneObjects dans simulator.js)
         this.object.scale.setScalar(1.2);
-        this.flame = new Sprite(new SpriteMaterial({ map: glow, color: 0xffb060, blending: AdditiveBlending, transparent: true, depthWrite: false }));
-        this.flame.material.color.multiplyScalar(6);
+        this.flame = new Sprite(flameMaterial(glow, 0xffb060, 6));
         this.flame.position.set(0, 0, 1.4);
         this.object.add(this.flame);
         scene.add(this.object);
@@ -468,7 +481,7 @@ class AAMissile {
 
     dispose() {
         this.scene.remove(this.object);
-        this.flame.material.dispose();
+        // (matériau de la flamme partagé, gardé : voir flameMaterial)
         this.trail.dispose();
     }
 }
@@ -823,6 +836,14 @@ class Weapons extends EventTarget {
         const warm = missile.clone();
         warm.visible = false;
         this.group.add(warm);
+        // Flammes des deux missiles (matériaux partagés, voir flameMaterial) : dessinées dès le départ, de taille nulle
+        // (aucun pixel), pour que leur shader soit compilé au préchauffage, dans les conditions réelles du dessin. Cachées
+        // comme la copie ci-dessus, elles étaient préparées dans une variante différente : le premier AIM-9 reçu recompilait
+        for (const flame of [new Sprite(flameMaterial(glow, 0xffa040, 5)), new Sprite(flameMaterial(glow, 0xffb060, 6))]) {
+            flame.scale.setScalar(1e-6);
+            flame.frustumCulled = false;
+            this.group.add(flame);
+        }
     }
 
     // Réarmement complet (nouveau départ)

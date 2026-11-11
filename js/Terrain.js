@@ -233,6 +233,9 @@ class Terrain {
         // vraie rive. Avant, le shader testait un simple cercle autour du lac : un sol plus bas que l'eau à côté du lac
         // (pente qui descend hors de la cuvette) se couvrait de sable et de reflets, comme une flaque au milieu de l'herbe
         const lakeDepth = new Float32Array(vertexCount);
+        // Terres cultivées (0 -> 1) : parcelles de champs (voir le shader) sur les fonds de vallée plats, loin des pistes et
+        // des lacs. Calculé ici, une fois par sommet : rien de plus à faire par pixel pour savoir où sont les champs
+        const farm = new Float32Array(vertexCount);
         const n3 = new Vector3();
         const put = (index, i, j, y) => {
             const x = t.x0 + i * step, z = t.z0 + j * step;
@@ -245,6 +248,9 @@ class Terrain {
             normals[index * 3] = n3.x;
             normals[index * 3 + 1] = n3.y;
             normals[index * 3 + 2] = n3.z;
+            const shore = this.lakes.length && this.lakeAt(x, z, 60);   // (champs arrêtés à 60 m de la rive)
+            farm[index] = shore ? 0 : smoothstep(0.55, 0.95, this.flatten(x, z)) * smoothstep(0.955, 0.99, n3.y)
+                * (1 - smoothstep(45, 110, y));
         };
         for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) put(j * side + i, i, j, h(i, j));
         // Jupes : bords nord (j = 0), sud (j = n), ouest (i = 0), est (i = n)
@@ -278,6 +284,7 @@ class Terrain {
         geometry.setAttribute('position', new BufferAttribute(positions, 3));
         geometry.setAttribute('normal', new BufferAttribute(normals, 3));
         geometry.setAttribute('aLakeDepth', new BufferAttribute(lakeDepth, 1));
+        geometry.setAttribute('aFarm', new BufferAttribute(farm, 1));
         geometry.setIndex(indices);
         let minY = Infinity, maxY = -Infinity;
         for (let k = 1; k < positions.length; k += 3) { minY = Math.min(minY, positions[k]); maxY = Math.max(maxY, positions[k]); }
@@ -545,11 +552,14 @@ class Terrain {
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', `#include <common>
                     attribute float aLakeDepth;
+                    attribute float aFarm;
                     varying float vLakeDepth;
+                    varying float vFarm;
                     varying vec3 vTerrainPos;
                     varying vec3 vTerrainNormal;`)
                 .replace('#include <begin_vertex>', `#include <begin_vertex>
                     vLakeDepth = aLakeDepth;
+                    vFarm = aFarm;
                     vTerrainPos = (modelMatrix * vec4(position, 1.0)).xyz;
                     vTerrainNormal = normalize(mat3(modelMatrix) * normal);`);
 
@@ -563,8 +573,65 @@ class Terrain {
                     uniform float uSnowHeight;
                     uniform float uWaterTime;
                     varying float vLakeDepth;
+                    varying float vFarm;
                     varying vec3 vTerrainPos;
                     varying vec3 vTerrainNormal;
+
+                    // Hasard reproductible (0 -> 1) d'une cellule, sans sin() (précision des GPU mobiles)
+                    float terrainHash(vec2 p) {
+                        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                        p3 += dot(p3, p3.yzx + 33.33);
+                        return fract((p3.x + p3.y) * p3.z);
+                    }
+                    // Bruit de valeur lissé (0 -> 1) : grandes taches de couleur des prairies
+                    float terrainNoise(vec2 p) {
+                        vec2 i = floor(p), f = fract(p);
+                        f = f * f * (3.0 - 2.0 * f);
+                        return mix(mix(terrainHash(i), terrainHash(i + vec2(1.0, 0.0)), f.x),
+                            mix(terrainHash(i + vec2(0.0, 1.0)), terrainHash(i + vec2(1.0, 1.0)), f.x), f.y);
+                    }
+
+                    // Couleur de l'herbe, détail de la photo gardé mais teinte réaliste (vue d'avion : vert terne, varié) :
+                    // - prairies : taches d'herbe grasse, sèche et sombre (bruit à 2 échelles, ~700 m et ~170 m) ;
+                    // - terres cultivées (vFarm, fonds de vallée plats) : parcelles de 120 à 330 m en rangées (champs verts,
+                    //   blé mûr, labours avec sillons, chaume, colza), bordées de haies sombres.
+                    // Tout en calcul (aucune texture de plus) ; fins détails (haies, sillons) fondus au loin, où un pixel
+                    // couvre plusieurs mètres (pas de moirage)
+                    vec3 grassColor(vec3 photo, vec3 pos, float footprint) {
+                        float detail = clamp(dot(photo, vec3(0.3, 0.59, 0.11)) * 9.0, 0.5, 1.6);
+                        vec2 p = pos.xz;
+                        float n = terrainNoise(p / 700.0) * 0.65 + terrainNoise(p / 170.0 + 17.0) * 0.35;
+                        vec3 meadow = mix(vec3(0.052, 0.088, 0.027), vec3(0.090, 0.126, 0.040), smoothstep(0.30, 0.50, n));
+                        meadow = mix(meadow, vec3(0.135, 0.135, 0.065), smoothstep(0.58, 0.80, n));   // herbe sèche
+                        vec3 color = meadow;
+                        if (vFarm > 0.01) {
+                            // Grille de parcelles tournée (pas dans l'axe des pistes), bords légèrement ondulés
+                            vec2 q = mat2(0.906, 0.423, -0.423, 0.906) * p;
+                            q += 14.0 * vec2(sin(q.y * 0.0093), sin(q.x * 0.0107));
+                            float rowSize = 190.0;
+                            float row = floor(q.y / rowSize);
+                            float width = mix(120.0, 330.0, terrainHash(vec2(row, 3.7)));
+                            float along = q.x + terrainHash(vec2(row, 9.1)) * width;
+                            float column = floor(along / width);
+                            float kind = terrainHash(vec2(column, row));
+                            vec2 local = vec2(fract(along / width) * width, fract(q.y / rowSize) * rowSize);
+                            float edge = min(min(local.x, width - local.x), min(local.y, rowSize - local.y));
+                            vec3 field = kind < 0.32 ? vec3(0.070, 0.125, 0.026)          // culture verte
+                                : kind < 0.48 ? vec3(0.200, 0.165, 0.070)                 // blé mûr
+                                : kind < 0.64 ? vec3(0.105, 0.080, 0.050)                 // labour
+                                : kind < 0.80 ? vec3(0.165, 0.150, 0.090)                 // chaume
+                                : kind < 0.84 ? vec3(0.220, 0.205, 0.045)                 // colza
+                                : meadow;                                                  // pâture
+                            float fine = 1.0 - smoothstep(0.6, 2.5, footprint);
+                            // Sillons (labours, chaume) : lignes tous les 3 m dans la longueur de la parcelle
+                            if (kind >= 0.50 && kind < 0.82) field *= 1.0 - 0.22 * fine * smoothstep(0.3, 1.0, abs(sin(local.y * 1.05)));
+                            // Haie ou chemin au bord : bande sombre de ~4 m (au loin : teinte moyenne)
+                            float hedge = (1.0 - smoothstep(2.0, 4.0 + footprint, edge)) * mix(0.25, 1.0, fine);
+                            field = mix(field, vec3(0.030, 0.050, 0.020), hedge * step(0.5, terrainHash(vec2(column, row) + 5.3)) * 0.85);
+                            color = mix(meadow, field, vFarm);
+                        }
+                        return color * detail;
+                    }
 
                     // Deux échelles mélangées pour casser la répétition vue de haut.
                     // Dérivées explicites (textureGrad) : la lecture peut se faire dans un "if"
@@ -606,7 +673,8 @@ class Terrain {
                     vec3 terrainColor = vec3(0.0);
                     if (grassWeight > 0.0) {
                         vec3 grass = terrainSample(tGrass, terrainUv, uvDx, uvDy);
-                        terrainColor += grassWeight * mix(grass, grass * uGrassTint * 2.5, 0.6);
+                        float footprint = length(vec2(length(uvDx), length(uvDy))) * uTile;   // m couverts par un pixel
+                        terrainColor += grassWeight * grassColor(grass, vTerrainPos, footprint);
                     }
                     if (rockWeight > 0.0) terrainColor += rockWeight * rockSample(tRock, rockPos, terrainNormal, rockDx, rockDy);
                     if (snowAmount > 0.0) terrainColor += snowAmount * terrainSample(tSnow, terrainUv, uvDx, uvDy);

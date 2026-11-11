@@ -30,6 +30,10 @@ const LABEL_MIN_DISTANCE = 12;
 // version fusionnée (voir lowDetailF15), même image avec ~3 fois moins d'appels de dessin ; de près, le modèle complet
 // (soufflantes qui tournent dans les entrées d'air)
 const LOW_DETAIL_DISTANCE = 80;
+// Avions des joueurs partis gardés (par type) : un joueur qui revient (page cachée plus de 8 s, coupure réseau, nouveau
+// départ après rechargement) ou un nouveau joueur reprend l'un d'eux. Avant, son avion était recréé et ses shaders
+// recompilés : à-coup chez tous les autres joueurs à chaque retour
+const SPARE_PLANES = 3;
 const CLEAN = 0.01;  // tout près : étiquette masquée (elle cacherait l'avion)
 const FT = 0.3048, NM = 1852;
 // Phare des autres avions : même lumière que celui du joueur (simulator.js). Réserve de 2 projecteurs, attribués aux
@@ -128,6 +132,8 @@ class RemotePlayers extends EventTarget {
         this.engineVolume = 1;                  // moins fort en cabine
         this.template = null;          // modèle 3D de l'avion (fourni quand il est chargé)
         this.planes = new Map();       // id -> { group, model, label, propeller, engine, livery, crashes, … }
+        this._spareLabels = [];         // étiquettes des joueurs partis, réutilisées (voir _sync)
+        this._sparePlanes = {};         // avions des joueurs partis, par type, réutilisés (voir _reuse)
         this.speaking = new Set();     // joueurs qui parlent à la radio
         this._targetPosition = new Vector3();
         this._targetQuaternion = new Quaternion();
@@ -142,14 +148,21 @@ class RemotePlayers extends EventTarget {
     }
 
     setTemplate(model) {
+        this._dropSpares('c172');   // (avions gardés faits sur l'ancien modèle)
         this.template = model;
         this._sync();
     }
 
     setJetTemplate(model) {
+        this._dropSpares('f15');
         this.jetTemplate = model;
         this.jetLowTemplate = null;   // version fusionnée (configuration lisse, voir update) : faite au premier F-15 d'un autre joueur
         this._sync();
+    }
+
+    _dropSpares(type) {
+        for (const plane of this._sparePlanes[type] ?? []) this._release(plane);
+        this._sparePlanes[type] = [];
     }
 
     _altitudeOffset(state) {
@@ -240,8 +253,7 @@ class RemotePlayers extends EventTarget {
                 group.position.copy(this._targetPosition);
                 group.quaternion.copy(this._targetQuaternion);
                 plane.fresh = false;
-                plane.trail?.jump();
-            } else {
+                    } else {
                 // L'avion avance avec sa vitesse, puis se recale en douceur sur la prédiction
                 group.position.addScaledVector(this._velocity, delta).lerp(this._targetPosition, positionAlpha);
                 group.quaternion.slerp(this._targetQuaternion, rotationAlpha);
@@ -395,10 +407,16 @@ class RemotePlayers extends EventTarget {
             // Parti, ou passé à un autre avion (Cessna <-> F-15) : son avion est retiré (puis recréé ci-dessous)
             if (!players.has(id) || (players.get(id).aircraft ?? 'c172') !== plane.type) {
                 this.scene.remove(plane.group, plane.label.sprite);
-                plane.label.dispose();
+                // Étiquette gardée pour le prochain joueur (voir _spareLabels), pas libérée
+                if (this._spareLabels.length < 16) this._spareLabels.push(plane.label);
+                else plane.label.dispose();
                 plane.engine?.dispose();
-                plane.trail?.dispose();
-                this._release(plane);
+                // Avion gardé en réserve pour le prochain joueur sur le même avion (voir _sparePlanes), pas libéré
+                const spares = this._sparePlanes[plane.type] ??= [];
+                plane.trail?.dispose();   // (fumée : refaite s'il est de nouveau touché)
+                plane.trail = null;
+                if (spares.length < SPARE_PLANES) spares.push(plane);
+                else this._release(plane);
                 this.planes.delete(id);
             }
         }
@@ -407,6 +425,11 @@ class RemotePlayers extends EventTarget {
             const type = player.aircraft === 'f15' ? 'f15' : 'c172';
             if (type === 'f15' && !this.jetTemplate) {
                 this.onJetNeeded?.();   // modèle du F-15 chargé à la demande, l'avion apparaît ensuite
+                continue;
+            }
+            const spare = this._sparePlanes[type]?.pop();
+            if (spare) {
+                this._reuse(id, player, spare);
                 continue;
             }
             const model = type === 'f15' ? cloneF15(this.jetTemplate) : this.template.clone();
@@ -436,7 +459,10 @@ class RemotePlayers extends EventTarget {
             const lights = new AircraftLights(airframe, type === 'f15' ? { layout: F15_LIGHT_LAYOUT } : {});
             lights.setOccluder(model);
             lights.setNight(this.night);
-            const label = new Label();
+            // Étiquettes réutilisées : en libérer une libérait aussi son shader quand c'était la dernière, et l'arrivée
+            // suivante d'un joueur le recompilait à la première image où elle se voyait (à-coup)
+            const label = this._spareLabels.pop() ?? new Label();
+            label._text = '';
             group.userData.transient = label.sprite.userData.transient = true;   // (shaders préparés à part, voir prepare)
             this.scene.add(group, label.sprite);
             const plane = {
@@ -451,17 +477,49 @@ class RemotePlayers extends EventTarget {
                 ready: !this.prepare,
             };
             this.planes.set(id, plane);
-            // Caché le temps que ses shaders se compilent en arrière-plan (quelques dixièmes de seconde) : le jeu continue
-            // de tourner, au lieu de figer à la première image qui le montre
-            if (this.prepare) {
-                group.visible = false;
-                // (version fusionnée attachée le temps de l'appel : prepare compile tout de suite ce qui est attaché)
-                if (low) group.add(low);
-                const preparing = this.prepare(group);
-                if (low) group.remove(low);
-                preparing.catch(() => {}).finally(() => { plane.ready = true; });
-            }
+            this._prepare(plane);
         }
+    }
+
+    // Avion d'un joueur parti, repris pour un joueur qui arrive (ou le même qui revient) : repeint à sa livrée, remis à
+    // zéro. Ses matériaux et ses shaders sont déjà prêts : pas de copie du modèle ni de compilation
+    _reuse(id, player, plane) {
+        const label = this._spareLabels.pop() ?? new Label();
+        label._text = '';
+        label.sprite.userData.transient = true;
+        if (plane.livery !== player.livery) {
+            if (plane.type === 'f15') {
+                paintF15(plane.model, player.livery);
+                if (plane.low) paintF15(plane.low, player.livery);
+            } else paintAircraft(plane.model, player.livery);
+        }
+        if (this.registrationFor && plane.type !== 'f15') setRegistration(plane.model, this.registrationFor(id));
+        plane.lights.setNight(this.night);
+        Object.assign(plane, {
+            label, anim: { time: 0 }, engine: null, rpm: undefined, livery: player.livery, crashes: player.crashes,
+            fresh: true, ready: !this.prepare, lightPhase: Math.random() * 10,
+        });
+        this.scene.add(plane.group, label.sprite);
+        this.planes.set(id, plane);
+        this._prepare(plane);
+    }
+
+    // Caché le temps que ses shaders se compilent en arrière-plan (quelques dixièmes de seconde) : le jeu continue de
+    // tourner, au lieu de figer à la première image qui le montre (avion repris : déjà prêts, c'est immédiat)
+    _prepare(plane) {
+        if (!this.prepare) return;
+        const { group, label } = plane;
+        group.visible = false;
+        // (version non affichée — fusionnée ou complète — et étiquette attachées le temps de l'appel : prepare compile tout
+        // de suite ce qui est attaché. Sans l'étiquette, son shader se compilait à la première image où elle entrait dans
+        // la vue, en plein vol : à-coup mesuré en partie à deux, ~1 s en rendu logiciel)
+        const detached = [plane.model, plane.low].filter((o) => o && !o.parent);
+        for (const o of detached) group.add(o);
+        group.add(label.sprite);
+        const preparing = this.prepare(group);
+        for (const o of detached) group.remove(o);
+        this.scene.add(label.sprite);
+        preparing.catch(() => {}).finally(() => { plane.ready = true; });
     }
 }
 
