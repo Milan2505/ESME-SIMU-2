@@ -107,19 +107,7 @@ function drawTrim(ctx, hotspots, trim) {
     ctx.lineTo(ix - 25, ty - 6);
     ctx.lineTo(ix - 25, ty + 6);
     ctx.fill();
-    const by = yOf(trim.deg), r = 6.5;
-    const ball = ctx.createRadialGradient(ix - 2, by - 2, 1, ix, by, r);
-    ball.addColorStop(0, '#ffffff');
-    ball.addColorStop(0.6, '#d9d9d6');
-    ball.addColorStop(1, '#8e8e8a');
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-    ctx.beginPath();
-    ctx.arc(ix + 1, by + 1.5, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = ball;
-    ctx.beginPath();
-    ctx.arc(ix, by, r, 0, Math.PI * 2);
-    ctx.fill();
+    // (bille : en 3D, elle glisse dans la fente, voir Controls3D.js)
 }
 
 function drawPedestal(ctx, hotspots, w, h, systems, trim) {

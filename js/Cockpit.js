@@ -879,7 +879,8 @@ class Cockpit {
     _drawPedestal(state) {
         const trim = { deg: state.trim, min: state.trimLimits[0], max: state.trimLimits[1], takeoff: state.takeoffTrim };
         const p = this._pedestal, f = this._fuelPlate, sys = state.systems;
-        const pedestalKey = `${trim.deg.toFixed(2)}|${trim.min}|${trim.max}|${trim.takeoff}|${sys.fuelShutoff}`;
+        // (position du trim : bille 3D, voir Controls3D ; la plaque n'est plus redessinée à chaque cran)
+        const pedestalKey = `${trim.min}|${trim.max}|${trim.takeoff}|${sys.fuelShutoff}`;
         if (pedestalKey !== this._pedestalKey) {
             this._pedestalKey = pedestalKey;
             this._hotspots.pedestal.clear();
@@ -929,7 +930,7 @@ class Cockpit {
         }
         this._throttle.position.z = PANEL_FACE_Z + 0.004 + (1 - state.throttle) * 0.08;
         this._mixture.position.z = PANEL_FACE_Z + 0.004 + (1 - sys.mixture) * 0.08;
-        this._controls3D.update({ systems: sys, flapLevel: state.flapLevel, flaps: state.flaps, trim: state.trim }, k);
+        this._controls3D.update({ systems: sys, flapLevel: state.flapLevel, flaps: state.flaps, trim: state.trim, trimLimits: state.trimLimits }, k);
         // Frein de parking : poignée tirée quand il est serré
         this._brakeLever.position.z += ((state.parkingBrake ? 0.05 : 0) + PANEL_FACE_Z - this._brakeLever.position.z) * k;
         for (const { hinge, down } of this._visors ?? []) {

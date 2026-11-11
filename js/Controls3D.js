@@ -286,6 +286,46 @@ class Controls3D {
         trimRoot.add(wheel);
         this._parts.trimWheel = wheel;
 
+        // Cadres en relief autour des deux fentes (roulette, indicateur) et bille de l'indicateur, en 3D : la bille glisse
+        // dans sa fente avec le trim (avant : dessinée à plat sur la plaque). Fentes : celles dessinées sur la plaque
+        // (PanelControls.js), en px de la plaque (1 280 px par mètre)
+        const PX = 1 / 1280;
+        const bezelMaterial = new MeshStandardMaterial({ color: 0x3a3c40, metalness: 0.3, roughness: 0.5 });
+        const roundedRect = (shape, w, h, r) => {
+            shape.moveTo(-w / 2 + r, -h / 2);
+            shape.lineTo(w / 2 - r, -h / 2);
+            shape.absarc(w / 2 - r, -h / 2 + r, r, -Math.PI / 2, 0, false);
+            shape.lineTo(w / 2, h / 2 - r);
+            shape.absarc(w / 2 - r, h / 2 - r, r, 0, Math.PI / 2, false);
+            shape.lineTo(-w / 2 + r, h / 2);
+            shape.absarc(-w / 2 + r, h / 2 - r, r, Math.PI / 2, Math.PI, false);
+            shape.lineTo(-w / 2, -h / 2 + r);
+            shape.absarc(-w / 2 + r, -h / 2 + r, r, Math.PI, Math.PI * 1.5, false);
+            return shape;
+        };
+        // Cadre : anneau de 3 px autour de la fente (w × h px, rayon r px), 3 mm de relief aux bords arrondis
+        const slotBezel = (w, h, r) => {
+            const rim = 3;
+            const shape = roundedRect(new Shape(), (w + 2 * rim) * PX, (h + 2 * rim) * PX, (r + rim) * PX);
+            shape.holes.push(roundedRect(new Path(), w * PX, h * PX, r * PX));
+            const geometry = new ExtrudeGeometry(shape, { depth: 0.0018, bevelEnabled: true, bevelThickness: 0.0008,
+                bevelSize: 0.0008, bevelSegments: 2, curveSegments: 8 });
+            return new Mesh(geometry, bezelMaterial);
+        };
+        trimRoot.add(slotBezel(t.w, t.h, 4));
+        const ind = pedestalLayout.trimIndicator, SLOT_W = 18;
+        const center = pedestalPoint(ind.x, (ind.top + ind.bottom) / 2);
+        const indRoot = this._add('trimWheel', center);   // (clic sur l'indicateur : comme sur la roulette)
+        indRoot.add(slotBezel(SLOT_W, ind.bottom - ind.top + 8, SLOT_W / 2));
+        const ball = new Mesh(new SphereGeometry(0.0052, 20, 14),
+            new MeshStandardMaterial({ color: 0xeeeeea, metalness: 0.1, roughness: 0.25 }));
+        ball.position.z = 0.0018;
+        indRoot.add(ball);
+        this._parts.trimBall = ball;
+        // Course de la bille (repère local) : même échelle que le repère TAKE OFF dessiné sur la plaque
+        this._ballTop = pedestalPoint(ind.x, ind.top + 6).y - center.y;
+        this._ballBottom = pedestalPoint(ind.x, ind.bottom - 6).y - center.y;
+
         // Sélecteur de réservoir : poignée blanche effilée sur le plancher
         const selRoot = this._add('fuelSelector', floorPoint(null, 100 + pedestalLayout.fuelSelector.y));
         const selector = new Group();
@@ -347,6 +387,12 @@ class Controls3D {
         this._flapIndex.position.y = this._flapSpan / 2 - state.flaps * this._flapSpan;
         // Molette de trim : tourne avec le trim (à piquer : le haut de la roue part vers l'avant)
         ease(P.trimWheel.rotation, 'x', deg(state.trim * 12));
+        // Bille de l'indicateur : NOSE DOWN (trim mini) en haut, NOSE UP en bas
+        if (state.trimLimits) {
+            const [min, max] = state.trimLimits;
+            const f = Math.min(1, Math.max(0, (state.trim - min) / (max - min || 1)));
+            ease(P.trimBall.position, 'y', this._ballTop + (this._ballBottom - this._ballTop) * f);
+        }
         ease(P.selector.rotation, 'y', -deg([-90, 0, 90][s.fuelSelector]));
     }
 }
