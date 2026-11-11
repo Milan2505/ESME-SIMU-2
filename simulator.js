@@ -534,6 +534,7 @@ function setupJet() {
         paintF15(model, isF15Livery(multiplayer.livery) ? multiplayer.livery : savedJetLivery());
         remotePlayers.setJetTemplate(cloneF15(model));
         jetSound.unlock().catch(() => {});
+        weapons.sounds.preload();   // (son du canon : enregistrement du M61A1, prêt dès la première rafale)
         jetCockpit.setNight(weather?.night ?? 0);
         jetCockpit.setExterior(chaseView);
         // Shaders et textures du F-15 et de son cockpit préparés tout de suite, en arrière-plan (au hangar, ou au menu en

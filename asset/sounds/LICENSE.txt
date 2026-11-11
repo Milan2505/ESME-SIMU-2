@@ -26,7 +26,7 @@ bank-angle.wav (annonce « BANK ANGLE » de l'EGPWS Honeywell MK VIII, celle des
 Source : projet FlightGear A310 (https://github.com/FGMEMBERS/A310, Sounds/mk-viii/), aussi dans FlightGear fgdata
 (Sounds/mk-viii/) ; licence GNU General Public License v2.0 (GPL-2.0)
 
-f15/*.wav (réacteurs, postcombustion, JFS, train, trappes, aérofrein, verrière, tonalité d'incidence du F-15)
+f15/*.wav (réacteurs, postcombustion, JFS, train, trappes, aérofrein, verrière, tonalité d'incidence, canon M61A1 du F-15)
 Source : projet FlightGear F-15 de Richard Harrison (https://github.com/Zaretto/fg-aircraft, aircraft/F-15/Sounds/),
 convertis en mono 44,1 kHz ; licence GNU General Public License v2.0 (GPL-2.0)
 

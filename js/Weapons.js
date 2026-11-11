@@ -21,7 +21,7 @@ import {
     SRGBColorSpace,
     Vector3
 } from 'three';
-import { sharedAudioContext } from './AudioUnlock.js';
+import { sharedAudioContext, loadSound } from './AudioUnlock.js';
 import { SmokeTrail, puffTexture } from './Damage.js';
 import { Billboards } from './Billboards.js';
 
@@ -487,9 +487,48 @@ class AAMissile {
 }
 
 // Sons synthétisés : rafale du canon (« brrrt » à 100 coups/s, en boucle tant qu'on tire), départ du missile
+// Son du canon : enregistrement du M61A1 du F-15 de FlightGear (asset/sounds/LICENSE.txt), « BRRRT » continu joué en
+// boucle tant que le canon tire (sa fin, qui s'éteint, est laissée de côté). Avant : un son synthétisé, surtout une note
+// à 85 Hz que les haut-parleurs de téléphone, de tablette et d'ordinateur portable ne rendent presque pas : on
+// n'entendait rien sous le bruit des réacteurs
+const GUN_SAMPLE = 'asset/sounds/f15/m61a1.wav';
+const GUN_LOOP = [0.05, 1.45];   // s : partie continue de l'enregistrement
+const GUN_LEVEL = { outside: 0.6, cabin: 0.45, remote: 0.6 };
+
 class WeaponSounds {
     constructor() {
         this.ctx = null;
+    }
+
+    // Enregistrement du canon chargé d'avance (F-15 choisi) : prêt dès la première rafale
+    preload() {
+        this._init();
+    }
+
+    // Enregistrement chargé : les deux boucles (notre canon, celui des autres) passent dessus sans s'interrompre
+    _loadSample() {
+        this._sample ??= loadSound(this.ctx, GUN_SAMPLE).then((buffer) => {
+            this.gunBuffer = buffer;
+            this.sampled = true;
+            for (const loop of [this.own, this.remote]) this._restart(loop);
+        }).catch(() => { /* son synthétisé conservé */ });
+    }
+
+    _source() {
+        const source = this.ctx.createBufferSource();
+        source.buffer = this.gunBuffer;
+        source.loop = true;
+        if (this.sampled) [source.loopStart, source.loopEnd] = GUN_LOOP;
+        return source;
+    }
+
+    _restart(loop) {
+        const source = this._source();
+        source.connect(loop.filter);
+        source.start(0, this.sampled ? GUN_LOOP[0] : 0);
+        loop.source.stop();
+        loop.source.disconnect();
+        loop.source = source;
     }
 
     _init() {
@@ -527,21 +566,20 @@ class WeaponSounds {
         this.whooshBuffer = whoosh;
         this.own = this._loop(1);
         this.remote = this._loop(0);
+        this._loadSample();
         return true;
     }
 
     _loop(gainValue) {
-        const source = this.ctx.createBufferSource();
-        source.buffer = this.gunBuffer;
-        source.loop = true;
+        const source = this._source();
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 3500;
+        filter.frequency.value = 6000;
         const gain = this.ctx.createGain();
         gain.gain.value = 0;
         source.connect(filter).connect(gain).connect(this.master);
         source.start();
-        return { gain, filter, level: gainValue };
+        return { source, gain, filter, level: gainValue };
     }
 
     // own : notre canon (0 -> 1) ; remote : canon des autres (0 -> 1, selon la distance) ; cabin : son étouffé
@@ -551,10 +589,13 @@ class WeaponSounds {
             if (!this._init()) return;
         }
         const now = this.ctx.currentTime;
-        this.own.gain.gain.setTargetAtTime(own * (cabin ? 0.55 : 0.8), now, 0.02);
-        this.own.filter.frequency.setTargetAtTime(cabin ? 1400 : 3500, now, 0.05);
-        this.remote.gain.gain.setTargetAtTime(remote * 0.8, now, 0.03);
-        this.remote.filter.frequency.setTargetAtTime(1200 + 2000 * remote, now, 0.05);
+        // (son synthétisé, en attendant l'enregistrement : niveaux d'avant)
+        const L = this.sampled ? GUN_LEVEL : { outside: 0.8, cabin: 0.55, remote: 0.8 };
+        // En cabine : étouffé par la verrière et le casque, mais toujours fort (le canon est dans l'emplanture de l'aile)
+        this.own.gain.gain.setTargetAtTime(own * (cabin ? L.cabin : L.outside), now, 0.02);
+        this.own.filter.frequency.setTargetAtTime(cabin ? 2500 : 6000, now, 0.05);
+        this.remote.gain.gain.setTargetAtTime(remote * L.remote, now, 0.03);
+        this.remote.filter.frequency.setTargetAtTime(1200 + 3000 * remote, now, 0.05);
     }
 
     // Alerte radar (RWR) : un autre joueur nous accroche ('search' : bip lent) ou nous a verrouillés ('lock' : bips
