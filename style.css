@@ -2681,6 +2681,27 @@ body:has(#simulator.jeu) {
 #multi-dialog #multi-creer:hover {
   background: linear-gradient(90deg, #2580d1, #1d5c9c);
 }
+/* Wardog : choix de l'équipe, étape à part (seuls le titre, l'état et les équipes restent affichés) */
+#multi-dialog:not(.etape-equipe) #multi-equipes {
+  display: none !important;
+}
+#multi-dialog.etape-equipe > :not(h3, #multi-statut, #multi-equipes) {
+  display: none !important;
+}
+#multi-dialog.etape-equipe #multi-equipes {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
+}
+#multi-dialog .multi-equipes-aide {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  color: #b8c6d4;
+}
+#multi-dialog.etape-equipe #multi-equipes button[data-equipe] {
+  min-height: 64px;
+  font-size: 15px;
+}
 #multi-dialog #multi-entrer {
   width: 100%;
   margin-top: 12px;

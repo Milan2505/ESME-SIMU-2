@@ -1832,11 +1832,12 @@ const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
 const enterButton = document.getElementById('multi-entrer');
 function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
-    teamsBox.hidden = !wardog;
+    if (!wardog) multiDialog.classList.remove('etape-equipe');
     document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden = Boolean(multiplayer.code);
-    // « Entrer dans la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : l'équipe choisie, c'est
-    // le choix de l'équipe qui fait entrer ; le bouton reste pour qui a refermé la fenêtre entre-temps)
-    enterButton.hidden = !(inMenu && multiplayer.code && (!wardog || multiplayer.team));
+    // « Rejoindre la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : mène au choix de l'équipe) ;
+    // en vol, en Wardog : « Changer d'équipe »
+    enterButton.hidden = !(multiplayer.code && (inMenu || wardog));
+    enterButton.textContent = inMenu ? 'Rejoindre la partie →' : 'Changer d’équipe →';
     updateAircraftChoice();
     if (!wardog) return;
     for (const team of ['bleu', 'rouge']) {
@@ -1860,13 +1861,10 @@ for (const team of ['bleu', 'rouge']) {
         multiStatut.classList.remove('erreur');
         multiStatut.textContent = `Vous êtes dans l'${TEAM_LABELS[team].toLowerCase()}`;
         renderTeams();
-        // Équipe choisie (créateur compris) : on entre dans la partie, au hangar du terrain de l'équipe (pas de choix de
-        // l'aérodrome : chaque équipe a le sien). En cours de partie, changer d'équipe ramène de même au hangar de la
-        // nouvelle équipe (avant : l'avion restait là où il était, souvent sur la base adverse)
-        if (first || !inMenu) {
-            const code = multiplayer.code;
-            setTimeout(() => { if (multiplayer.code === code) enterMultiplayerGame(); }, 700);
-        }
+        // Équipe choisie (créateur compris) : on entre dans la partie, directement au hangar du terrain de l'équipe (pas
+        // de choix de l'aérodrome : chaque équipe a le sien). En cours de partie, de même au hangar de la nouvelle équipe
+        // (avant : l'avion restait là où il était, souvent sur la base adverse)
+        enterMultiplayerGame();
     });
 }
 // Entrer dans la partie créée ou rejointe : fenêtre fermée, puis Wardog -> hangar du terrain de l'équipe (F-15) ;
@@ -1881,7 +1879,15 @@ function enterMultiplayerGame() {
         enterGame(team ? openTeamHangar : openAirportChoice);
     } else if (team) openTeamHangar();
 }
-enterButton.addEventListener('click', () => enterMultiplayerGame());
+// Wardog : étape du choix de l'équipe (le reste de la fenêtre est masqué, voir style.css : etape-equipe)
+function showTeamStep() {
+    multiDialog.classList.add('etape-equipe');
+    if (!multiDialog.open) openMultiDialog();
+    renderTeams();
+}
+enterButton.addEventListener('click', () => (wardog() ? showTeamStep() : enterMultiplayerGame()));
+document.getElementById('equipe-retour').addEventListener('click', () => multiDialog.classList.remove('etape-equipe'));
+multiDialog.addEventListener('close', () => multiDialog.classList.remove('etape-equipe'));
 // Wardog : hangar du terrain de l'équipe (le sien au départ, d'ailleurs l'un de ceux qu'elle tient), en F-15 : le Cessna
 // n'est pas fait pour le combat
 async function openTeamHangar() {
@@ -1915,7 +1921,7 @@ multiplayer.addEventListener('mode', ({ detail }) => {
     if (detail.mode === 'wardog' && !multiplayer.team) {
         multiStatut.classList.remove('erreur');
         multiStatut.textContent = 'Partie Wardog : choisissez votre équipe';
-        if (!multiDialog.open) openMultiDialog();
+        if (!multiplayer.isHost) showTeamStep();   // (partie rejointe : directement au choix de l'équipe)
     }
 });
 // Rejoindre : le code tapé. Celui de la partie où l'on est déjà (créée dans cette fenêtre) : on y reste. Avant,
@@ -1955,7 +1961,7 @@ multiplayer.addEventListener('joined', ({ detail }) => {
     if (multiplayer.mode === 'wardog' && !multiplayer.team) {
         multiStatut.classList.remove('erreur');
         multiStatut.textContent = `Partie ${detail.code} rejointe (Wardog) : choisissez votre équipe`;
-        renderTeams();
+        showTeamStep();
         return;
     }
     // (vol libre : on entre tout de suite, au choix de l'aérodrome)

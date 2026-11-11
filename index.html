@@ -678,17 +678,20 @@
 			<input id="multi-lien" readonly>
 			<button id="multi-copier">Copier le lien</button>
 		</div>
-		<!-- Wardog : choix de l'équipe (places restantes) ; le choix fait entrer dans la partie, au hangar de l'équipe -->
-		<div id="multi-equipes" hidden>
-			<span class="multi-salon-titre">Choisissez votre équipe pour entrer dans la partie</span>
+		<!-- Wardog : choix de l'équipe, étape à part une fois la partie rejointe (classe etape-equipe : le reste de la
+		     fenêtre est masqué) ; choisir son équipe mène directement au hangar du terrain de l'équipe -->
+		<div id="multi-equipes">
+			<span class="multi-salon-titre">Choisissez votre équipe</span>
+			<p class="multi-equipes-aide">Bleus : départ d'ESME · Rouges : départ d'Aix. Vous arrivez au hangar de votre terrain, en F-15.</p>
 			<div class="multi-ligne">
 				<button type="button" id="equipe-bleu" data-equipe="bleu"></button>
 				<button type="button" id="equipe-rouge" data-equipe="rouge"></button>
 			</div>
+			<button type="button" id="equipe-retour" class="mp-retour">← Retour</button>
 		</div>
 		<ul id="multi-joueurs"></ul>
-		<!-- Entrer dans la partie créée ou rejointe (avant : il fallait cliquer sur « Fermer ») -->
-		<button id="multi-entrer" hidden>Entrer dans la partie →</button>
+		<!-- Rejoindre la partie créée (avant : il fallait cliquer sur « Fermer ») ; Wardog : mène au choix de l'équipe -->
+		<button id="multi-entrer" hidden>Rejoindre la partie →</button>
 		<div class="multi-ligne">
 			<button id="multi-fermer-partie" hidden title="Termine la partie pour tous les joueurs">Fermer la partie</button>
 			<button id="multi-quitter">Quitter la partie</button>
