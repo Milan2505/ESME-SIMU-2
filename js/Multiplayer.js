@@ -225,6 +225,11 @@ class Multiplayer extends EventTarget {
         return owner ?? [this.id, ...this.players.keys()].sort()[0];
     }
 
+    // Partie confirmée (créée, ou rejointe : un de ses joueurs a répondu ; son mode, vol libre ou Wardog, est alors connu)
+    get joined() {
+        return Boolean(this.code && this._joined);
+    }
+
     // État de la capture en vigueur (celui de l'arbitre)
     get captureState() {
         const referee = this.referee;

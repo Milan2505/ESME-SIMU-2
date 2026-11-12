@@ -4828,3 +4828,10 @@ html.telephone .tb-etat {
 #retour-aerodrome[hidden] {
   display: none !important;
 }
+
+/* Hangar : avion indisponible (Wardog : F-15 seulement) grisé ; avant, le Cessna désactivé ressemblait à un bouton normal */
+#simulator:not(#_) #hangar-avions button:disabled {
+  opacity: 0.4;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}

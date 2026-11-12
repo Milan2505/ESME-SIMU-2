@@ -1847,8 +1847,10 @@ function renderTeams() {
     if (!wardog) setTeamStep(false);
     document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden = Boolean(multiplayer.code);
     // « Rejoindre la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : mène au choix de l'équipe) ;
-    // en vol, en Wardog : « Changer d'équipe »
-    enterButton.hidden = !(multiplayer.code && (inMenu || wardog));
+    // en vol, en Wardog : « Changer d'équipe ». Seulement une fois la partie confirmée : avant, pendant les quelques secondes
+    // de connexion, le mode n'était pas encore connu et le bouton menait au choix de l'aérodrome comme en vol libre (puis
+    // le choix de l'équipe s'ouvrait par-dessus en apprenant que c'était du Wardog)
+    enterButton.hidden = !(multiplayer.joined && (inMenu || wardog));
     enterButton.textContent = inMenu ? 'Rejoindre la partie →' : 'Changer d’équipe →';
     updateAircraftChoice();
     if (!wardog) return;
@@ -1863,7 +1865,11 @@ function renderTeams() {
 }
 for (const team of ['bleu', 'rouge']) {
     document.getElementById(`equipe-${team}`).addEventListener('click', () => {
-        const first = !multiplayer.team;
+        // En vol, sa propre équipe : rien ne change, la fenêtre se ferme (avant : retour au hangar, avion perdu en plein vol)
+        if (!inMenu && multiplayer.team === team) {
+            multiDialog.close();
+            return;
+        }
         if (!multiplayer.setTeam(team)) {
             multiStatut.textContent = `${TEAM_LABELS[team]} complète (${TEAM_MAX} pilotes au plus)`;
             multiStatut.classList.add('erreur');
@@ -1882,7 +1888,7 @@ for (const team of ['bleu', 'rouge']) {
 // Entrer dans la partie créée ou rejointe : fenêtre fermée, puis Wardog -> hangar du terrain de l'équipe (F-15) ;
 // vol libre -> choix de l'aérodrome. En vol (fenêtre rouverte) : Wardog -> hangar de l'équipe, sinon rien
 function enterMultiplayerGame() {
-    if (!multiplayer.code) return;
+    if (!multiplayer.joined) return;   // (connexion en cours : mode de la partie pas encore connu)
     const team = wardog();
     if (team && !multiplayer.team) return;   // (l'équipe d'abord)
     if (multiDialog.open) multiDialog.close();
