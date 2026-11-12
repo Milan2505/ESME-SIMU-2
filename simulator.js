@@ -2539,12 +2539,12 @@ const HANGAR_DESCRIPTIONS = {
         + 'chaque réacteur (voir le manuel). Train : touche Y, aérofrein : U, postcombustion : gaz au-delà de 85 %.',
 };
 function updateAircraftChoice() {
-    // Wardog : F-15 seulement (le Cessna n'est pas fait pour le combat)
+    // Wardog : F-15 seulement (le Cessna n'est pas fait pour le combat) : la case du Cessna est retirée du hangar
     const jetOnly = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';   // (pas wardog() : appelé dès le chargement)
     for (const button of aircraftButtons) {
         button.classList.toggle('actif', button.dataset.avion === aircraftType);
-        button.disabled = jetOnly && button.dataset.avion !== 'f15';
-        button.title = button.disabled ? 'Wardog : F-15 seulement' : '';
+        button.hidden = jetOnly && button.dataset.avion !== 'f15';
+        button.disabled = button.hidden;
     }
     // Wardog : le terrain est celui de l'équipe, pas de choix de l'aérodrome
     for (const id of ['hangar-aerodromes', 'retour-aerodrome']) document.getElementById(id).hidden = jetOnly;
