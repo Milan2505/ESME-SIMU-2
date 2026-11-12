@@ -129,6 +129,7 @@ class WeaponHud {
             for (const t of s.targets) {
                 const distance = t.group.position.distanceTo(s.aircraft.position);
                 if (distance > TARGET_RANGE) continue;
+                if (weapons.masked(t, s.aircraft.position)) continue;   // (caché par une colline : pas de cadre)
                 const screen = this._project(t.group.position, camera);
                 if (!screen) continue;
                 boxes.push({ t, distance, screen });
@@ -231,8 +232,9 @@ class WeaponHud {
                     }
                 }
                 // Triangle rouge pointé sur la cible (avion accroché, sinon le plus proche à portée)
-                // (seulement les avions que le radar voit : assez haut au-dessus du sol, pas trop loin)
-                const seen = s.targets.map((t) => ({ t, d: t.group.position.distanceTo(s.aircraft.position) })).filter((x) => radarSees(x.t, x.d));
+                // (seulement les avions que le radar voit : assez haut au-dessus du sol, pas trop loin, pas cachés par le relief)
+                const seen = s.targets.map((t) => ({ t, d: t.group.position.distanceTo(s.aircraft.position) }))
+                    .filter((x) => radarSees(x.t, x.d) && !weapons.masked(x.t, s.aircraft.position));
                 const guide = seen.find((x) => x.t.id === weapons.lockId)?.t ?? seen.sort((a, b) => a.d - b.d)[0]?.t;
                 if (guide) this._targetTriangle(ctx, W, H, camera, guide, weapons.locked, guide.group.position.distanceTo(s.aircraft.position));
                 // Verrouillé : « SHOOT » clignotant sous le cercle

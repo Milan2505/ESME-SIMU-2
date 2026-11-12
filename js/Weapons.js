@@ -81,6 +81,10 @@ const AAM = {
     fuse: 12,                         // m : fusée de proximité
     reload: 4,                        // s entre deux tirs (avant 0,5 s : on pouvait arroser l'ennemi de missiles)
 };
+// Relief entre nous et un avion : l'autodirecteur ne le voit pas à travers une colline ou une montagne. Hauteur du sol
+// relevée tous les LOS.step m le long de la ligne de visée (hors des LOS.end premiers et derniers mètres : avion au sol
+// ou en rase-mottes) ; masqué si la ligne passe sous le sol + LOS.clearance. Refait tous les LOS.every s par avion
+const LOS = { step: 80, end: 40, clearance: 2, every: 0.15 };
 const AAM_ZONES = ['f', 'f', 'eL', 'eR', 'wL', 'wR', 't', 'c'];
 // Leurres infrarouges (flares) : une salve de 4, éjectés l'un après l'autre (FLARE.interval), puis FLARE.cooldown s
 // avant la salve suivante. Chaque missile air-air qui nous poursuit a une chance de partir sur un leurre (decoyChance) :
@@ -1128,7 +1132,9 @@ class Weapons extends EventTarget {
         const angleTo = (t) => {
             const distance = t.group.position.distanceTo(own.aircraft.position);
             if (distance < AAM.minRange * 0.5 || distance > AAM.maxRange) return Infinity;
-            return _fwd.angleTo(_d.subVectors(t.group.position, own.aircraft.position));
+            const angle = _fwd.angleTo(_d.subVectors(t.group.position, own.aircraft.position));
+            // (relief vérifié seulement pour un avion près du cercle : quelques avions au plus)
+            return angle <= AAM.keep && this.masked(t, own.aircraft.position) ? Infinity : angle;
         };
         let current = this.lockId ? targets.find((t) => t.id === this.lockId) : null;
         // Signal de l'autodirecteur (0 -> 1) : cible près du centre du cercle (le « brrrr » s'intensifie, voir seeker)
@@ -1152,6 +1158,29 @@ class Weapons extends EventTarget {
             this.locked = true;
             this.dispatchEvent(new CustomEvent('lock', { detail: { id: current.id, name: current.name } }));
         }
+    }
+
+    // Avion caché par le relief (voir LOS) ; résultat gardé LOS.every s par avion. Sert aussi au viseur (WeaponHud : ni
+    // triangle ni cadre sur un avion caché derrière une colline)
+    masked(target, from) {
+        this._los ??= new Map();
+        const now = performance.now() / 1000;
+        const known = this._los.get(target.id);
+        if (known && now - known.time < LOS.every) return known.masked;
+        const to = target.group.position;
+        const length = from.distanceTo(to);
+        const steps = Math.ceil(length / LOS.step);
+        let masked = false;
+        for (let i = 1; i < steps && !masked; i++) {
+            const along = i / steps * length;
+            if (along < LOS.end || length - along < LOS.end) continue;
+            const k = i / steps;
+            const x = from.x + (to.x - from.x) * k, y = from.y + (to.y - from.y) * k, z = from.z + (to.z - from.z) * k;
+            masked = y < this.terrain.heightAt(x, z) + LOS.clearance;
+        }
+        if (this._los.size > 64) this._los.clear();
+        this._los.set(target.id, { time: now, masked });
+        return masked;
     }
 
     // Tir d'un missile air-air sur l'avion verrouillé
