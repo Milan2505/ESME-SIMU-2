@@ -80,7 +80,16 @@ const AAM = {
     life: 20,                         // s : au-delà, autodestruction
     fuse: 12,                         // m : fusée de proximité
     reload: 4,                        // s entre deux tirs (avant 0,5 s : on pouvait arroser l'ennemi de missiles)
+    coldHit: 0.8,                     // chance de toucher une cible sans postcombustion (voir hitChance)
+    heatTime: 1,                      // s : la chaleur vue par l'autodirecteur suit la postcombustion avec ce retard
 };
+// Chance qu'un AIM-9 arrivé à portée de sa fusée touche vraiment (0 -> 1), selon la postcombustion de la cible (0 -> 1,
+// moyennée sur la fin du vol, voir heatTime) : l'autodirecteur infrarouge suit la chaleur des tuyères ; sans
+// postcombustion, la signature thermique est bien plus faible (il la suit moins bien) : AAM.coldHit ; en pleine
+// postcombustion : toujours
+function hitChance(heat) {
+    return AAM.coldHit + (1 - AAM.coldHit) * MathUtils.clamp(heat, 0, 1);
+}
 // Relief entre nous et un avion : l'autodirecteur ne le voit pas à travers une colline ou une montagne. Hauteur du sol
 // relevée tous les LOS.step m le long de la ligne de visée (hors des LOS.end premiers et derniers mètres : avion au sol
 // ou en rase-mottes) ; masqué si la ligne passe sous le sol + LOS.clearance. Refait tous les LOS.every s par avion
@@ -1471,9 +1480,16 @@ class Weapons extends EventTarget {
             else {
                 const t = targets.find((x) => x.id === missile.targetId);
                 if (t) target = { position: t.group.position, velocity: t.velocity ?? _v.set(0, 0, 0) };
+                // Chaleur de la cible vue par l'autodirecteur : sa postcombustion, avec un temps de retard (heatTime)
+                if (t) {
+                    const ab = t.afterburner ?? 0;
+                    missile.heat = missile.heat === undefined ? ab : missile.heat + (ab - missile.heat) * (1 - Math.exp(-delta / AAM.heatTime));
+                }
             }
             if (missile.update(delta, ground, target)) {
-                const hit = missile.miss <= AAM.fuse && !missile.decoy;
+                // Notre missile : coup au but selon la chaleur de la cible (voir hitChance ; décidé par le tireur, comme
+                // les coups au but). Ceux des autres : comme ils le voient arriver
+                const hit = missile.miss <= AAM.fuse && !missile.decoy && (!missile.own || Math.random() < hitChance(missile.heat ?? 0));
                 // Notre missile explose près de sa cible : éclats -> coups au but envoyés au joueur touché
                 if (missile.own && hit && missile.targetId !== own.id) {
                     const count = missile.miss < 5 ? 20 : missile.miss < 9 ? 13 : 8;

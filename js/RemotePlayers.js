@@ -212,7 +212,8 @@ class RemotePlayers extends EventTarget {
         for (const [id, plane] of this.planes) {
             const state = this.multiplayer.players.get(id);
             if (!state || state.crashed || !plane.group.visible || this.isOffline(state)) continue;
-            result.push({ id, name: state.name, type: plane.type, group: plane.group, firing: state.firing,
+            // afterburner : postcombustion (0 -> 1 ; Cessna : 0), chaleur suivie par l'autodirecteur de l'AIM-9
+            result.push({ id, name: state.name, type: plane.type, group: plane.group, firing: state.firing, afterburner: state.jet?.ab ?? 0,
                 velocity: (plane.velocity ??= new Vector3()).fromArray(state.v ?? [0, 0, 0]) });
         }
         return result;
