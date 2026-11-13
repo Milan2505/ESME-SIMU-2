@@ -801,6 +801,8 @@ function setupHeli() {
         paintR44(heliCockpit.model, isR44Livery(multiplayer.livery) ? multiplayer.livery : savedHeliLivery());
         heliCockpit.setRegistration(atc.registration);
         heliCockpit.setExterior(chaseView);
+        heliCockpit.setNight(weather?.night ?? 0);
+        heliLights.setNight(weather?.night ?? 0);
         remotePlayers.setHeliTemplate(heliCockpit.model, (group) => cloneR44(group));
         r44Sound.unlock().catch(() => {});
         prepareForDisplay(heliFrame).catch(() => {});
@@ -4369,8 +4371,14 @@ function controlAt(event) {
     const rect = view.getBoundingClientRect();
     pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(cockpit.clickables, false)[0];
+    // (pièces cachées ignorées : three.js les touche quand même ; dans le R44, le manche caché du copilote, devant la
+    // console, prenait des clics destinés aux interrupteurs)
+    const hit = raycaster.intersectObjects(cockpit.clickables, false).find((h) => shownInScene(h.object));
     return hit ? cockpit.controlAt(hit) : null;
+}
+function shownInScene(object) {
+    for (let o = object; o; o = o.parent) if (!o.visible) return false;
+    return true;
 }
 function obsUnderPointer(event) {
     return controlAt(event)?.id === 'obs';
@@ -4401,6 +4409,7 @@ function useR44Control(pick, button) {
         else if (name === 'sim/model/r44/controls/lighting/beacon') sys.switches.strobe = sys.switches.beacon = Boolean(v);
         else if (name === 'sim/multiplay/generic/bool[16]') sys.switches.land = Boolean(v);
         else if (name === 'controls/lighting/instruments-norm') sys.setPanelLights(v);
+        else if (name === 'instrumentation/altimeter/setting-inhg') avionics.baro = Math.round(THREE.MathUtils.clamp(v * 33.8639, 950, 1050));
     }
     // Poignées des portes (scripts Nasal de l'intérieur) : portes avant ouvertes ou fermées
     if (nasal.length && file === 'Interior/interior.xml') {
@@ -4921,6 +4930,10 @@ const touchControls = new TouchControls(document.getElementById('tactile'), cont
 // Boutons propres au F-15 (train, aérofrein) : montrés seulement en F-15 ; allumés train sorti / aérofrein sorti
 document.addEventListener('aircraft-change', ({ detail }) => {
     for (const button of document.querySelectorAll('#tactile [data-jet]')) button.hidden = detail !== 'f15';
+    // Menu Commandes : aide du clavier de l'avion ou du R44 (collectif, cyclique, mise en route) ; pas de volets sur le R44
+    const heli = detail === 'r44';
+    for (const row of document.querySelectorAll('#commandes [data-aide]')) row.hidden = (row.dataset.aide === 'r44') !== heli;
+    flapsButton.hidden = heli;
 });
 updateNavPanelsButton();
 

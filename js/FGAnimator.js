@@ -38,6 +38,7 @@ class FGAnimator {
         this.time = 0;
         this._owned = new WeakSet();   // matériaux copiés par cet animateur (voir _material)
         this._spin = new Map();        // angle de chaque rotation continue (spin), en degrés
+        this._baseEmissive = new Map();   // émission propre d'un matériau, à laquelle s'ajoute celle des animations
         const objects = new Map();
         for (const root of roots) {
             root.traverse((object) => { if (object.name && !objects.has(object.name)) objects.set(object.name, object); });
@@ -47,10 +48,11 @@ class FGAnimator {
         this.selects = [];
         this.materials = [];
         this.textures = [];
+        this._spins = [];   // rotations continues (rotors) ; leur angle, propre à cet animateur : _spin
         for (const anim of data.animations) {
-            // (angle des rotors : propre à cet animateur, voir _spin)
             const targets = anim.objects.map((name) => objects.get(name)).filter(Boolean);
             if (!targets.length) continue;
+            if (anim.type === 'spin') this._spins.push(anim);
             if (anim.type === 'select') this.selects.push({ anim, targets });
             else if (anim.type === 'material') this.materials.push(this._material(anim, targets));
             else if (anim.type === 'textranslate') this.textures.push(...targets.map((object) => this._texture(anim, object)).filter(Boolean));
@@ -164,6 +166,12 @@ class FGAnimator {
     // delta : secondes écoulées (rotors : rotation continue)
     update(delta) {
         this.time += delta;
+        // Rotations continues (rotors) : angle avancé une seule fois par image, puis le même pour toutes leurs pièces
+        // (avant : avancé à chaque pièce, les 41 pièces du rotor se retrouvaient chacune à un angle différent)
+        for (const anim of this._spins) {
+            const degrees = (this._spin.get(anim) ?? 0) + (Number(this.get(anim.property)) || 0) * (anim.factor ?? 1) * 6 * delta;
+            this._spin.set(anim, degrees % 360);
+        }
         for (const [object, part] of this.parts) {
             _matrix.identity();
             for (const anim of part.anims) {
@@ -173,9 +181,7 @@ class FGAnimator {
                 if (anim.type === 'rotate' || anim.type === 'spin' || anim.type === 'knob') {
                     let degrees;
                     if (anim.type === 'spin') {
-                        // (tr/min × facteur) -> degrés, cumulés
-                        degrees = ((this._spin.get(anim) ?? 0) + (Number(this.get(anim.property)) || 0) * (anim.factor ?? 1) * 6 * delta) % 360;
-                        this._spin.set(anim, degrees);
+                        degrees = this._spin.get(anim) ?? 0;   // (tr/min × facteur -> degrés, cumulés plus haut)
 
                     } else degrees = this.value(anim);
                     // Rotation autour de l'axe passant par le centre : T(c) · R · T(-c)
@@ -198,11 +204,16 @@ class FGAnimator {
         }
         for (const m of this.materials) {
             const on = this.test(m.anim.condition);
-            const factor = m.anim['emission-factor-prop'] ? Number(this.get(m.anim['emission-factor-prop'])) || 0 : 1;
+            // (facteur borné à 0 -> 1 : certains fichiers FlightGear y mettent une tension, 12 ou 28 V)
+            const factor = m.anim['emission-factor-prop'] ? Math.min(1, Math.max(0, Number(this.get(m.anim['emission-factor-prop'])) || 0)) : 1;
             const k = on ? factor : 0;
             if (k === m.level) continue;
             m.level = k;
-            for (const material of m.list) material.emissive.copy(m.color).multiplyScalar(k);
+            for (const material of m.list) {
+                material.emissive.copy(m.color).multiplyScalar(k);
+                const base = this._baseEmissive.get(material);
+                if (base) material.emissive.add(base);
+            }
         }
         for (const t of this.textures) {
             const v = t.anim.condition && !this.test(t.anim.condition) ? 0 : this.value(t.anim);
@@ -228,6 +239,7 @@ class FGAnimator {
                     mesh.material = mesh.material.clone();
                     this._owned.add(mesh.material);
                 }
+                if (!this._baseEmissive.has(mesh.material)) this._baseEmissive.set(mesh.material, mesh.material.emissive.clone());
                 list.push(mesh.material);
             });
         }

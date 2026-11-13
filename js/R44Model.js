@@ -48,7 +48,7 @@ function radioProps(avionics) {
         'instrumentation/nav/frequencies/selected-mhz': avionics.nav1.active / 1000,
         'instrumentation/nav/frequencies/standby-mhz': avionics.nav1.standby / 1000,
         'instrumentation/comm/power-btn': true, 'instrumentation/nav/power-btn': true,
-        'instrumentation/comm/volume': 0.7, 'instrumentation/nav/volume': 0.5,
+        'instrumentation/altimeter/setting-inhg': (avionics.baro ?? 1013) / 33.8639,   // (calage, en hPa dans le jeu)
         'instrumentation/kt76a/digit1': Number(code[0]), 'instrumentation/kt76a/digit2': Number(code[1]),
         'instrumentation/kt76a/digit3': Number(code[2]), 'instrumentation/kt76a/digit4': Number(code[3]),
         'instrumentation/kt76a/mode': Math.max(0, XPDR_MODES.indexOf(avionics.xpdr?.mode)),
@@ -63,13 +63,14 @@ const R44_SKID_HEIGHT = 1.64;     // origine du modèle au-dessus du sol, appare
 // anticollision rouge sur le cône arrière, deux phares dans le nez
 const R44_LIGHT_LAYOUT = {
     scale: 1,
-    beaconLight: [0, 0.55, 2.16],
-    beam: [-0.065, -0.85, -4.6], taxiBeam: [0.065, -0.85, -4.6],
+    beaconLight: [0, 0.6, 2.16],
+    // Positions relevées sur le modèle : verres rouge et vert sous la cabine (m0__redlight / m0__greenlight), feu
+    // anticollision sur le cône arrière (m0__verrelampe, à 0,42 m), feu blanc au bout de la poutre (3,68 m)
     lights: [
-        { kind: 'nav', color: 0xff2414, position: [-0.62, -0.98, -3.36], sector: [deg(-110), deg(4)], size: 0.8, mesh: [] },
-        { kind: 'nav', color: 0x18ff3c, position: [0.62, -0.98, -3.36], sector: [deg(-4), deg(110)], size: 0.8, mesh: [] },
-        { kind: 'nav', color: 0xffffff, position: [0, 0.62, 4.2], sector: [deg(110), deg(250)], size: 0.7 },
-        { kind: 'beacon', color: 0xff1a0a, position: [0, 0.45, 2.16], size: 1.2 },
+        { kind: 'nav', color: 0xff2414, position: [-0.59, -0.98, -3.36], sector: [deg(-110), deg(4)], size: 0.8, mesh: ['m0__redlight'] },
+        { kind: 'nav', color: 0x18ff3c, position: [0.59, -0.98, -3.36], sector: [deg(-4), deg(110)], size: 0.8, mesh: ['m0__greenlight'] },
+        { kind: 'nav', color: 0xffffff, position: [0, 0.4, 3.7], sector: [deg(110), deg(250)], size: 0.6 },
+        { kind: 'beacon', color: 0xff1a0a, position: [0, 0.42, 2.16], size: 1.2, mesh: ['m0__verrelampe'] },
         { kind: 'landing', color: 0xfff4dc, position: [-0.065, -0.85, -4.56], size: 2.6, mesh: [] },
         { kind: 'taxi', color: 0xfff4dc, position: [0.065, -0.85, -4.56], size: 2.2, mesh: [] },
     ],
@@ -107,18 +108,30 @@ function paintR44(model, id) {
 }
 
 // Matériaux importés : réglages pour le jeu (verres transparents, peinture un peu brillante)
+const COCKPIT_FILL = 0.22;   // part de sa texture que le cockpit émet lui-même (lumière de la bulle)
 function prepareMaterials(root, cockpit) {
     root.traverse((mesh) => {
         if (!mesh.isMesh) return;
-        mesh.castShadow = !cockpit;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        // Vitres : pas d'ombre (la bulle du R44 est presque toute en verre : son ombre plongeait le cockpit dans le noir)
+        mesh.castShadow = !cockpit && !materials.some((m) => m.transparent);
         mesh.receiveShadow = true;
-        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        for (const material of materials) {
             material.metalness = 0;
             if (material.transparent) {
                 material.depthWrite = false;
                 material.roughness = 0.1;
                 mesh.renderOrder = 3;
-            } else material.roughness = Math.max(cockpit ? 0.7 : 0.45, material.roughness ?? 0.6);
+            } else {
+                material.roughness = Math.max(cockpit ? 0.7 : 0.45, material.roughness ?? 0.6);
+                // Cockpit : un peu d'éclairage propre (lumière diffuse de la bulle, comme le cockpit du F-15) ; l'éclairage
+                // des instruments la nuit s'y ajoute (FGAnimator garde cette base)
+                if (cockpit && material.map && material.emissive) {
+                    material.emissive.setScalar(COCKPIT_FILL);
+                    material.emissiveMap = material.map;
+                    material.userData.fill = true;
+                }
+            }
         }
     });
 }
@@ -228,6 +241,10 @@ class R44Cockpit {
         this.model = exterior;
         this.animator = new FGAnimator(data, [exterior, cockpit]);
         hideBladesWhenBlurred(this.animator, exterior);
+        // Voyants « génériques » du tableau FlightGear (sans fonction, allumés en permanence dans le modèle) : éteints
+        const unused = [];
+        cockpit.traverse((o) => { if (/^m3[2-6]__lampon$/.test(o.name)) unused.push(o); });
+        if (unused.length) this.animator.selects.push({ anim: { condition: { property: 'sim/r44/jamais' } }, targets: unused });
         this.animator.assign(STATIC_PROPS);
         // Régulateur : interrupteur au bout de la poignée du collectif (pas de zone cliquable dans le modèle FlightGear)
         const collective = cockpit.getObjectByName('m10__Collective');
@@ -259,7 +276,21 @@ class R44Cockpit {
         for (const mesh of this._pilot) mesh.visible = exterior;
     }
 
-    setNight(night) { this._night = night; }
+    // Nuit : l'éclairage propre du cockpit (lumière du jour par la bulle) s'éteint presque ; restent les instruments
+    setNight(night) {
+        this._night = night;
+        const fill = COCKPIT_FILL * (1 - 0.9 * night);
+        this.group.traverse((mesh) => {
+            if (!mesh.isMesh) return;
+            for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+                if (!material.userData.fill) continue;
+                const base = this.animator?._baseEmissive.get(material);
+                if (base) base.setScalar(fill);
+                else material.emissive.setScalar(fill);
+            }
+        });
+        for (const m of this.animator?.materials ?? []) m.level = -1;   // (émission des instruments recalculée)
+    }
     setRain() {}
     setYokesVisible(visible) { this.yokesVisible = visible; }
     setYokesHiddenByView() {}
@@ -287,11 +318,14 @@ class R44Cockpit {
     // Clic ou molette sur une zone : liaisons FlightGear appliquées aux propriétés ; renvoie ce qui a changé
     // button : 0 clic gauche (ou côté droit), 2 côté gauche, 3 molette vers le haut, 4 vers le bas
     activate(pick, button) {
-        let result = this.animator.activate(pick, button);
-        if (!result.changed.length && !result.nasal.length && !result.game.length) {
-            // Pas de liaison pour ce bouton : la molette fait comme le clic, et inversement
-            const fallback = { 3: 0, 4: 1, 2: 1, 0: 3 }[button];
-            if (fallback !== undefined) result = this.animator.activate(pick, fallback);
+        // Pas de liaison pour ce geste : on essaie les suivants. Clic à gauche (2) : sens inverse (bouton 1 de FlightGear),
+        // sinon clic simple (0) ; molette : comme le clic dans un sens ou dans l'autre. Avant, un clic sur la moitié
+        // gauche d'un interrupteur (qui n'a que le bouton 0) ne faisait rien : un clic sur deux était perdu
+        const order = { 0: [0, 3], 2: [2, 1, 4, 0], 3: [3, 0], 4: [4, 1, 0] }[button] ?? [button, 0];
+        let result = null;
+        for (const b of order) {
+            result = this.animator.activate(pick, b);
+            if (result.changed.length || result.nasal.length || result.game.length) break;
         }
         return result;
     }
@@ -315,7 +349,8 @@ class R44Cockpit {
             'sim/multiplay/generic/float[15]': -(heli.pedal ?? 0),
             'sim/multiplay/generic/float[16]': -(heli.cyclicPitch ?? 0),
             'sim/multiplay/generic/float[17]': -(heli.cyclicRoll ?? 0),
-            'sim/multiplay/generic/float[10]': heli.collective ?? 0,
+            // (levier du collectif : la propriété FlightGear vaut 0 collectif en haut, 1 en bas, comme les gaz de YASim)
+            'sim/multiplay/generic/float[10]': 1 - (heli.collective ?? 0),
             'sim/multiplay/generic/float[11]': this._doors[0], 'sim/multiplay/generic/float[12]': this._doors[1],
             'sim/multiplay/generic/float[13]': this._doors[2], 'sim/multiplay/generic/float[14]': this._doors[3],
             // Instruments de vol (state : cockpitState du simulateur, en m, m/s, degrés ; roulis : + = à gauche)
@@ -361,7 +396,9 @@ class R44Cockpit {
             'controls/rotor/brake': sys.rotorBrake ? 1 : 0,
             'controls/lighting/instruments-norm': panelLight,
             // Voyants
-            'systems/electrical/outputs/instrument-lights': powered ? 12 : 0,
+            // (sortie « éclairage des instruments » : > 0 sous tension, pour les voyants ; sa valeur règle la lueur du
+            // transpondeur, avec le rhéostat)
+            'systems/electrical/outputs/instrument-lights': powered ? Math.max(0.02, panelLight) : 0,
             'systems/electrical/outputs/starter': warn.starter ? 12 : 0,
             'instrumentation/alerts/rpm': Boolean(warn.lowRpm),
             'controls/lighting/turn-off-light': false,

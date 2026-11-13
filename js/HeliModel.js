@@ -377,10 +377,24 @@ class HeliModel extends FlightModel {
 		const vForward = ( this.velocity.x * _forward.x + this.velocity.z * _forward.z ) / fl;
 		const vRight = ( this.velocity.x * _right.x + this.velocity.z * _right.z ) / rl;
 		const hover = 1 - MathUtils.smoothstep( speed, 8, 18 );
-		const hold = ( Math.abs( input.pitch ) < 0.05 && Math.abs( input.roll ) < 0.05 ) ? hover : 0;
+		// Vol en avant (au-delà de ~25 kt) : vol « bille au centre » (sans glissade), comme le pilote qui penche un peu
+		// à gauche contre la poussée du rotor anticouple. Avant, ailes à plat et cap bloqué : l'appareil avançait en crabe
+		// (5 à 11° de glissade) et l'aide la corrigeait d'un côté puis de l'autre à chaque touche : il se balançait
+		const cruise = MathUtils.smoothstep( speed, 10, 16 );
+		const beta = this.beta;
+		// Maintien en stationnaire (manche lâché, à basse vitesse) : il s'installe et s'efface en douceur (avant : d'un
+		// coup au lâcher de la touche, un à-coup d'assiette)
+		const holdTarget = ( Math.abs( input.pitch ) < 0.05 && Math.abs( input.roll ) < 0.05 ) ? hover : 0;
+		this._hold = ( this._hold ?? 0 ) + ( holdTarget - ( this._hold ?? 0 ) ) * Math.min( 1, dt * 1.5 );
+		const hold = this._hold;
 		// Assiettes visées (rad) : manche = ±18° ; près du stationnaire, manche lâché, contre la glissade
 		const pitchTarget = input.pitch * deg( 18 ) + hold * MathUtils.clamp( vForward * 0.035, - 0.18, 0.18 );
-		const rollTarget = input.roll * deg( 22 ) - hold * MathUtils.clamp( - vRight * 0.035, - 0.18, 0.18 );
+		// Route tenue en vol en avant, manche lâché (+ = à gauche, comme le cap) : l'aide penche du côté où revenir
+		const track = Math.atan2( - this.velocity.x, - this.velocity.z );
+		if ( Math.abs( input.roll ) > 0.05 || this._track === undefined || cruise < 0.5 ) this._track = track;
+		const trackError = Math.atan2( Math.sin( this._track - track ), Math.cos( this._track - track ) );
+		const rollTarget = input.roll * deg( 22 ) - hold * MathUtils.clamp( - vRight * 0.035, - 0.18, 0.18 )
+			+ cruise * ( MathUtils.clamp( beta * 0.8, - 0.2, 0.2 ) + MathUtils.clamp( trackError * 1.2, - 0.15, 0.15 ) );
 		const kp = 2.2, kd = 1.1, ki = 0.6;
 		const ePitch = pitchTarget - pitch, eRoll = rollTarget - roll;
 		if ( ! onGround ) {
@@ -398,10 +412,14 @@ class HeliModel extends FlightModel {
 		// (appareil bien posé, rotor lent : cap pris tel quel ; dès qu'il s'allège, il est tenu)
 		const heading = this._currentHeading();
 		const firm = this.groundLoad > 0.85;
-		if ( Math.abs( input.yaw ) > 0.05 || firm ) this._heading = heading;
+		// (vol en avant : le cap suit la trajectoire, voir plus bas ; il est repris tel quel au retour en stationnaire)
+		if ( Math.abs( input.yaw ) > 0.05 || firm || cruise > 0.5 ) this._heading = heading;
 		let headingError = this._heading - heading;
 		headingError = Math.atan2( Math.sin( headingError ), Math.cos( headingError ) );
-		const yawRateTarget = Math.abs( input.yaw ) > 0.05 ? input.yaw * deg( 45 ) : headingError * 1.5;
+		// Palonniers lâchés : stationnaire, cap tenu ; vol en avant, nez dans la trajectoire (glissade annulée : + = vent
+		// relatif de la droite, le nez doit venir à droite)
+		const yawRateTarget = Math.abs( input.yaw ) > 0.05 ? input.yaw * deg( 45 )
+			: ( 1 - cruise ) * headingError * 1.5 - cruise * MathUtils.clamp( beta * 2, - 0.6, 0.6 );
 		const eYaw = yawRateTarget - this._omega.y;
 		if ( ! onGround ) this._trimYaw = MathUtils.clamp( this._trimYaw + eYaw * 0.8 * dt, - 0.8, 0.8 );
 		// Palonnier qui compense le couple du collectif (anticipation) + correction de la vitesse de lacet

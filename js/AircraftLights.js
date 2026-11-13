@@ -216,7 +216,8 @@ class AircraftLights {
             // glows : matériaux des verres (feux du modèle, voir setOccluder ; strobes : leur propre verre)
             let glows = [];
             if (def.kind === 'strobe' && !def.mesh) glows = [strobeFixture(this.group, def.position, Math.sign(def.position[0]))];
-            if (def.kind === 'beacon') {
+            // (anticollision du modèle lui-même, def.mesh : son verre s'allume, pas de luminaire ajouté ; voir setOccluder)
+            if (def.kind === 'beacon' && !def.mesh) {
                 this.beaconFixture = beaconFixture(this.group, def.position);
                 glows = this.beaconFixture.glows;
             }
