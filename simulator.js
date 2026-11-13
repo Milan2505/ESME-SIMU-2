@@ -2269,6 +2269,13 @@ try {
 if (resumeState && !(Date.now() - resumeState.le < 5 * 60000)) resumeState = null;   // (vieux de plus de 5 min : ignoré)
 function resumeAfterUpdate() {
     const saved = resumeState;
+    // Carte changée au choix du départ (vol libre en solo) : retour au choix du départ, sur la nouvelle carte
+    if (saved?.volLibre) {
+        resumeState = null;
+        closeMainMenu();
+        enterGame(openAirportChoice);
+        return;
+    }
     if (saved?.creer) {
         resumeState = null;
         const c = saved.creer;
@@ -2568,7 +2575,9 @@ const airportTabs = document.getElementById('depart-aerodromes');
 function renderAirportTabs() {
     // Vues préréglées : numéros des pistes de l'aérodrome choisi
     const [first, second] = airport.current.runways;
+    document.getElementById('depart-carte').hidden = Boolean(multiplayer.code);   // (partie : carte de la partie)
     for (const button of spawnViewButtons.children) {
+        if (airport.current.spawnViews) break;   // (porte-avions : ses propres vues, voir labelSpawnViews)
         if (button.dataset.vue === 'rwy36') button.textContent = `Piste ${first.name}`;
         if (button.dataset.vue === 'rwy18') button.textContent = `Piste ${second.name}`;
     }
@@ -3019,41 +3028,53 @@ for (const [name, w] of Object.entries(WEATHERS)) {
     button.addEventListener('click', () => setWeather(name));
     menuWeather.appendChild(button);
 }
-// Carte (menu principal) : une autre carte recharge la page (quitte la partie en cours, après confirmation)
-const menuMaps = document.getElementById('mp-cartes');
+// Carte (choix du départ, vol libre en solo) : une autre carte recharge la page, puis revient au choix du départ
+// (voir resumeAfterUpdate). En partie multijoueur, la carte est celle de la partie : pas de choix
+const departMaps = document.getElementById('depart-cartes');
 for (const [name, label] of Object.entries({ campagne: 'Campagne', ville: 'Ville', mer: 'Mer · porte-avions' })) {
     const button = document.createElement('button');
     button.textContent = label;
     button.classList.toggle('actif', name === MAP);
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-checked', String(name === MAP));
     button.addEventListener('click', () => {
-        if (name === MAP) return;
-        if (multiplayer.code && !confirm(`Changer de carte quitte la partie ${multiplayer.code}. Continuer ?`)) return;
-        try { localStorage.setItem('carte', name); } catch { /* stockage indisponible */ }
+        button.blur();
+        if (name === MAP || multiplayer.code) return;
+        try {
+            localStorage.setItem('carte', name);
+            sessionStorage.setItem('esme-mise-a-jour', JSON.stringify({ volLibre: true, le: Date.now() }));
+        } catch { /* stockage indisponible */ }
         location.replace(`${location.pathname}?carte=${name}`);
     });
-    menuMaps.appendChild(button);
+    departMaps.appendChild(button);
 }
-document.getElementById('mp-pa').hidden = !SEA;
-const menuRules = document.getElementById('mp-pa-regles');
+document.getElementById('depart-pa').hidden = !SEA;
+const departRules = document.getElementById('depart-pa-regles');
 for (const [name, label] of Object.entries({ arcade: 'Arcade', realiste: 'Réaliste' })) {
     const button = document.createElement('button');
     button.textContent = label;
     button.dataset.regles = name;
+    button.setAttribute('role', 'radio');
     button.title = name === 'arcade' ? 'Catapulte et brins d\'arrêt automatiques' : 'Crosse à sortir (touche 9), catapulte à lancer (touche 0)';
     button.addEventListener('click', () => {
+        button.blur();
         soloCarrierRules = createRules = name;
         try { localStorage.setItem('pa-regles', name); } catch { /* stockage indisponible */ }
-        for (const other of menuRules.children) other.classList.toggle('actif', other === button);
+        for (const other of departRules.children) {
+            other.classList.toggle('actif', other === button);
+            other.setAttribute('aria-checked', String(other === button));
+        }
         updateCreateChoice();
     });
     button.classList.toggle('actif', name === soloCarrierRules);
-    menuRules.appendChild(button);
+    button.setAttribute('aria-checked', String(name === soloCarrierRules));
+    departRules.appendChild(button);
 }
-// Initiation : leçons faites pour l'aérodrome d'ESME (carte Campagne)
+// Initiation : leçons faites pour l'aérodrome d'ESME (cartes Campagne et Ville)
 if (SEA) {
     const lesson = document.getElementById('mp-initiation');
     lesson.disabled = true;
-    lesson.querySelector('small').textContent = 'Sur la carte Campagne seulement';
+    lesson.querySelector('small').textContent = 'Pas en mer : changez de carte dans Vol libre';
 }
 // Wardog en mer : départ des porte-avions
 if (SEA) {

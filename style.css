@@ -4950,6 +4950,26 @@ html.telephone .tb-etat {
 #multi-dialog #multi-cartes-titre[hidden] {
   display: none;
 }
-#mp-pa[hidden] {
+/* Choix du départ : carte (vol libre en solo) et règles des porte-avions */
+#depart-carte {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+#depart-carte[hidden],
+#depart-pa[hidden] {
   display: none;
+}
+#depart-pa {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.depart-titre {
+  font-size: 0.75em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.75;
 }
