@@ -3138,6 +3138,7 @@ function openMainMenu() {
     hangarPanel.hidden = true;
     airportPanel.hidden = true;
     document.getElementById('carte-panneau').hidden = true;
+    document.getElementById('carte-apercu').hidden = true;
     spawnDialog.hidden = true;
     spawnMarkers.visible = false;
     choosingSpawn = inMenu = true;
@@ -3261,7 +3262,34 @@ const MAP_CHOICES = {
     mer: { label: 'Mer · porte-avions', detail: 'Deux porte-avions en pleine mer : catapulte et brins d’arrêt' },
 };
 let mapChoiceFor = 'solo', mapChoice = MAP;
+// Fond : la carte chargée se voit en direct (survol du menu) ; une autre carte n'est pas chargée (il faudrait recharger
+// la page), on montre son image (asset/menu/carte-*.jpg, prise dans ce même survol), en fondu
+const mapPreview = document.getElementById('carte-apercu');
+let mapPreviewTimer = 0;
+function showMapPreview(name) {
+    clearTimeout(mapPreviewTimer);
+    if (name === null || name === MAP) {
+        // (fondu de sortie, puis retiré ; sans attendre « transitionend », qui ne vient pas toujours)
+        mapPreview.classList.remove('visible');
+        mapPreviewTimer = setTimeout(() => { mapPreview.hidden = true; }, 400);
+        return;
+    }
+    const src = `asset/menu/carte-${name}.jpg`;
+    if (mapPreview.getAttribute('src') === src && !mapPreview.hidden) {
+        mapPreview.classList.add('visible');
+        return;
+    }
+    mapPreview.classList.remove('visible');
+    mapPreview.hidden = false;
+    mapPreview.onload = () => {
+        void mapPreview.offsetWidth;   // (état sans « visible » appliqué : le fondu d'entrée part bien de 0)
+        mapPreview.classList.add('visible');
+    };
+    mapPreview.setAttribute('src', src);
+    if (mapPreview.complete && mapPreview.naturalWidth) mapPreview.onload();
+}
 function renderMapChoice() {
+    showMapPreview(mapChoicePanel.hidden ? null : mapChoice);
     for (const button of mapChoiceList.children) {
         const on = button.dataset.carte === mapChoice;
         button.classList.toggle('survol', on);
@@ -3317,6 +3345,7 @@ function openMapChoice(purpose) {
 }
 function continueMapChoice() {
     mapChoicePanel.hidden = true;
+    showMapPreview(null);
     if (mapChoiceFor === 'multi') {
         createMap = mapChoice;
         updateCreateChoice();
@@ -3339,6 +3368,7 @@ function continueMapChoice() {
 document.getElementById('carte-continuer').addEventListener('click', continueMapChoice);
 document.getElementById('carte-menu').addEventListener('click', () => {
     mapChoicePanel.hidden = true;
+    showMapPreview(null);
     mainMenu.hidden = false;
     document.getElementById('mp-vol-libre').focus();
 });

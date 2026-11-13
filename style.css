@@ -4997,3 +4997,21 @@ html.telephone .tb-etat {
 #carte-pa .depart-aide {
   margin: 10px 0 4px;
 }
+/* Aperçu de la carte choisie, derrière la page « Choisissez la carte » (fondu à chaque changement) */
+#carte-apercu {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+#carte-apercu.visible {
+  opacity: 1;
+}
+#carte-apercu[hidden] {
+  display: none;
+}

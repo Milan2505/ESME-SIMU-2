@@ -15,7 +15,7 @@ import re
 import sys
 
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ac_import import load_ac   # noqa: E402
@@ -45,6 +45,30 @@ for o in objs:
         bpy.data.objects.remove(o)
     else:
         keep.append(o)
+
+# Antennes fouet du bord du pont rabattues vers l'extérieur, comme pendant les opérations aériennes (animation
+# « whip-antennas » de truman.xml, position 1). Debout, elles gênaient les ailes au catapultage et au roulage.
+# Repère Blender après lecture AC = repère FlightGear du XML (x arrière, y tribord, z haut) ; rotation de facteur°
+# autour de l'axe donné (sens direct)
+ANTENNAS = {
+    1: ((0, 16.063, 18.515), (1, 0, 0), -100), 2: ((0, 19.752, 18.515), (1, 0, 0), -100),
+    3: ((-18.083, 35.109, 18.515), (2.231, 1.533, 0), -100), 4: ((-18.083, 35.109, 18.515), (2.231, 1.533, 0), -100),
+    5: ((0, 38.090, 18.515), (1, 0, 0), -100), 6: ((0, 38.960, 18.515), (1, 0, 0), -100),
+    7: ((0, 38.488, 18.515), (1, 0, 0), -100), 8: ((0, -38.200, 18.515), (1, 0, 0), 100),
+    9: ((0, -38.190, 18.515), (1, 0, 0), 100), 10: ((0, -37.430, 18.515), (1, 0, 0), 100),
+    11: ((0, -16.304, 18.515), (1, 0, 0), 100),
+}
+folded = 0
+for o in keep:
+    m = re.match(r'^antenna-(\d+)$', o.name.split('.')[0])
+    if not m or int(m.group(1)) not in ANTENNAS:
+        continue
+    center, axis, angle = ANTENNAS[int(m.group(1))]
+    turn = Matrix.Translation(center) @ Matrix.Rotation(math.radians(angle), 4, Vector(axis).normalized()) @ Matrix.Translation(Vector(center) * -1)
+    o.data.transform(turn)
+    o.data.update()
+    folded += 1
+assert folded == len(ANTENNAS), folded
 
 # Textures opaques : les PNG du modèle ont des zones transparentes, mais seulement hors des faces (fond de l'atlas).
 # Lues en transparence, tout le pont et la coque passaient en « BLEND » (tri des faces, pas d'ombres, JPEG impossible)
