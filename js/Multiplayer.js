@@ -70,6 +70,9 @@ function jetState(j) {
     return { gear: v[0], speedbrake: v[1], flaps: v[2], ab: v[3], canopy: v[4] };
 }
 
+// Carte annoncée par un joueur : 'campagne' (par défaut), 'ville' ou 'mer'
+const mapFrom = (code) => (code === 'mer' || code === 'ville' ? code : 'campagne');
+
 function cleanState(state) {
     const p = numbers(state?.p, 3), q = numbers(state?.q, 4), v = numbers(state?.v, 3);
     if (!p || !q || !v) return null;
@@ -106,6 +109,9 @@ function cleanState(state) {
         // Mode de la partie (celui du créateur fait foi), équipe (Wardog), capture des terrains (arbitre seulement)
         mode: state.m === 'w' ? 'wardog' : 'libre',
         troll: state.m === 'w' && state.tr === 1,                  // Wardog troll (image et musique quand on est abattu)
+        // Carte de la partie ('campagne', 'ville' ou 'mer') et règles des porte-avions (carte « Mer » : 'arcade' ou 'realiste')
+        map: mapFrom(state.cr),
+        carrierRules: state.pa === 'r' ? 'realiste' : 'arcade',
         team: teamFrom(state.tm),
         capture: captureFrom(state.cp),
     };
@@ -171,6 +177,8 @@ class Multiplayer extends EventTarget {
         this.mode = 'libre';          // 'libre' (vol libre à plusieurs) ou 'wardog' (équipes, capture des terrains)
         this.team = null;             // Wardog : 'bleu' ou 'rouge' (null : pas encore choisie)
         this.troll = false;           // Wardog troll : Wardog, plus l'image et la musique quand on est abattu
+        this.map = 'campagne';        // carte chargée par la page (celle de la partie : voir l'événement 'map')
+        this.carrierRules = 'arcade'; // porte-avions : 'arcade' (catapulte et brins automatiques) ou 'realiste'
         this.capture = null;          // Wardog, arbitre : état de la capture à publier (voir captureFrom), fourni par simulator.js
         this.lobby = new Map();       // parties annoncées au salon : id du créateur -> { host, players, names, seenAt }
         this._lobbySeq = new Map();   // id du créateur -> numéro de sa dernière annonce reçue (copies en retard ignorées)
@@ -343,6 +351,8 @@ class Multiplayer extends EventTarget {
             m: this.mode === 'wardog' ? 'w' : undefined,
             tm: this.mode === 'wardog' ? teamCode(this.team) : undefined,
             tr: this.mode === 'wardog' && this.troll ? 1 : undefined,
+            cr: this.map !== 'campagne' ? this.map : undefined,
+            pa: this.map === 'mer' && this.carrierRules === 'realiste' ? 'r' : undefined,
             cp: this.mode === 'wardog' && this.capture && this.referee === this.id ? {
                 f: this.capture.fields.map((f) => [teamCode(f.owner) ?? '', Math.round(f.progress * 100) / 100, teamCode(f.attacker) ?? '']),
                 s: [this.capture.points.bleu, this.capture.points.rouge], w: teamCode(this.capture.winner) ?? '', n: this.capture.round,
@@ -439,7 +449,8 @@ class Multiplayer extends EventTarget {
         const teams = this.teamCounts();
         this._publishTo(`${LOBBY_PREFIX}/${this.id}`, { host: this.name, n: this.players.size + 1, names, s: ++this._seq,
             m: this.mode === 'wardog' ? 'w' : undefined, b: this.mode === 'wardog' ? teams.bleu : undefined,
-            r: this.mode === 'wardog' ? teams.rouge : undefined, tr: this.mode === 'wardog' && this.troll ? 1 : undefined });
+            r: this.mode === 'wardog' ? teams.rouge : undefined, tr: this.mode === 'wardog' && this.troll ? 1 : undefined,
+            cr: this.map !== 'campagne' ? this.map : undefined });
     }
 
     _unlist() {
@@ -472,6 +483,7 @@ class Multiplayer extends EventTarget {
             names: Array.isArray(data.names) ? data.names.slice(0, 8).map(text).filter(Boolean) : [],
             mode: data.m === 'w' ? 'wardog' : 'libre',
             troll: data.m === 'w' && data.tr === 1,
+            map: mapFrom(data.cr),
             teams: { bleu: Math.min(TEAM_MAX, Math.max(0, Math.floor(Number(data.b) || 0))),
                 rouge: Math.min(TEAM_MAX, Math.max(0, Math.floor(Number(data.r) || 0))) },
             seenAt: performance.now(),
@@ -708,6 +720,15 @@ class Multiplayer extends EventTarget {
         const ownerHere = [...this.players.values()].some((p) => p.owner);
         const decides = state.owner || (!ownerHere && state.mode === 'wardog');
         if (decides && !this.isHost) this.troll = state.troll;   // (Wardog troll : comme le mode)
+        // Carte et règles des porte-avions : celles du créateur (à défaut, d'un autre joueur). Autre carte que la nôtre :
+        // simulator.js recharge la page sur la bonne carte et revient dans la partie (une seule demande par partie)
+        if ((state.owner || !ownerHere) && !this.isHost) {
+            this.carrierRules = state.carrierRules;
+            if (state.map !== this.map && this._mapAsked !== this.code) {
+                this._mapAsked = this.code;
+                this.dispatchEvent(new CustomEvent('map', { detail: { map: state.map, code: this.code } }));
+            }
+        }
         if (decides && !this.isHost && state.mode !== this.mode) {
             this.mode = state.mode;
             if (this.mode !== 'wardog') this.team = null;

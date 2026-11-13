@@ -70,6 +70,8 @@
 	<link rel="modulepreload" href="js/AircraftLights.js">
 	<link rel="modulepreload" href="js/LightFlare.js">
 	<link rel="modulepreload" href="js/Airport.js">
+	<link rel="modulepreload" href="js/Carrier.js">
+	<link rel="modulepreload" href="js/City.js">
 	<link rel="modulepreload" href="js/MergeStatic.js">
 	<link rel="modulepreload" href="js/NightSky.js">
 	<link rel="modulepreload" href="js/Storm.js">
@@ -338,6 +340,15 @@
 			</nav>
 		</div>
 		<div class="mp-droite">
+			<!-- Carte : Campagne (ESME, AIX), Ville (ESME, AIX et une grande ville) ou Mer (deux porte-avions) ; changer de carte recharge la page -->
+			<section class="mp-carte">
+				<h2>Carte</h2>
+				<div id="mp-cartes" class="mp-choix"></div>
+				<div id="mp-pa" hidden>
+					<p class="mp-info">Porte-avions : catapulte et brins d'arrêt</p>
+					<div id="mp-pa-regles" class="mp-choix"></div>
+				</div>
+			</section>
 			<section class="mp-carte">
 				<h2>Météo</h2>
 				<div id="mp-meteo" class="mp-choix"></div>
@@ -666,6 +677,18 @@
 		</div>
 		<!-- Ruban qui démasque (ou remasque) la carte Wardog troll -->
 		<button type="button" id="troll-reveal" aria-expanded="false">🎭 Démasquer</button>
+		<!-- Carte de la partie à créer (autre que celle chargée : la page se recharge, puis la partie est créée) et, en mer,
+		     règles des porte-avions -->
+		<span class="multi-salon-titre" id="multi-cartes-titre">Carte</span>
+		<div id="multi-cartes" class="multi-ligne multi-choix-ligne" role="radiogroup" aria-labelledby="multi-cartes-titre">
+			<button type="button" data-carte="campagne">Campagne</button>
+			<button type="button" data-carte="ville">Ville</button>
+			<button type="button" data-carte="mer">Mer · porte-avions</button>
+		</div>
+		<div id="multi-pa" class="multi-ligne multi-choix-ligne" role="radiogroup" aria-label="Porte-avions">
+			<button type="button" data-regles="arcade" title="Catapulte et brins d'arrêt automatiques">Arcade</button>
+			<button type="button" data-regles="realiste" title="Crosse à sortir (touche 9), catapulte à lancer (touche 0)">Réaliste</button>
+		</div>
 		<p id="multi-mode-aide">Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.</p>
 		<div class="multi-ligne">
 			<button id="multi-creer">Créer une partie privée</button>

@@ -1398,9 +1398,10 @@ class Airport {
 // place de parking…) vont à l'aérodrome qui s'y trouve ; tour de contrôle, ILS, départs et hangar suivent
 // l'aérodrome choisi (current, voir setCurrent). Les boîtes de collision sont celles de tous
 class AirportNetwork extends EventTarget {
-    constructor(configs = Object.values(AIRPORTS)) {
+    // create(config) : fabrique d'un terrain (porte-avions de la carte « Mer », voir Carrier.js)
+    constructor(configs = Object.values(AIRPORTS), create = (config) => new Airport(config)) {
         super();
-        this.list = configs.map((config) => new Airport(config));
+        this.list = configs.map(create);
         this.current = this.list[0];
         this.group = new Group();
         this.group.name = 'aerodromes';
@@ -1469,6 +1470,15 @@ class AirportNetwork extends EventTarget {
     }
 
     contains(x, z, margin = 0) { return this.list.some((a) => a.contains(x, z, margin)); }
+    // Pont d'un porte-avions en (x, z) : sa hauteur, sinon null (Terrain.platformAt, carte « Mer »)
+    platformAt(x, z) {
+        for (const a of this.list) {
+            const deck = a.platformAt?.(x, z) ?? null;
+            if (deck !== null) return deck;
+        }
+        return null;
+    }
+    carrierAt(x, z) { return this.list.find((a) => a.isCarrier && a.platformAt(x, z) !== null) ?? null; }
     surfaceAt(x, z) { return this.at(x, z)?.surfaceAt(x, z) ?? 'grass'; }
     zoneAt(x, z) { return this.at(x, z)?.zoneAt(x, z) ?? 'grass'; }
     standAt(x, z) { return this.at(x, z)?.standAt(x, z) ?? null; }

@@ -79,6 +79,18 @@ class MapView {
 
         // Aérodrome
         for (const shape of this.shapes) {
+            // Ville (carte « Ville ») : disque gris clair et son nom
+            if (shape.kind === 'city') {
+                ctx.fillStyle = 'rgba(150, 150, 155, 0.75)';
+                ctx.beginPath();
+                ctx.arc(toX(shape.x), toY(shape.z), shape.radius * scale, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#2b2d31';
+                ctx.font = `bold ${Math.round(12 * ratio)}px DejaVu Sans, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText(shape.label, toX(shape.x), toY(shape.z));
+                continue;
+            }
             ctx.fillStyle = shape.kind === 'runway' ? '#3a3d42' : '#6b6e73';
             ctx.fillRect(toX(shape.minX), toY(shape.minZ), (shape.maxX - shape.minX) * scale, (shape.maxZ - shape.minZ) * scale);
         }

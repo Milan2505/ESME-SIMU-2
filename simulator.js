@@ -13,6 +13,8 @@ import { Multiplayer, cleanRegistration, TEAM_MAX } from './js/Multiplayer.js';
 import { Chat } from './js/Chat.js';
 import { RemotePlayers, formatNM } from './js/RemotePlayers.js';
 import { AirportNetwork } from './js/Airport.js';
+import { Carrier, CARRIERS } from './js/Carrier.js';
+import { City } from './js/City.js';
 import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
@@ -207,16 +209,36 @@ view.addEventListener('webglcontextrestored', () => {
 });
 document.getElementById('contexte-perdu-recharger').addEventListener('click', () => location.reload());
 // Aérodromes (ESME, MONTVAL) : airport répond comme un aérodrome seul, celui choisi au départ (airport.current)
-const airport = new AirportNetwork();
+// Carte chargée : 'campagne' (ESME et AIX, dans les collines), 'ville' (ESME et AIX, une grande ville entre les deux) ou
+// 'mer' (deux porte-avions en pleine mer). Choisie au
+// menu principal (gardée d'une visite à l'autre), ou imposée par la partie multijoueur rejointe : changer de carte
+// recharge la page (tout le monde est construit au chargement). ?carte=mer dans l'adresse la choisit aussi
+const MAP_LABELS = { campagne: 'Campagne', ville: 'Ville', mer: 'Mer' };
+const MAP = (() => {
+    const asked = new URLSearchParams(location.search).get('carte');
+    const valid = (name) => (Object.hasOwn(MAP_LABELS, name ?? '') ? name : 'campagne');
+    try {
+        if (valid(asked) === asked) localStorage.setItem('carte', asked);
+        return valid(localStorage.getItem('carte'));
+    } catch {
+        return valid(asked);
+    }
+})();
+const SEA = MAP === 'mer';
+const airport = SEA ? new AirportNetwork([CARRIERS.bleu, CARRIERS.rouge], (config) => new Carrier(config)) : new AirportNetwork();
+// Carte « Ville » : la ville (sol plat et sans montagnes sous elle, voir flatten et clearings ci-dessous)
+const city = MAP === 'ville' ? new City({ airport }) : null;
 // Vallée dégagée dans l'axe de chaque piste : ~2,5 km de chaque côté, ~1 km de large (plaine ondulée, lacs)
 // Terrain de 16 km : une vallée par aérodrome, allongée dans l'axe de sa piste, et des couloirs d'approche dégagés
-const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND, flatten: (x, z) => airport.reliefFactor(x, z),
-    clearings: airport.allRunways.filter((rw, i) => i % 2 === 0).map((rw) => {
+const terrain = new Terrain(renderer, { grassTint: COLOR_GROUND,
+    flatten: city ? (x, z) => Math.min(airport.reliefFactor(x, z), city.reliefFactor(x, z)) : (x, z) => airport.reliefFactor(x, z),
+    clearings: [...airport.allRunways.filter((rw, i) => i % 2 === 0).map((rw) => {
         const mx = rw.threshold.x + rw.direction.x * rw.length / 2, mz = rw.threshold.z + rw.direction.z * rw.length / 2;
         const along = Math.abs(rw.direction.z) > 0.5;   // piste nord-sud
         return { x: mx, z: mz, rx: along ? 1050 : 2500, rz: along ? 2500 : 1050 };
-    }),
-    limit: (x, z) => airport.terrainLimit(x, z), dips: (x, z) => airport.dipFactor(x, z), lakes: airport.lakes });
+    }), ...(city ? [city.clearing] : [])],
+    limit: (x, z) => airport.terrainLimit(x, z), dips: (x, z) => airport.dipFactor(x, z), lakes: airport.lakes,
+    ocean: SEA ? { depth: 40 } : null, platformAt: (x, z) => airport.platformAt(x, z) });
 const clouds = new Clouds();
 const cloudLayer = new CloudLayer();
 const nightSky = new NightSky();
@@ -243,6 +265,12 @@ const graphics = new Graphics(renderer, scene, camera, sunLight);
 // tampons d'image en mémoire graphique, pour une image à peine plus fine sur un si petit écran
 if (isPhone()) graphics.pixelBudget = 0.9e6;
 const multiplayer = new Multiplayer();
+multiplayer.map = MAP;
+// Porte-avions : règles d'appontage et de catapultage (solo : choix du menu principal ; en partie : celles du créateur)
+let soloCarrierRules = 'arcade';
+try { soloCarrierRules = localStorage.getItem('pa-regles') === 'realiste' ? 'realiste' : 'arcade'; } catch { /* stockage indisponible */ }
+multiplayer.carrierRules = soloCarrierRules;
+const carrierRules = () => (multiplayer.code ? multiplayer.carrierRules : soloCarrierRules);
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound,
     altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight }, registrationFor: (id) => registrationFor(id) });
 remotePlayers.onJetNeeded = () => setupJet().catch(() => {});   // un autre joueur vole en F-15
@@ -281,7 +309,9 @@ let decorStyle = 'realiste';
 const CLASSIC_ASSETS = new Set(['TREE', 'TREE_F', 'FLOWER_Y', 'FLOWER_P', 'ROCK', 'TENT']);
 // Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
 // Forêts et villages réalistes autour de chaque aérodrome (régions : centres), rien dans l'axe des pistes
-const scenery = new Scenery(scene, { renderer, terrain, airport, corridor: (x, z) => airport.inCorridor(x, z),
+// (carte « Ville » : ni bois ni villages dans la ville et sur ses abords)
+const scenery = new Scenery(scene, { renderer, terrain, airport,
+    corridor: (x, z) => airport.inCorridor(x, z) || Boolean(city?.contains(x, z, 120)),
     regions: airport.list.map((a) => ({ x: a.center.x, z: a.center.z })) });
 let aircraftModel = null;
 let propeller = null;
@@ -305,6 +335,11 @@ function waterLake(x, z) {
 // Sous l'eau, sol des roues : le fond, ou waterSink sous la surface si le fond est plus bas. Continu à la rive (avant :
 // marche de 45 cm entre la surface de l'eau et le sol enfoncé, la normale du sol basculait et l'avion tremblait)
 controls.groundHeight = (x, z) => {
+    // Porte-avions : sous le niveau du pont (en vol, plus de 3 m en dessous), c'est la mer et non le pont qui est sous
+    // l'avion (sinon, passer sous le débord du pont le faisait « atterrir » dessus) ; la coque arrête l'avion
+    if (SEA && !controls.isOnGround() && aircraft.position.y < (airport.platformAt(x, z) ?? -Infinity) - 3) {
+        return Math.max(-40, -waterSink);
+    }
     const lake = terrain.lakeAt(x, z);
     if (!lake) return terrain.heightAt(x, z);
     const ground = terrain.groundAt(x, z, lake);
@@ -332,6 +367,149 @@ function updateWaterSink(delta) {
     }
 }
 controls.surfaceAt = (x, z) => (waterLake(x, z) ? 'water' : airport.surfaceAt(x, z));
+
+// --- Porte-avions (carte « Mer ») -------------------------------------------------------------------------------
+// Deux règles, choisies à la création de la partie (en solo : au menu principal) :
+// - Arcade : sur une catapulte, gaz à fond (≥ 80 %) -> lancé en ~2 s ; au toucher de la piste oblique, train sorti, un
+//   brin d'arrêt est toujours accroché (crosse automatique)
+// - Réaliste : crosse d'appontage à sortir (touche 9), toucher entre le premier et le dernier brin, sinon « bolter » :
+//   remettre les gaz et refaire un tour ; catapulte : arrêté dessus, postcombustion (≥ 95 %), puis touche 0
+// Catapulte : l'avion est tenu dans l'axe et poussé jusqu'à LAUNCH_SPEED au bout de la course, nez relevé (il s'envole).
+// Brins : décélération pour s'arrêter en ~ARREST_DISTANCE m, l'avion reste tenu tant que les gaz ne sont pas réduits
+const LAUNCH_SPEED = 78;        // m/s en bout de catapulte (~150 kt)
+const LAUNCH_SPEED_C172 = 35;   // (Cessna : ~70 kt, il s'envole bien avant)
+const ARREST_DISTANCE = 85;     // m
+const carrierOps = { launch: null, arrest: null, hook: false, armed: false, hintAt: 0, onCat: null };
+function carrierMessage(text, red = false) {
+    if (aircraftType === 'f15') weaponHud.message(text, red);
+    showRadioMessage(text);
+}
+// Catapulte sous l'avion (arrêté au départ de la course, dans l'axe), sinon null
+function catapultUnder() {
+    const p = aircraft.position;
+    for (const field of airport.list) {
+        for (const cat of field.catapults ?? []) {
+            const dx = p.x - cat.start.x, dz = p.z - cat.start.z;
+            const along = dx * cat.direction.x + dz * cat.direction.z;
+            const lateral = Math.abs(dx * cat.direction.z - dz * cat.direction.x);
+            const yaw = Math.atan2(-cat.direction.x, -cat.direction.z);
+            const misaligned = Math.abs(Math.atan2(Math.sin(controls.model._groundYaw - yaw), Math.cos(controls.model._groundYaw - yaw)));
+            if (along > -10 && along < 10 && lateral < 4 && misaligned < THREE.MathUtils.degToRad(12)) return { cat, yaw };
+        }
+    }
+    return null;
+}
+function carrierTouchdown() {
+    if (!SEA) return;
+    carrierOps.arrest = null;
+    const field = airport.carrierAt(aircraft.position.x, aircraft.position.z);
+    if (!field) return;
+    const { along, lateral } = field.landingAreaAt(aircraft.position.x, aircraft.position.z);
+    if (lateral > 14 || along < -10 || along > 140) return;   // (hors de la piste oblique : simple roulage)
+    const realistic = carrierRules() === 'realiste';
+    const wires = field.wires;
+    const caught = realistic ? carrierOps.hook && along > wires[0] - 8 && along < wires.at(-1) + 6 : along < 120;
+    if (!caught) {
+        carrierMessage(realistic && !carrierOps.hook ? 'BOLTER : crosse rentrée (touche 9), remettez les gaz !' : 'BOLTER : brins manqués, remettez les gaz !', true);
+        return;
+    }
+    const wire = wires.reduce((best, w, i) => (Math.abs(w - along) < Math.abs(wires[best] - along) ? i : best), 0) + 1;
+    const speed = controls.getSpeed();
+    carrierOps.arrest = { decel: Math.max(8, speed * speed / (2 * ARREST_DISTANCE)), stopped: false, wire };
+    carrierMessage(`Brin n° ${wire} accroché !`);
+}
+function updateCarrier(delta) {
+    const model = controls.model;
+    if (controls.isCrashed()) {
+        carrierOps.launch = carrierOps.arrest = null;
+        return;
+    }
+    // Coque : sous le niveau du pont, au-dessus du navire (voir controls.groundHeight) -> percutée
+    const deck = airport.platformAt(aircraft.position.x, aircraft.position.z);
+    if (!controls.isOnGround() && deck !== null && aircraft.position.y < deck - 3 && aircraft.position.y > -3) {
+        controls.collide('Collision avec le porte-avions');
+        return;
+    }
+    const realistic = carrierRules() === 'realiste';
+    if (!realistic) carrierOps.hook = model.gearDown;   // (arcade : crosse sortie avec le train)
+
+    // Brin accroché : freinage, puis l'avion reste tenu (gaz à réduire)
+    const arrest = carrierOps.arrest;
+    if (arrest) {
+        if (!controls.isOnGround()) carrierOps.arrest = null;
+        else if (!arrest.stopped) {
+            model.airspeed = Math.max(0, model.airspeed - arrest.decel * delta);
+            if (model.airspeed === 0) {
+                arrest.stopped = true;
+                if (!realistic) controls.throttle = 0;
+                carrierMessage(`Appontage réussi (brin n° ${arrest.wire}) ! Réduisez les gaz pour libérer le brin`);
+            }
+        } else {
+            model.airspeed = 0;
+            if (controls.throttle < 0.25) carrierOps.arrest = null;   // brin libéré
+        }
+    }
+
+    // Catapulte : lancement en cours
+    const launch = carrierOps.launch;
+    if (launch) {
+        const { cat, yaw } = launch;
+        const target = aircraftType === 'f15' ? LAUNCH_SPEED : LAUNCH_SPEED_C172;
+        model._groundYaw = yaw;
+        const dx = aircraft.position.x - cat.start.x, dz = aircraft.position.z - cat.start.z;
+        const along = dx * cat.direction.x + dz * cat.direction.z;
+        if (controls.isOnGround()) {
+            // Tenu dans l'axe de la catapulte, accéléré pour atteindre la vitesse visée en bout de course
+            aircraft.position.x = cat.start.x + cat.direction.x * along;
+            aircraft.position.z = cat.start.z + cat.direction.z * along;
+            const remaining = Math.max(1, cat.stroke - along);
+            const accel = Math.max(0, target * target - model.airspeed * model.airspeed) / (2 * remaining);
+            model.airspeed += Math.max(accel, 5) * delta;
+            if (along >= cat.stroke - 2) {
+                model.airspeed = Math.max(model.airspeed, target);
+                model._groundPitch = Math.max(model._groundPitch, THREE.MathUtils.degToRad(aircraftType === 'f15' ? 10 : 7));
+            }
+        }
+        if (!controls.isOnGround() || along > cat.stroke + 5) carrierOps.launch = null;
+        return;
+    }
+
+    // Sur une catapulte, arrêté : prêt au lancement
+    const under = controls.isOnGround() && controls.getSpeed() < 4 && !carrierOps.arrest ? catapultUnder() : null;
+    if (under && carrierOps.onCat !== under.cat) {
+        carrierOps.onCat = under.cat;
+        carrierOps.armed = false;
+        carrierMessage(realistic ? `Catapulte ${under.cat.index} : postcombustion (gaz ≥ 95 %), puis touche 0 pour le lancement`
+            : `Catapulte ${under.cat.index} : gaz à fond pour être lancé`);
+    }
+    if (!under) {
+        carrierOps.onCat = null;
+        carrierOps.armed = false;
+        return;
+    }
+    const ready = realistic ? controls.throttle >= 0.95 && carrierOps.armed : controls.throttle >= 0.8;
+    if (!ready) return;
+    carrierOps.launch = under;
+    carrierOps.onCat = null;
+    carrierOps.armed = false;
+    model._groundYaw = under.yaw;
+    shake = Math.max(shake, 0.6);
+    carrierMessage(`Catapulte ${under.cat.index} : lancement !`);
+}
+controls.addEventListener('reset', () => { carrierOps.launch = carrierOps.arrest = carrierOps.onCat = null; });
+// Réaliste : crosse d'appontage (touche 9), lancement de la catapulte (touche 0)
+window.addEventListener('keydown', (event) => {
+    if (!SEA || event.repeat || isTypingTarget(event.target) || choosingSpawn || inMenu) return;
+    if (carrierRules() !== 'realiste') return;
+    if (event.code === 'Digit9' || event.code === 'Numpad9') {
+        carrierOps.hook = !carrierOps.hook;
+        carrierMessage(carrierOps.hook ? 'Crosse d\'appontage sortie' : 'Crosse d\'appontage rentrée');
+    }
+    if ((event.code === 'Digit0' || event.code === 'Numpad0') && carrierOps.onCat) {
+        if (controls.throttle < 0.95) carrierMessage('Catapulte : poussez d\'abord la postcombustion (gaz ≥ 95 %)', true);
+        else carrierOps.armed = true;
+    }
+});
 
 // Gerbes d'écume quand l'avion roule (ou glisse) sur un lac : gouttes lancées par les roues, retombant dans l'eau
 const waterSpray = (() => {
@@ -397,6 +575,10 @@ scene.fog = new THREE.Fog(0xffffff);
 terrain.mesh.receiveShadow = true;
 scene.add( terrain.mesh );
 scene.add( airport.build(renderer) );
+if (city) {
+    city.terrain = terrain;
+    scene.add(city.build());
+}
 rebuildObstacles();
 scene.add( nightSky.mesh );
 scene.add( clouds.mesh, cloudLayer.mesh );
@@ -1077,6 +1259,9 @@ const SPAWN_VIEWS = {
 };
 // Vues données dans le repère de l'aérodrome (piste nord-sud) : placées et tournées comme l'aérodrome choisi
 const spawnViewState = (view, field = airport.current) => {
+    // (porte-avions : ses propres vues, sous les mêmes noms)
+    const key = Object.keys(SPAWN_VIEWS).find((name) => SPAWN_VIEWS[name] === view);
+    view = field.spawnViews?.[key] ?? view;
     const p = field.toWorld(view.target[0], view.target[2]);
     return { target: new THREE.Vector3(p.x, view.target[1], p.z), yaw: view.yaw + field.rotation, pitch: view.pitch, distance: view.distance };
 };
@@ -1111,9 +1296,17 @@ function updateCamera(delta, snap = false) {
     if (inMenu) {
         // Menu principal : survol lent autour de l'aérodrome (un tour en ~4 min)
         const a = clock.elapsedTime * 0.026;
-        camera.position.set(215 + Math.cos(a) * 520, 140, 20 + Math.sin(a) * 520);
+        // (porte-avions : autour du navire ; ville : au-dessus des tours)
+        const around = airport.main.menuView ?? (city && { radius: 950, height: 300, target: [0, 90, 0] });
+        if (around) {
+            const c = airport.main.menuView ? airport.main.center : city.center;
+            camera.position.set(c.x + Math.cos(a) * around.radius, around.height, c.z + Math.sin(a) * around.radius);
+            camera.lookAt(c.x, around.target[1], c.z);
+        } else {
+            camera.position.set(215 + Math.cos(a) * 520, 140, 20 + Math.sin(a) * 520);
+            camera.lookAt(260, 10, 20);
+        }
         camera.up.set(0, 1, 0);
-        camera.lookAt(260, 10, 20);
         if (camera.fov !== CAM_FOV) {
             camera.fov = CAM_FOV;
             camera.updateProjectionMatrix();
@@ -1214,8 +1407,8 @@ function applyDecorDensity() {
         }
     }
     scenery.setDensity(decorDensity);
-    scenery.setVisible(!classic);
-    if (!classic) buildScenery().then(rebuildObstacles, () => { /* échec : voir l'écran de chargement */ });
+    scenery.setVisible(!classic && !SEA);
+    if (!classic && !SEA) buildScenery().then(rebuildObstacles, () => { /* échec : voir l'écran de chargement */ });
     rebuildObstacles();
 }
 
@@ -1240,6 +1433,7 @@ function rebuildObstacles() {
         controls.obstacles.push(...group.obstacles.slice(0, count));
     }
     if (scenery.group.visible) controls.obstacles.push(...scenery.obstacles);
+    if (city) controls.obstacles.push(...city.obstacles);   // (immeubles et tours de la ville)
 }
 
 // Données (CSV) puis un modèle OBJ par type d'objet, chacun suivi par l'écran de chargement (nouvel essai possible)
@@ -1285,7 +1479,7 @@ async function buildWorld() {
                     do {
                         x = origin.x + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
                         z = origin.z + Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-                    } while (airport.contains(x, z, 30) || terrain.lakeAt(x, z, 10));
+                    } while (airport.contains(x, z, 30) || terrain.lakeAt(x, z, 10) || city?.contains(x, z, 30));
                     // Légèrement enfoncé pour ne pas flotter sur les pentes
                     placement.position.set(x, terrain.heightAt(x, z) - 0.5, z);
                     placement.rotation.y = Math.random() * Math.PI * 2;
@@ -1320,7 +1514,7 @@ async function buildWorld() {
     }
 }
 
-track('decor', 'Données du décor (data/*.csv)', buildWorld).catch(() => {});
+if (!SEA) track('decor', 'Données du décor (data/*.csv)', buildWorld).catch(() => {});   // (en mer : ni arbres ni maisons)
 
 // Mâts d'éclairage du parking de l'aéroport (construits dans Airport.js)
 airport.addFloodlights();
@@ -1345,6 +1539,7 @@ function setWeather(name) {
     storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false, clouds: w.overcast ?? null });
     cockpit.setNight(w.night);
     airport.setNight(w.night);
+    city?.setNight(w.night);
     cessnaLights.setNight(w.night);
     jetLights.setNight(w.night);
     jetCockpit.setNight(w.night);
@@ -1627,6 +1822,7 @@ const crashReason = document.getElementById('crash-raison');
 let crashTimer = 0;
 
 controls.addEventListener('touchdown', ({ impact }) => {
+    carrierTouchdown();
     shake = Math.max(shake, Math.min(0.5, impact * 0.08));
     // Bref "couic" des roues qui se mettent à tourner : extrait court du son de dérapage (7 s en boucle à l'origine),
     // plus long et plus fort si le toucher est dur
@@ -1760,7 +1956,7 @@ function renderLobby(games) {
         title.textContent = `Partie de ${game.host}`;
         const detail = document.createElement('small');
         const mode = game.mode === 'wardog'
-            ? `Wardog${game.troll ? ' troll' : ''} · bleus ${game.teams.bleu}/${TEAM_MAX} · rouges ${game.teams.rouge}/${TEAM_MAX}` : 'Vol libre';
+            ? `Wardog${game.map === 'mer' ? ' Navy' : game.map === 'ville' ? ' en ville' : ''}${game.troll ? ' troll' : ''} · bleus ${game.teams.bleu}/${TEAM_MAX} · rouges ${game.teams.rouge}/${TEAM_MAX}` : `Vol libre${game.map === 'mer' ? ' en mer' : game.map === 'ville' ? ' en ville' : ''}`;
         detail.textContent = `${mode} · ${game.players} joueur${game.players > 1 ? 's' : ''}${game.names.length ? ` · ${game.names.join(', ')}` : ''}`;
         button.append(title, detail);
         button.addEventListener('click', () => {
@@ -1819,8 +2015,10 @@ let createMode = 'libre';
 const modeHelp = document.getElementById('multi-mode-aide');
 const MODE_HELP = {
     libre: 'Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.',
-    wardog: `Wardog : équipe bleue (départ ESME) contre équipe rouge (départ ${airport.list[1]?.label ?? 'Aix'}), ${TEAM_MAX} pilotes au plus par `
+    wardog: `Wardog : équipe bleue (départ ESME) contre équipe rouge (départ AIX), ${TEAM_MAX} pilotes au plus par `
         + 'équipe. Capturez le terrain adverse : restez dans sa zone (2 km, sous 300 m) sans ennemi pendant 30 s.',
+    navy: `Wardog Navy : en mer, chaque équipe part de son porte-avions, ${TEAM_MAX} pilotes au plus par équipe. Capturez le `
+        + 'porte-avions adverse : restez dans sa zone (2 km, sous 300 m) sans ennemi pendant 30 s.',
     'wardog-troll': 'Wardog troll : comme Wardog, mais chaque fois que vous êtes abattu… What is love ?',
 };
 // Wardog troll : carte masquée, révélée (ou remasquée) par le ruban « Démasquer » sous les modes de jeu
@@ -1839,12 +2037,51 @@ for (const button of document.querySelectorAll('#multi-modes button')) {
             other.classList.toggle('actif', other === button);
             other.setAttribute('aria-checked', String(other === button));
         }
-        modeHelp.textContent = MODE_HELP[createMode];
+        updateCreateChoice();
     });
 }
+// Carte de la partie à créer, et règles des porte-avions (en mer) ; Wardog en mer : « Wardog Navy »
+let createMap = MAP, createRules = soloCarrierRules;
+function updateCreateChoice() {
+    for (const button of document.querySelectorAll('#multi-cartes button')) {
+        button.classList.toggle('actif', button.dataset.carte === createMap);
+        button.setAttribute('aria-checked', String(button.dataset.carte === createMap));
+    }
+    for (const button of document.querySelectorAll('#multi-pa button')) {
+        button.classList.toggle('actif', button.dataset.regles === createRules);
+        button.setAttribute('aria-checked', String(button.dataset.regles === createRules));
+    }
+    document.getElementById('multi-pa').hidden = createMap !== 'mer' || Boolean(multiplayer.code);
+    const navy = createMap === 'mer';
+    document.querySelector('#multi-modes button[data-mode="wardog"] strong').textContent = navy ? 'Wardog Navy' : 'Wardog';
+    document.querySelector('#multi-modes button[data-mode="wardog"] small').textContent = navy
+        ? 'Bleus contre rouges : capturez le porte-avions adverse' : 'Bleus contre rouges : capturez le terrain adverse';
+    modeHelp.textContent = createMode === 'wardog' && navy ? MODE_HELP.navy : MODE_HELP[createMode];
+    if (createMode === 'wardog-troll' && navy) modeHelp.textContent += ' (en mer, depuis les porte-avions)';
+}
+for (const button of document.querySelectorAll('#multi-cartes button')) {
+    button.addEventListener('click', () => { createMap = button.dataset.carte; updateCreateChoice(); });
+}
+for (const button of document.querySelectorAll('#multi-pa button')) {
+    button.addEventListener('click', () => { createRules = button.dataset.regles; updateCreateChoice(); });
+}
+updateCreateChoice();
 document.getElementById('multi-creer').addEventListener('click', () => {
+    const mode = createMode === 'wardog-troll' ? 'wardog' : createMode, troll = createMode === 'wardog-troll';
+    // Autre carte que celle chargée : la page se recharge sur la bonne carte, puis crée la partie (voir resumeAfterUpdate)
+    if (createMap !== MAP) {
+        try {
+            sessionStorage.setItem('esme-mise-a-jour', JSON.stringify({ creer: { mode, troll, regles: createRules, listee: lobbyVisible.checked }, le: Date.now() }));
+            localStorage.setItem('carte', createMap);
+        } catch { /* stockage indisponible */ }
+        multiStatut.classList.remove('erreur');
+        multiStatut.textContent = `Chargement de la carte ${MAP_LABELS[createMap]}…`;
+        location.replace(location.pathname);
+        return;
+    }
+    multiplayer.carrierRules = createRules;
     multiplayer.setListed(lobbyVisible.checked);
-    multiplayer.create(pseudo(), createMode === 'wardog-troll' ? 'wardog' : createMode, createMode === 'wardog-troll');
+    multiplayer.create(pseudo(), mode, troll);
     renderTeams();
 });
 
@@ -1856,7 +2093,9 @@ function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
     if (!wardog) setTeamStep(false);
     document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden
-        = trollReveal.hidden = Boolean(multiplayer.code);
+        = trollReveal.hidden = document.getElementById('multi-cartes').hidden = document.getElementById('multi-cartes-titre').hidden
+        = Boolean(multiplayer.code);
+    document.getElementById('multi-pa').hidden = createMap !== 'mer' || Boolean(multiplayer.code);
     // « Rejoindre la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : mène au choix de l'équipe) ;
     // en vol, en Wardog : « Changer d'équipe ». Seulement une fois la partie confirmée : avant, pendant les quelques secondes
     // de connexion, le mode n'était pas encore connu et le bouton menait au choix de l'aérodrome comme en vol libre (puis
@@ -1961,6 +2200,20 @@ multiplayer.addEventListener('mode', ({ detail }) => {
         if (!multiplayer.isHost) showTeamStep();   // (partie rejointe : directement au choix de l'équipe)
     }
 });
+// Partie rejointe sur une autre carte que la nôtre : la page se recharge sur la carte de la partie, puis y revient
+// toute seule (voir resumeAfterUpdate)
+multiplayer.addEventListener('map', ({ detail }) => {
+    try {
+        localStorage.setItem('carte', detail.map);
+        sessionStorage.setItem('esme-mise-a-jour', JSON.stringify({ partie: detail.code, hote: false, score: multiplayer.score, le: Date.now() }));
+    } catch {
+        multiStatut.textContent = `Cette partie se joue sur la carte ${MAP_LABELS[detail.map]} : choisissez-la au menu principal`;
+        return;
+    }
+    multiStatut.classList.remove('erreur');
+    multiStatut.textContent = `Partie sur la carte ${MAP_LABELS[detail.map]} : chargement…`;
+    location.replace(location.pathname);
+});
 // Rejoindre : le code tapé. Celui de la partie où l'on est déjà (créée dans cette fenêtre) : on y reste. Avant,
 // « Rejoindre » quittait d'abord la partie (seul dedans, elle disparaissait), puis la cherchait : « Aucune partie avec le
 // code… » alors que le code était bon
@@ -2016,6 +2269,17 @@ try {
 if (resumeState && !(Date.now() - resumeState.le < 5 * 60000)) resumeState = null;   // (vieux de plus de 5 min : ignoré)
 function resumeAfterUpdate() {
     const saved = resumeState;
+    if (saved?.creer) {
+        resumeState = null;
+        const c = saved.creer;
+        openMultiDialog();
+        multiplayer.carrierRules = createRules = c.regles === 'realiste' ? 'realiste' : 'arcade';
+        multiplayer.setListed(c.listee !== false);
+        multiplayer.create(pseudo(), c.mode, c.troll);
+        renderTeams();
+        updateCreateChoice();
+        return;
+    }
     if (!saved?.partie || new URLSearchParams(location.search).get('partie')) return;
     multiplayer.addEventListener('joined', ({ detail }) => {
         if (detail.code !== saved.partie) return;
@@ -2153,7 +2417,7 @@ function numberSprite(text) {
 for (const field of airport.list) field.spawns.forEach((spawn, i) => {
     const size = 24, height = 8;
     const marker = new THREE.Group();
-    marker.position.set(spawn.x, 0.1, spawn.z);
+    marker.position.set(spawn.x, terrain.heightAt(spawn.x, spawn.z) + 0.1, spawn.z);   // (porte-avions : sur le pont)
     marker.rotation.y = spawn.heading;
     const fill = new THREE.MeshBasicMaterial({ color: 0xffd400, transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false });
     const box = new THREE.Mesh(new THREE.BoxGeometry(size, height, size), fill);
@@ -2330,6 +2594,14 @@ for (const [name, v] of Object.entries(SPAWN_VIEWS)) {
     button.addEventListener('click', () => { setSpawnView(name); button.blur(); });
     spawnViewButtons.append(button);
 }
+// Noms des vues selon le terrain choisi (porte-avions : catapultes, piste oblique, pont arrière)
+function labelSpawnViews() {
+    for (const button of spawnViewButtons.children) {
+        button.textContent = (airport.current.spawnViews ?? SPAWN_VIEWS)[button.dataset.vue]?.label ?? button.textContent;
+    }
+}
+airport.addEventListener('change', labelSpawnViews);
+labelSpawnViews();
 
 function closeSpawnDialog() {
     leaveHangar();
@@ -2747,6 +3019,46 @@ for (const [name, w] of Object.entries(WEATHERS)) {
     button.addEventListener('click', () => setWeather(name));
     menuWeather.appendChild(button);
 }
+// Carte (menu principal) : une autre carte recharge la page (quitte la partie en cours, après confirmation)
+const menuMaps = document.getElementById('mp-cartes');
+for (const [name, label] of Object.entries({ campagne: 'Campagne', ville: 'Ville', mer: 'Mer · porte-avions' })) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.classList.toggle('actif', name === MAP);
+    button.addEventListener('click', () => {
+        if (name === MAP) return;
+        if (multiplayer.code && !confirm(`Changer de carte quitte la partie ${multiplayer.code}. Continuer ?`)) return;
+        try { localStorage.setItem('carte', name); } catch { /* stockage indisponible */ }
+        location.replace(`${location.pathname}?carte=${name}`);
+    });
+    menuMaps.appendChild(button);
+}
+document.getElementById('mp-pa').hidden = !SEA;
+const menuRules = document.getElementById('mp-pa-regles');
+for (const [name, label] of Object.entries({ arcade: 'Arcade', realiste: 'Réaliste' })) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.dataset.regles = name;
+    button.title = name === 'arcade' ? 'Catapulte et brins d\'arrêt automatiques' : 'Crosse à sortir (touche 9), catapulte à lancer (touche 0)';
+    button.addEventListener('click', () => {
+        soloCarrierRules = createRules = name;
+        try { localStorage.setItem('pa-regles', name); } catch { /* stockage indisponible */ }
+        for (const other of menuRules.children) other.classList.toggle('actif', other === button);
+        updateCreateChoice();
+    });
+    button.classList.toggle('actif', name === soloCarrierRules);
+    menuRules.appendChild(button);
+}
+// Initiation : leçons faites pour l'aérodrome d'ESME (carte Campagne)
+if (SEA) {
+    const lesson = document.getElementById('mp-initiation');
+    lesson.disabled = true;
+    lesson.querySelector('small').textContent = 'Sur la carte Campagne seulement';
+}
+// Wardog en mer : départ des porte-avions
+if (SEA) {
+    document.querySelector('.multi-equipes-aide').textContent = 'Bleus : porte-avions bleu · Rouges : porte-avions rouge. Vous arrivez sur le pont de votre navire, en F-15.';
+}
 document.getElementById('hangar-menu').addEventListener('click', openMainMenu);
 // Petit clic au survol d'une case du menu (et des boutons de météo) ; muet tant que le navigateur n'a pas autorisé
 // le son (premier clic ou première touche)
@@ -3038,7 +3350,8 @@ const mapView = new MapView(document.getElementById('carte-canvas'), {
     heightAt: (x, z) => terrain.heightAt(x, z),
     waterAt: (x, z) => { const lake = terrain.lakeAt(x, z); return Boolean(lake) && terrain.groundAt(x, z, lake) < lake.level; },
     worldSize: 16000,   // (zone des deux aérodromes ; le terrain s'étend plus loin, pour la distance de vue)
-    shapes: airport.mapShapes,
+    shapes: city ? [{ kind: 'city', label: 'VILLE', x: city.center.x, z: city.center.z, radius: city.radius }, ...airport.mapShapes]
+        : airport.mapShapes,
     runways: airport.allRunways,
     navaids: airport.vors,
 });
@@ -5388,6 +5701,7 @@ function drawFrame(time) {
     if (!choosingSpawn) controls.update( delta );
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
+    if (SEA && !choosingSpawn) updateCarrier( delta );
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
     lastAircraftPosition.copy(aircraft.position);

@@ -4936,3 +4936,20 @@ html.telephone .tb-etat {
   border-radius: 4px;
   cursor: pointer;
 }
+
+/* Fenêtre Multijoueur : carte de la partie et règles des porte-avions (boutons à bascule) */
+#multi-dialog .multi-choix-ligne button {
+  flex: 1;
+}
+#multi-dialog .multi-choix-ligne button.actif {
+  color: #fff;
+  background: rgba(90, 169, 255, 0.35);
+  border-color: #5aa9ff;
+}
+#multi-dialog .multi-choix-ligne[hidden],
+#multi-dialog #multi-cartes-titre[hidden] {
+  display: none;
+}
+#mp-pa[hidden] {
+  display: none;
+}

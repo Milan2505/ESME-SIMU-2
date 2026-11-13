@@ -72,11 +72,19 @@ class Terrain {
         dips = () => 1,       // abords des aérodromes : 0 = ni creux ni ondulations (pas de talus autour de la piste), 1 = loin
         rolling = 30,         // m : ondulations douces des fonds de vallée (grandes collines arrondies)
         lakes = [],           // [{ x, z, radius }] : cuvette et plan d'eau (bord irrégulier)
+        // Carte « Mer » : pleine mer partout (pas de relief ni de dalles), fond à ocean.depth m sous la surface (niveau 0) ;
+        // ponts des porte-avions : platformAt(x, z) -> hauteur du pont, null hors des ponts
+        ocean = null,         // { depth }
+        platformAt = () => null,
     } = {}) {
         this.noise = new ImprovedNoise();
         Object.assign(this, { flatRadius, hillHeight, mountainStart, mountainFull, mountainHeight, flatten, clearings, limit, dips, rolling });
         // Lacs : niveau de l'eau sous le point le plus bas de leur rive (le sol remonte tout autour)
-        this.lakes = lakes.map((lake, i) => ({ ...lake, seed: 11.3 + i * 4.7 }));
+        this.lakes = ocean ? [] : lakes.map((lake, i) => ({ ...lake, seed: 11.3 + i * 4.7 }));
+        this.ocean = ocean;
+        this.platformAt = platformAt;
+        // Mer : un seul « lac » sans bord, au niveau 0 (l'avion s'y pose ou y coule comme sur un lac, voir simulator.js)
+        this.sea = ocean ? { x: 0, z: 0, radius: Infinity, level: 0, seed: 0, sea: true } : null;
         for (const lake of this.lakes) {
             let low = Infinity;
             for (let a = 0; a < 48; a++) {
@@ -94,7 +102,7 @@ class Terrain {
         // Groupe des dalles (scene.add(terrain.mesh) ; receiveShadow transmis aux dalles)
         this.mesh = new Group();
         this.mesh.name = 'terrain';
-        const count = Math.ceil(size / TILE);
+        const count = ocean ? 0 : Math.ceil(size / TILE);   // (mer : aucune dalle de sol, tout est sous l'eau)
         this._tiles = [];
         for (let i = 0; i < count; i++) {
             for (let j = 0; j < count; j++) {
@@ -111,7 +119,7 @@ class Terrain {
             set: (value) => { for (const t of this._tiles) t.mesh.receiveShadow = value; },
             get: () => true,
         });
-        this.water = this._createWater();
+        this.water = ocean ? this._createSea() : this._createWater();
         if (this.water) this.mesh.add(this.water);
         this._fullSegments = 0;
         this._viewer = new Vector3(0, 0, 0);
@@ -334,6 +342,7 @@ class Terrain {
 
     // Hauteur de la surface au point (x, z) : sol, ou eau d'un lac. Pour poser les objets et pour les collisions
     heightAt(x, z) {
+        if (this.ocean) return this.platformAt(x, z) ?? 0;
         const lake = this.lakeAt(x, z);
         const ground = this.groundAt(x, z, lake);
         return lake && ground < lake.level ? lake.level : ground;
@@ -341,6 +350,7 @@ class Terrain {
 
     // Lac en (x, z) (null hors des lacs et de leurs rives) ; margin : m autour de la rive
     lakeAt(x, z, margin = 0) {
+        if (this.ocean) return this.platformAt(x, z) === null ? this.sea : null;
         for (const lake of this.lakes) {
             const dx = x - lake.x, dz = z - lake.z, reach = lake.radius * LAKE_RIM * 1.3 + margin;
             if (dx * dx + dz * dz < reach * reach && Math.hypot(dx, dz) < lake.radius * LAKE_RIM * this._lakeWobble(lake, Math.atan2(dz, dx)) + margin) return lake;
@@ -350,6 +360,7 @@ class Terrain {
 
     // Hauteur du sol (fond des lacs compris) : maillage du terrain
     groundAt(x, z, lake = this.lakeAt(x, z)) {
+        if (this.ocean) return this.platformAt(x, z) ?? -this.ocean.depth;
         const base = this._baseHeight(x, z);
         if (!lake) return base;
         // Cuvette. s : distance à la rive (m, positive dehors). Pente douce de part et d'autre de la ligne d'eau (8 à 10 %) :
@@ -400,6 +411,26 @@ class Terrain {
         geometry.computeBoundingSphere();
         const mesh = new Mesh(geometry, this._waterMaterial());
         mesh.name = 'lacs';
+        mesh.receiveShadow = true;
+        mesh.matrixAutoUpdate = false;
+        return mesh;
+    }
+
+    // Mer : un grand plan d'eau profonde (60 km de côté, au-delà du brouillard), opaque (aucun fond dessous à montrer)
+    _createSea() {
+        const half = 30000;
+        const positions = [-half, 0, -half, half, 0, -half, -half, 0, half, half, 0, half];
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+        geometry.setAttribute('aDepth', new BufferAttribute(new Float32Array(4).fill(this.ocean.depth), 1));
+        geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+        geometry.setIndex([0, 2, 1, 1, 2, 3]);
+        geometry.computeBoundingSphere();
+        const material = this._waterMaterial();
+        material.color.set(0x123a52);
+        material.transparent = false;
+        const mesh = new Mesh(geometry, material);
+        mesh.name = 'mer';
         mesh.receiveShadow = true;
         mesh.matrixAutoUpdate = false;
         return mesh;
