@@ -4577,7 +4577,9 @@ function reportDeath(attackerId, reason) {
         multiplayer.score.deaths++;   // (score : voir updateScores)
         flashScore(attackerId);
     }
-    if (attackerId && wardog() && multiplayer.troll) showTroll();   // (abattu par un joueur, pas un simple crash)
+    // Wardog troll : abattu par un joueur (pas un simple crash) ; console : pourquoi l'écran n'apparaît pas, le cas échéant
+    console.info('[troll] abattu', { tireur: attackerId, mode: multiplayer.mode, troll: multiplayer.troll });
+    if (attackerId && wardog() && multiplayer.troll) showTroll();
 }
 
 // Wardog troll : abattu -> image en grand et refrain de « What is Love » (TROLL_SONGS, extrait à fournir, voir
