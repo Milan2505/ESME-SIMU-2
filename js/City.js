@@ -48,48 +48,195 @@ function random(seed) {
     };
 }
 
-function canvasTexture(size, draw) {
+function canvasTexture(size, draw, height = size) {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    draw(canvas.getContext('2d'), size);
+    canvas.width = size;
+    canvas.height = height;
+    draw(canvas.getContext('2d'), size, height);
     const texture = new CanvasTexture(canvas);
     texture.colorSpace = SRGBColorSpace;
     texture.anisotropy = 8;
+    texture.wrapS = texture.wrapT = RepeatWrapping;
     return texture;
 }
 
-// Façades : murs blancs (teintés par la couleur de chaque bâtiment) et fenêtres sombres ; carte d'émission : une
-// partie des fenêtres allumées (la nuit)
-function facadeTextures() {
-    const rnd = random(77);
-    const cell = 32;
-    const map = canvasTexture(cell * WINDOWS, (ctx, size) => {
-        ctx.fillStyle = '#e9e6e0';
-        ctx.fillRect(0, 0, size, size);
-        for (let i = 0; i < WINDOWS; i++) {
-            for (let j = 0; j < WINDOWS; j++) {
-                const shade = 40 + Math.floor(rnd() * 30);
-                ctx.fillStyle = `rgb(${shade},${shade + 12},${shade + 24})`;
-                ctx.fillRect(i * cell + 5, j * cell + 6, cell - 10, cell - 11);
-                ctx.fillStyle = 'rgba(255,255,255,0.18)';   // reflet du ciel en haut de la vitre
-                ctx.fillRect(i * cell + 5, j * cell + 6, cell - 10, 4);
+const rgb = (r, g, b) => `rgb(${Math.min(255, Math.round(r))},${Math.min(255, Math.round(g))},${Math.min(255, Math.round(b))})`;
+
+// Grain d'un enduit ou d'un béton : petites taches claires et sombres
+function grain(ctx, w, h, rnd, count, alpha) {
+    for (let i = 0; i < count; i++) {
+        ctx.fillStyle = rnd() < 0.5 ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`;
+        ctx.fillRect(rnd() * w, rnd() * h, 1 + rnd() * 2, 1 + rnd() * 2);
+    }
+}
+
+// Vitre : reflet du ciel (clair en haut, plus sombre en bas), parfois un rideau ou un store à l'intérieur
+function pane(ctx, x, y, w, h, rnd, light = 1) {
+    const k = (0.8 + rnd() * 0.3) * light;
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, rgb(178 * k, 198 * k, 214 * k));
+    g.addColorStop(0.5, rgb(122 * k, 142 * k, 160 * k));
+    g.addColorStop(1, rgb(92 * k, 106 * k, 122 * k));
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+    const inside = rnd();
+    if (inside < 0.25) {                               // rideau sur un côté
+        ctx.fillStyle = 'rgba(236,228,210,0.55)';
+        ctx.fillRect(rnd() < 0.5 ? x : x + w * 0.65, y, w * 0.35, h);
+    } else if (inside < 0.4) {                         // store à moitié baissé
+        ctx.fillStyle = 'rgba(220,214,200,0.6)';
+        ctx.fillRect(x, y, w, h * (0.25 + rnd() * 0.4));
+    }
+    // reflet oblique
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.2, y);
+    ctx.lineTo(x + w * 0.55, y);
+    ctx.lineTo(x + w * 0.25, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Façades (WINDOWS x WINDOWS travées x étages, cellule de C px) : murs clairs teintés par la couleur de chaque
+// bâtiment ; carte d'émission : une partie des fenêtres allumées (la nuit). Trois styles :
+// - glass : mur-rideau des tours (vitrage sur presque toute la travée, allège opaque à chaque étage) ;
+// - office : bureaux à bandeaux vitrés continus ;
+// - house : immeubles d'habitation (fenêtres encadrées, appuis, volets).
+const C = 64;
+function facadeTextures(style) {
+    const rnd = random(style === 'glass' ? 71 : style === 'office' ? 72 : 73);
+    const S = C * WINDOWS;
+    const windows = [];                                  // rectangles vitrés, pour la carte d'émission
+    const map = canvasTexture(S, (ctx) => {
+        ctx.fillStyle = style === 'glass' ? '#d4d8db' : style === 'office' ? '#ebe7df' : '#f1ebdf';
+        ctx.fillRect(0, 0, S, S);
+        grain(ctx, S, S, rnd, 9000, style === 'glass' ? 0.03 : 0.05);
+        for (let j = 0; j < WINDOWS; j++) {
+            const top = j * C;
+            if (style === 'office') {
+                ctx.fillStyle = '#d3cec4';               // nez de dalle
+                ctx.fillRect(0, top + 50, S, 4);
+            } else if (style === 'house') {
+                ctx.fillStyle = 'rgba(0,0,0,0.05)';      // bandeau d'étage
+                ctx.fillRect(0, top + C - 4, S, 3);
+            }
+            for (let i = 0; i < WINDOWS; i++) {
+                const left = i * C;
+                let w;
+                if (style === 'glass') {
+                    w = [left + 2, top + 3, C - 4, C - 16];
+                    ctx.fillStyle = '#9aa5ae';           // allège
+                    ctx.fillRect(left + 2, top + C - 12, C - 4, 10);
+                    pane(ctx, ...w, rnd, 1.05);
+                } else if (style === 'office') {
+                    w = [left + 1, top + 18, C - 2, 31];
+                    pane(ctx, ...w, rnd, 0.95);
+                } else {
+                    w = [left + 19, top + 12, 26, 36];
+                    if (rnd() < 0.35) {                  // volets ouverts
+                        ctx.fillStyle = ['#6f7d6a', '#7c6a58', '#5f6f7f', '#8a8a82'][Math.floor(rnd() * 4)];
+                        ctx.fillRect(w[0] - 13, w[1], 11, w[3]);
+                        ctx.fillRect(w[0] + w[2] + 2, w[1], 11, w[3]);
+                    }
+                    ctx.fillStyle = '#faf8f3';           // encadrement
+                    ctx.fillRect(w[0] - 3, w[1] - 3, w[2] + 6, w[3] + 6);
+                    ctx.fillStyle = '#c7beb0';           // appui
+                    ctx.fillRect(w[0] - 5, w[1] + w[3] + 3, w[2] + 10, 4);
+                    ctx.fillStyle = 'rgba(0,0,0,0.06)';  // coulure sous l'appui
+                    ctx.fillRect(w[0] - 2, w[1] + w[3] + 7, w[2] + 4, 8);
+                    pane(ctx, ...w, rnd, 0.9);
+                    ctx.fillStyle = '#f4f2ec';           // croisillon
+                    ctx.fillRect(w[0] + w[2] / 2 - 1, w[1], 2, w[3]);
+                }
+                windows.push(w);
             }
         }
     });
-    const emissive = canvasTexture(cell * WINDOWS, (ctx, size) => {
+    const lit = style === 'glass' ? 0.4 : style === 'office' ? 0.33 : 0.38;
+    const emissive = canvasTexture(S, (ctx) => {
         ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, size, size);
-        for (let i = 0; i < WINDOWS; i++) {
-            for (let j = 0; j < WINDOWS; j++) {
-                if (rnd() > 0.38) continue;
-                const warm = rnd();
-                ctx.fillStyle = warm < 0.7 ? '#ffd890' : warm < 0.9 ? '#fff3d8' : '#bfe0ff';
-                ctx.fillRect(i * cell + 5, j * cell + 6, cell - 10, cell - 11);
-            }
+        ctx.fillRect(0, 0, S, S);
+        for (const [x, y, w, h] of windows) {
+            if (rnd() > lit) continue;
+            const warm = rnd();
+            ctx.fillStyle = style === 'office' && warm < 0.6 ? '#eef4ff'
+                : warm < 0.7 ? '#ffd890' : warm < 0.9 ? '#fff3d8' : '#bfe0ff';
+            ctx.fillRect(x, y, w, h);
         }
     });
-    for (const t of [map, emissive]) t.wrapS = t.wrapT = RepeatWrapping;
     return { map, emissive };
+}
+
+// Rez-de-chaussée : vitrines (une boutique toutes les deux travées), enseigne au-dessus, porte
+function shopTextures() {
+    const rnd = random(74);
+    const W = C * WINDOWS, H = C;
+    const shops = [];
+    const map = canvasTexture(W, (ctx) => {
+        ctx.fillStyle = '#d9d4ca';
+        ctx.fillRect(0, 0, W, H);
+        grain(ctx, W, H, rnd, 1500, 0.05);
+        for (let k = 0; k < WINDOWS / 2; k++) {
+            const x = k * 2 * C;
+            ctx.fillStyle = ['#8a3030', '#2f4f78', '#2f6040', '#3c3c3c', '#9a7426', '#6a3a6a'][Math.floor(rnd() * 6)];
+            ctx.fillRect(x + 6, 4, 2 * C - 12, 10);       // enseigne
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.fillRect(x + 30 + rnd() * 20, 7, 30 + rnd() * 20, 4);
+            const g = ctx.createLinearGradient(0, 18, 0, 60);
+            g.addColorStop(0, '#a9b3ba');
+            g.addColorStop(1, '#646a6f');
+            ctx.fillStyle = g;
+            ctx.fillRect(x + 8, 18, 2 * C - 16, 42);     // vitrine
+            for (let p = 0; p < 6; p++) {                // marchandises
+                ctx.fillStyle = `rgba(${rnd() * 255},${rnd() * 255},${rnd() * 255},0.35)`;
+                ctx.fillRect(x + 12 + rnd() * 90, 40 + rnd() * 12, 6 + rnd() * 10, 8);
+            }
+            ctx.fillStyle = '#3d4246';                   // porte
+            ctx.fillRect(x + C - 10, 20, 20, 40);
+            ctx.fillStyle = '#c9c4ba';                   // montants
+            ctx.fillRect(x + 8 + (2 * C - 16) / 4, 18, 2, 42);
+            ctx.fillRect(x + 8 + 3 * (2 * C - 16) / 4, 18, 2, 42);
+            shops.push(x);
+        }
+        ctx.fillStyle = '#8f8b84';                       // soubassement
+        ctx.fillRect(0, 60, W, 4);
+    }, H);
+    const emissive = canvasTexture(W, (ctx) => {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+        for (const x of shops) {
+            if (rnd() < 0.75) {
+                ctx.fillStyle = '#ffe2b0';
+                ctx.fillRect(x + 8, 18, 2 * C - 16, 42);
+            }
+            if (rnd() < 0.8) {
+                ctx.fillStyle = ['#ff6060', '#70b0ff', '#80ff90', '#ffe070'][Math.floor(rnd() * 4)];
+                ctx.fillRect(x + 6, 4, 2 * C - 12, 10);
+            }
+        }
+    }, H);
+    return { map, emissive };
+}
+
+// Toits : membrane / gravillons gris clair, joints et taches
+function roofTexture() {
+    const rnd = random(75);
+    return canvasTexture(256, (ctx, S) => {
+        ctx.fillStyle = '#c6c4be';
+        ctx.fillRect(0, 0, S, S);
+        grain(ctx, S, S, rnd, 7000, 0.08);
+        for (let i = 0; i < 6; i++) {
+            const x = rnd() * S, y = rnd() * S, r = 15 + rnd() * 40;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+            g.addColorStop(0, 'rgba(60,55,50,0.12)');
+            g.addColorStop(1, 'rgba(60,55,50,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        for (let p = 0; p < S; p += 64) ctx.fillRect(p, 0, 2, S);
+    });
 }
 
 // Sol d'un îlot (une case de CELL m) : demi-rue sur chaque bord (axe pointillé au bord de la case, partagé avec la
@@ -161,29 +308,43 @@ class MeshBuilder {
         this.indices = [];
     }
 
-    // Quadrilatère a, b, c, d (sens anti-horaire vu de devant), normale n, uv des quatre coins, couleur
-    quad(a, b, c, d, n, uv, color) {
+    // Quadrilatère a, b, c, d (sens anti-horaire vu de devant), normale n, uv des quatre coins, couleur ; shade
+    // assombrit a et b (bas des murs : ombre portée du sol et des voisins)
+    quad(a, b, c, d, n, uv, color, shade = 1) {
         const base = this.positions.length / 3;
         for (const p of [a, b, c, d]) this.positions.push(p[0], p[1], p[2]);
         for (let i = 0; i < 4; i++) {
+            const s = i < 2 ? shade : 1;
             this.normals.push(n[0], n[1], n[2]);
-            this.colors.push(color.r, color.g, color.b);
+            this.colors.push(color.r * s, color.g * s, color.b * s);
         }
         this.uvs.push(...uv);
         this.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
 
-    // Boîte (x0..x1, y0..y1, z0..z1) : façades (fenêtres à l'échelle des étages) et toit
-    box(x0, x1, y0, y1, z0, z1, color, roof = this) {
-        const u = (m) => m / (BAY * WINDOWS), v = (m) => m / (FLOOR * WINDOWS);
-        const h = y1 - y0, wx = x1 - x0, wz = z1 - z0;
+    // Quatre murs (x0..x1, y0..y1, z0..z1) ; vOf : coordonnée v de la texture à une hauteur donnée
+    walls(x0, x1, y0, y1, z0, z1, color, shade, vOf) {
+        const u = (m) => m / (BAY * WINDOWS);
         const offset = (x0 * 0.37 + z0 * 0.71) % 1;   // (fenêtres allumées différentes d'un bâtiment à l'autre)
-        const uvs = (w) => [offset, v(y0), offset + u(w), v(y0), offset + u(w), v(y0 + h), offset, v(y0 + h)];
-        this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], uvs(wx), color);    // sud
-        this.quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], uvs(wx), color);   // nord
-        this.quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], uvs(wz), color);    // est
-        this.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], uvs(wz), color);   // ouest
-        roof.quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0], [0, 0, 1, 0, 1, 1, 0, 1], color);
+        const uvs = (w) => [offset, vOf(y0), offset + u(w), vOf(y0), offset + u(w), vOf(y1), offset, vOf(y1)];
+        const wx = x1 - x0, wz = z1 - z0;
+        this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], uvs(wx), color, shade);    // sud
+        this.quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], uvs(wx), color, shade);   // nord
+        this.quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], uvs(wz), color, shade);    // est
+        this.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], uvs(wz), color, shade);   // ouest
+    }
+
+    // Boîte : façades (fenêtres à l'échelle des étages) et toit (dans roof, sauf si null ; texture répétée tous
+    // les 12 m)
+    box(x0, x1, y0, y1, z0, z1, color, roof = this, roofColor = color, shade = 1) {
+        this.walls(x0, x1, y0, y1, z0, z1, color, shade, (y) => y / (FLOOR * WINDOWS));
+        const ru = (x1 - x0) / 12, rv = (z1 - z0) / 12;
+        roof?.quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0], [0, 0, ru, 0, ru, rv, 0, rv], roofColor);
+    }
+
+    // Bandeau sans toit (rez-de-chaussée) : la texture entière sur la hauteur
+    band(x0, x1, y0, y1, z0, z1, color, shade) {
+        this.walls(x0, x1, y0, y1, z0, z1, color, shade, (y) => (y - y0) / (y1 - y0));
     }
 
     // Case de sol (carré horizontal, uv 0..1)
@@ -204,8 +365,10 @@ class MeshBuilder {
 }
 
 // Couleurs des bâtiments : verre bleuté ou gris acier pour les tours, crépis et pierre pour les autres
-const TOWER_COLORS = [0x8fb2cc, 0x9fb9c4, 0xb7c3cc, 0x7f9fb8, 0xc9cfd3, 0xa9b6a8];
-const BUILDING_COLORS = [0xd9cdb6, 0xc7b79c, 0xe2d9c8, 0xb9a48a, 0xcfc6bc, 0xd7c2a8, 0xa9a49c, 0xc4b2a0];
+const TOWER_COLORS = [0xc4d6e4, 0xd0dde3, 0xdfe4e8, 0xb8cbdc, 0xeceff1, 0xd2dbd0, 0xe6e0d4];
+const BUILDING_COLORS = [0xf2e8d6, 0xe8dcc4, 0xf6f1e6, 0xe0cfb6, 0xece6dd, 0xf0dcc2, 0xd9d6d0, 0xe9d8c6, 0xf3e3cf, 0xdedbd2];
+const ROOF_COLORS = [0xd8d6d0, 0xc9c8c4, 0xe0ddd5, 0xbfc2c4, 0xcfcbc2];
+const SHOP_FLOOR = 4.4;                 // hauteur du rez-de-chaussée commerçant (m)
 
 class City {
     // airport : réseau d'aérodromes (contains, inCorridor, list) ; terrain : pour éviter les lacs (lakeAt)
@@ -231,9 +394,10 @@ class City {
 
     build() {
         const rnd = random(2026);
-        const facades = new MeshBuilder(), roofs = new MeshBuilder(), blocks = new MeshBuilder(), parks = new MeshBuilder();
+        const styles = { glass: new MeshBuilder(), office: new MeshBuilder(), house: new MeshBuilder() };
+        const shops = new MeshBuilder(), roofs = new MeshBuilder(), blocks = new MeshBuilder(), parks = new MeshBuilder();
         const treeSpots = [], beacons = [];
-        const color = new Color();
+        const color = new Color(), roofColor = new Color(), trim = new Color(), mech = new Color();
         const fields = this.airport.list;
         const inner = CELL - ROAD - 2 * SIDEWALK;          // côté constructible d'un îlot
         const count = Math.ceil(RADIUS / CELL);
@@ -277,26 +441,45 @@ class City {
                         const margin = tower ? lot * (0.12 + rnd() * 0.12) : 1.5 + rnd() * 3;
                         const bx0 = x0 + ROAD / 2 + SIDEWALK + a * lot + margin, bx1 = bx0 + lot - 2 * margin;
                         const bz0 = z0 + ROAD / 2 + SIDEWALK + b * lot + margin, bz1 = bz0 + lot - 2 * margin;
+                        // Style de façade : mur-rideau pour les tours, bureaux ou logements pour les autres
+                        const style = tower ? 'glass' : r < 0.65 && rnd() < 0.45 ? 'office' : 'house';
+                        const facades = styles[style];
                         const palette = tower ? TOWER_COLORS : BUILDING_COLORS;
                         color.setHex(palette[Math.floor(rnd() * palette.length)]).convertSRGBToLinear();
-                        color.multiplyScalar(0.85 + rnd() * 0.25);
+                        color.multiplyScalar(0.92 + rnd() * 0.12);
+                        roofColor.setHex(ROOF_COLORS[Math.floor(rnd() * ROOF_COLORS.length)]).convertSRGBToLinear();
                         const y0 = GROUND_Y - 0.5;
-                        facades.box(bx0, bx1, y0, height, bz0, bz1, color, roofs);
+                        // Rez-de-chaussée commerçant (sauf petits bâtiments), ombré au pied
+                        let base = y0;
+                        if (height >= 9 && (tower || r < 0.75)) {
+                            shops.band(bx0, bx1, y0, SHOP_FLOOR, bz0, bz1, color, 0.6);
+                            base = SHOP_FLOOR;
+                        }
                         let top = height;
                         // Tours : étage en retrait, locaux techniques sur le toit, feu d'obstacle rouge au sommet
                         if (tower) {
+                            facades.box(bx0, bx1, base, height, bz0, bz1, color, roofs, roofColor, base === y0 ? 0.6 : 1);
                             const inset = (bx1 - bx0) * (0.12 + rnd() * 0.1);
                             if (rnd() < 0.6) {
                                 top = height + 8 + rnd() * 22;
-                                facades.box(bx0 + inset, bx1 - inset, height, top, bz0 + inset, bz1 - inset, color, roofs);
+                                facades.box(bx0 + inset, bx1 - inset, height, top, bz0 + inset, bz1 - inset, color, roofs, roofColor);
                             }
                             const mx = (bx0 + bx1) / 2, mz = (bz0 + bz1) / 2;
-                            roofs.box(mx - 4, mx + 4, top, top + 4, mz - 3, mz + 3, color.setHex(0x8a8d90).convertSRGBToLinear(), roofs);
+                            mech.setHex(0xb4b6b7).convertSRGBToLinear();
+                            roofs.box(mx - 4, mx + 4, top, top + 4, mz - 3, mz + 3, mech, roofs);
                             beacons.push([mx, top + 5, mz]);
                             top += 6;
-                        } else if (rnd() < 0.5) {
-                            const mx = bx0 + (bx1 - bx0) * (0.3 + rnd() * 0.4), mz = bz0 + (bz1 - bz0) * (0.3 + rnd() * 0.4);
-                            roofs.box(mx - 2, mx + 2, height, height + 2.5, mz - 1.5, mz + 1.5, color.setHex(0x9a9c9e).convertSRGBToLinear(), roofs);
+                        } else {
+                            // Corniche (légèrement en saillie, plus claire) qui porte le toit
+                            facades.box(bx0, bx1, base, height, bz0, bz1, color, null, roofColor, base === y0 ? 0.6 : 1);
+                            trim.copy(color).multiplyScalar(1.08);
+                            roofs.box(bx0 - 0.3, bx1 + 0.3, height, height + 0.8, bz0 - 0.3, bz1 + 0.3, trim, roofs, roofColor);
+                            top = height + 0.8;
+                            if (rnd() < 0.5) {
+                                const mx = bx0 + (bx1 - bx0) * (0.3 + rnd() * 0.4), mz = bz0 + (bz1 - bz0) * (0.3 + rnd() * 0.4);
+                                mech.setHex(0xbdbfc0).convertSRGBToLinear();
+                                roofs.box(mx - 2, mx + 2, top, top + 2.5, mz - 1.5, mz + 1.5, mech, roofs);
+                            }
                         }
                         this.obstacles.push(new Box3(new Vector3(bx0, 0, bz0), new Vector3(bx1, top, bz1)));
                     }
@@ -314,7 +497,8 @@ class City {
             this.group.add(mesh);
             return mesh;
         };
-        add(facades, m.facade);
+        for (const style in styles) add(styles[style], m[style]);
+        add(shops, m.shop);
         add(roofs, m.roof);
         add(blocks, m.block, { cast: false });
         add(parks, m.park, { cast: false });
@@ -359,14 +543,19 @@ class City {
     }
 
     _makeMaterials() {
-        const facade = facadeTextures(), block = groundTextures(false), park = groundTextures(true);
+        const block = groundTextures(false), park = groundTextures(true);
         // Sol des îlots : décalé vers la caméra pour ne pas scintiller avec le terrain (plat juste en dessous)
         const ground = (t) => new MeshStandardMaterial({ map: t.map, emissiveMap: t.emissive, emissive: 0xffffff,
             emissiveIntensity: 0, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+        // Façades : pas de métal (sans carte d'environnement, il ne ferait qu'assombrir) ; verre des tours plus lisse
+        const facade = (t, roughness) => new MeshStandardMaterial({ map: t.map, emissiveMap: t.emissive,
+            emissive: 0xffffff, emissiveIntensity: 0, vertexColors: true, roughness, metalness: 0 });
         this._materials = {
-            facade: new MeshStandardMaterial({ map: facade.map, emissiveMap: facade.emissive, emissive: 0xffffff,
-                emissiveIntensity: 0, vertexColors: true, roughness: 0.55, metalness: 0.15 }),
-            roof: new MeshStandardMaterial({ color: 0x8e9194, vertexColors: true, roughness: 0.9 }),
+            glass: facade(facadeTextures('glass'), 0.35),
+            office: facade(facadeTextures('office'), 0.6),
+            house: facade(facadeTextures('house'), 0.85),
+            shop: facade(shopTextures(), 0.7),
+            roof: new MeshStandardMaterial({ map: roofTexture(), vertexColors: true, roughness: 0.95 }),
             block: ground(block),
             park: ground(park),
             trunk: new MeshStandardMaterial({ color: 0x5b4330, roughness: 0.9 }),
@@ -380,7 +569,8 @@ class City {
     setNight(night) {
         const m = this._materials;
         if (!m) return;
-        m.facade.emissiveIntensity = 1.1 * night;
+        m.glass.emissiveIntensity = m.office.emissiveIntensity = m.house.emissiveIntensity = 1.1 * night;
+        m.shop.emissiveIntensity = 1.4 * night;
         m.block.emissiveIntensity = m.park.emissiveIntensity = 1.6 * night;
         m.beacon.color.setRGB(0.35 + 0.65 * night, 0.03, 0.03).multiplyScalar(1 + 2 * night);
     }
