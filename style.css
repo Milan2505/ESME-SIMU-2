@@ -1170,7 +1170,7 @@ img{margin: 0px;
 
   /* Choix du point de départ */
   /* Colonne intégrée à l'écran de vol, à gauche : la vue 3D de l'aérodrome reste visible */
-  #depart-dialog, #hangar-panneau, #aerodrome-panneau {
+  #depart-dialog, #hangar-panneau, #aerodrome-panneau, #carte-panneau {
     grid-column: 4/15;
     grid-row: 10/17;
     align-self: start;
@@ -1188,14 +1188,14 @@ img{margin: 0px;
     border-radius: 10px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   }
-  #depart-dialog[hidden], #hangar-panneau[hidden], #aerodrome-panneau[hidden] {
+  #depart-dialog[hidden], #hangar-panneau[hidden], #aerodrome-panneau[hidden], #carte-panneau[hidden] {
     display: none;
   }
-  #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau, #simulator:is(:fullscreen, .jeu) > #aerodrome-panneau {
+  #simulator:is(:fullscreen, .jeu) > #depart-dialog, #simulator:is(:fullscreen, .jeu) > #hangar-panneau, #simulator:is(:fullscreen, .jeu) > #aerodrome-panneau, #simulator:is(:fullscreen, .jeu) > #carte-panneau {
     grid-column: 1 / -1;
     grid-row: -2;   /* dernière ligne de la grille : sous la barre, sur une ou deux lignes */
   }
-  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
+  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3, #carte-panneau h3 {
     margin-top: 0;
     color: black;
   }
@@ -1261,7 +1261,7 @@ img{margin: 0px;
     font-size: 11px;
     text-align: left;
   }
-  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3 {
+  #depart-dialog h3, #hangar-panneau h3, #aerodrome-panneau h3, #carte-panneau h3 {
     margin: 0 0 4px;
     font-size: 15px;
   }
@@ -3942,13 +3942,13 @@ html.tablette #simulator.jeu > #carte {
 }
 
 /* Choix de l'aérodrome : mêmes cases que la liste des départs */
-#aerodrome-liste {
+:is(#aerodrome-liste, #carte-liste) {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin: 8px 0;
 }
-#aerodrome-liste button {
+:is(#aerodrome-liste, #carte-liste) button {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3960,11 +3960,11 @@ html.tablette #simulator.jeu > #carte {
   border: 2px solid #114E69;
   border-radius: 6px;
 }
-#aerodrome-liste button:hover,
-#aerodrome-liste button.survol {
+:is(#aerodrome-liste, #carte-liste) button:hover,
+:is(#aerodrome-liste, #carte-liste) button.survol {
   background: #C3E6F5;
 }
-#aerodrome-liste button small {
+:is(#aerodrome-liste, #carte-liste) button small {
   display: block;
   margin-top: 2px;
   font-size: 10px;
@@ -4749,7 +4749,7 @@ html.telephone .tb-etat {
 /* Panneaux d'avant le vol (choix de l'aérodrome, hangar, choix du départ) : même apparence que la barre du haut en vol
    (fond sombre translucide, bordure fine claire, coins arrondis, texte blanc en gras ; survol bleu clair, choix actif
    bleu). Sélecteur renforcé (#_) : passe devant les styles clairs d'origine, sur ordinateur comme sur tablette */
-#simulator:not(#_) > :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) {
+#simulator:not(#_) > :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) {
   font-family: Noto Sans, sans-serif;
   color: #fff;
   background: rgba(14, 18, 24, 0.9);
@@ -4759,24 +4759,24 @@ html.telephone .tb-etat {
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
-#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) h3 {
+#simulator:not(#_) :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) h3 {
   font-family: inherit;
   color: #fff;
   font-size: 16px;
   letter-spacing: 0.04em;
 }
-#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) :is(.depart-aide, .profil-livree) {
+#simulator:not(#_) :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) :is(.depart-aide, .profil-livree) {
   font-family: inherit;
   color: #c9d3de;
 }
-#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) .profil-livree {
+#simulator:not(#_) :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) .profil-livree {
   color: #fff;
   letter-spacing: 0.04em;
 }
 /* Cases (aérodromes, départs, vues, avions) et boutons. (#hangar-partir à part : dans un même :is(), un identifiant
    donnerait sa priorité à toute la liste, et l'état actif des cases ne passerait plus devant) */
-#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button,
-#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) :is(.depart-vues button, .mp-retour),
+#simulator:not(#_) :is(#aerodrome-liste, #carte-liste, #depart-liste) button,
+#simulator:not(#_) :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) :is(.depart-vues button, .mp-retour),
 #simulator:not(#_) #hangar-partir {
   font-family: inherit;
   font-weight: bold;
@@ -4786,17 +4786,17 @@ html.telephone .tb-etat {
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 10px;
 }
-#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button small {
+#simulator:not(#_) :is(#aerodrome-liste, #carte-liste, #depart-liste) button small {
   font-weight: normal;
   letter-spacing: 0;
   color: #b8c6d4;
 }
-#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button:hover,
-#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) :is(.depart-vues button, .mp-retour):hover {
+#simulator:not(#_) :is(#aerodrome-liste, #carte-liste, #depart-liste) button:hover,
+#simulator:not(#_) :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) :is(.depart-vues button, .mp-retour):hover {
   background: rgba(143, 211, 255, 0.22);
 }
-#simulator:not(#_) :is(#aerodrome-liste, #depart-liste) button.survol,
-#simulator:not(#_) :is(#aerodrome-panneau, #hangar-panneau, #depart-dialog) .depart-vues button.actif,
+#simulator:not(#_) :is(#aerodrome-liste, #carte-liste, #depart-liste) button.survol,
+#simulator:not(#_) :is(#aerodrome-panneau, #carte-panneau, #hangar-panneau, #depart-dialog) .depart-vues button.actif,
 #simulator:not(#_) #hangar-panneau #hangar-partir {
   background: rgba(30, 110, 200, 0.85);
   border-color: #8fd3ff;
@@ -4972,4 +4972,28 @@ html.telephone .tb-etat {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   opacity: 0.75;
+}
+
+/* Choix de la carte : bouton « Continuer » comme « Choisir le départ » du hangar, règles des porte-avions sous la liste */
+#simulator:not(#_) #carte-continuer {
+  font-family: inherit;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(143, 211, 255, 0.35);
+  border: 1px solid rgba(143, 211, 255, 0.8);
+  border-radius: 10px;
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+#simulator:not(#_) #carte-continuer:hover {
+  background: rgba(143, 211, 255, 0.5);
+}
+#carte-pa[hidden] {
+  display: none;
+}
+#carte-pa .depart-aide {
+  margin: 10px 0 4px;
 }

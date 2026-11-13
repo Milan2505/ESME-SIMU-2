@@ -2462,10 +2462,14 @@ if (resumeState && !(Date.now() - resumeState.le < 5 * 60000)) resumeState = nul
 function resumeAfterUpdate() {
     const saved = resumeState;
     // Carte changée au choix du départ (vol libre en solo) : retour au choix du départ, sur la nouvelle carte
+    // (une fois tout le script exécuté : appelé pendant le chargement, enterGame utilisait des variables déclarées plus
+    // loin (worldWarm) et plantait, la page restait au menu sur la nouvelle carte)
     if (saved?.volLibre) {
         resumeState = null;
-        closeMainMenu();
-        enterGame(openAirportChoice);
+        setTimeout(() => {
+            closeMainMenu();
+            enterGame(openAirportChoice);
+        });
         return;
     }
     if (saved?.creer) {
@@ -3133,6 +3137,7 @@ function openMainMenu() {
     inHangar = false;
     hangarPanel.hidden = true;
     airportPanel.hidden = true;
+    document.getElementById('carte-panneau').hidden = true;
     spawnDialog.hidden = true;
     spawnMarkers.visible = false;
     choosingSpawn = inMenu = true;
@@ -3238,11 +3243,105 @@ document.getElementById('mp-vol-libre').addEventListener('click', () => {
         multiplayer.leave();
         updateModes();
     }
+    openMapChoice('solo');
+});
+// Multijoueur : d'abord la carte de la partie à créer (déjà dans une partie : directement la fenêtre de la partie). Une
+// partie rejointe impose toujours sa carte (voir l'événement 'map' plus haut)
+document.getElementById('mp-multi').addEventListener('click', () => (multiplayer.code ? openMultiDialog() : openMapChoice('multi')));
+
+// Choix de la carte (page à part, ouverte par Vol libre et Multijoueur) : Campagne, Ville ou Mer, et en mer les règles
+// des porte-avions. Le menu principal reste derrière (aérodrome survolé). En solo, une autre carte que celle chargée
+// recharge la page puis revient au choix de l'aérodrome (voir resumeAfterUpdate) ; en multijoueur, elle devient la carte
+// de la partie à créer (la page se recharge à la création, voir #multi-creer)
+const mapChoicePanel = document.getElementById('carte-panneau');
+const mapChoiceList = document.getElementById('carte-liste');
+const MAP_CHOICES = {
+    campagne: { label: 'Campagne', detail: 'Aérodromes d’ESME et d’AIX, dans les collines' },
+    ville: { label: 'Ville', detail: 'ESME et AIX, une grande ville entre les deux' },
+    mer: { label: 'Mer · porte-avions', detail: 'Deux porte-avions en pleine mer : catapulte et brins d’arrêt' },
+};
+let mapChoiceFor = 'solo', mapChoice = MAP;
+function renderMapChoice() {
+    for (const button of mapChoiceList.children) {
+        const on = button.dataset.carte === mapChoice;
+        button.classList.toggle('survol', on);
+        button.setAttribute('aria-checked', String(on));
+    }
+    document.getElementById('carte-pa').hidden = mapChoice !== 'mer';
+    const rules = mapChoiceFor === 'multi' ? createRules : soloCarrierRules;
+    for (const button of document.getElementById('carte-pa-regles').children) button.classList.toggle('actif', button.dataset.regles === rules);
+}
+for (const [name, { label, detail }] of Object.entries(MAP_CHOICES)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.carte = name;
+    button.setAttribute('role', 'radio');
+    const number = document.createElement('span');
+    number.className = 'depart-numero';
+    number.textContent = String(mapChoiceList.children.length + 1);
+    const text = document.createElement('span');
+    text.textContent = label;
+    const small = document.createElement('small');
+    small.textContent = detail;
+    text.append(small);
+    button.append(number, text);
+    button.addEventListener('click', () => { mapChoice = name; renderMapChoice(); });
+    button.addEventListener('dblclick', () => { mapChoice = name; continueMapChoice(); });
+    mapChoiceList.appendChild(button);
+}
+for (const [name, label] of Object.entries({ arcade: 'Arcade', realiste: 'Réaliste' })) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.dataset.regles = name;
+    button.title = name === 'arcade' ? 'Catapulte et brins d’arrêt automatiques' : 'Crosse à sortir (touche 9), catapulte à lancer (touche 0)';
+    button.addEventListener('click', () => {
+        button.blur();
+        if (mapChoiceFor === 'multi') createRules = name;
+        else document.querySelector(`#depart-pa-regles [data-regles="${name}"]`)?.click();   // (solo : gardé, comme au choix du départ)
+        updateCreateChoice();
+        renderMapChoice();
+    });
+    document.getElementById('carte-pa-regles').appendChild(button);
+}
+function openMapChoice(purpose) {
+    mapChoiceFor = purpose;
+    mapChoice = purpose === 'multi' ? createMap : MAP;
+    document.getElementById('carte-aide').textContent = purpose === 'multi'
+        ? 'Carte de la partie que vous allez créer. Une partie rejointe par son code garde sa propre carte.'
+        : 'Vous pourrez en changer au choix du départ.';
+    mainMenu.hidden = true;
+    mapChoicePanel.hidden = false;
+    renderMapChoice();
+    mapChoiceList.querySelector('.survol')?.focus();
+}
+function continueMapChoice() {
+    mapChoicePanel.hidden = true;
+    if (mapChoiceFor === 'multi') {
+        createMap = mapChoice;
+        updateCreateChoice();
+        mainMenu.hidden = false;
+        openMultiDialog();
+        return;
+    }
+    if (mapChoice !== MAP) {
+        try {
+            localStorage.setItem('carte', mapChoice);
+            sessionStorage.setItem('esme-mise-a-jour', JSON.stringify({ volLibre: true, le: Date.now() }));
+        } catch { /* stockage indisponible */ }
+        location.replace(`${location.pathname}?carte=${mapChoice}`);
+        return;
+    }
     newWind(Math.floor(Math.random() * 2 ** 32));   // nouvelle partie solo : nouveau vent
     closeMainMenu();
     enterGame(openAirportChoice);
+}
+document.getElementById('carte-continuer').addEventListener('click', continueMapChoice);
+document.getElementById('carte-menu').addEventListener('click', () => {
+    mapChoicePanel.hidden = true;
+    mainMenu.hidden = false;
+    document.getElementById('mp-vol-libre').focus();
 });
-document.getElementById('mp-multi').addEventListener('click', () => openMultiDialog());
 // Survol ou toucher du bouton : connexion aux relais commencée tout de suite (liste des parties plus vite à l'ouverture)
 for (const type of ['pointerenter', 'focus', 'pointerdown']) document.getElementById('mp-multi').addEventListener(type, () => multiplayer.preconnect());
 // (fermer la fenêtre au menu n'entre plus dans la partie : bouton « Entrer dans la partie » ou choix de l'équipe, voir

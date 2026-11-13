@@ -395,6 +395,20 @@
 		</div>
 	</div>
 
+	<!-- Choix de la carte (Vol libre, et Multijoueur avant de créer une partie) : Campagne, Ville ou Mer ; une autre carte
+	     que celle chargée recharge la page, puis la suite reprend d'elle-même (voir simulator.js : openMapChoice) -->
+	<div id="carte-panneau" hidden>
+		<h3 id="carte-titre">Choisissez la carte</h3>
+		<p class="depart-aide" id="carte-aide"></p>
+		<div id="carte-liste" role="radiogroup" aria-labelledby="carte-titre"></div>
+		<div id="carte-pa" hidden>
+			<p class="depart-aide">Porte-avions</p>
+			<div id="carte-pa-regles" class="depart-vues" role="radiogroup" aria-label="Règles des porte-avions"></div>
+		</div>
+		<button id="carte-continuer">Continuer →</button>
+		<button id="carte-menu" class="mp-retour">← Menu principal</button>
+	</div>
+
 	<!-- Choix de l'aérodrome (Vol libre, Multijoueur), avant le hangar : survoler un terrain le montre -->
 	<div id="aerodrome-panneau" hidden>
 		<h3>Choisissez votre aérodrome</h3>
