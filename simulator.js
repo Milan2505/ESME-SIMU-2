@@ -4580,30 +4580,49 @@ function reportDeath(attackerId, reason) {
     if (attackerId && wardog() && multiplayer.troll) showTroll();   // (abattu par un joueur, pas un simple crash)
 }
 
-// Wardog troll : abattu -> image en grand et refrain de « What is Love » (TROLL_SONG, extrait à fournir, voir
+// Wardog troll : abattu -> image en grand et refrain de « What is Love » (TROLL_SONGS, extrait à fournir, voir
 // asset/troll/LISEZMOI.txt), de TROLL_START à TROLL_START + TROLL_TIME ; un clic ferme plus tôt
-const TROLL_SONG = 'asset/troll/what-is-love.mp3';
+const TROLL_SONGS = ['mp3', 'm4a', 'ogg', 'wav'].map((ext) => `asset/troll/what-is-love.${ext}`);   // (le premier présent)
 const TROLL_START = 0;      // s : début du refrain dans le fichier (0 : fichier déjà coupé au refrain)
 const TROLL_TIME = 12000;   // ms
 const trollPanel = document.getElementById('troll');
+const trollMissing = document.createElement('small');   // (musique introuvable : dit quel fichier ajouter)
+trollPanel.append(trollMissing);
 let trollAudio = null, trollTimer = 0;
 function hideTroll() {
     clearTimeout(trollTimer);
     trollPanel.hidden = true;
     trollAudio?.pause();
 }
-function showTroll() {
-    trollPanel.hidden = false;
-    trollAudio ??= new Audio(TROLL_SONG);
-    trollAudio.volume = 0.9;
-    try {
-        trollAudio.currentTime = TROLL_START;
-    } catch {
-        // (fichier pas encore chargé : lu depuis le début)
+// Premier fichier de la liste qui se lit (null : aucun)
+async function trollSong() {
+    for (const src of TROLL_SONGS) {
+        const audio = new Audio(src);
+        const ok = await new Promise((resolve) => {
+            audio.addEventListener('canplay', () => resolve(true), { once: true });
+            audio.addEventListener('error', () => resolve(false), { once: true });
+            audio.load();
+        });
+        if (ok) return audio;
     }
-    trollAudio.play().catch(() => {});   // (fichier absent : l'image seule)
+    return null;
+}
+let trollLoading = null;
+async function showTroll() {
+    trollPanel.hidden = false;
+    trollMissing.textContent = '';
     clearTimeout(trollTimer);
     trollTimer = setTimeout(hideTroll, TROLL_TIME);
+    trollAudio ??= await (trollLoading ??= trollSong());
+    if (!trollAudio) {
+        trollLoading = null;   // (fichier ajouté entre-temps : retrouvé la fois suivante)
+        trollMissing.textContent = 'Musique introuvable : ajoutez asset/troll/what-is-love.mp3';
+        return;
+    }
+    if (trollPanel.hidden) return;   // (fermé pendant le chargement)
+    trollAudio.volume = 0.9;
+    trollAudio.currentTime = TROLL_START;
+    trollAudio.play().catch((error) => { trollMissing.textContent = `Musique bloquée par le navigateur (${error.name})`; });
 }
 trollPanel.addEventListener('click', hideTroll);
 damage.addEventListener('destroyed', ({ detail }) => {
