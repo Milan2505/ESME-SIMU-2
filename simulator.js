@@ -1823,10 +1823,13 @@ const MODE_HELP = {
         + 'équipe. Capturez le terrain adverse : restez dans sa zone (2 km, sous 300 m) sans ennemi pendant 30 s.',
     'wardog-troll': 'Wardog troll : comme Wardog, mais chaque fois que vous êtes abattu… What is love ?',
 };
-// Wardog troll : carte masquée, révélée (ou remasquée) par le petit point caché après « Mode de jeu »
-document.getElementById('troll-reveal').addEventListener('click', () => {
+// Wardog troll : carte masquée, révélée (ou remasquée) par le ruban « Démasquer » sous les modes de jeu
+const trollReveal = document.getElementById('troll-reveal');
+trollReveal.addEventListener('click', () => {
     const card = document.querySelector('#multi-modes button[data-mode="wardog-troll"]');
     card.hidden = !card.hidden;
+    trollReveal.textContent = card.hidden ? '🎭 Démasquer' : '🎭 Masquer';
+    trollReveal.setAttribute('aria-expanded', String(!card.hidden));
     if (card.hidden && createMode === 'wardog-troll') document.querySelector('#multi-modes button[data-mode="wardog"]').click();
 });
 for (const button of document.querySelectorAll('#multi-modes button')) {
@@ -1852,7 +1855,8 @@ const enterButton = document.getElementById('multi-entrer');
 function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
     if (!wardog) setTeamStep(false);
-    document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden = Boolean(multiplayer.code);
+    document.getElementById('multi-modes').hidden = modeHelp.hidden = document.getElementById('multi-modes-titre').hidden
+        = trollReveal.hidden = Boolean(multiplayer.code);
     // « Rejoindre la partie » : depuis le menu, une fois la partie créée ou rejointe (Wardog : mène au choix de l'équipe) ;
     // en vol, en Wardog : « Changer d'équipe ». Seulement une fois la partie confirmée : avant, pendant les quelques secondes
     // de connexion, le mode n'était pas encore connu et le bouton menait au choix de l'aérodrome comme en vol libre (puis
