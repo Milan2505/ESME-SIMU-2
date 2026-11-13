@@ -4585,7 +4585,7 @@ function reportDeath(attackerId, reason) {
 // Wardog troll : abattu -> image en grand et refrain de « What is Love » (TROLL_SONGS, extrait à fournir, voir
 // asset/troll/LISEZMOI.txt), de TROLL_START à TROLL_START + TROLL_TIME ; un clic ferme plus tôt
 const TROLL_SONGS = ['mp3', 'm4a', 'ogg', 'wav'].map((ext) => `asset/troll/what-is-love.${ext}`);   // (le premier présent)
-const TROLL_START = 0;      // s : début du refrain dans le fichier (0 : fichier déjà coupé au refrain)
+const TROLL_START = 15;     // s : début du refrain dans le fichier (15 : entrée du lead synthé de la boucle générée)
 const TROLL_TIME = 12000;   // ms
 const trollPanel = document.getElementById('troll');
 const trollMissing = document.createElement('small');   // (musique introuvable : dit quel fichier ajouter)
