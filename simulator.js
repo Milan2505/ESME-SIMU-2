@@ -2103,6 +2103,8 @@ document.getElementById('multi-creer').addEventListener('click', () => {
 const teamsBox = document.getElementById('multi-equipes');
 const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
 const enterButton = document.getElementById('multi-entrer');
+let teamChosenEarly = false;   // équipe choisie avant la confirmation de la partie : on y entre à la confirmation
+multiplayer.addEventListener('status', () => { if (!multiplayer.code) teamChosenEarly = false; });
 function renderTeams() {
     const wardog = Boolean(multiplayer.code) && multiplayer.mode === 'wardog';
     if (!wardog) setTeamStep(false);
@@ -2130,7 +2132,7 @@ function renderTeams() {
 for (const team of ['bleu', 'rouge']) {
     document.getElementById(`equipe-${team}`).addEventListener('click', () => {
         // En vol, sa propre équipe : rien ne change, la fenêtre se ferme (avant : retour au hangar, avion perdu en plein vol)
-        if (!inMenu && multiplayer.team === team) {
+        if (!inMenu && multiplayer.team === team && !teamChosenEarly) {
             multiDialog.close();
             return;
         }
@@ -2141,8 +2143,16 @@ for (const team of ['bleu', 'rouge']) {
             return;
         }
         multiStatut.classList.remove('erreur');
-        multiStatut.textContent = `Vous êtes dans l'${TEAM_LABELS[team].toLowerCase()}`;
         renderTeams();
+        // Partie rejointe avec le code : le mode (Wardog) est connu ~1 s avant que la partie soit confirmée. Une équipe
+        // choisie pendant ce temps est gardée, et l'on entre dès la confirmation (voir l'événement 'joined'). Avant, le
+        // clic ne faisait rien d'autre que cocher l'équipe : on restait bloqué sur le choix de l'équipe
+        if (!multiplayer.joined) {
+            teamChosenEarly = true;
+            multiStatut.textContent = `${TEAM_LABELS[team]} choisie : connexion à la partie…`;
+            return;
+        }
+        multiStatut.textContent = `Vous êtes dans l'${TEAM_LABELS[team].toLowerCase()}`;
         // Équipe choisie (créateur compris) : on entre dans la partie, directement au hangar du terrain de l'équipe (pas
         // de choix de l'aérodrome : chaque équipe a le sien). En cours de partie, de même au hangar de la nouvelle équipe
         // (avant : l'avion restait là où il était, souvent sur la base adverse)
@@ -2206,7 +2216,9 @@ multiDialog.addEventListener('close', () => {
 // Le mode n'est connu qu'en recevant l'état du créateur : la partie rejointe se révèle Wardog -> choix de l'équipe
 multiplayer.addEventListener('mode', ({ detail }) => {
     if (detail.mode === 'wardog' && !multiplayer.team && resumeState?.equipe && resumeState.partie === multiplayer.code) {
-        multiplayer.setTeam(resumeState.equipe);   // (retour après une mise à jour : même équipe, si elle a encore de la place)
+        // (retour après une mise à jour ou un changement de carte : même équipe, si elle a encore de la place ; on y
+        // entre dès la confirmation de la partie)
+        if (multiplayer.setTeam(resumeState.equipe) && !multiplayer.joined) teamChosenEarly = true;
     }
     if (detail.mode === 'wardog' && !multiplayer.team) {
         multiStatut.classList.remove('erreur');
@@ -2219,7 +2231,8 @@ multiplayer.addEventListener('mode', ({ detail }) => {
 multiplayer.addEventListener('map', ({ detail }) => {
     try {
         localStorage.setItem('carte', detail.map);
-        sessionStorage.setItem('esme-mise-a-jour', JSON.stringify({ partie: detail.code, hote: false, score: multiplayer.score, le: Date.now() }));
+        sessionStorage.setItem('esme-mise-a-jour', JSON.stringify({ partie: detail.code, hote: false, score: multiplayer.score,
+            equipe: multiplayer.team ?? undefined, le: Date.now() }));
     } catch {
         multiStatut.textContent = `Cette partie se joue sur la carte ${MAP_LABELS[detail.map]} : choisissez-la au menu principal`;
         return;
@@ -2259,7 +2272,16 @@ multiplayer.addEventListener('status', () => {
     if (!isTablet()) setupJet().catch(() => {});
 });
 multiplayer.addEventListener('joined', ({ detail }) => {
-    if (detail.host || !multiDialog.open) return;
+    const early = teamChosenEarly;
+    teamChosenEarly = false;
+    if (detail.host) return;
+    // Wardog, équipe déjà choisie pendant la connexion : on entre tout de suite (hangar du terrain de l'équipe)
+    if (multiplayer.mode === 'wardog' && multiplayer.team && early) {
+        multiStatut.textContent = `Partie ${detail.code} rejointe : ${TEAM_LABELS[multiplayer.team].toLowerCase()}`;
+        enterMultiplayerGame();
+        return;
+    }
+    if (!multiDialog.open) return;
     // Wardog : la fenêtre reste ouverte pour choisir son équipe (elle se ferme une fois l'équipe choisie). Avant, elle se
     // fermait au bout de 1,2 s et l'équipe était tirée d'office
     if (multiplayer.mode === 'wardog' && !multiplayer.team) {
