@@ -105,6 +105,7 @@ function cleanState(state) {
         score: scoreFrom(state.sc),
         // Mode de la partie (celui du créateur fait foi), équipe (Wardog), capture des terrains (arbitre seulement)
         mode: state.m === 'w' ? 'wardog' : 'libre',
+        troll: state.m === 'w' && state.tr === 1,                  // Wardog troll (image et musique quand on est abattu)
         team: teamFrom(state.tm),
         capture: captureFrom(state.cp),
     };
@@ -169,6 +170,7 @@ class Multiplayer extends EventTarget {
         this.score = { kills: 0, deaths: 0 };
         this.mode = 'libre';          // 'libre' (vol libre à plusieurs) ou 'wardog' (équipes, capture des terrains)
         this.team = null;             // Wardog : 'bleu' ou 'rouge' (null : pas encore choisie)
+        this.troll = false;           // Wardog troll : Wardog, plus l'image et la musique quand on est abattu
         this.capture = null;          // Wardog, arbitre : état de la capture à publier (voir captureFrom), fourni par simulator.js
         this.lobby = new Map();       // parties annoncées au salon : id du créateur -> { host, players, names, seenAt }
         this._lobbySeq = new Map();   // id du créateur -> numéro de sa dernière annonce reçue (copies en retard ignorées)
@@ -190,9 +192,10 @@ class Multiplayer extends EventTarget {
 
     // Crée une partie privée et renvoie son code
     // mode : 'libre' ou 'wardog' ; Wardog : le créateur choisit son équipe comme les autres (fenêtre Multijoueur)
-    create(name, mode = 'libre') {
+    create(name, mode = 'libre', troll = false) {
         this.join(randomString(CODE_CHARS, 6), name, true);
         this.mode = mode === 'wardog' ? 'wardog' : 'libre';
+        this.troll = this.mode === 'wardog' && Boolean(troll);
         this.team = null;
         return this.code;
     }
@@ -287,6 +290,7 @@ class Multiplayer extends EventTarget {
         this._lastSeq.clear();
         this.score = { kills: 0, deaths: 0 };
         this.mode = 'libre';
+        this.troll = false;
         this.team = null;
         this.capture = null;
         this._emitPlayers();
@@ -337,6 +341,7 @@ class Multiplayer extends EventTarget {
             sc: this.score.kills || this.score.deaths ? [this.score.kills, this.score.deaths] : undefined,
             m: this.mode === 'wardog' ? 'w' : undefined,
             tm: this.mode === 'wardog' ? teamCode(this.team) : undefined,
+            tr: this.mode === 'wardog' && this.troll ? 1 : undefined,
             cp: this.mode === 'wardog' && this.capture && this.referee === this.id ? {
                 f: this.capture.fields.map((f) => [teamCode(f.owner) ?? '', Math.round(f.progress * 100) / 100, teamCode(f.attacker) ?? '']),
                 s: [this.capture.points.bleu, this.capture.points.rouge], w: teamCode(this.capture.winner) ?? '', n: this.capture.round,
@@ -433,7 +438,7 @@ class Multiplayer extends EventTarget {
         const teams = this.teamCounts();
         this._publishTo(`${LOBBY_PREFIX}/${this.id}`, { host: this.name, n: this.players.size + 1, names, s: ++this._seq,
             m: this.mode === 'wardog' ? 'w' : undefined, b: this.mode === 'wardog' ? teams.bleu : undefined,
-            r: this.mode === 'wardog' ? teams.rouge : undefined });
+            r: this.mode === 'wardog' ? teams.rouge : undefined, tr: this.mode === 'wardog' && this.troll ? 1 : undefined });
     }
 
     _unlist() {
@@ -465,6 +470,7 @@ class Multiplayer extends EventTarget {
             players: Math.min(MAX_PLAYERS, Math.max(1, Math.floor(Number(data.n) || 1))),
             names: Array.isArray(data.names) ? data.names.slice(0, 8).map(text).filter(Boolean) : [],
             mode: data.m === 'w' ? 'wardog' : 'libre',
+            troll: data.m === 'w' && data.tr === 1,
             teams: { bleu: Math.min(TEAM_MAX, Math.max(0, Math.floor(Number(data.b) || 0))),
                 rouge: Math.min(TEAM_MAX, Math.max(0, Math.floor(Number(data.r) || 0))) },
             seenAt: performance.now(),
@@ -695,6 +701,7 @@ class Multiplayer extends EventTarget {
         const previous = this.players.get(id);
         this.players.set(id, { ...state, age: 0, receivedAt: now });
         // Mode de la partie : celui du créateur (les joueurs arrivés en cours de partie l'apprennent ainsi)
+        if (state.owner && !this.isHost) this.troll = state.troll;   // (Wardog troll : celui du créateur fait foi)
         if (state.owner && !this.isHost && state.mode !== this.mode) {
             this.mode = state.mode;
             if (this.mode !== 'wardog') this.team = null;

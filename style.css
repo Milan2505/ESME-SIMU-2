@@ -4833,3 +4833,62 @@ html.telephone .tb-etat {
 #simulator:not(#_) #hangar-avions button[hidden] {
   display: none;
 }
+
+/* Wardog troll : petit point presque invisible après « Mode de jeu » qui révèle la carte du mode */
+#multi-dialog #troll-reveal,
+#multi-dialog #troll-reveal:hover {
+  margin: 0 0 0 4px;
+  padding: 0 4px;
+  min-width: 0;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  box-shadow: none;
+  opacity: 0.25;
+  cursor: default;
+}
+#multi-dialog #multi-modes button[data-mode="wardog-troll"] {
+  grid-column: 1 / -1;
+}
+#multi-dialog #multi-modes button[data-mode="wardog-troll"][hidden] {
+  display: none;
+}
+#multi-dialog #multi-modes button[data-mode="wardog-troll"].actif {
+  background: linear-gradient(160deg, rgba(214, 61, 180, 0.45), rgba(120, 50, 214, 0.45));
+  border-color: #e07aff;
+  box-shadow: 0 0 14px rgba(224, 122, 255, 0.5);
+}
+/* Wardog troll : abattu -> l'image en grand, au-dessus de tout, avec le refrain */
+#troll {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(10, 0, 30, 0.85);
+  cursor: pointer;
+  animation: troll-pulse 0.48s ease-in-out infinite alternate;
+}
+#troll[hidden] {
+  display: none;
+}
+#troll img {
+  max-width: 90vw;
+  max-height: 78vh;
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(224, 122, 255, 0.7);
+}
+#troll strong {
+  font-size: clamp(24px, 6vw, 56px);
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow: 0 0 18px #e07aff;
+}
+@keyframes troll-pulse {
+  from { background: rgba(10, 0, 30, 0.85); }
+  to { background: rgba(60, 0, 80, 0.85); }
+}

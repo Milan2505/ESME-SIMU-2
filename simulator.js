@@ -1760,7 +1760,7 @@ function renderLobby(games) {
         title.textContent = `Partie de ${game.host}`;
         const detail = document.createElement('small');
         const mode = game.mode === 'wardog'
-            ? `Wardog · bleus ${game.teams.bleu}/${TEAM_MAX} · rouges ${game.teams.rouge}/${TEAM_MAX}` : 'Vol libre';
+            ? `Wardog${game.troll ? ' troll' : ''} · bleus ${game.teams.bleu}/${TEAM_MAX} · rouges ${game.teams.rouge}/${TEAM_MAX}` : 'Vol libre';
         detail.textContent = `${mode} · ${game.players} joueur${game.players > 1 ? 's' : ''}${game.names.length ? ` · ${game.names.join(', ')}` : ''}`;
         button.append(title, detail);
         button.addEventListener('click', () => {
@@ -1821,7 +1821,14 @@ const MODE_HELP = {
     libre: 'Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.',
     wardog: `Wardog : équipe bleue (départ ESME) contre équipe rouge (départ ${airport.list[1]?.label ?? 'Aix'}), ${TEAM_MAX} pilotes au plus par `
         + 'équipe. Capturez le terrain adverse : restez dans sa zone (2 km, sous 300 m) sans ennemi pendant 30 s.',
+    'wardog-troll': 'Wardog troll : comme Wardog, mais chaque fois que vous êtes abattu… What is love ?',
 };
+// Wardog troll : carte masquée, révélée (ou remasquée) par le petit point caché après « Mode de jeu »
+document.getElementById('troll-reveal').addEventListener('click', () => {
+    const card = document.querySelector('#multi-modes button[data-mode="wardog-troll"]');
+    card.hidden = !card.hidden;
+    if (card.hidden && createMode === 'wardog-troll') document.querySelector('#multi-modes button[data-mode="wardog"]').click();
+});
 for (const button of document.querySelectorAll('#multi-modes button')) {
     button.addEventListener('click', () => {
         createMode = button.dataset.mode;
@@ -1834,7 +1841,7 @@ for (const button of document.querySelectorAll('#multi-modes button')) {
 }
 document.getElementById('multi-creer').addEventListener('click', () => {
     multiplayer.setListed(lobbyVisible.checked);
-    multiplayer.create(pseudo(), createMode);
+    multiplayer.create(pseudo(), createMode === 'wardog-troll' ? 'wardog' : createMode, createMode === 'wardog-troll');
     renderTeams();
 });
 
@@ -4566,7 +4573,35 @@ function reportDeath(attackerId, reason) {
         multiplayer.score.deaths++;   // (score : voir updateScores)
         flashScore(attackerId);
     }
+    if (attackerId && wardog() && multiplayer.troll) showTroll();   // (abattu par un joueur, pas un simple crash)
 }
+
+// Wardog troll : abattu -> image en grand et refrain de « What is Love » (TROLL_SONG, extrait à fournir, voir
+// asset/troll/LISEZMOI.txt), de TROLL_START à TROLL_START + TROLL_TIME ; un clic ferme plus tôt
+const TROLL_SONG = 'asset/troll/what-is-love.mp3';
+const TROLL_START = 0;      // s : début du refrain dans le fichier (0 : fichier déjà coupé au refrain)
+const TROLL_TIME = 12000;   // ms
+const trollPanel = document.getElementById('troll');
+let trollAudio = null, trollTimer = 0;
+function hideTroll() {
+    clearTimeout(trollTimer);
+    trollPanel.hidden = true;
+    trollAudio?.pause();
+}
+function showTroll() {
+    trollPanel.hidden = false;
+    trollAudio ??= new Audio(TROLL_SONG);
+    trollAudio.volume = 0.9;
+    try {
+        trollAudio.currentTime = TROLL_START;
+    } catch {
+        // (fichier pas encore chargé : lu depuis le début)
+    }
+    trollAudio.play().catch(() => {});   // (fichier absent : l'image seule)
+    clearTimeout(trollTimer);
+    trollTimer = setTimeout(hideTroll, TROLL_TIME);
+}
+trollPanel.addEventListener('click', hideTroll);
 damage.addEventListener('destroyed', ({ detail }) => {
     if (controls.isCrashed()) return;
     reportDeath(detail.attackerId, detail.reason);

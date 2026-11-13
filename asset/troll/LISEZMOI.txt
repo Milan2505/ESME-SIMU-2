@@ -1,0 +1,5 @@
+wardog-troll.png : image affichée en mode Wardog troll quand on est abattu.
+
+what-is-love.mp3 : à ajouter ici (non fourni, la chanson est protégée par le droit d'auteur).
+Mettre un extrait du refrain de « What is Love » (Haddaway), déjà coupé au début du refrain,
+ou régler TROLL_START (en secondes) dans simulator.js. Sans ce fichier, l'image s'affiche seule.

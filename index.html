@@ -281,6 +281,11 @@
 	</div>
 	<div id="nom-vue" aria-live="polite"></div>
 	<pre id="perf" hidden></pre>
+	<!-- Wardog troll : abattu -> cette image avec le refrain de « What is Love » (voir showTroll dans simulator.js) -->
+	<div id="troll" hidden>
+		<img src="asset/troll/wardog-troll.png" alt="" loading="lazy">
+		<strong>WHAT IS LOVE ?</strong>
+	</div>
 	<!-- Tableau des scores (multijoueur) : victoires, fois abattu, points ; voir updateScores. En Wardog, en tête : points
 	     des équipes et terrains (propriétaire, capture en cours), voir updateWardog -->
 	<div id="scores" hidden>
@@ -644,13 +649,17 @@
 		<label>Pseudo <input id="multi-pseudo" maxlength="20" placeholder="Pilote"></label>
 		<label class="multi-livree">Couleur de l'avion <select id="multi-livree"></select></label>
 		<!-- Mode de la partie à créer : Vol libre (classique) ou Wardog (équipes, capture des terrains) -->
-		<span class="multi-salon-titre" id="multi-modes-titre">Mode de jeu</span>
+		<span class="multi-salon-titre" id="multi-modes-titre">Mode de jeu<button type="button" id="troll-reveal" tabindex="-1" aria-label="?">·</button></span>
 		<div id="multi-modes" role="radiogroup" aria-labelledby="multi-modes-titre">
 			<button type="button" data-mode="libre" class="actif" role="radio" aria-checked="true">
 				<span class="mode-icone">✈</span><strong>Vol libre</strong><small>Volez ensemble où vous voulez, combat libre en F-15</small>
 			</button>
 			<button type="button" data-mode="wardog" role="radio" aria-checked="false">
 				<span class="mode-icone">⚔</span><strong>Wardog</strong><small>Bleus contre rouges : capturez le terrain adverse</small>
+			</button>
+			<!-- Wardog troll : masqué, révélé par le petit point caché après « Mode de jeu » (#troll-reveal) -->
+			<button type="button" data-mode="wardog-troll" role="radio" aria-checked="false" hidden>
+				<span class="mode-icone">🕺</span><strong>Wardog troll</strong><small>Wardog, mais être abattu se paie en musique</small>
 			</button>
 		</div>
 		<p id="multi-mode-aide">Vol libre à plusieurs : chacun vole où il veut, combat possible en F-15.</p>
