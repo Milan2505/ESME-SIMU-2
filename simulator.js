@@ -442,6 +442,26 @@ function carrierTouchdown() {
     carrierOps.arrest = { decel: Math.max(8, speed * speed / (2 * ARREST_DISTANCE)), stopped: false, wire };
     carrierMessage(`Brin n° ${wire} accroché !`);
 }
+// Fin de catapulte : l'avion passe en vol, dans l'axe, à la vitesse donnée (m/s), un peu montant et nez levé (même
+// passage que FlightModel quand l'aile porte le poids, voir _updateGround)
+let launchGhostUntil = 0;   // (autres joueurs traversables jusque-là après un catapultage, voir checkPlaneCollisions)
+function launchOffDeck(model, cat, speed) {
+    launchGhostUntil = performance.now() + 3000;
+    model.onGround = false;
+    model._settleRoll = model._settlePitch = model._gear = model._gearSpeed = 0;
+    model.velocity.set(cat.direction.x, 0, cat.direction.z).normalize().multiplyScalar(speed);
+    model.velocity.y = 2;
+    model.airspeed = speed;
+    model.alpha = model._liftoffAlpha = model._groundPitch;
+    model._liftoffBlend = 0;
+    model._weathervaneBlend = 1;
+    model._angularVelocity.set(0, 0, 0);
+    model._pathAngle = null;
+    model._alphaCommand = null;
+    model._release = 0;
+    aircraft.position.y += 0.05;
+    model.dispatchEvent({ type: 'liftoff' });
+}
 function updateCarrier(delta) {
     const model = controls.model;
     if (controls.isCrashed()) {
@@ -483,10 +503,21 @@ function updateCarrier(delta) {
     const launch = carrierOps.launch;
     if (launch) {
         const { cat, yaw } = launch;
-        const target = aircraftType === 'f15' ? LAUNCH_SPEED : LAUNCH_SPEED_C172;
+        // Vitesse visée : par rapport à l'air (vent de face ou arrière compté). Avant, par rapport au pont : avec du vent
+        // arrière (en multijoueur, le vent vient du code de la partie et de la météo du créateur), l'avion arrivait en
+        // bout de rampe trop lent pour l'air, ne s'envolait pas et tombait du pont
+        const headwind = -(wind.vector.x * cat.direction.x + wind.vector.z * cat.direction.z);
+        const target = Math.max(10, (aircraftType === 'f15' ? LAUNCH_SPEED : LAUNCH_SPEED_C172) - headwind);
         model._groundYaw = yaw;
         const dx = aircraft.position.x - cat.start.x, dz = aircraft.position.z - cat.start.z;
         const along = dx * cat.direction.x + dz * cat.direction.z;
+        // Bout de course : la navette lâche l'avion, qui quitte le pont lancé (comme une vraie catapulte), même si l'aile
+        // ne porte pas encore tout son poids
+        if (controls.isOnGround() && along >= cat.stroke) {
+            launchOffDeck(model, cat, Math.max(model.airspeed, target));
+            carrierOps.launch = null;
+            return;
+        }
         if (controls.isOnGround()) {
             // Tenu dans l'axe de la catapulte, accéléré pour atteindre la vitesse visée en bout de course. Freins
             // (frein de parc, touche tenue) sans effet : la navette tire l'avion
@@ -500,7 +531,10 @@ function updateCarrier(delta) {
                 model._groundPitch = Math.max(model._groundPitch, THREE.MathUtils.degToRad(aircraftType === 'f15' ? 10 : 7));
             }
         }
-        if (!controls.isOnGround() || along > cat.stroke + 5) carrierOps.launch = null;
+        if (!controls.isOnGround() || along > cat.stroke + 5) {
+            carrierOps.launch = null;
+            launchGhostUntil = performance.now() + 3000;   // (envolé avant le bout de course : de même)
+        }
         return;
     }
 
@@ -5068,7 +5102,10 @@ function checkPlaneCollisions() {
             }
             seen.spawns = spawns;
             seen.position.copy(player.position);
-            if (touching && (now < seen.appearUntil || now < ownAppearUntil)) ghostPlayers.add(player.id);
+            // (catapulte : accroché, lancé, et 3 s après : un autre joueur sur le pont, sur la même catapulte ou juste
+            // devant, se traverse ; avant, l'avion lancé explosait contre lui au bout de la rampe)
+            const catapulting = carrierOps.launch || carrierOps.onCat || now < launchGhostUntil;
+            if (touching && (now < seen.appearUntil || now < ownAppearUntil || catapulting)) ghostPlayers.add(player.id);
             else if (!touching) ghostPlayers.delete(player.id);
             if (!ghostPlayers.has(player.id)) otherPlanes.push(matrix);
         }
