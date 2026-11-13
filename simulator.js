@@ -384,7 +384,8 @@ function carrierMessage(text, red = false) {
     if (aircraftType === 'f15') weaponHud.message(text, red);
     showRadioMessage(text);
 }
-// Catapulte sous l'avion (arrêté au départ de la course, dans l'axe), sinon null
+// Catapulte sous l'avion (presque arrêté au départ de la course, à peu près dans l'axe), sinon null. Tolérances
+// larges : une fois dessus, l'avion est accroché et remis exactement dans l'axe (voir updateCarrier)
 function catapultUnder() {
     const p = aircraft.position;
     for (const field of airport.list) {
@@ -394,7 +395,7 @@ function catapultUnder() {
             const lateral = Math.abs(dx * cat.direction.z - dz * cat.direction.x);
             const yaw = Math.atan2(-cat.direction.x, -cat.direction.z);
             const misaligned = Math.abs(Math.atan2(Math.sin(controls.model._groundYaw - yaw), Math.cos(controls.model._groundYaw - yaw)));
-            if (along > -10 && along < 10 && lateral < 4 && misaligned < THREE.MathUtils.degToRad(12)) return { cat, yaw };
+            if (along > -14 && along < 14 && lateral < 6 && misaligned < THREE.MathUtils.degToRad(20)) return { cat, yaw };
         }
     }
     return null;
@@ -459,12 +460,13 @@ function updateCarrier(delta) {
         const dx = aircraft.position.x - cat.start.x, dz = aircraft.position.z - cat.start.z;
         const along = dx * cat.direction.x + dz * cat.direction.z;
         if (controls.isOnGround()) {
-            // Tenu dans l'axe de la catapulte, accéléré pour atteindre la vitesse visée en bout de course
+            // Tenu dans l'axe de la catapulte, accéléré pour atteindre la vitesse visée en bout de course. Freins
+            // (frein de parc, touche tenue) sans effet : la navette tire l'avion
             aircraft.position.x = cat.start.x + cat.direction.x * along;
             aircraft.position.z = cat.start.z + cat.direction.z * along;
             const remaining = Math.max(1, cat.stroke - along);
             const accel = Math.max(0, target * target - model.airspeed * model.airspeed) / (2 * remaining);
-            model.airspeed += Math.max(accel, 5) * delta;
+            model.airspeed += (Math.max(accel, 5) + (model.controls?.brake ?? 0) * (model.aircraft?.brakes ?? 0)) * delta;
             if (along >= cat.stroke - 2) {
                 model.airspeed = Math.max(model.airspeed, target);
                 model._groundPitch = Math.max(model._groundPitch, THREE.MathUtils.degToRad(aircraftType === 'f15' ? 10 : 7));
@@ -474,22 +476,33 @@ function updateCarrier(delta) {
         return;
     }
 
-    // Sur une catapulte, arrêté : prêt au lancement
-    const under = controls.isOnGround() && controls.getSpeed() < 4 && !carrierOps.arrest ? catapultUnder() : null;
-    if (under && carrierOps.onCat !== under.cat) {
-        carrierOps.onCat = under.cat;
+    // Sur une catapulte : accroché à la navette, l'avion est tenu immobile dans l'axe (barre de retenue) le temps de
+    // mettre les gaz, puis lancé. Avant, il n'était que « repéré » arrêté sur la catapulte : en poussant les gaz
+    // progressivement (clavier, manette tactile), il roulait avant d'atteindre 80 % et sortait de la catapulte sans
+    // être lancé (« catapulte inopérante » pour un joueur, alors qu'elle marchait pour qui mettait plein gaz d'un coup)
+    if (!carrierOps.onCat) {
+        const found = controls.isOnGround() && controls.getSpeed() < 6 && !carrierOps.arrest ? catapultUnder() : null;
+        if (!found) {
+            carrierOps.armed = false;
+            return;
+        }
+        carrierOps.onCat = found;
         carrierOps.armed = false;
-        carrierMessage(realistic ? `Catapulte ${under.cat.index} : postcombustion (gaz ≥ 95 %), puis touche 0 pour le lancement`
-            : `Catapulte ${under.cat.index} : gaz à fond pour être lancé`);
+        carrierMessage(realistic ? `Catapulte ${found.cat.index} accrochée : postcombustion (gaz ≥ 95 %), puis touche 0 pour le lancement`
+            : `Catapulte ${found.cat.index} accrochée : gaz à fond (≥ 80 %) pour être lancé`);
     }
-    if (!under) {
+    const under = carrierOps.onCat;
+    if (!controls.isOnGround()) {
         carrierOps.onCat = null;
-        carrierOps.armed = false;
         return;
     }
+    aircraft.position.x = under.cat.start.x;
+    aircraft.position.z = under.cat.start.z;
+    model._groundYaw = under.yaw;
+    model.airspeed = 0;
     const ready = realistic ? controls.throttle >= 0.95 && carrierOps.armed : controls.throttle >= 0.8;
     if (!ready) return;
-    carrierOps.launch = under;
+    carrierOps.launch = { cat: under.cat, yaw: under.yaw };
     carrierOps.onCat = null;
     carrierOps.armed = false;
     model._groundYaw = under.yaw;
