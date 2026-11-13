@@ -787,7 +787,14 @@ class FlightModel extends EventDispatcher {
 
 	// Normale du terrain (différences finies sur le relief)
 	_groundNormal( x, z, target ) {
-		const h = this.groundHeight;
+		// Une marche de plus de 3 m sur 1 m (bord du pont du porte-avions, toit) n'est pas une pente : ce point-là est
+		// remplacé par la hauteur sous l'avion. Avant, en bout de catapulte, l'étrave (pont à 21 m, mer à 0) donnait une
+		// « pente » de ~84° : l'avion basculait nez en bas d'un coup (secousse) et piquait dans l'eau
+		const h0 = this.groundHeight( x, z );
+		const h = ( px, pz ) => {
+			const y = this.groundHeight( px, pz );
+			return Math.abs( y - h0 ) > 3 ? h0 : y;
+		};
 		return target.set( h( x - 1, z ) - h( x + 1, z ), 2, h( x, z - 1 ) - h( x, z + 1 ) ).normalize();
 	}
 }

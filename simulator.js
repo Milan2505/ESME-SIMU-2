@@ -452,13 +452,17 @@ function launchOffDeck(model, cat, speed) {
     model.velocity.set(cat.direction.x, 0, cat.direction.z).normalize().multiplyScalar(speed);
     model.velocity.y = 2;
     model.airspeed = speed;
-    model.alpha = model._liftoffAlpha = model._groundPitch;
-    model._liftoffBlend = 0;
+    model._liftoffBlend = model.assists.smoothLiftoff ? 1 : 0;
     model._weathervaneBlend = 1;
     model._angularVelocity.set(0, 0, 0);
     model._pathAngle = null;
     model._alphaCommand = null;
     model._release = 0;
+    // Assiette refaite proprement : dans l'axe de la catapulte, ailes à plat, nez levé (sans la pente du sol vue au bord
+    // du pont, voir FlightModel._groundNormal)
+    const pitch = Math.max(model._groundPitch, THREE.MathUtils.degToRad(aircraftType === 'f15' ? 8 : 5));
+    model.alpha = model._liftoffAlpha = pitch;
+    aircraft.quaternion.setFromEuler(new THREE.Euler(pitch, Math.atan2(-cat.direction.x, -cat.direction.z), 0, 'YXZ'));
     aircraft.position.y += 0.05;
     model.dispatchEvent({ type: 'liftoff' });
 }
