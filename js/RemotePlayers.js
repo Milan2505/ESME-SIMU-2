@@ -13,6 +13,7 @@ import { setRegistration } from './C172Model.js';
 import { AircraftLights } from './AircraftLights.js';
 import { cloneF15, lowDetailF15, paintF15, animateF15, inletSchedule, moveInlets, INLET_MAX, F15_LIVERIES, F15_LIGHT_LAYOUT } from './F15Model.js';
 import { SmokeTrail } from './Damage.js';
+import { Shield } from './Shield.js';
 
 const SMOOTHING = 8;            // lissage de l'orientation
 const POSITION_CORRECTION = 3;  // rapidité du recalage sur la position prédite
@@ -212,6 +213,8 @@ class RemotePlayers extends EventTarget {
         for (const [id, plane] of this.planes) {
             const state = this.multiplayer.players.get(id);
             if (!state || state.crashed || !plane.group.visible || this.isOffline(state)) continue;
+            // Sous bouclier (juste après son décollage) : ni cible, ni verrouillable
+            if (state.shield - (performance.now() - state.receivedAt) / 1000 > 0) continue;
             // afterburner : postcombustion (0 -> 1 ; Cessna : 0), chaleur suivie par l'autodirecteur de l'AIM-9
             result.push({ id, name: state.name, type: plane.type, group: plane.group, firing: state.firing, afterburner: state.jet?.ab ?? 0,
                 velocity: (plane.velocity ??= new Vector3()).fromArray(state.v ?? [0, 0, 0]) });
@@ -325,6 +328,13 @@ class RemotePlayers extends EventTarget {
                 _smokePoint.copy(SMOKE_SOURCE[plane.type] ?? SMOKE_SOURCE.c172).applyQuaternion(group.quaternion).add(group.position);
                 plane.trail.update(delta, _smokePoint, smoke, state.burning && !state.crashed, this._velocity);
             }
+            // Bouclier après le décollage : secondes restantes envoyées par le joueur, décomptées depuis la réception
+            const shield = state.crashed || offline ? 0 : state.shield - (now - state.receivedAt) / 1000;
+            if (shield > 0 && !plane.shield) {
+                plane.shield = new Shield(plane.type);
+                group.add(plane.shield.mesh);
+            }
+            plane.shield?.update(shield, time);
             // Feux : les interrupteurs de ce joueur (phare, navigation, anticollision, strobes)
             plane.lights.setSwitches(state.lights);
             if (camera && group.visible) {

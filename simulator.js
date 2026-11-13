@@ -92,6 +92,7 @@ import { JetSound } from './js/JetSound.js';
 import { VERSION, VERSION_DATE } from './js/Version.js';
 import { Weapons } from './js/Weapons.js';
 import { Damage, SmokeTrail } from './js/Damage.js';
+import { Shield } from './js/Shield.js';
 import { WeaponHud } from './js/WeaponHud.js';
 import { F15Warnings } from './js/F15Warnings.js';
 import { buildF15Stores } from './js/F15Stores.js';
@@ -4837,8 +4838,42 @@ const OWN_SMOKE_SOURCE = { f15: new THREE.Vector3(0, 0.4, 8.5), c172: new THREE.
 const _smokeSource = new THREE.Vector3();
 let pointerNdc = null;   // souris sur la vue (coordonnées -1 -> 1) : la croix rouge la suit
 
-const weaponsArmed = () => aircraftType === 'f15' && !choosingSpawn && !inHangar && !inMenu && !controls.isCrashed()
+// Bouclier après le décollage (multijoueur, convention de la partie) : pendant SHIELD_TIME s après avoir quitté le sol,
+// l'avion ne peut être ni touché ni verrouillé, et ne peut pas tirer. Bulle bleue visible de tous (Shield.js).
+// Il faut être resté SHIELD_GROUND s au sol (rebond à l'atterrissage, touch-and-go : pas de nouveau bouclier) ; un
+// départ, même en vol, et l'arrivée dans une partie en vol en donnent un.
+const SHIELD_TIME = 20, SHIELD_GROUND = 3;   // s
+let shieldUntil = 0, shieldGroundTime = SHIELD_GROUND;
+const ownShield = new Shield(aircraftType);
+aircraft.add(ownShield.mesh);
+controls.addEventListener('reset', () => {
+    shieldUntil = 0;
+    shieldGroundTime = SHIELD_GROUND;
+});
+const shieldLeft = () => Math.max(0, (shieldUntil - performance.now()) / 1000);
+function updateShield(delta) {
+    if (!multiplayer.code || controls.isCrashed() || choosingSpawn || inHangar) {
+        shieldUntil = 0;
+        shieldGroundTime = SHIELD_GROUND;
+    } else if (controls.isOnGround()) {
+        shieldGroundTime += delta;
+    } else {
+        if (shieldGroundTime >= SHIELD_GROUND) shieldUntil = performance.now() + SHIELD_TIME * 1000;
+        shieldGroundTime = 0;
+    }
+    ownShield.setType(aircraftType);
+    ownShield.update(shieldLeft(), clock.elapsedTime, chaseView);   // (en cabine : seulement le bandeau du HUD)
+}
+
+// En vol, prêt au combat (leurres) ; armes : en plus, hors bouclier
+const combatReady = () => aircraftType === 'f15' && !choosingSpawn && !inHangar && !inMenu && !controls.isCrashed()
     && !controls.isOnGround();
+const weaponsArmed = () => combatReady() && shieldLeft() === 0;
+function weaponsBlocked() {
+    if (controls.isOnGround()) return "Armes : seulement en vol (décollez d'abord)";
+    const left = shieldLeft();
+    return left > 0 ? `Armes bloquées encore ${Math.ceil(left)} s après le décollage (bouclier)` : 'Armes indisponibles';
+}
 const inFlightScreen = () => !choosingSpawn && !inHangar && !inMenu && !document.querySelector('dialog[open]');
 function screenNdc(event) {
     const r = view.getBoundingClientRect();
@@ -4902,20 +4937,20 @@ weapons.addEventListener('overheat', () => {
 function setTrigger(on) {
     weapons.trigger = on;
     if (on && aircraftType === 'f15' && !weaponsArmed() && inFlightScreen()) {
-        weaponHud.message(controls.isOnGround() ? "Armes : seulement en vol (décollez d'abord)" : 'Armes indisponibles');
+        weaponHud.message(weaponsBlocked());
     }
 }
 // Missile sur le point visé à l'écran (ndc ; null : là où est la croix, sous la souris ou au centre)
 function fireMissile(ndc = null) {
     if (aircraftType !== 'f15') return weaponHud.message('Armes : seulement sur le F-15');
-    if (!weaponsArmed()) return weaponHud.message("Armes : seulement en vol (décollez d'abord)");
+    if (!weaponsArmed()) return weaponHud.message(weaponsBlocked());
     if (weapons.selected !== 'missile') weapons.select('missile');
     camera.updateMatrixWorld();
     weapons.fireMissileAt(camera, ndc ?? pointerNdc, aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
 }
 // Missile air-air sur l'avion verrouillé
 function fireAA() {
-    if (!weaponsArmed()) return weaponHud.message("Armes : seulement en vol (décollez d'abord)");
+    if (!weaponsArmed()) return weaponHud.message(weaponsBlocked());
     weapons.fireAA(aircraft, controls.model.velocity, multiplayer.id, multiplayer.name);
 }
 // Tir avec l'arme choisie (clavier ↑, bouton FEU)
@@ -4939,7 +4974,7 @@ weapons.addEventListener('aamissile', ({ detail }) => {
 // Leurres (←) : envoyés aux autres (ils les voient, et les missiles leurrés le sont chez tous)
 function dropFlares() {
     if (aircraftType !== 'f15') return weaponHud.message('Leurres : seulement sur le F-15');
-    if (!weaponsArmed()) return weaponHud.message("Leurres : seulement en vol (décollez d'abord)");
+    if (!combatReady()) return weaponHud.message("Leurres : seulement en vol (décollez d'abord)");
     weapons.dropFlares(aircraft, controls.model.velocity, multiplayer.id, { afterburner: jetSystems.afterburner });
 }
 weapons.addEventListener('flares', ({ detail }) => {
@@ -4994,7 +5029,7 @@ weapons.addEventListener('explosion', ({ detail }) => {
     if (distance < 400) shake = Math.max(shake, 0.8 * (1 - distance / 400));
     if (controls.isCrashed() || choosingSpawn || inHangar) return;
     if (detail.kind === 'aa') return;   // (missile air-air : les dégâts viennent du tireur, voir Weapons.js)
-    if (controls.isOnGround()) return;   // au sol : intouchable (anti spawn-kill)
+    if (controls.isOnGround() || shieldLeft() > 0) return;   // au sol ou sous bouclier : intouchable (anti spawn-kill)
     if (!detail.own && !isEnemy(detail.ownerId)) return;   // (Wardog : missile d'un équipier, sans effet sur nous)
     const attacker = detail.own ? { id: null, name: 'votre propre missile' } : { id: detail.ownerId, name: detail.ownerName };
     damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType === 'c172');
@@ -5008,7 +5043,7 @@ multiplayer.addEventListener('missile', ({ detail }) => {
 // Obus d'un autre joueur sur notre avion
 multiplayer.addEventListener('hit', ({ detail }) => {
     // Au sol : intouchable (pas d'avion abattu au départ, au parking ou en roulant) ; Wardog : pas de tir ami
-    if (controls.isCrashed() || choosingSpawn || inHangar || controls.isOnGround() || !isEnemy(detail.id)) return;
+    if (controls.isCrashed() || choosingSpawn || inHangar || controls.isOnGround() || shieldLeft() > 0 || !isEnemy(detail.id)) return;
     damage.applyHits(detail.zones, { id: detail.id, name: detail.name }, aircraftType === 'c172');
 });
 damage.addEventListener('hit', () => {
@@ -5438,6 +5473,7 @@ let lastCombatTargets = [];   // (diagnostic : cibles de la dernière image, voi
 function updateCombat(frameDelta) {
     const delta = Math.min(frameDelta, 0.1);   // même pas maximal que le modèle de vol (onglet en arrière-plan, à-coup)
     const jet = aircraftType === 'f15';
+    updateShield(delta);
     const armed = weaponsArmed();
     // Cibles : seulement les avions en vol (ceux au sol ne peuvent être ni touchés ni verrouillés : pas de spawn-kill)
     // Cibles : ennemis en vol seulement. Wardog : les équipiers n'apparaissent pas dans le viseur (ni triangle, ni cadre, ni
@@ -5478,6 +5514,7 @@ function updateCombat(frameDelta) {
     const visible = !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo');
     weaponHud.update(delta, visible, {
         camera, aircraft, velocity: controls.model.velocity, weapons, damage, jet, armed, targets, touch: touchControls.enabled, threat, cabin: !chaseView,
+        shield: shieldLeft(),
     });
 }
 
@@ -5836,7 +5873,7 @@ function drawFrame(time) {
         jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
         // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
         combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed(),
-            lock: weapons.lockId, locked: weapons.locked },
+            lock: weapons.lockId, locked: weapons.locked, shield: shieldLeft() },
     } ));
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;

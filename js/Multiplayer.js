@@ -104,6 +104,8 @@ function cleanState(state) {
         // Autodirecteur : joueur que celui-ci accroche (lk), verrouillé (lkd) — alerte radar chez la cible
         lockOn: typeof state.lk === 'string' && ID_PATTERN.test(state.lk) ? state.lk : null,
         lockOnLocked: state.lkd === 1,
+        // Bouclier après le décollage : secondes restantes à l'envoi (0 : aucun)
+        shield: Math.min(30, Math.max(0, Number(state.sh) || 0)),
         // Score de la partie (compté par le joueur lui-même, voir Multiplayer.score) : avions abattus, fois abattu
         score: scoreFrom(state.sc),
         // Mode de la partie (celui du créateur fait foi), équipe (Wardog), capture des terrains (arbitre seulement)
@@ -347,6 +349,7 @@ class Multiplayer extends EventTarget {
             fi: combat?.burning ? 1 : undefined,
             lk: combat?.lock ?? undefined,
             lkd: combat?.lock && combat.locked ? 1 : undefined,
+            sh: combat?.shield > 0 ? Math.round(combat.shield * 10) / 10 : undefined,
             sc: this.score.kills || this.score.deaths ? [this.score.kills, this.score.deaths] : undefined,
             m: this.mode === 'wardog' ? 'w' : undefined,
             tm: this.mode === 'wardog' ? teamCode(this.team) : undefined,

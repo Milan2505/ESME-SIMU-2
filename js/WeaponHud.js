@@ -83,7 +83,7 @@ class WeaponHud {
     update(delta, visible, s = null) {
         this._messageTime = Math.max(0, this._messageTime - delta);
         this.flash = Math.max(0, this.flash - delta * 1.5);
-        const show = visible && s && (s.jet || s.damage.damaged || this._messageTime > 0 || this.flash > 0);
+        const show = visible && s && (s.jet || s.damage.damaged || s.shield > 0 || this._messageTime > 0 || this.flash > 0);
         this.areas.cards = this.areas.damage = null;
         if (!show) {
             if (this._shown) {
@@ -356,6 +356,12 @@ class WeaponHud {
         }
 
         // Message (au centre)
+        // Bouclier après le décollage (multijoueur) : ni touché, ni tir, pendant les secondes restantes
+        if (s.shield > 0) {
+            ctx.globalAlpha = 1;
+            ctx.font = 'bold 16px DejaVu Sans Mono, monospace';
+            this._box(ctx, W / 2, H * 0.3 - 40, [`BOUCLIER ${Math.ceil(s.shield)} s${s.jet ? ' — armes bloquées' : ''}`], '#7fd4ff');
+        }
         if (this._messageTime > 0 && this._message) {
             ctx.globalAlpha = Math.min(1, this._messageTime);
             ctx.font = 'bold 18px DejaVu Sans Mono, monospace';
