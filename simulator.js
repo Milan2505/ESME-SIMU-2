@@ -2396,13 +2396,16 @@ let spawnHover = null;
 const spawnMarkers = new THREE.Group();
 spawnMarkers.visible = false;
 scene.add(spawnMarkers);
-function numberSprite(text) {
+// caption : mot écrit à droite du numéro, dans une pastille allongée (porte-avions : « CATAPULTE »)
+function numberSprite(text, caption = '') {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 128;
+    canvas.height = 128;
+    canvas.width = caption ? 512 : 128;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#ffd400';
     ctx.beginPath();
-    ctx.arc(64, 64, 56, 0, Math.PI * 2);
+    if (caption) ctx.roundRect(8, 8, canvas.width - 16, 112, 56);
+    else ctx.arc(64, 64, 56, 0, Math.PI * 2);
     ctx.fill();
     ctx.lineWidth = 8;
     ctx.strokeStyle = '#1a1a1a';
@@ -2412,10 +2415,15 @@ function numberSprite(text) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, 64, 70);
+    if (caption) {
+        ctx.font = 'bold 50px DejaVu Sans, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(caption, 116, 68, canvas.width - 140);
+    }
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, toneMapped: false, sizeAttenuation: false }));
-    sprite.scale.set(0.055, 0.055, 1);
+    sprite.scale.set(0.055 * canvas.width / 128, 0.055, 1);
     sprite.center.set(0.5, -0.35);   // numéro au-dessus de la case (ne la cache pas)
     sprite.renderOrder = 12;
     return sprite;
@@ -2437,7 +2445,8 @@ for (const field of airport.list) field.spawns.forEach((spawn, i) => {
     const arrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), new THREE.MeshBasicMaterial({ color: 0xffd400, toneMapped: false, depthWrite: false, side: THREE.DoubleSide }));
     arrow.rotation.x = -Math.PI / 2;   // plan (x, y) -> sol ; pointe vers -z (nord local = cap de l'avion)
     arrow.position.y = 0.15;
-    const label = numberSprite(String(i + 1));
+    // (catapulte d'un porte-avions : « CATAPULTE » à côté du numéro)
+    const label = numberSprite(String(i + 1), /^Catapulte/.test(spawn.name) ? 'CATAPULTE' : '');
     label.position.y = height + 10;
     marker.add(box, edges, arrow, label);
     marker.userData = { spawn, fill, edges };
