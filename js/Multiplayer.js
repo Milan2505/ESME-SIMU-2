@@ -700,9 +700,14 @@ class Multiplayer extends EventTarget {
 
         const previous = this.players.get(id);
         this.players.set(id, { ...state, age: 0, receivedAt: now });
-        // Mode de la partie : celui du créateur (les joueurs arrivés en cours de partie l'apprennent ainsi)
-        if (state.owner && !this.isHost) this.troll = state.troll;   // (Wardog troll : celui du créateur fait foi)
-        if (state.owner && !this.isHost && state.mode !== this.mode) {
+        // Mode de la partie : celui du créateur (les joueurs arrivés en cours de partie l'apprennent ainsi). Créateur absent
+        // (parti, ou pas encore entendu) : celui d'un joueur qui se sait en Wardog. Avant, seul le créateur comptait : en
+        // rejoignant avec le code, si un autre joueur répondait d'abord (ou si le créateur était parti), la partie restait
+        // « vol libre » chez nous et le choix de l'équipe ne s'ouvrait jamais
+        const ownerHere = [...this.players.values()].some((p) => p.owner);
+        const decides = state.owner || (!ownerHere && state.mode === 'wardog');
+        if (decides && !this.isHost) this.troll = state.troll;   // (Wardog troll : comme le mode)
+        if (decides && !this.isHost && state.mode !== this.mode) {
             this.mode = state.mode;
             if (this.mode !== 'wardog') this.team = null;
             this.dispatchEvent(new CustomEvent('mode', { detail: { mode: this.mode } }));
