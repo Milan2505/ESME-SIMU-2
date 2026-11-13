@@ -4253,6 +4253,7 @@ function updateHud(delta) {
         rpm: systems.rpm,
         n2: aircraftType === 'f15' ? jetSystems.engines.map((e) => e.n2) : undefined,
         ab: aircraftType === 'f15' ? jetSystems.afterburner : 0,
+        throttle: controls.getThrottle(),   // (F-15 : case « GAZ % » du cadran des réacteurs)
         fuel: systems.fuelFraction,
         alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
         stallAlpha: THREE.MathUtils.radToDeg(controls.model.stallAlpha()),

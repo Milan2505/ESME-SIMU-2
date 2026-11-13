@@ -1,0 +1,15 @@
+Porte-avions USS Harry S. Truman (CVN-75, classe Nimitz) — truman.glb, truman-mobile.glb
+
+Source : projet FlightGear, dépôt fgdata, Models/Geometry/Nimitz/truman.ac et ses textures
+         https://gitlab.com/flightgear/fgdata/-/tree/next/Models/Geometry/Nimitz
+Auteurs : modèle d'origine de « karla » (permission donnée à FlightGear), Vivian Meazza, Alexis Bory,
+          Michael Habarta (modélisation, animations, 2017), Thorsten Renk (intégration, 2017)
+Licence : GNU General Public License version 2 (GPL-2.0), comme l'ensemble de fgdata
+
+Modifications pour le jeu (asset/blender/build_carrier.py, asset/blender/jpeg_glb.py) :
+- les quatre ascenseurs d'avions sont placés en position haute (niveau du pont) ;
+- équipage, sillage et lignes de construction retirés ; pièces regroupées par matériau ;
+- repère changé (x vers tribord, y en haut, z vers l'arrière, origine au milieu du pont) ;
+- textures réencodées en JPEG (version mobile : réduites à 1024 px).
+
+Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.
