@@ -14,6 +14,7 @@
 import mqtt from 'mqtt';
 import { DEFAULT_LIVERY, isLivery } from './Liveries.js';
 import { isF15Livery } from './F15Model.js';
+import { isR44Livery } from './R44Model.js';
 
 const BROKERS = [
     'wss://broker.hivemq.com:8884/mqtt',
@@ -85,9 +86,10 @@ function cleanState(state) {
         weather: typeof state.w === 'string' ? state.w.slice(0, 20) : null,
         // Avion : Cessna 172 (absent : ancienne version du jeu) ou F-15 ; F-15 : train, aérofrein, volets,
         // postcombustion, verrière (0 -> 1)
-        aircraft: state.a === 'f15' ? 'f15' : 'c172',
+        aircraft: state.a === 'f15' || state.a === 'r44' ? state.a : 'c172',
         jet: state.a === 'f15' ? jetState(state.j) : null,
-        livery: isLivery(state.c) || (state.a === 'f15' && isF15Livery(state.c)) ? state.c : DEFAULT_LIVERY,
+        livery: isLivery(state.c) || (state.a === 'f15' && isF15Livery(state.c)) || (state.a === 'r44' && isR44Livery(state.c))
+            ? state.c : DEFAULT_LIVERY,
         registration: cleanRegistration(state.g),                  // '' : celle tirée de son identifiant
         crashes: Math.max(0, Math.floor(Number(state.x) || 0)),   // nombre de crashs depuis l'arrivée du joueur
         crashed: state.k === 1,                                    // épave en cours (avion masqué)
@@ -342,7 +344,7 @@ class Multiplayer extends EventTarget {
             s: spawns,   // apparitions : les autres ne nous percutent pas si l'on apparaît sur eux (voir simulator.js)
             l: lights ? (lights.land || lights.taxi ? 1 : 0) | (lights.nav ? 2 : 0) | (lights.beacon ? 4 : 0) | (lights.strobe ? 8 : 0) : 14,
             o: this.isHost ? 1 : undefined,
-            a: this.aircraft === 'f15' ? 'f15' : undefined,
+            a: this.aircraft === 'f15' || this.aircraft === 'r44' ? this.aircraft : undefined,
             j: this.aircraft === 'f15' && jet ? [jet.gear, jet.speedbrake, jet.flaps, jet.ab, jet.canopy].map((v) => Math.round(v * 100) / 100) : undefined,
             f: combat?.firing ? 1 : undefined,
             d: combat?.damage ? Math.round(combat.damage) : undefined,

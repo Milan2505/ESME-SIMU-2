@@ -38,9 +38,7 @@ class PlaneControls extends Controls {
 		this.throttleRate = 1;
 		this.parkingBrake = false;   // manette de frein de la cabine : freins serrés tant qu'elle est tirée       // variation de la manette des gaz par seconde (plein gaz en 1 s)
 		// Événements du modèle de vol relayés : envol, toucher, crash
-		for ( const type of [ 'liftoff', 'touchdown', 'crash' ] ) {
-			this.model.addEventListener( type, ( event ) => this.dispatchEvent( { ...event } ) );
-		}
+		this._relay( this.model );
 
 		// internals
 		this._moveState = {
@@ -84,6 +82,29 @@ class PlaneControls extends Controls {
 	}
 
 	// --- Réglages transmis au modèle de vol (environnement, aides au pilotage) ---
+
+	_relay( model ) {
+		if ( model._relayed ) return;
+		model._relayed = true;
+		for ( const type of [ 'liftoff', 'touchdown', 'crash' ] ) {
+			model.addEventListener( type, ( event ) => { if ( this.model === model ) this.dispatchEvent( { ...event } ); } );
+		}
+	}
+
+	// Autre modèle de vol (avion <-> hélicoptère, voir HeliModel.js) : il reprend l'environnement (relief, revêtement,
+	// obstacles, turbulence, vent, hauteur des roues), la position et l'orientation de l'objet piloté
+	useModel( model ) {
+		if ( model === this.model ) return;
+		const old = this.model;
+		this._relay( model );
+		model.groundHeight = old.groundHeight;
+		model.surfaceAt = old.surfaceAt;
+		model.minAltitude = old.minAltitude;
+		model.obstacles = old.obstacles;
+		model.turbulence = old.turbulence;
+		model.wind.copy( old.wind );
+		this.model = model;
+	}
 
 	get groundHeight() { return this.model.groundHeight; }
 	set groundHeight( value ) { this.model.groundHeight = value; }

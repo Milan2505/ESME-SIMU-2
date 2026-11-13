@@ -58,3 +58,9 @@ ambience-birds.wav, ambience-wind.wav
 Boucles de 45 s (mono, raccord en fondu enchaîné) extraites de park_ambience_birds.wav et park_ambience_wind.wav,
 « Park ambiences » par Thimras : https://opengameart.org/content/park-ambiences
 Licence : Creative Commons 0 (domaine public) https://creativecommons.org/publicdomain/zero/1.0/
+
+r44/*.wav (Robinson R44 : moteur et rotor, entendus dehors et en cabine, démarreur, klaxon de bas régime rotor,
+déclic des interrupteurs, portes, vent) : BaBoOn-R44-*.wav, starter*.wav du paquet R44 de FlightGear
+Source : appareil « R44 » du dépôt FGAddon (Emmanuel Baranger et contributeurs),
+https://sourceforge.net/p/flightgear/fgaddon/HEAD/tree/trunk/Aircraft/R44/ (Sounds/), convertis en mono 44,1 kHz
+Licence : GNU General Public License v2.0 (GPL-2.0)

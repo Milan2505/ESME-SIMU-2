@@ -39,6 +39,8 @@ const OPTIONS = {
                        choices: [[false, 'Désactivé'], [true, 'Activé']] },
     crosswind:       { group: 'Pilotage', label: 'Correction de dérive', hint: "Vent de travers : après l'envol, le nez se met tout seul face au vent et la trajectoire reste dans l'axe (sinon, au pilote de corriger la dérive)",
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
+    heliStability:   { group: 'Pilotage', label: 'Hélicoptère : aide au stationnaire', hint: "R44 : le cyclique commande l'assiette (tenue manche lâché, glissade arrêtée près du stationnaire) et les palonniers la rotation (cap tenu). Désactivée : commandes directes, comme le vrai (très difficile au clavier)",
+                       choices: [[true, 'Activée'], [false, 'Désactivée']] },
     hud:             { group: 'Pilotage', label: 'Infos de vol (vue extérieure)', hint: 'Vitesse, moteur, carburant, volets, trim, altitude, vario et cap sur l\'écran',
                        choices: [[true, 'Affichées'], [false, 'Masquées']] },
     // Multijoueur
@@ -47,7 +49,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages

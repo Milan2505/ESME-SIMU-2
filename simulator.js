@@ -96,6 +96,10 @@ import { Shield } from './js/Shield.js';
 import { WeaponHud } from './js/WeaponHud.js';
 import { F15Warnings } from './js/F15Warnings.js';
 import { buildF15Stores } from './js/F15Stores.js';
+import { HeliModel } from './js/HeliModel.js';
+import { R44Systems } from './js/R44Systems.js';
+import { R44Sound } from './js/R44Sound.js';
+import { R44Cockpit, cloneR44, paintR44, R44_LIVERIES, R44_DEFAULT_LIVERY, isR44Livery, R44_LIGHT_LAYOUT, R44_SKID_HEIGHT } from './js/R44Model.js';
 
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
@@ -125,6 +129,15 @@ const AIRCRAFT_PROFILES = {
         cabinScale: 1,
         cockpitTilt: THREE.MathUtils.degToRad(-9),                       // HUD au milieu, instruments en bas
         chaseDistance: 31, chasePitch: Math.atan2(5, 30), chaseTarget: new THREE.Vector3(0, 1.2, -16),
+    },
+    // Robinson R44 Raven II (R44Model.js, asset/r44/) : hélicoptère, place du pilote à droite
+    r44: {
+        label: 'Robinson R44', atcType: 'R44',
+        wheelHeight: R44_SKID_HEIGHT,
+        cockpitPosition: new THREE.Vector3(),
+        cabinScale: 1,
+        cockpitTilt: THREE.MathUtils.degToRad(-10),                      // tableau bas, sol visible par la bulle
+        chaseDistance: 17, chasePitch: Math.atan2(3.5, 16), chaseTarget: new THREE.Vector3(0, 0.6, -3),
     },
 };
 let aircraftType = 'c172';
@@ -248,10 +261,12 @@ const bankAngleWarning = new BankAngleWarning();
 const terrainWarning = new TerrainWarning();
 const engineSound = new EngineSound();
 const jetSound = new JetSound();   // réacteurs du F-15
+const r44Sound = new R44Sound();   // moteur, rotor et alarmes du R44
 const sounds = new SoundEffects();
 const storm = new Storm({ groundHeight: (x, z) => terrain.heightAt(x, z), sounds });
 const cessnaCockpit = new Cockpit();
 const jetCockpit = new F15Cockpit();   // (chargé avec le F-15)
+const heliCockpit = new R44Cockpit();  // (chargé avec le R44 : il porte aussi l'extérieur)
 let cockpit = cessnaCockpit;           // cabine de l'avion piloté
 try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false); } catch { /* stockage indisponible */ }
 const crashEffect = new CrashEffect();
@@ -272,9 +287,11 @@ let soloCarrierRules = 'arcade';
 try { soloCarrierRules = localStorage.getItem('pa-regles') === 'realiste' ? 'realiste' : 'arcade'; } catch { /* stockage indisponible */ }
 multiplayer.carrierRules = soloCarrierRules;
 const carrierRules = () => (multiplayer.code ? multiplayer.carrierRules : soloCarrierRules);
-const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound,
-    altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight }, registrationFor: (id) => registrationFor(id) });
+const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound, heliSound: r44Sound,
+    altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight, r44: AIRCRAFT_PROFILES.r44.wheelHeight },
+    registrationFor: (id) => registrationFor(id) });
 remotePlayers.onJetNeeded = () => setupJet().catch(() => {});   // un autre joueur vole en F-15
+remotePlayers.onHeliNeeded = () => setupHeli().catch(() => {});   // … ou en R44
 remotePlayers.prepare = (object) => prepareForDisplay(object);
 // Wardog : étiquettes (et carte) à la couleur de l'équipe
 remotePlayers.colorFor = (id, state) => (multiplayer.mode === 'wardog' && state.team ? { bleu: '#3d8fd6', rouge: '#e0473c' }[state.team] : null);   // avions des autres : compilés avant d'apparaître
@@ -295,7 +312,12 @@ const controls = new PlaneControls( aircraft );
 // Systèmes de l'avion (électricité, moteur, carburant, feux) commandés depuis la cabine
 const cessnaSystems = new Systems();
 const jetSystems = new JetSystems();
+const heliSystems = new R44Systems();
 let systems = cessnaSystems;           // systèmes de l'avion piloté
+// R44 : son propre modèle de vol (hélicoptère), branché à la place de celui des avions (voir setAircraftType)
+const planeModel = controls.model;
+const heliModel = new HeliModel(aircraft);
+heliModel.engine = heliSystems;
 const jetFlight = { ...F15 };          // caractéristiques du F-15 pour le modèle de vol (masse : suit le carburant)
 // Radios du tableau (NAV/COM, transpondeur, DME, ADF...), lien avec le contrôle aérien (voir syncRadios)
 const avionics = new Avionics();
@@ -402,7 +424,7 @@ function catapultUnder() {
     return null;
 }
 function carrierTouchdown() {
-    if (!SEA) return;
+    if (!SEA || aircraftType === 'r44') return;   // (R44 : il se pose où il veut sur le pont, sans brin)
     carrierOps.arrest = null;
     const field = airport.carrierAt(aircraft.position.x, aircraft.position.z);
     if (!field) return;
@@ -430,6 +452,11 @@ function updateCarrier(delta) {
     const deck = airport.platformAt(aircraft.position.x, aircraft.position.z);
     if (!controls.isOnGround() && deck !== null && aircraft.position.y < deck - 3 && aircraft.position.y > -3) {
         controls.collide('Collision avec le porte-avions');
+        return;
+    }
+    // R44 : ni catapulte ni brins d'arrêt (il décolle et se pose à la verticale)
+    if (aircraftType === 'r44') {
+        carrierOps.launch = carrierOps.arrest = carrierOps.onCat = null;
         return;
     }
     const realistic = carrierRules() === 'realiste';
@@ -649,6 +676,20 @@ const jetTaxiLight = new THREE.SpotLight(0xfff3d6, 0, 140, THREE.MathUtils.degTo
 jetTaxiLight.position.set(0, -1.0, -3.7);
 jetTaxiLight.target.position.set(0, -3.5, -30);
 jetFrame.add(jetLandingLight, jetLandingLight.target, jetTaxiLight, jetTaxiLight.target);
+// R44 : extérieur, feux et phares (deux phares dans le nez, l'un plus plongeant), caché en avion
+const heliFrame = new THREE.Group();
+heliFrame.visible = false;
+aircraft.add(heliFrame);
+const heliLights = new AircraftLights(heliFrame, { castLight: true, layout: R44_LIGHT_LAYOUT });
+const heliLandingLight = new THREE.SpotLight(0xfff3d6, 0, 400, THREE.MathUtils.degToRad(12), 0.55, 1.6);
+heliLandingLight.position.set(-0.065, -0.85, -4.6);
+heliLandingLight.target.position.set(-0.5, -6, -70);
+const heliTaxiLight = new THREE.SpotLight(0xfff3d6, 0, 140, THREE.MathUtils.degToRad(24), 0.75, 1.6);
+heliTaxiLight.position.set(0.065, -0.85, -4.6);
+heliTaxiLight.target.position.set(0.5, -12, -30);
+heliFrame.add(heliLandingLight, heliLandingLight.target, heliTaxiLight, heliTaxiLight.target);
+heliCockpit.group.visible = false;
+aircraft.add(heliCockpit.group);
 // Avion non piloté (Cessna en F-15, F-15 en Cessna) et son cockpit : cachés, leurs positions ne sont plus recalculées à
 // chaque image. three.js le faisait même pour les objets cachés (~1 000 pièces de trop, ~8 % du temps de calcul) ;
 // redevenus visibles, ils sont recalculés avant d'être dessinés
@@ -658,7 +699,7 @@ function skipWhenHidden(object) {
         if (this.visible) update.call(this, force);
     };
 }
-for (const object of [airframe, jetFrame, cessnaCockpit.group, jetCockpit.group]) skipWhenHidden(object);
+for (const object of [airframe, jetFrame, heliFrame, cessnaCockpit.group, jetCockpit.group, heliCockpit.group]) skipWhenHidden(object);
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
 // verraient pas et chaque lumière alourdit le rendu)
@@ -671,7 +712,7 @@ function applyLights() {
     landingLight.visible = lights.land && dark;
     taxiLight.visible = lights.taxi && dark;
 }
-for (const s of [cessnaSystems, jetSystems]) {
+for (const s of [cessnaSystems, jetSystems, heliSystems]) {
     s.addEventListener('change', () => { if (s === systems) applyLights(); });
     // Démarrage raté : message à l'écran (raison et marche à suivre)
     s.addEventListener('startfail', ({ detail }) => { if (s === systems) showRadioMessage(detail); });
@@ -679,6 +720,11 @@ for (const s of [cessnaSystems, jetSystems]) {
 cessnaSystems.addEventListener('start', () => { if (systems === cessnaSystems) engineSound.playStart(chaseView ? 1 : 0.45); });
 cessnaSystems.addEventListener('stop', () => { if (systems === cessnaSystems && !controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
 jetSystems.addEventListener('start', ({ detail }) => { if (systems === jetSystems) showViewLabel(`Réacteur ${detail.side ? 'droit' : 'gauche'} allumé`); });
+heliSystems.addEventListener('start', () => {
+    if (systems !== heliSystems) return;
+    showViewLabel('Moteur démarré : embrayez (CLUTCH, touche T), puis montez le régime');
+    r44Sound.play('starter', chaseView ? 0.8 : 0.5);
+});
 
 // Avion du joueur, et copie aux textures plus légères pour les avions garés et ceux des autres joueurs (suivi par
 // l'écran de chargement ; un échec du réseau se réessaie)
@@ -743,6 +789,55 @@ function setupJet() {
         throw error;
     });
     return jetLoading;
+}
+
+// R44 : extérieur, cockpit et animations chargés à la demande (choix au hangar, ou un autre joueur en R44) : ~6 Mo
+let heliLoading = null;
+function setupHeli() {
+    if (heliCockpit.ready) return Promise.resolve();
+    heliLoading ??= heliCockpit.load().then(() => {
+        heliFrame.add(heliCockpit.exterior);
+        heliLights.setOccluder(heliCockpit.model);
+        paintR44(heliCockpit.model, isR44Livery(multiplayer.livery) ? multiplayer.livery : savedHeliLivery());
+        heliCockpit.setRegistration(atc.registration);
+        heliCockpit.setExterior(chaseView);
+        remotePlayers.setHeliTemplate(heliCockpit.model, (group) => cloneR44(group));
+        r44Sound.unlock().catch(() => {});
+        prepareForDisplay(heliFrame).catch(() => {});
+        prepareForDisplay(heliCockpit.group).catch(() => {});
+    }).catch((error) => {
+        heliLoading = null;
+        throw error;
+    });
+    return heliLoading;
+}
+function savedHeliLivery() {
+    try {
+        const id = localStorage.getItem('livree-r44');
+        return isR44Livery(id) ? id : R44_DEFAULT_LIVERY;
+    } catch {
+        return R44_DEFAULT_LIVERY;
+    }
+}
+
+// Chaque image, en R44 : poignée des gaz (touches Y / U), frein rotor (touche B, appareil posé), sons, alarmes
+const GRIP_RATE = 0.35;   // part de la course de la poignée par seconde
+function updateHeli(delta) {
+    const sys = heliSystems, model = heliModel;
+    const grip = mixtureKeys.KeyU - mixtureKeys.KeyY;
+    if (grip && !choosingSpawn) sys.setGrip(sys.grip + grip * GRIP_RATE * Math.min(delta, 0.1));
+    model.rotorBrake = sys.rotorBrake = model.controls.brake > 0.5 && controls.isOnGround();
+    const quiet = controls.isCrashed() || choosingSpawn || inMenu;
+    const volume = quiet ? 0 : (chaseView ? 1 : 0.7) * spawnFade * spawnFade;
+    r44Sound.setCabin(!chaseView);
+    const warn = sys.warnings;
+    r44Sound.update({
+        engineRpm: sys.rpm, running: sys.running, cranking: sys.cranking, rotorRpm: model.rotorRpm,
+        load: THREE.MathUtils.clamp(model.rotorThrust / (model.aircraft.mass * 9.81), 0, 1.3) * 0.8,
+        // Claquement des pales : descente dans son propre sillage, arrondi (forte traction), anneaux tourbillonnaires
+        slap: THREE.MathUtils.clamp(-model.velocity.y / 6, 0, 1) * 0.6 + model.vortexRing * 0.6 + Math.max(0, model.loadFactor - 1.2),
+        speed: model.airspeed, horn: warn.lowRpmHorn && !quiet,
+    }, volume);
 }
 
 // Verrière du F-15 : ouverte (1) ou fermée (0), elle s'ouvre / se ferme en ~5 s (vérin) ; position transmise aux
@@ -865,24 +960,31 @@ function savedJetLivery() {
 // Changement d'avion (hangar) : modèle, cabine, systèmes, modèle de vol, sons, caméras, livrée. F-15 : chargé à la
 // première demande. L'avion repart du hangar, éteint (voir openHangar)
 async function setAircraftType(type) {
-    type = type === 'f15' ? 'f15' : 'c172';
+    type = type === 'f15' || type === 'r44' ? type : 'c172';
     if (type === 'f15') await setupJet();
-    const jet = type === 'f15';
+    if (type === 'r44') await setupHeli();
+    const jet = type === 'f15', heli = type === 'r44', cessna = type === 'c172';
     const changed = type !== aircraftType;
     aircraftType = type;
     try { localStorage.setItem('avion', type); } catch { /* stockage indisponible */ }
     const profile = AIRCRAFT_PROFILES[type];
-    airframe.visible = !jet;
+    airframe.visible = cessna;
     jetFrame.visible = jet;
-    cessnaCockpit.group.visible = !jet;
+    heliFrame.visible = heli;
+    cessnaCockpit.group.visible = cessna;
     jetCockpit.group.visible = jet;
-    cockpit = jet ? jetCockpit : cessnaCockpit;
-    systems = jet ? jetSystems : cessnaSystems;
-    aircraftLights = jet ? jetLights : cessnaLights;
-    landingLight = jet ? jetLandingLight : cessnaLandingLight;
-    taxiLight = jet ? jetTaxiLight : cessnaTaxiLight;
+    heliCockpit.group.visible = heli;
+    cockpit = jet ? jetCockpit : heli ? heliCockpit : cessnaCockpit;
+    systems = jet ? jetSystems : heli ? heliSystems : cessnaSystems;
+    aircraftLights = jet ? jetLights : heli ? heliLights : cessnaLights;
+    landingLight = jet ? jetLandingLight : heli ? heliLandingLight : cessnaLandingLight;
+    taxiLight = jet ? jetTaxiLight : heli ? heliTaxiLight : cessnaTaxiLight;
     // Le phare de l'avion caché s'éteint (une lumière allumée, même cachée, compte)
-    for (const light of [cessnaLandingLight, cessnaTaxiLight, jetLandingLight, jetTaxiLight]) light.visible = false;
+    for (const light of [cessnaLandingLight, cessnaTaxiLight, jetLandingLight, jetTaxiLight, heliLandingLight, heliTaxiLight]) light.visible = false;
+    // Modèle de vol : hélicoptère (HeliModel) ou avion (FlightModel), qui reprend l'environnement de l'autre
+    controls.useModel(heli ? heliModel : planeModel);
+    controls.throttleRate = heli ? 0.3 : 1;   // (collectif : levé ou baissé plus doucement que les gaz d'un avion)
+    if (heli) controls.parkingBrake = false;  // (patins : pas de frein de parc ; B serre le frein rotor)
     WHEEL_HEIGHT = profile.wheelHeight;
     controls.minAltitude = WHEEL_HEIGHT;
     COCKPIT_POSITION.copy(profile.cockpitPosition);
@@ -891,20 +993,22 @@ async function setAircraftType(type) {
     CHASE_DISTANCE = profile.chaseDistance;
     CHASE_PITCH = profile.chasePitch;
     CHASE_TARGET.copy(profile.chaseTarget);
-    // Modèle de vol : caractéristiques de l'avion ; il repart de zéro (volets, trim, train)
-    const model = controls.model;
-    model.aircraft = jet ? jetFlight : CESSNA_172;
-    model.rotateSpeed = model.aircraft.rotateSpeed;
-    model.flapLevel = Math.min(model.flapLevel, model.aircraft.flapLevels.length - 1);
-    model.gearDown = true;
-    model.gearPosition = 1;
-    model.speedbrakeOut = false;
-    model.speedbrake = 0;
-    model.cgOffset = 0;
+    // Modèle de vol de l'avion : caractéristiques de l'avion ; il repart de zéro (volets, trim, train)
+    if (!heli) {
+        const model = controls.model;
+        model.aircraft = jet ? jetFlight : CESSNA_172;
+        model.rotateSpeed = model.aircraft.rotateSpeed;
+        model.flapLevel = Math.min(model.flapLevel, model.aircraft.flapLevels.length - 1);
+        model.gearDown = true;
+        model.gearPosition = 1;
+        model.speedbrakeOut = false;
+        model.speedbrake = 0;
+        model.cgOffset = 0;
+    }
     jetGearWas = 1;
     // Caméras de la cabine
-    CABIN_VIEWS = jet ? F15_VIEWS : CESSNA_VIEWS;
-    VIEW_ORDER = jet ? VIEW_ORDER_F15 : VIEW_ORDER_C172;
+    CABIN_VIEWS = jet ? F15_VIEWS : heli ? R44_VIEWS : CESSNA_VIEWS;
+    VIEW_ORDER = jet ? VIEW_ORDER_F15 : heli ? VIEW_ORDER_R44 : VIEW_ORDER_C172;
     PILOT_EYE.copy(cockpit.eye);
     if (changed) recenterCamera();
     // Contrôleurs, multijoueur, livrée
@@ -912,8 +1016,8 @@ async function setAircraftType(type) {
     multiplayer.aircraft = type;
     refreshLiveryOptions();
     let saved = null;
-    try { saved = localStorage.getItem(jet ? 'livree-f15' : 'livree'); } catch { /* stockage indisponible */ }
-    setLivery(saved ?? (jet ? F15_DEFAULT_LIVERY : DEFAULT_LIVERY), false);
+    try { saved = localStorage.getItem(jet ? 'livree-f15' : heli ? 'livree-r44' : 'livree'); } catch { /* stockage indisponible */ }
+    setLivery(saved ?? (jet ? F15_DEFAULT_LIVERY : heli ? R44_DEFAULT_LIVERY : DEFAULT_LIVERY), false);
     updateView();
     applyLights();
     updateAircraftChoice();
@@ -1027,8 +1131,18 @@ const F15_VIEWS = {
     7: { label: 'Écrans (radar, contre-mesures)', eye: [0, 1.2, -5.3], target: [0, 1.0, -5.71], fov: 60, close: true },
     0: { label: 'Côté gauche', yaw: 1.2, pitch: 0.15, fov: 75 },
 };
+// R44 (repère appareil, œil du pilote à droite en 0,25, -0,12, -3,4) : tableau au milieu, entre les deux sièges
+const R44_VIEWS = {
+    1: { label: 'Pilote', yaw: 0, pitch: 0, fov: COCKPIT_FOV },
+    2: { label: 'Instruments (badin, horizon, altimètre, tachymètre)', eye: [0.12, -0.33, -3.75], target: [0, -0.54, -4.22], fov: 45, close: true },
+    3: { label: 'Interrupteurs, clé, moteur, carburant', eye: [0.1, -0.45, -3.72], target: [0, -0.69, -4.07], fov: 42, close: true },
+    4: { label: 'Radios (audio, NAV/COM, transpondeur)', eye: [0.1, -0.55, -3.62], target: [-0.03, -0.83, -3.96], fov: 45, close: true },
+    5: { label: 'Collectif et cyclique', eye: [0.3, -0.25, -3.3], target: [0.0, -0.85, -3.45], fov: 60 },
+    6: { label: 'Compas et fil de laine', eye: [0.15, -0.12, -3.6], target: [0, -0.2, -4.3], fov: 50, close: true },
+    0: { label: 'Côté gauche', yaw: 1.1, pitch: 0.05, fov: 75 },
+};
 let CABIN_VIEWS = CESSNA_VIEWS;
-const VIEW_ORDER_C172 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0], VIEW_ORDER_F15 = [1, 2, 3, 4, 5, 6, 7, 0];
+const VIEW_ORDER_C172 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0], VIEW_ORDER_F15 = [1, 2, 3, 4, 5, 6, 7, 0], VIEW_ORDER_R44 = [1, 2, 3, 4, 5, 6, 0];
 let VIEW_ORDER = VIEW_ORDER_C172;
 let cabinView = 1;
 let headTarget = null;               // regard en cours de rejointe (glissement doux)
@@ -1557,6 +1671,8 @@ function setWeather(name) {
     cessnaLights.setNight(w.night);
     jetLights.setNight(w.night);
     jetCockpit.setNight(w.night);
+    heliLights.setNight(w.night);
+    heliCockpit.setNight(w.night);
     applyLights();
     remotePlayers.setNight(w.night);
     // Phare seulement de nuit : une lumière, même éteinte, alourdit le calcul de tous les matériaux
@@ -2547,16 +2663,26 @@ function applySpawnState() {
     if (currentSpawn.cold) {
         systems.coldAndDark();
         controls.throttle = 0;
-        controls.parkingBrake = systems.brake = true;
+        // (R44 : pas de frein de parc sur des patins ; le frein rotor se serre à la touche B, voir updateHeli)
+        controls.parkingBrake = systems.brake = aircraftType !== 'r44';
     } else {
         // Sur la piste, prêt au décollage : pompe électrique, phare d'atterrissage et de roulage, strobes, anticollision
         // et feux de navigation allumés (volets : voir runwayFlaps)
         controls.parkingBrake = systems.brake = false;
         Object.assign(systems.switches, aircraftType === 'f15' ? { land: true, taxi: true, strobe: true, beacon: true, nav: true }
+            : aircraftType === 'r44' ? { land: true, strobe: true, beacon: true, nav: true }
             : { fuelPump: true, land: true, taxi: true, strobe: true, beacon: true, nav: true });
     }
     applyLights();
 }
+// R44 : après chaque remise au départ, le rotor tourne à son régime si le moteur tourne et qu'il est embrayé (prêt à
+// décoller), il est arrêté sinon ; collectif en bas
+controls.addEventListener('reset', () => {
+    if (aircraftType !== 'r44') return;
+    if (heliSystems.running && heliSystems.clutch >= 1) heliModel.spinUp();
+    else if (heliModel.onGround) heliModel.rotorSpeed = 0;
+    if (heliModel.onGround) controls.throttle = 0;
+});
 
 // Départ de piste : volets au 1er cran (10°), déjà sortis. Après chaque remise au point de départ (choix du départ,
 // touche R, après un crash) : la remise à zéro du modèle rentre les volets
@@ -2908,6 +3034,9 @@ const HANGAR_DESCRIPTIONS = {
     c172: "Cessna 172 de l'aéro-club, au hangar. Personnalisez-le avant de partir.",
     f15: 'F-15C Eagle, au hangar, éteint. Mise en route : BATT, JFS, ENG MASTER, puis lancement de '
         + 'chaque réacteur (voir le manuel). Train : touche Y, aérofrein : U, postcombustion : gaz au-delà de 85 %.',
+    r44: 'Robinson R44 Raven II, au hangar, éteint. Mise en route : MASTER BATT, gaz fermés, clé sur START ; '
+        + 'moteur parti : CLUTCH (touche T), puis gaz (U) vers 80 % et GOVERNOR (touche G). Collectif : Espace / Ctrl, '
+        + 'cyclique : Z Q S D, palonniers : A / E. Aide au stationnaire : menu Paramètres.',
 };
 function updateAircraftChoice() {
     // Wardog : F-15 seulement (le Cessna n'est pas fait pour le combat) : la case du Cessna est retirée du hangar
@@ -2929,13 +3058,13 @@ for (const button of aircraftButtons) {
         if (type === aircraftType) return;
         const label = button.textContent;
         for (const b of aircraftButtons) b.disabled = true;
-        if (type === 'f15' && !jetModel) button.textContent = 'Chargement…';
+        if ((type === 'f15' && !jetModel) || (type === 'r44' && !heliCockpit.ready)) button.textContent = 'Chargement…';
         try {
             await setAircraftType(type);
             if (inHangar) openHangar();   // l'avion choisi, éteint, au milieu du hangar
         } catch (error) {
             console.error(error);
-            showRadioMessage('F-15 : chargement impossible (vérifiez la connexion), réessayez');
+            showRadioMessage(`${type === 'r44' ? 'R44' : 'F-15'} : chargement impossible (vérifiez la connexion), réessayez`);
         } finally {
             button.textContent = label;
             for (const b of aircraftButtons) b.disabled = false;
@@ -3237,20 +3366,23 @@ updateModes();
 const liverySelects = ['profil-livree', 'multi-livree', 'hangar-livree'].map((id) => document.getElementById(id)).filter(Boolean);
 // Listes des livrées : celles de l'avion piloté (couleurs du Cessna, ou livrées d'escadrons du F-15)
 function refreshLiveryOptions() {
-    const list = aircraftType === 'f15' ? F15_LIVERIES : LIVERIES;
+    const list = aircraftType === 'f15' ? F15_LIVERIES : aircraftType === 'r44' ? R44_LIVERIES : LIVERIES;
     for (const select of liverySelects) {
         select.replaceChildren(...Object.entries(list).map(([id, livery]) => new Option(livery.label, id)));
     }
 }
 refreshLiveryOptions();
 function setLivery(id, save = true) {
-    const jet = aircraftType === 'f15';
-    multiplayer.livery = jet ? (isF15Livery(id) ? id : F15_DEFAULT_LIVERY) : (isLivery(id) ? id : DEFAULT_LIVERY);
+    const jet = aircraftType === 'f15', heli = aircraftType === 'r44';
+    multiplayer.livery = jet ? (isF15Livery(id) ? id : F15_DEFAULT_LIVERY)
+        : heli ? (isR44Livery(id) ? id : R44_DEFAULT_LIVERY) : (isLivery(id) ? id : DEFAULT_LIVERY);
     for (const select of liverySelects) select.value = multiplayer.livery;
     if (jet) {
         if (jetModel) paintF15(jetModel, multiplayer.livery);
+    } else if (heli) {
+        if (heliCockpit.ready) paintR44(heliCockpit.model, multiplayer.livery);
     } else if (aircraftModel) paintAircraft(aircraftModel, multiplayer.livery);
-    if (save) try { localStorage.setItem(jet ? 'livree-f15' : 'livree', multiplayer.livery); } catch { /* stockage indisponible */ }
+    if (save) try { localStorage.setItem(jet ? 'livree-f15' : heli ? 'livree-r44' : 'livree', multiplayer.livery); } catch { /* stockage indisponible */ }
 }
 let savedLivery = null;
 try { savedLivery = localStorage.getItem('livree'); } catch { /* stockage indisponible */ }
@@ -3732,6 +3864,7 @@ function updateRegistration() {
     atc.setRegistration(multiplayer.registration || fallback);
     for (const input of registrationInputs) input.placeholder = fallback;
     if (aircraftModel) setRegistration(aircraftModel, atc.registration);   // peinte sur le fuselage
+    heliCockpit.setRegistration(atc.registration);                       // (R44 : sur la poutre et le tableau)
     document.getElementById('atc-indicatif').textContent = atc.registration;
 }
 multiplayer.addEventListener('status', updateRegistration);
@@ -3947,7 +4080,7 @@ function applyLoad(load) {
     updateLoad();
 }
 function updateLoad() {
-    if (aircraftType === 'f15') return;   // (masse du F-15 : voir updateJet)
+    if (aircraftType !== 'c172') return;   // (masse du F-15 : voir updateJet ; R44 : masse fixe)
     const loaded = computeLoad({ ...currentLoad, fuelLeft: cessnaSystems.fuel[0] * WB_GALLON, fuelRight: cessnaSystems.fuel[1] * WB_GALLON });
     controls.model.aircraft.mass = loaded.mass;
     controls.model.cgOffset = loaded.cg - CG_REFERENCE;
@@ -4023,6 +4156,14 @@ function cockpitState() {
         gloveboxOpen,
         parkingBrake: controls.parkingBrake,
         flapLevel: controls.getFlapLevel(),
+        // R44 : rotor et commandes (cockpit animé, voir R44Model.js)
+        heli: aircraftType === 'r44' ? {
+            rotorRpm: heliModel.rotorRpm, collective: controls.model.throttle,
+            cyclicPitch: heliModel.cyclic.pitch, cyclicRoll: heliModel.cyclic.roll, pedal: heliModel.pedal,
+            bladePitchDeg: THREE.MathUtils.radToDeg(heliModel.collective),
+            coningDeg: THREE.MathUtils.clamp(heliModel.rotorThrust / 9000 * 2.2, 0, 5),
+            slipDeg: THREE.MathUtils.radToDeg(heliModel.beta),
+        } : null,
         jet: aircraftType === 'f15' ? {
             g: controls.model.loadFactor,
             mach: controls.getSpeed() / 340,
@@ -4235,6 +4376,38 @@ function obsUnderPointer(event) {
     return controlAt(event)?.id === 'obs';
 }
 
+// R44 : clic ou molette sur une commande du cockpit (zones cliquables du modèle FlightGear, voir FGAnimator) ; les
+// propriétés FlightGear changées sont reportées sur les systèmes. button : 0 clic (côté droit), 2 clic côté gauche,
+// 3 / 4 molette. Clé : clic à droite vers START (démarreur), à gauche vers OFF
+function useR44Control(pick, button) {
+    const { changed, nasal, file } = heliCockpit.activate(pick, button);
+    if (!changed.length && !nasal.length) return false;
+    const a = heliCockpit.animator, sys = heliSystems;
+    for (const name of changed) {
+        const v = a.get(name);
+        if (name === 'controls/electric/battery-switch') sys.switches.masterBat = Boolean(v);
+        else if (name === 'controls/electric/engine/generator') sys.switches.alternator = Boolean(v);
+        else if (name === 'controls/engines/engine/clutch') sys.switches.clutch = Boolean(v);
+        else if (name === 'controls/engines/engine/governor') sys.switches.governor = Boolean(v);
+        else if (name === 'controls/electric/key') sys.setKey(v);
+        else if (name === 'controls/engines/engine/mixture') sys.setMixture(v);
+        else if (name === 'sim/model/r44/controls/lighting/nav-lights') sys.switches.nav = Boolean(v);
+        else if (name === 'sim/model/r44/controls/lighting/beacon') sys.switches.strobe = sys.switches.beacon = Boolean(v);
+        else if (name === 'sim/multiplay/generic/bool[16]') sys.switches.land = Boolean(v);
+        else if (name === 'controls/lighting/instruments-norm') sys.setPanelLights(v);
+    }
+    // Poignées des portes (scripts Nasal de l'intérieur) : portes avant ouvertes ou fermées
+    if (nasal.length && file === 'Interior/interior.xml') {
+        heliCockpit.toggleDoors();
+        r44Sound.play(heliCockpit.doorsOpen ? 'door-open' : 'door-close', 1);
+    }
+    sys.dispatchEvent(new Event('change'));
+    if (changed.some((n) => n === 'controls/electric/key')) showViewLabel(`Clé : ${['OFF', 'R', 'L', 'BOTH', 'START'][sys.key]}`);
+    if (changed.some((n) => n === 'controls/engines/engine/governor')) showViewLabel(`Régulateur (GOVERNOR) : ${sys.switches.governor ? 'marche' : 'arrêt'}`);
+    r44Sound.play('click', 0.8);
+    return true;
+}
+
 // Action d'une commande : clic (step = côté cliqué : -1 / +1) ou molette (step = -1 / +1). fine : Maj (pas plus grand)
 function useControl(control, step, wheel = false, fine = false) {
     const { id } = control;
@@ -4244,6 +4417,7 @@ function useControl(control, step, wheel = false, fine = false) {
         sounds.click();
         return true;
     }
+    if (id === 'r44') return useR44Control(control.pick, wheel ? (step > 0 ? 3 : 4) : step > 0 ? 0 : 2);
     const trimStep = THREE.MathUtils.degToRad(fine ? 5 : 1);
     if (id === 'obs') vor.turnCourse(step * (fine ? 10 : 1));
     else if (id === 'yokes') {
@@ -4455,6 +4629,7 @@ function applySettings(values) {
         smoothLiftoff: values.smoothLiftoff,
         crosswindCorrection: values.crosswind ?? false,
     });
+    heliModel.assists.heliStability = values.heliStability ?? true;   // (R44 : son propre modèle de vol)
 }
 
 settings.buildForm(document.getElementById('reglages-liste'));
@@ -4638,6 +4813,33 @@ window.addEventListener('keyup', (event) => {
     if (event.code in mixtureKeys) mixtureKeys[event.code] = 0;
 });
 window.addEventListener('blur', () => { mixtureKeys.KeyU = mixtureKeys.KeyY = 0; panelLightsKey = 0; });
+// R44 au clavier (en plus des commandes du cockpit, à la souris) : Y / U ferment / ouvrent la poignée des gaz (voir
+// updateHeli) ; T embraye ou débraye le rotor (CLUTCH), Maj + T : MASTER BATT ; G : régulateur (GOVERNOR), Maj + G :
+// alternateur ; X tourne la clé vers START (démarreur), Maj + X en arrière (portes : clic sur leur poignée).
+// (W / X, trim des avions, et G / T, volets : sans objet sur le R44)
+window.addEventListener('keydown', (event) => {
+    if (aircraftType !== 'r44' || event.repeat || isTypingTarget(event.target) || choosingSpawn || controls.isCrashed()) return;
+    const sys = heliSystems;
+    let text = null;
+    if (event.code === 'KeyT' && event.shiftKey) {
+        sys.toggle('masterBat');
+        text = `MASTER BATT : ${sys.switches.masterBat ? 'marche' : 'arrêt'}`;
+    } else if (event.code === 'KeyT') {
+        sys.toggle('clutch');
+        text = sys.switches.clutch ? 'CLUTCH : embrayage (tension des courroies ~20 s)' : 'CLUTCH : débrayage';
+    } else if (event.code === 'KeyG' && event.shiftKey) {
+        sys.toggle('alternator');
+        text = `Alternateur (ALT) : ${sys.switches.alternator ? 'marche' : 'arrêt'}`;
+    } else if (event.code === 'KeyG') {
+        sys.toggle('governor');
+        text = sys.switches.governor ? 'Régulateur (GOVERNOR) : marche (actif au-dessus de 80 %)' : 'Régulateur (GOVERNOR) : arrêt';
+    } else if (event.code === 'KeyX') {
+        sys.turnMagnetos(event.shiftKey ? -1 : 1);
+        text = `Clé : ${['OFF', 'R', 'L', 'BOTH', 'START'][sys.key]}${sys.key === 4 ? ' (démarreur)' : ''}`;
+    } else return;
+    r44Sound.play('click', chaseView ? 0.4 : 0.8);
+    showViewLabel(text);
+});
 // Éclairage des instruments au clavier : L éclaircit, Maj + L assombrit, tant que la touche est tenue (course entière en ~2 s)
 const PANEL_LIGHTS_RATE = 0.5;
 let panelLightsKey = 0, panelLightsTravel = 0;
@@ -4857,7 +5059,7 @@ const weapons = new Weapons(scene, { terrain });
 const damage = new Damage();
 const ownSmoke = new SmokeTrail(scene);
 const weaponHud = new WeaponHud(document.getElementById('armement'), view);
-const OWN_SMOKE_SOURCE = { f15: new THREE.Vector3(0, 0.4, 8.5), c172: new THREE.Vector3(0, 0.3, -4) };
+const OWN_SMOKE_SOURCE = { f15: new THREE.Vector3(0, 0.4, 8.5), c172: new THREE.Vector3(0, 0.3, -4), r44: new THREE.Vector3(0, 0.2, 0) };
 const _smokeSource = new THREE.Vector3();
 let pointerNdc = null;   // souris sur la vue (coordonnées -1 -> 1) : la croix rouge la suit
 
@@ -5055,7 +5257,7 @@ weapons.addEventListener('explosion', ({ detail }) => {
     if (controls.isOnGround() || shieldLeft() > 0) return;   // au sol ou sous bouclier : intouchable (anti spawn-kill)
     if (!detail.own && !isEnemy(detail.ownerId)) return;   // (Wardog : missile d'un équipier, sans effet sur nous)
     const attacker = detail.own ? { id: null, name: 'votre propre missile' } : { id: detail.ownerId, name: detail.ownerName };
-    damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType === 'c172');
+    damage.applyBlast(aircraft.position.distanceTo(detail.position), attacker, aircraftType !== 'f15');
 });
 multiplayer.addEventListener('missile', ({ detail }) => {
     weapons.addRemoteMissile({
@@ -5067,7 +5269,7 @@ multiplayer.addEventListener('missile', ({ detail }) => {
 multiplayer.addEventListener('hit', ({ detail }) => {
     // Au sol : intouchable (pas d'avion abattu au départ, au parking ou en roulant) ; Wardog : pas de tir ami
     if (controls.isCrashed() || choosingSpawn || inHangar || controls.isOnGround() || shieldLeft() > 0 || !isEnemy(detail.id)) return;
-    damage.applyHits(detail.zones, { id: detail.id, name: detail.name }, aircraftType === 'c172');
+    damage.applyHits(detail.zones, { id: detail.id, name: detail.name }, aircraftType !== 'f15');
 });
 damage.addEventListener('hit', () => {
     weaponHud.flash = 1;
@@ -5779,7 +5981,8 @@ let initiationErrorShown = false;
 let lastTouchInset = '', lastLeftReserve = -1;
 // Avion choisi la dernière fois (hangar) : repris au lancement (le F-15 se charge pendant le menu principal)
 try {
-    if (localStorage.getItem('avion') === 'f15') setAircraftType('f15').catch(() => setAircraftType('c172'));
+    const savedType = localStorage.getItem('avion');
+    if (savedType === 'f15' || savedType === 'r44') setAircraftType(savedType).catch(() => setAircraftType('c172'));
 } catch { /* stockage indisponible */ }
 
 // Boucle d'images protégée : une erreur dans une image ne l'arrête plus. three.js ne redemande l'image suivante qu'après
@@ -5869,15 +6072,16 @@ function drawFrame(time) {
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
     controls.model.enginePower = systems.power;
     controls.model.flapsPowered = systems.flapsPowered;
-    const jet = aircraftType === 'f15';
+    const jet = aircraftType === 'f15', heli = aircraftType === 'r44', cessna = aircraftType === 'c172';
     if (jet) updateJet(delta);
+    if (heli) updateHeli(delta);
     // Au départ (choix du spawn, touche R), le moteur qui tourne déjà monte en ~1 s au lieu d'arriver d'un coup :
     // ses graves, relevés, faisaient un "boum" comme un coup de tonnerre
     spawnFade = choosingSpawn ? 0 : Math.min(1, spawnFade + delta / 1.2);
     // En cabine : plus faible et étouffé (passe-bas)
     engineSound.setCabin(!chaseView);
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
-    engineSound.update(jet ? 0 : systems.rpm, jet ? 0 : engineVolume, { running: !jet && systems.running, cranking: !jet && systems.cranking });
+    engineSound.update(cessna ? systems.rpm : 0, cessna ? engineVolume : 0, { running: cessna && systems.running, cranking: cessna && systems.cranking });
     jetSound.setCabin(!chaseView);
     jetSound.update({
         engines: jetSystems.engines, jfs: jet && jetSystems.jfsRunning, jfsLevel: jetSystems.jfs, speed: controls.getSpeed(),
@@ -5905,6 +6109,7 @@ function drawFrame(time) {
     camera.updateMatrixWorld();
     engineSound.setListener( camera );
     jetSound.setListener( camera );
+    r44Sound.setListener( camera );
     lap('réseau (envoi)');
     remotePlayers.engineVolume = chaseView ? 1 : 0.6; // moteurs des autres étouffés en cabine
     guard('autres joueurs', () => remotePlayers.update( delta, aircraft.position, camera, clock.elapsedTime ));
@@ -5942,13 +6147,14 @@ function drawFrame(time) {
     aircraftLights.update( camera, clock.elapsedTime );
     updateIls(delta);
     updateVor( delta );
-    if (!jet) controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps(), controls.getTrim() );
-    if (gear && !jet) {
+    if (cessna) controlSurfaces?.update( delta, controls.getInputs(), controls.getFlaps(), controls.getTrim() );
+    if (gear && cessna) {
         const inputs = controls.getInputs();
         gear.update( delta, inputs.yaw + inputs.roll * 0.5, controls.getSpeed(), controls.isOnGround() );   // même braquage que FlightModel
     }
     // Instruments et manches animés en cabine, et en vue extérieure quand on est assez près pour les voir
-    if (!chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
+    // (R44 : toujours, ses rotors tournent par cette animation)
+    if (heli || !chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
     updateFog();
     updateStallWarning(delta);
     lap('cabine, instruments');

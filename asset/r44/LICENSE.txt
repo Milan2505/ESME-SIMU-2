@@ -1,0 +1,14 @@
+Robinson R44 Raven II : modèle 3D, cockpit, animations et livrées
+Source : appareil « R44 » du dépôt FGAddon du simulateur de vol FlightGear (Emmanuel Baranger « helijah » et
+contributeurs), paquet https://mirrors.ibiblio.org/flightgear/ftp/Aircraft-2024/R44.zip
+(https://sourceforge.net/p/flightgear/fgaddon/HEAD/tree/trunk/Aircraft/R44/)
+Licence : GNU General Public License v2.0 (GPL-2.0), https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+Fichiers de ce dossier, convertis pour le simulateur par asset/blender/build_r44.py (Blender 4.2) :
+- r44.glb : extérieur (fuselage, rotors principal et anticouple, portes, immatriculation) ; sans le chariot et les
+  personnages de remorquage, les fumées du démarrage et les cônes de lumière ;
+- r44-cockpit.glb : intérieur (tableau de bord et instruments, manche cyclique, collectif, palonniers, sièges, pilote) ;
+- r44-anim.json : animations et zones cliquables des fichiers XML de FlightGear, traduites pour le jeu (FGAnimator.js) ;
+- liveries/*.png : huit livrées (Models/Liveries du paquet).
+
+Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.

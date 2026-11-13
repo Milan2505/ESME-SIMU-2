@@ -30,8 +30,20 @@ const F15_PROBES = [
     [6.2, 0.6, 4.6], [-6.2, 0.6, 4.6], [3.5, 0.6, 2.5], [-3.5, 0.6, 2.5],
     [0, 0.3, -9.7], [0, 1.6, -4], [0, 0.5, 9.2], [1.75, 3.4, 8.2], [-1.75, 3.4, 8.2], [4.1, 0.05, 9], [-4.1, 0.05, 9],
 ].map(([x, y, z]) => new Vector3(x, y, z));
-const SHAPES = { c172: SHAPE, f15: F15_SHAPE };
-const PROBE_SETS = { c172: PROBES, f15: F15_PROBES };
+// R44 (origine du modèle FlightGear, ~2,2 m derrière le mât, patins 1,64 m dessous) : disque du rotor (10 m), cabine,
+// poutre de queue, dérive et rotor anticouple
+const R44_SHAPE = [
+    [-3.6, 3.6, 1.45, 1.85, -5.8, 1.4],      // disque du rotor (carré inscrit, mince)
+    [-0.75, 0.75, -1.65, 0.9, -4.7, -0.9],   // cabine et patins
+    [-0.3, 0.3, -0.5, 0.6, -0.9, 3.4],       // poutre de queue
+    [-0.4, 0.4, -0.6, 1.2, 3.4, 4.3],        // dérive, rotor anticouple
+];
+const R44_PROBES = [
+    [5.0, 1.65, -2.2], [-5.0, 1.65, -2.2], [0, 1.65, -7.2], [0, 1.65, 2.8],   // bouts de pales
+    [0, -0.6, -4.6], [0.7, -1.6, -3.6], [-0.7, -1.6, -3.6], [0, 0.4, 4.1], [-0.25, 0.4, 3.6],
+].map(([x, y, z]) => new Vector3(x, y, z));
+const SHAPES = { c172: SHAPE, f15: F15_SHAPE, r44: R44_SHAPE };
+const PROBE_SETS = { c172: PROBES, f15: F15_PROBES, r44: R44_PROBES };
 const RANGE = 26;   // m entre les deux avions : au-delà, pas de contact possible (F-15 : 19,5 m de long)
 
 const _own = new Matrix4();

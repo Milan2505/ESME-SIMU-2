@@ -4,7 +4,7 @@ import { AdditiveBlending, DoubleSide, Mesh, ShaderMaterial, SphereGeometry } fr
 // ses bords (comme une bulle de savon), parcourue de lignes qui défilent. Elle s'efface dans les dernières secondes.
 // Un seul maillage par avion, ajouté à son groupe ; caché quand le bouclier est coupé.
 
-const RADIUS = { f15: 13, c172: 8 };   // m (F-15 : ~19 m de long ; Cessna : ~8 m, 11 m d'envergure)
+const RADIUS = { f15: 13, c172: 8, r44: 7.5 };   // m (F-15 : ~19 m de long ; Cessna : ~8 m, 11 m d'envergure ; R44 : rotor de 10 m)
 
 const geometry = new SphereGeometry(1, 32, 20);
 const material = new ShaderMaterial({
