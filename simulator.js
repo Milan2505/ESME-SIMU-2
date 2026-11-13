@@ -3287,7 +3287,7 @@ function showMapPreview(name) {
         }, 400);
         return;
     }
-    const src = `asset/menu/carte-${name}.mp4`;
+    const src = `asset/menu/carte-${name}${isTablet() ? "-720" : ""}.mp4`;   // (1080p ; tablettes et téléphones : 720p)
     mapPreview.hidden = false;
     if (mapPreview.getAttribute('src') !== src) {
         mapPreview.poster = `asset/menu/carte-${name}.jpg`;   // (affichée le temps que la vidéo arrive)
