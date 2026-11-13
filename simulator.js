@@ -1952,6 +1952,9 @@ multiDialog.addEventListener('close', () => {
 });
 // Le mode n'est connu qu'en recevant l'état du créateur : la partie rejointe se révèle Wardog -> choix de l'équipe
 multiplayer.addEventListener('mode', ({ detail }) => {
+    if (detail.mode === 'wardog' && !multiplayer.team && resumeState?.equipe && resumeState.partie === multiplayer.code) {
+        multiplayer.setTeam(resumeState.equipe);   // (retour après une mise à jour : même équipe, si elle a encore de la place)
+    }
     if (detail.mode === 'wardog' && !multiplayer.team) {
         multiStatut.classList.remove('erreur');
         multiStatut.textContent = 'Partie Wardog : choisissez votre équipe';
@@ -2001,6 +2004,37 @@ multiplayer.addEventListener('joined', ({ detail }) => {
     // (vol libre : on entre tout de suite, au choix de l'aérodrome)
     setTimeout(() => { if (multiDialog.open && multiplayer.code === detail.code && inMenu) enterMultiplayerGame(); }, 1200);
 });
+
+// Retour dans la partie après un rechargement pour mise à jour (voir installUpdate) : rejointe d'office, sans
+// clic. Le créateur la recrée avec le même code et le même mode (les autres ne voient qu'une courte absence) ; en
+// Wardog, l'équipe d'avant est reprise et l'on arrive directement à son hangar ; le score d'avant est gardé
+let resumeState = null;
+try {
+    resumeState = JSON.parse(sessionStorage.getItem('esme-mise-a-jour') ?? 'null');
+    sessionStorage.removeItem('esme-mise-a-jour');
+} catch { /* stockage indisponible */ }
+if (resumeState && !(Date.now() - resumeState.le < 5 * 60000)) resumeState = null;   // (vieux de plus de 5 min : ignoré)
+function resumeAfterUpdate() {
+    const saved = resumeState;
+    if (!saved?.partie || new URLSearchParams(location.search).get('partie')) return;
+    multiplayer.addEventListener('joined', ({ detail }) => {
+        if (detail.code !== saved.partie) return;
+        resumeState = null;   // (équipe reprise une seule fois : plus tard, on la choisit comme d'habitude)
+        multiplayer.score = { kills: saved.score?.kills | 0, deaths: saved.score?.deaths | 0 };
+        // (créateur : la fenêtre ne se ferme pas d'elle-même, voir l'événement 'joined' plus haut)
+        if (detail.host) {
+            if (multiplayer.mode === 'wardog' && saved.equipe) multiplayer.setTeam(saved.equipe);
+            enterMultiplayerGame();
+        }
+    }, { once: true });
+    openMultiDialog();
+    multiStatut.classList.remove('erreur');
+    multiStatut.textContent = `Mise à jour installée : retour dans la partie ${saved.partie}…`;
+    if (saved.hote) {
+        multiplayer.setListed(saved.listee !== false);
+        multiplayer.create(pseudo(), saved.mode, saved.troll, saved.partie);
+    } else multiplayer.join(saved.partie, pseudo());
+}
 
 const multiPartage = document.getElementById('multi-partage');
 const multiCodePartie = document.getElementById('multi-code-partie');
@@ -2629,6 +2663,7 @@ function checkVersion() {
         .then((text) => {
             const online = Number(text.match(/VERSION\s*=\s*(\d+)/)?.[1]);
             if (!(online > VERSION)) return;
+            pendingVersion = online;   // (installée au prochain moment calme, voir updateWhenCalm)
             versionLabel.replaceChildren(`Version 0.${VERSION} · `, Object.assign(document.createElement('a'), {
                 href: '#', textContent: `version 0.${online} disponible, recharger`,
                 onclick: (event) => { event.preventDefault(); location.reload(); },
@@ -2637,6 +2672,50 @@ function checkVersion() {
         })
         .catch(() => {});   // hors ligne : on garde la version affichée
 }
+
+// --- Mises à jour en cours de partie, presque sans rien faire -----------------------------------------------------
+// Le code d'une page ouverte ne peut pas être remplacé à chaud : la page se recharge. La version en ligne est relue
+// toutes les minutes ; plus récente, la page se recharge d'elle-même au prochain moment calme (menu ou hangar sans
+// fenêtre ouverte, choix de l'aérodrome, ou juste après avoir été abattu ou s'être écrasé), jamais en plein vol. Un
+// bandeau discret le signale entre-temps (« Installer maintenant » pour ne pas attendre). En partie, on y revient
+// tout seul après le rechargement : même code, même équipe, même score (voir resumeAfterUpdate)
+const UPDATE_CHECK_EVERY = 60000;   // ms
+const UPDATE_KEY = 'esme-mise-a-jour';
+let pendingVersion = 0;
+const updateBanner = document.getElementById('maj');
+setInterval(() => { if (!document.hidden) checkVersion(); }, UPDATE_CHECK_EVERY);
+function calmMoment() {
+    if (document.querySelector('dialog[open]')) return false;          // (fenêtre ouverte : saisie en cours, réglages…)
+    if (!document.getElementById('troll')?.hidden) return false;       // (Wardog troll : on laisse la musique)
+    return inMenu || inHangar || choosingSpawn || controls.isCrashed();
+}
+// Rechargement vers la nouvelle version ; false : déjà tenté pour cette version (page encore en cache chez le
+// navigateur), pas de boucle de rechargements
+function installUpdate() {
+    let tried = 0;
+    try {
+        tried = Number(sessionStorage.getItem(`${UPDATE_KEY}-tentee`)) || 0;
+        sessionStorage.setItem(`${UPDATE_KEY}-tentee`, String(pendingVersion));
+        if (multiplayer.code) {
+            sessionStorage.setItem(UPDATE_KEY, JSON.stringify({ partie: multiplayer.code, hote: multiplayer.isHost,
+                mode: multiplayer.mode, troll: multiplayer.troll, equipe: multiplayer.team, score: multiplayer.score,
+                listee: multiplayer.listed, le: Date.now() }));
+        }
+    } catch { /* stockage indisponible : rechargement simple */ }
+    if (tried === pendingVersion) return false;
+    location.replace(location.pathname);
+    return true;
+}
+function updateWhenCalm() {
+    updateBanner.hidden = !pendingVersion;
+    if (!pendingVersion) return;
+    updateBanner.querySelector('span').textContent = `Mise à jour 0.${pendingVersion} prête : installée à la prochaine pause`;
+    if (calmMoment()) installUpdate();
+}
+setInterval(updateWhenCalm, 2000);
+updateBanner.querySelector('button').addEventListener('click', () => {
+    if (!installUpdate()) location.reload();   // (clic : on recharge quoi qu'il arrive)
+});
 function closeMainMenu() {
     if (!inMenu) return;
     inMenu = false;
@@ -3456,6 +3535,7 @@ if (invitation) {
     multiplayer.addEventListener('joined', () => { invitationButton.textContent = 'Partie rejointe ✓'; }, { once: true });
     multiDialog.addEventListener('close', endInvitation, { once: true });
 }
+resumeAfterUpdate();
 updateOnlineList();
 
 // Masse et centrage (menu principal) : à la fermeture de la fenêtre, le chargement est appliqué à l'avion. Le carburant

@@ -4905,3 +4905,34 @@ html.telephone .tb-etat {
   from { background: rgba(10, 0, 30, 0.85); }
   to { background: rgba(60, 0, 80, 0.85); }
 }
+
+/* Mise à jour prête : petit bandeau discret en bas à gauche, installée d'elle-même au prochain moment calme */
+#maj {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+  padding: 6px 8px 6px 12px;
+  font-size: 12px;
+  color: #e8eef4;
+  background: rgba(10, 20, 34, 0.82);
+  border: 1px solid rgba(255, 207, 90, 0.6);
+  border-radius: 6px;
+}
+#maj[hidden] {
+  display: none;
+}
+#maj button {
+  padding: 3px 8px;
+  font: inherit;
+  font-weight: bold;
+  color: #1a1200;
+  background: #ffcf5a;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
