@@ -287,6 +287,7 @@ let soloCarrierRules = 'arcade';
 try { soloCarrierRules = localStorage.getItem('pa-regles') === 'realiste' ? 'realiste' : 'arcade'; } catch { /* stockage indisponible */ }
 multiplayer.carrierRules = soloCarrierRules;
 const carrierRules = () => (multiplayer.code ? multiplayer.carrierRules : soloCarrierRules);
+let mapPreviewCovers = false;   // (choix de la carte : vidéo du fond affichée, scène 3D non dessinée, voir showMapPreview)
 const remotePlayers = new RemotePlayers(scene, multiplayer, { engineSound, jetSound, heliSound: r44Sound,
     altitudeOffset: { c172: AIRCRAFT_PROFILES.c172.wheelHeight, f15: AIRCRAFT_PROFILES.f15.wheelHeight, r44: AIRCRAFT_PROFILES.r44.wheelHeight },
     registrationFor: (id) => registrationFor(id) });
@@ -3137,7 +3138,12 @@ function openMainMenu() {
     hangarPanel.hidden = true;
     airportPanel.hidden = true;
     document.getElementById('carte-panneau').hidden = true;
-    document.getElementById('carte-apercu').hidden = true;
+    // (vidéo du choix de la carte : retirée, et la scène de nouveau dessinée)
+    mapPreviewCovers = false;
+    const preview = document.getElementById('carte-apercu');
+    preview.classList.remove('visible');
+    preview.pause();
+    preview.hidden = true;
     spawnDialog.hidden = true;
     spawnMarkers.visible = false;
     choosingSpawn = inMenu = true;
@@ -3261,31 +3267,36 @@ const MAP_CHOICES = {
     mer: { label: 'Mer · porte-avions', detail: 'Deux porte-avions en pleine mer : catapulte et brins d’arrêt' },
 };
 let mapChoiceFor = 'solo', mapChoice = MAP;
-// Fond : la carte chargée se voit en direct (survol du menu) ; une autre carte n'est pas chargée (il faudrait recharger
-// la page), on montre son image (asset/menu/carte-*.jpg, prise dans ce même survol), en fondu
+// Fond : vidéo en boucle du survol de la carte choisie (asset/menu/carte-*.mp4 : 12 s à 24 images/s, enregistrées dans
+// le jeu image par image, temps du jeu avancé de 1/24 s à chaque image, fin fondue dans le début pour une boucle sans
+// saut ; carte-*.jpg : première image), pour les trois cartes, celle chargée comprise. Une vidéo ne coûte
+// presque rien à afficher ; tant qu'elle couvre l'écran, la scène 3D derrière n'est plus dessinée (mapPreviewCovers,
+// voir drawFrame) : le menu est plus fluide qu'avec le survol en direct. Une autre carte que celle chargée ne pourrait de
+// toute façon pas être montrée en direct (il faudrait recharger la page)
 const mapPreview = document.getElementById('carte-apercu');
 let mapPreviewTimer = 0;
 function showMapPreview(name) {
     clearTimeout(mapPreviewTimer);
-    if (name === null || name === MAP) {
-        // (fondu de sortie, puis retiré ; sans attendre « transitionend », qui ne vient pas toujours)
+    if (name === null) {
+        // (scène redessinée tout de suite, sous la vidéo qui s'efface ; puis vidéo arrêtée et retirée)
+        mapPreviewCovers = false;
         mapPreview.classList.remove('visible');
-        mapPreviewTimer = setTimeout(() => { mapPreview.hidden = true; }, 400);
+        mapPreviewTimer = setTimeout(() => {
+            mapPreview.pause();
+            mapPreview.hidden = true;
+        }, 400);
         return;
     }
-    const src = `asset/menu/carte-${name}.jpg`;
-    if (mapPreview.getAttribute('src') === src && !mapPreview.hidden) {
-        mapPreview.classList.add('visible');
-        return;
-    }
-    mapPreview.classList.remove('visible');
+    const src = `asset/menu/carte-${name}.mp4`;
     mapPreview.hidden = false;
-    mapPreview.onload = () => {
-        void mapPreview.offsetWidth;   // (état sans « visible » appliqué : le fondu d'entrée part bien de 0)
-        mapPreview.classList.add('visible');
-    };
-    mapPreview.setAttribute('src', src);
-    if (mapPreview.complete && mapPreview.naturalWidth) mapPreview.onload();
+    if (mapPreview.getAttribute('src') !== src) {
+        mapPreview.poster = `asset/menu/carte-${name}.jpg`;   // (affichée le temps que la vidéo arrive)
+        mapPreview.setAttribute('src', src);
+    }
+    mapPreview.play().catch(() => { /* lecture refusée (économie d'énergie) : l'image fixe reste */ });
+    void mapPreview.offsetWidth;   // (fondu d'entrée depuis 0)
+    mapPreview.classList.add('visible');
+    mapPreviewTimer = setTimeout(() => { mapPreviewCovers = true; }, 400);
 }
 function renderMapChoice() {
     showMapPreview(mapChoicePanel.hidden ? null : mapChoice);
@@ -6388,7 +6399,8 @@ function drawFrame(time) {
     // (en vol seulement ; au menu, au hangar et au choix du départ, l'image attend la fin de la compilation comme avant :
     // dessiner plus tôt forçait toute la compilation d'un coup, la page figeait jusqu'à 3,5 s pendant le chargement)
     const renderPause = inMenu || inHangar || choosingSpawn ? 8000 : MAX_RENDER_PAUSE;
-    if (!shaderWarmup || performance.now() - shaderWarmupStart > renderPause) graphics.render();
+    // (choix de la carte : la vidéo du fond couvre l'écran, rien à dessiner derrière)
+    if ((!shaderWarmup || performance.now() - shaderWarmupStart > renderPause) && !(mapPreviewCovers && !mapChoicePanel.hidden)) graphics.render();
     lap('rendu');
     freezeFrameEnd();
     updatePerf(performance.now() - frameStart);

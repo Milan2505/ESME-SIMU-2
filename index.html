@@ -397,8 +397,8 @@
 
 	<!-- Choix de la carte (Vol libre, et Multijoueur avant de créer une partie) : Campagne, Ville ou Mer ; une autre carte
 	     que celle chargée recharge la page, puis la suite reprend d'elle-même (voir simulator.js : openMapChoice) -->
-	<!-- Aperçu de la carte choisie (autre que celle chargée, qu'on voit en direct derrière) : image du survol du menu -->
-	<img id="carte-apercu" alt="" hidden>
+	<!-- Aperçu animé de la carte choisie : vidéo en boucle du survol du menu (asset/menu/carte-*.mp4) -->
+	<video id="carte-apercu" muted loop playsinline preload="none" disablepictureinpicture hidden></video>
 	<div id="carte-panneau" hidden>
 		<h3 id="carte-titre">Choisissez la carte</h3>
 		<p class="depart-aide" id="carte-aide"></p>
