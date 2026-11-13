@@ -5135,7 +5135,7 @@ let pointerNdc = null;   // souris sur la vue (coordonnées -1 -> 1) : la croix 
 // l'avion ne peut être ni touché ni verrouillé, et ne peut pas tirer. Bulle bleue visible de tous (Shield.js).
 // Il faut être resté SHIELD_GROUND s au sol (rebond à l'atterrissage, touch-and-go : pas de nouveau bouclier) ; un
 // départ, même en vol, et l'arrivée dans une partie en vol en donnent un.
-const SHIELD_TIME = 20, SHIELD_GROUND = 3;   // s
+const SHIELD_TIME = 10, SHIELD_GROUND = 3;   // s
 let shieldUntil = 0, shieldGroundTime = SHIELD_GROUND;
 const ownShield = new Shield(aircraftType);
 aircraft.add(ownShield.mesh);
