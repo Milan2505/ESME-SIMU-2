@@ -200,6 +200,7 @@ class RemotePlayers extends EventTarget {
                 altitude: (plane.group.position.y - this._altitudeOffset(state)) / FT,
                 crashed: state.crashed,
                 offline: this.isOffline(state),
+                shielded: this.shieldLeft(state) > 0,
                 speaking: this.speaking.has(id),
             });
         }
@@ -213,13 +214,18 @@ class RemotePlayers extends EventTarget {
         for (const [id, plane] of this.planes) {
             const state = this.multiplayer.players.get(id);
             if (!state || state.crashed || !plane.group.visible || this.isOffline(state)) continue;
-            // Sous bouclier (juste après son décollage) : ni cible, ni verrouillable
-            if (state.shield - (performance.now() - state.receivedAt) / 1000 > 0) continue;
+            // Sous bouclier (juste après son décollage) : ni visé (pas de cadre), ni verrouillable, ni touché par nos obus
+            if (this.shieldLeft(state) > 0) continue;
             // afterburner : postcombustion (0 -> 1 ; Cessna : 0), chaleur suivie par l'autodirecteur de l'AIM-9
             result.push({ id, name: state.name, type: plane.type, group: plane.group, firing: state.firing, afterburner: state.jet?.ab ?? 0,
                 velocity: (plane.velocity ??= new Vector3()).fromArray(state.v ?? [0, 0, 0]) });
         }
         return result;
+    }
+
+    // Secondes de bouclier restantes d'un joueur (envoyées par lui, décomptées depuis la réception) ; 0 : aucun
+    shieldLeft(state) {
+        return state && !state.crashed ? Math.max(0, (state.shield ?? 0) - (performance.now() - state.receivedAt) / 1000) : 0;
     }
 
     // Joueur qui n'est plus sur la page du simulateur, ou dont on n'a plus de nouvelles
@@ -329,7 +335,7 @@ class RemotePlayers extends EventTarget {
                 plane.trail.update(delta, _smokePoint, smoke, state.burning && !state.crashed, this._velocity);
             }
             // Bouclier après le décollage : secondes restantes envoyées par le joueur, décomptées depuis la réception
-            const shield = state.crashed || offline ? 0 : state.shield - (now - state.receivedAt) / 1000;
+            const shield = offline ? 0 : this.shieldLeft(state);
             if (shield > 0 && !plane.shield) {
                 plane.shield = new Shield(plane.type);
                 group.add(plane.shield.mesh);

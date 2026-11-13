@@ -4033,7 +4033,8 @@ function cockpitState() {
             // Écrans : autres avions de la partie (radar, alerte radar), radars des aérodromes
             radar: {
                 position: aircraft.position,
-                targets: remotePlayers.list().filter((p) => !p.crashed && !p.offline),
+                // (avion sous bouclier : absent du radar, comme du viseur)
+                targets: remotePlayers.list().filter((p) => !p.crashed && !p.offline && !p.shielded),
                 sites: airport.list.map((field) => ({ x: field.center.x, z: field.center.z })),
             },
             fuelFlowKgH: jetSystems.engines.map((e) => (e.running ? jetSystems.fuelFlow / Math.max(1, jetSystems.engines.filter((x) => x.running).length) : 0)),
@@ -5011,7 +5012,7 @@ multiplayer.addEventListener('flares', ({ detail }) => {
 multiplayer.addEventListener('aamissile', ({ detail }) => {
     weapons.addRemoteAA({ from: new THREE.Vector3().fromArray(detail.from), velocity: new THREE.Vector3().fromArray(detail.velocity),
         targetId: detail.targetId, missileId: detail.missileId }, detail.id, detail.name, camera.position);
-    if (detail.atMe && !controls.isCrashed()) {
+    if (detail.atMe && !controls.isCrashed() && shieldLeft() === 0) {
         // (alerte de tir : tonalité du détecteur radar du vrai F-15, voir WeaponSounds.rwr ; plus de voix « Missile »)
         weaponHud.message(`MISSILE EN APPROCHE ! (${detail.name}) ← : LEURRES`, true);
     }
@@ -5510,7 +5511,8 @@ function updateCombat(frameDelta) {
     lastCombatTargets = targets;
     // Alerte radar : un autre joueur nous accroche ou nous a verrouillés
     let threat = { state: 'off', name: '' };
-    if (multiplayer.code && !controls.isCrashed() && !choosingSpawn) {
+    // (sous bouclier : personne ne peut nous accrocher, pas d'alerte même si un joueur d'une ancienne version le fait)
+    if (multiplayer.code && !controls.isCrashed() && !choosingSpawn && shieldLeft() === 0) {
         for (const player of multiplayer.players.values()) {
             if (player.lockOn !== multiplayer.id || player.crashed) continue;
             if (player.lockOnLocked) threat = { state: 'lock', name: player.name };
