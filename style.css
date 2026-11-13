@@ -4897,6 +4897,10 @@ html.telephone .tb-etat {
   color: #fff;
   text-shadow: 0 0 18px #e07aff;
 }
+#troll small {
+  font-size: 14px;
+  color: #ffd27a;
+}
 @keyframes troll-pulse {
   from { background: rgba(10, 0, 30, 0.85); }
   to { background: rgba(60, 0, 80, 0.85); }
