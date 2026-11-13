@@ -416,15 +416,39 @@ class Terrain {
         return mesh;
     }
 
-    // Mer : un grand plan d'eau profonde (60 km de côté, au-delà du brouillard), opaque (aucun fond dessous à montrer)
+    // Mer : un grand plan d'eau profonde (60 km de côté, au-delà du brouillard), opaque (aucun fond dessous à montrer).
+    // Découpé en grille : mailles de 150 m sur la zone de jeu (±11 km), 1 km au-delà. Avant, deux triangles de 60 km :
+    // la position interpolée sur ces triangles géants (vagues, reflet, dFdx) manquait de précision et la mer
+    // tremblait quand la caméra bougeait
     _createSea() {
-        const half = 30000;
-        const positions = [-half, 0, -half, half, 0, -half, -half, 0, half, half, 0, half];
+        const half = 30000, near = 11000;
+        const axis = [];
+        for (let c = -half; c < half; c += Math.abs(c) < near ? 150 : 1000) axis.push(c);
+        axis.push(half);
+        const n = axis.length;
+        const positions = new Float32Array(n * n * 3), normals = new Float32Array(n * n * 3);
+        for (let j = 0; j < n; j++) {
+            for (let i = 0; i < n; i++) {
+                const k = (j * n + i) * 3;
+                positions[k] = axis[i];
+                positions[k + 2] = axis[j];
+                normals[k + 1] = 1;
+            }
+        }
+        const index = new Uint32Array((n - 1) * (n - 1) * 6);
+        let q = 0;
+        for (let j = 0; j < n - 1; j++) {
+            for (let i = 0; i < n - 1; i++) {
+                const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+                index.set([a, c, b, b, c, d], q);
+                q += 6;
+            }
+        }
         const geometry = new BufferGeometry();
-        geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
-        geometry.setAttribute('aDepth', new BufferAttribute(new Float32Array(4).fill(this.ocean.depth), 1));
-        geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
-        geometry.setIndex([0, 2, 1, 1, 2, 3]);
+        geometry.setAttribute('position', new BufferAttribute(positions, 3));
+        geometry.setAttribute('aDepth', new BufferAttribute(new Float32Array(n * n).fill(this.ocean.depth), 1));
+        geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+        geometry.setIndex(new BufferAttribute(index, 1));
         geometry.computeBoundingSphere();
         const material = this._waterMaterial();
         material.color.set(0x123a52);
