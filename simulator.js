@@ -2947,12 +2947,16 @@ function openMainMenu() {
 const versionLabel = document.getElementById('mp-version');
 const [vy, vm, vd] = VERSION_DATE.split('-');
 versionLabel.textContent = `Version 0.${VERSION} (${vd}/${vm}/${vy})`;
+// Relue à son adresse ordinaire, celle que le rechargement utilisera (revalidée auprès du serveur : no-cache). Avant,
+// avec ?t=… (adresse toujours nouvelle), le serveur de GitHub Pages renvoyait la toute dernière version, alors que le
+// rechargement recevait encore pendant ~10 min sa copie gardée de l'ancien code : la page rechargée se croyait encore
+// en retard et voulait réinstaller la mise à jour en boucle (en partie : quitter et rejoindre à chaque fois)
 function checkVersion() {
-    fetch(`js/Version.js?t=${Date.now()}`, { cache: 'no-store' })
+    fetch('js/Version.js', { cache: 'no-cache' })
         .then((response) => (response.ok ? response.text() : ''))
         .then((text) => {
             const online = Number(text.match(/VERSION\s*=\s*(\d+)/)?.[1]);
-            if (!(online > VERSION)) return;
+            if (!(online > VERSION) || triedRecently(online)) return;   // (déjà tentée : rien avant UPDATE_RETRY)
             pendingVersion = online;   // (installée au prochain moment calme, voir updateWhenCalm)
             versionLabel.replaceChildren(`Version 0.${VERSION} · `, Object.assign(document.createElement('a'), {
                 href: '#', textContent: `version 0.${online} disponible, recharger`,
@@ -2979,20 +2983,32 @@ function calmMoment() {
     if (!document.getElementById('troll')?.hidden) return false;       // (Wardog troll : on laisse la musique)
     return inMenu || inHangar || choosingSpawn || controls.isCrashed();
 }
-// Rechargement vers la nouvelle version ; false : déjà tenté pour cette version (page encore en cache chez le
-// navigateur), pas de boucle de rechargements
-function installUpdate() {
-    let tried = 0;
+// Rechargement vers la nouvelle version ; false : déjà tenté pour cette version il y a moins de 5 min (ancien code
+// encore servi), pas de boucle de rechargements. force : clic sur « Installer maintenant », on recharge quand même
+const UPDATE_RETRY = 5 * 60000;   // ms
+function triedRecently(version) {
     try {
-        tried = Number(sessionStorage.getItem(`${UPDATE_KEY}-tentee`)) || 0;
-        sessionStorage.setItem(`${UPDATE_KEY}-tentee`, String(pendingVersion));
+        const tried = JSON.parse(sessionStorage.getItem(`${UPDATE_KEY}-tentee`) ?? 'null');
+        return tried?.v === version && Date.now() - tried.le < UPDATE_RETRY;
+    } catch {
+        return false;
+    }
+}
+function installUpdate(force = false) {
+    try {
+        if (!force && triedRecently(pendingVersion)) {
+            pendingVersion = 0;   // (bandeau retiré ; la version en ligne sera relue après UPDATE_RETRY)
+            return false;
+        }
+        sessionStorage.setItem(`${UPDATE_KEY}-tentee`, JSON.stringify({ v: pendingVersion, le: Date.now() }));
         if (multiplayer.code) {
             sessionStorage.setItem(UPDATE_KEY, JSON.stringify({ partie: multiplayer.code, hote: multiplayer.isHost,
                 mode: multiplayer.mode, troll: multiplayer.troll, equipe: multiplayer.team, score: multiplayer.score,
                 listee: multiplayer.listed, le: Date.now() }));
         }
-    } catch { /* stockage indisponible : rechargement simple */ }
-    if (tried === pendingVersion) return false;
+    } catch {
+        if (!force) return false;   // (stockage indisponible : pas de garde-fou contre la boucle, seulement sur clic)
+    }
     location.replace(location.pathname);
     return true;
 }
@@ -3000,11 +3016,11 @@ function updateWhenCalm() {
     updateBanner.hidden = !pendingVersion;
     if (!pendingVersion) return;
     updateBanner.querySelector('span').textContent = `Mise à jour 0.${pendingVersion} prête : installée à la prochaine pause`;
-    if (calmMoment()) installUpdate();
+    if (calmMoment() && !installUpdate()) updateBanner.hidden = true;   // (déjà tentée : on réessaiera plus tard)
 }
 setInterval(updateWhenCalm, 2000);
 updateBanner.querySelector('button').addEventListener('click', () => {
-    if (!installUpdate()) location.reload();   // (clic : on recharge quoi qu'il arrive)
+    installUpdate(true);   // (clic : on recharge quoi qu'il arrive)
 });
 function closeMainMenu() {
     if (!inMenu) return;
