@@ -64,6 +64,7 @@ const R44_SKID_HEIGHT = 1.64;     // origine du modèle au-dessus du sol, appare
 const R44_LIGHT_LAYOUT = {
     scale: 1,
     beaconLight: [0, 0.6, 2.16],
+    beam: [-0.065, -0.85, -4.6], taxiBeam: [0.065, -0.85, -4.6],   // départ des faisceaux des phares (nez)
     // Positions relevées sur le modèle : verres rouge et vert sous la cabine (m0__redlight / m0__greenlight), feu
     // anticollision sur le cône arrière (m0__verrelampe, à 0,42 m), feu blanc au bout de la poutre (3,68 m)
     lights: [
