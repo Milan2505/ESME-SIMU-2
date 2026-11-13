@@ -107,7 +107,7 @@ class FlightHud {
         const flaps = d.flapMax > 0 ? d.flaps / d.flapMax : 0;
         const left = [
             [62, 210, (x, y, w, h) => this._speedTape(x, y, w, h, d.speed * KT, d.tas * KT), 'AIRSPEED'],
-            [90, 110, (x, y, w, h) => (d.n2 === undefined ? this._rpm(x, y, w, h, d.rpm) : this._n2(x, y, w, h, d.n2, d.ab)), 'ENGINE'],
+            [90, 110, (x, y, w, h) => (d.n2 === undefined ? this._rpm(x, y, w, h, d.rpm) : this._n2(x, y, w, h, d.n2, d.ab, d.throttle)), 'ENGINE'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
                 [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]]), 'FUEL'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'AOA', aoa, `${Math.round(d.alpha)}°`,
@@ -408,7 +408,10 @@ class FlightHud {
     }
 
     // Réacteurs (F-15) : régime N2 (%) des deux réacteurs, postcombustion
-    _n2(x, y, w, h, n2, ab = 0) {
+    // Aiguilles : régime N2 des deux réacteurs (65 % au ralenti, comme un vrai F100) ; case du bas : position de la
+    // manette des gaz (0 % = ralenti). Avant, la case montrait le N2 : « 65 » manette tout en bas, comme si les gaz
+    // ne descendaient pas sous 65 %
+    _n2(x, y, w, h, n2, ab = 0, throttle = null) {
         const top = this._box(x, y, w, h, 'ENGINES');
         const { ctx } = this;
         const cx = x + w / 2, cy = top + 46, r = 32;
@@ -436,8 +439,10 @@ class FlightHud {
             ctx.lineTo(cx + Math.cos(a) * (r - 4 - i * 6), cy + Math.sin(a) * (r - 4 - i * 6));
             ctx.stroke();
         });
-        this._text(ab > 0.05 ? `AB ${Math.round(ab * 5 + 0.49)}` : 'N2 %', cx, cy + 14, 9, ab > 0.05 ? COLORS.red : COLORS.dim, 'center', 'bold');
-        this._valueBox(x + 8, y + h - 24, w - 16, 20, n2.map((v) => Math.round(v)).join(' '), COLORS.text, 13);
+        const n2Text = `N2 ${n2.map((v) => Math.round(v)).join(' ')}`;
+        this._text(ab > 0.05 ? `AB ${Math.round(ab * 5 + 0.49)}` : n2Text, cx, cy + 14, 9, ab > 0.05 ? COLORS.red : COLORS.dim, 'center', 'bold');
+        const value = throttle === null ? n2.map((v) => Math.round(v)).join(' ') : `GAZ ${Math.round(throttle * 100)} %`;
+        this._valueBox(x + 8, y + h - 24, w - 16, 20, value, COLORS.text, 13);
     }
 
     // Jauge verticale : value 0 -> 1 (remplie depuis le bas, ou curseur seul) ; zones : [[de, à, couleur]]

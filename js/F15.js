@@ -110,11 +110,13 @@ const F15 = {
 	waterSteering: 0.2,
 
 	// Limites au contact du sol
-	crashSink: 4.5,                   // m/s (~900 ft/min : train de chasseur, pas de porte-avions)
-	crashBank: deg( 12 ),
-	crashNose: deg( - 4 ),
-	crashTail: deg( 15 ),
-	minSlopeNormal: 0.95,
+	// (moins sévères qu'avant : 900 ft/min, 12° d'inclinaison et 4° de nez bas faisaient exploser l'avion sur un
+	// atterrissage simplement ferme, plus difficile que le Cessna ; un train de chasseur encaisse bien plus)
+	crashSink: 7.5,                   // m/s (~1500 ft/min)
+	crashBank: deg( 20 ),
+	crashNose: deg( - 8 ),
+	crashTail: deg( 16 ),            // (tuyères sur la piste : maxGroundPitch 12°)
+	minSlopeNormal: 0.9,
 	obstacleMargin: 6.5,
 };
 
