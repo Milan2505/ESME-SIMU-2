@@ -4837,16 +4837,18 @@ html.telephone .tb-etat {
 /* Wardog troll : petit point presque invisible après « Mode de jeu » qui révèle la carte du mode */
 #multi-dialog #troll-reveal,
 #multi-dialog #troll-reveal:hover {
-  margin: 0 0 0 4px;
-  padding: 0 4px;
+  margin: 0 0 0 8px;
+  padding: 0 8px;
   min-width: 0;
-  font-size: inherit;
-  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  vertical-align: middle;
+  color: #e07aff;   /* (pour le moment bien visible ; plus tard : couleur du titre et opacité 0.25 pour le cacher) */
   background: none;
   border: none;
   box-shadow: none;
-  opacity: 0.25;
-  cursor: default;
+  opacity: 1;
+  cursor: pointer;
 }
 #multi-dialog #multi-modes button[data-mode="wardog-troll"] {
   grid-column: 1 / -1;
