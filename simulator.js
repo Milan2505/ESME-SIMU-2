@@ -453,14 +453,16 @@ function launchOffDeck(model, cat, speed) {
     model.velocity.y = 2;
     model.airspeed = speed;
     model._liftoffBlend = model.assists.smoothLiftoff ? 1 : 0;
+    model._liftoffEase = 0;   // (nez et trajectoire arrondis : voir FlightModel, LIFTOFF_EASE_TIME)
     model._weathervaneBlend = 1;
     model._angularVelocity.set(0, 0, 0);
     model._pathAngle = null;
     model._alphaCommand = null;
     model._release = 0;
-    // Assiette refaite proprement : dans l'axe de la catapulte, ailes à plat, nez levé (sans la pente du sol vue au bord
-    // du pont, voir FlightModel._groundNormal)
-    const pitch = Math.max(model._groundPitch, THREE.MathUtils.degToRad(aircraftType === 'f15' ? 8 : 5));
+    // Assiette refaite proprement : dans l'axe de la catapulte, ailes à plat, à l'assiette qu'il avait sur le pont (sans
+    // la pente du sol vue au bord du pont, voir FlightModel._groundNormal). Le nez se lève ensuite en vol, en douceur.
+    // (Avant : assiette forcée à 8° au lâcher, et 10° deux mètres avant : le nez cabrait d'un coup sec)
+    const pitch = model._groundPitch + model._settlePitch;
     model.alpha = model._liftoffAlpha = pitch;
     aircraft.quaternion.setFromEuler(new THREE.Euler(pitch, Math.atan2(-cat.direction.x, -cat.direction.z), 0, 'YXZ'));
     aircraft.position.y += 0.05;
@@ -530,10 +532,7 @@ function updateCarrier(delta) {
             const remaining = Math.max(1, cat.stroke - along);
             const accel = Math.max(0, target * target - model.airspeed * model.airspeed) / (2 * remaining);
             model.airspeed += (Math.max(accel, 5) + (model.controls?.brake ?? 0) * (model.aircraft?.brakes ?? 0)) * delta;
-            if (along >= cat.stroke - 2) {
-                model.airspeed = Math.max(model.airspeed, target);
-                model._groundPitch = Math.max(model._groundPitch, THREE.MathUtils.degToRad(aircraftType === 'f15' ? 10 : 7));
-            }
+            if (along >= cat.stroke - 2) model.airspeed = Math.max(model.airspeed, target);
         }
         if (!controls.isOnGround() || along > cat.stroke + 5) {
             carrierOps.launch = null;

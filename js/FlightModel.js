@@ -49,6 +49,12 @@ const OBSTACLE_CELL = 64;           // m : côté des cases du rangement des obs
 const WEATHERVANE_BLEND_TIME = 3;   // s : après l'envol, la dérive reprend son effet en douceur
 const RELEASE_TIME = 4;             // s au plus : après un relâchement du manche, le nez ne repart pas en sens inverse
                                     // (jusqu'à ce que l'incidence ait rejoint celle visée)
+// Envol (portance qui décolle l'avion, ou fin de catapulte) : transition arrondie pendant LIFTOFF_EASE_TIME s. Le nez
+// tourne d'abord au plus de LIFTOFF_PITCH_RATE, puis retrouve peu à peu sa vitesse de rotation normale ; les
+// accélérations verticales (portance en plus ou en moins) s'installent progressivement. Avant, le nez cabrait d'un
+// coup sec en bout de catapulte et l'avion « sautait » du sol à l'envol
+const LIFTOFF_EASE_TIME = 1.5;      // s
+const LIFTOFF_PITCH_RATE = MathUtils.degToRad( 4 );   // rad/s au début
 const DRIFT_RATE = 2;              // 1/s : sans l'aide « correction de dérive », l'avion prend la vitesse du vent après l'envol
 
 class FlightModel extends EventDispatcher {
@@ -113,6 +119,7 @@ class FlightModel extends EventDispatcher {
 		this._gustTimer = 0;
 		this._liftoffAlpha = 0;          // incidence à l'envol...
 		this._liftoffBlend = 0;          // ... dont l'avion se détache progressivement (1 -> 0) pour rejoindre celle du trim
+		this._liftoffEase = 1;           // transition de l'envol (0 -> 1), voir LIFTOFF_EASE_TIME
 		this._weathervaneBlend = 0;      // après l'envol (1 -> 0) : la dérive reprend peu à peu son effet (voir _updateAir)
 		this._wingDrop = 0;              // aile qui tombe au décrochage (1 gauche, -1 droite : roulis + = à gauche)
 		this._stallBreak = 0;            // abattée en cours (s restantes), voir _updateFlight
@@ -179,6 +186,7 @@ class FlightModel extends EventDispatcher {
 		this.alpha = 0;
 		this.trim = this.aircraft.takeoffTrim;
 		this._liftoffBlend = 0;
+		this._liftoffEase = 1;
 		this._weathervaneBlend = onGround ? 0 : 1;   // départ en vol : comme après un envol (voir _updateFlight)
 		this.crashed = false;
 		this.flapLevel = 0;
@@ -420,7 +428,11 @@ class FlightModel extends EventDispatcher {
 		// de virage. Centrée en virage coordonné ; en dérapage, la force latérale du fuselage la déporte
 		this.sideAcceleration = _force.dot( _right ) / A.mass;
 		_force.y -= A.mass * GRAVITY;
+		const climbBefore = this.velocity.y;
 		this.velocity.addScaledVector( _force, dt / A.mass );
+		// Juste après l'envol : la variation de vitesse verticale s'installe progressivement (voir LIFTOFF_EASE_TIME)
+		const ease = MathUtils.smoothstep( this._liftoffEase, 0, 1 );
+		if ( this._liftoffEase < 1 ) this.velocity.y = climbBefore + ( this.velocity.y - climbBefore ) * ( 0.15 + 0.85 * ease );
 		object.position.addScaledVector( this.velocity, dt );
 
 		// Gouvernes : efficacité selon la vitesse. Manche relâché, la stabilité ramène l'avion à l'incidence du trim
@@ -556,6 +568,12 @@ class FlightModel extends EventDispatcher {
 		}
 		// Une aile tombe, pendant l'abattée : à peine moteur réduit (le 172 est docile), nettement plein gaz
 		if ( this.stalled && this._stallBreak > 0 && this._stallBreak < A.stallBreakTime ) rollRate += this._wingDrop * A.stallWingDrop * ( 0.3 + 0.7 * power );
+		// Juste après l'envol : rotation du nez limitée, puis rendue peu à peu (voir LIFTOFF_EASE_TIME)
+		if ( this._liftoffEase < 1 ) {
+			const limit = LIFTOFF_PITCH_RATE + ( A.pitchRateMax - LIFTOFF_PITCH_RATE ) * ease;
+			pitchRate = MathUtils.clamp( pitchRate, - limit, limit );
+			this._liftoffEase = Math.min( 1, this._liftoffEase + dt / LIFTOFF_EASE_TIME );
+		}
 		const response = Math.min( 1, A.angularResponse * dt );
 		w.x += ( pitchRate - w.x ) * response;
 		w.y += ( yawRate - w.y ) * response;
@@ -652,6 +670,7 @@ class FlightModel extends EventDispatcher {
 			this.alpha = this._groundPitch;
 			this._liftoffAlpha = this._groundPitch;
 			this._liftoffBlend = this.assists.smoothLiftoff ? 1 : 0;
+			this._liftoffEase = 0;
 			this._weathervaneBlend = 1;
 			this._angularVelocity.set( 0, 0, 0 );
 			this._pathAngle = null;
