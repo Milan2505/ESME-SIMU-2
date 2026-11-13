@@ -486,9 +486,39 @@ for collection, file in ((EXTERIOR, 'r44.glb'), (INTERIOR, 'r44-cockpit.glb')):
             o.hide_set(True)
     export(os.path.join(OUT, file), objs)
 
+# Versions légères pour téléphones et tablettes (comme le F-15) : textures réduites à 1024 px au plus, même géométrie
+for image in bpy.data.images:
+    w, h = image.size
+    print('IMAGE', image.name, w, h)
+    if max(w, h) > 1024:
+        k = 1024 / max(w, h)
+        image.scale(max(1, round(w * k)), max(1, round(h * k)))
+for file, names in [('r44.glb', parts['r44.glb'])]:   # (cockpit : textures déjà de 1024 px au plus, rien à réduire)
+    export(os.path.join(OUT, file.replace('.glb', '-mobile.glb')), [bpy.data.objects[n] for n in names])
+
 json.dump({'source': 'FlightGear R44 (GPL-2.0)', 'animations': anims, 'picks': picks}, open(os.path.join(OUT, 'r44-anim.json'), 'w'),
           separators=(',', ':'))
 print('JSON', os.path.getsize(os.path.join(OUT, 'r44-anim.json')) // 1024, 'KB')
+
+def save_livery(path, name):
+    """Texture de livrée enregistrée en JPEG (opaque : la peinture du fuselage) : 2048 px, et 1024 px pour les
+    téléphones et tablettes (liveries/mobile/)."""
+    os.makedirs(os.path.join(OUT, 'liveries', 'mobile'), exist_ok=True)
+    settings = bpy.context.scene.render.image_settings
+    settings.file_format = 'JPEG'
+    settings.color_mode = 'RGB'
+    settings.quality = 88
+    for size, folder in ((2048, ''), (1024, 'mobile')):
+        image = bpy.data.images.load(path)
+        w, h = image.size
+        if max(w, h) > size:
+            k = size / max(w, h)
+            image.scale(max(1, round(w * k)), max(1, round(h * k)))
+        out = os.path.join(OUT, 'liveries', folder, name + '.jpg')
+        image.save_render(out, scene=bpy.context.scene)
+        print('LIVREE', out, os.path.getsize(out) // 1024, 'KB', image.size[:])
+        bpy.data.images.remove(image)
+
 
 # Livrées : texture du fuselage de chaque livrée (Models/Liveries/<nom>.xml -> sim/model/livery/texture)
 for name in LIVERIES:
@@ -503,7 +533,7 @@ for name in LIVERIES:
     for candidate in (os.path.join(MODELS, tex), os.path.join(MODELS, 'Liveries', '2048x2048', tex),
                       os.path.join(MODELS, 'Liveries', tex)):
         if os.path.exists(candidate):
-            shutil.copyfile(candidate, os.path.join(OUT, 'liveries', name.lower() + os.path.splitext(candidate)[1]))
+            save_livery(candidate, name.lower())
             break
     else:
         print('TEXTURE ABSENTE', name, tex)

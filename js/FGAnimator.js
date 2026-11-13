@@ -92,12 +92,16 @@ class FGAnimator {
     }
 
     // Zone cliquable ajoutée par le jeu (commande sans zone dans le modèle FlightGear) : objets, actions, nom
-    addPick(objects, actions, file) {
+    // replace : la zone remplace celles du modèle sur ces pièces (au lieu de s'y ajouter)
+    addPick(objects, actions, file, replace = false) {
         const meshes = [];
         for (const object of objects) object.traverse((m) => { if (m.isMesh) meshes.push(m); });
         if (!meshes.length) return;
         const entry = { objects: objects.map((o) => o.name), actions, file, meshes };
-        for (const mesh of meshes) this._attachPick(mesh, entry);
+        for (const mesh of meshes) {
+            if (replace) this._pickOf.set(mesh, entry);
+            else this._attachPick(mesh, entry);
+        }
         this.picks.push(entry);
         this.pickMeshes.push(...meshes);
     }
@@ -255,11 +259,16 @@ class FGAnimator {
     // Applique les liaisons d'une zone pour un bouton de souris (0 gauche, 1 milieu, 2 droit, 3 molette haut,
     // 4 molette bas) ; renvoie les propriétés changées et les commandes Nasal rencontrées (à traiter par le jeu)
     activate(pick, button = 0) {
-        const changed = [], nasal = [];
+        const changed = [], nasal = [], game = [];
         const actions = pick.actions.filter((a) => !a.buttons.length || a.buttons.includes(button));
         for (const action of actions) {
             for (const b of action.bindings) {
                 const name = clean(b.property);
+                // Commande du jeu (zone ajoutée par addPick : radios du jeu…) : rendue telle quelle
+                if (b.command === 'game') {
+                    game.push(b);
+                    continue;
+                }
                 if (b.command === 'nasal') {
                     nasal.push(b.script ?? '');
                     continue;
@@ -294,7 +303,7 @@ class FGAnimator {
                 changed.push(name);
             }
         }
-        return { changed, nasal, file: pick.file };
+        return { changed, nasal, game, file: pick.file };
     }
 }
 

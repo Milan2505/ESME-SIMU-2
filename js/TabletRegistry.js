@@ -93,6 +93,21 @@ function tabletRegistry(sim) {
                     ],
                 },
                 {
+                    // R44 : mise en route (MASTER BATT, mixture, clé, embrayage, poignée des gaz, régulateur), feux ;
+                    // régimes moteur et rotor (le collectif est la manette des gaz tactile)
+                    id: 'r44', label: 'R44', tiles: [
+                        ...[['masterBat', 'MASTER BATT'], ['clutch', 'CLUTCH'], ['governor', 'GOVERNOR'], ['alternator', 'ALT']].map(([id, label]) => (
+                            { id: `r44-${id}`, label, type: 'toggle', action: () => sim.heliCommand(id), value: () => sim.heliSystems.switches[id] })),
+                        { id: 'r44-key', label: 'CLÉ (+ : START)', type: 'value', value: () => ['OFF', 'R', 'L', 'BOTH', 'START'][sim.heliSystems.key], step: (s) => sim.heliCommand('key', s) },
+                        { id: 'r44-mixture', label: 'MIXTURE', type: 'toggle', action: () => sim.heliCommand('mixture'), value: () => sim.heliSystems.mixture > 0.5, states: ['COUPÉE', 'RICHE'] },
+                        { id: 'r44-grip', label: 'POIGNÉE DES GAZ', type: 'value', value: () => pct(sim.heliSystems.grip), step: (s) => sim.heliSystems.setGrip(sim.heliSystems.grip + 0.05 * s) },
+                        { id: 'r44-rpm', label: 'MOTEUR / ROTOR', type: 'button', action: () => {},
+                            value: () => `${Math.round(sim.heliSystems.enginePercent)} / ${Math.round(sim.heliModel.rotorPercent)} %` },
+                        ...[['nav', 'NAV'], ['strobe', 'ANTICOLL.'], ['land', 'PHARES']].map(([id, label]) => (
+                            { id: `r44-${id}`, label, type: 'toggle', action: () => sim.heliCommand(id), value: () => sim.heliSystems.switches[id] })),
+                    ],
+                },
+                {
                     id: 'nav', label: 'NAV ET VUE', tiles: [
                         { id: 'vor-ils', label: 'VOR / ILS', type: 'toggle', action: () => sim.toggleNavPanels(), value: () => sim.navPanelsShown(), states: ['MASQUÉS', 'AFFICHÉS'] },
                         { id: 'camera', label: 'CAMÉRA CABINE', type: 'value', value: () => String(sim.cabinView()), step: (s) => sim.stepCabinView(s) },

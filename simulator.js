@@ -4380,7 +4380,13 @@ function obsUnderPointer(event) {
 // propriétés FlightGear changées sont reportées sur les systèmes. button : 0 clic (côté droit), 2 clic côté gauche,
 // 3 / 4 molette. Clé : clic à droite vers START (démarreur), à gauche vers OFF
 function useR44Control(pick, button) {
-    const { changed, nasal, file } = heliCockpit.activate(pick, button);
+    const { changed, nasal, game, file } = heliCockpit.activate(pick, button);
+    // Radios (KX 165, KT 76A) : ce sont celles du jeu (contrôle aérien, VOR), réglées comme sur le Cessna
+    for (const b of game) avionics.use(b.id, b.step, false);
+    if (game.length) {
+        r44Sound.play('click', 0.6);
+        return true;
+    }
     if (!changed.length && !nasal.length) return false;
     const a = heliCockpit.animator, sys = heliSystems;
     for (const name of changed) {
@@ -4819,27 +4825,34 @@ window.addEventListener('blur', () => { mixtureKeys.KeyU = mixtureKeys.KeyY = 0;
 // (W / X, trim des avions, et G / T, volets : sans objet sur le R44)
 window.addEventListener('keydown', (event) => {
     if (aircraftType !== 'r44' || event.repeat || isTypingTarget(event.target) || choosingSpawn || controls.isCrashed()) return;
-    const sys = heliSystems;
-    let text = null;
-    if (event.code === 'KeyT' && event.shiftKey) {
-        sys.toggle('masterBat');
-        text = `MASTER BATT : ${sys.switches.masterBat ? 'marche' : 'arrêt'}`;
-    } else if (event.code === 'KeyT') {
-        sys.toggle('clutch');
-        text = sys.switches.clutch ? 'CLUTCH : embrayage (tension des courroies ~20 s)' : 'CLUTCH : débrayage';
-    } else if (event.code === 'KeyG' && event.shiftKey) {
-        sys.toggle('alternator');
-        text = `Alternateur (ALT) : ${sys.switches.alternator ? 'marche' : 'arrêt'}`;
-    } else if (event.code === 'KeyG') {
-        sys.toggle('governor');
-        text = sys.switches.governor ? 'Régulateur (GOVERNOR) : marche (actif au-dessus de 80 %)' : 'Régulateur (GOVERNOR) : arrêt';
-    } else if (event.code === 'KeyX') {
-        sys.turnMagnetos(event.shiftKey ? -1 : 1);
-        text = `Clé : ${['OFF', 'R', 'L', 'BOTH', 'START'][sys.key]}${sys.key === 4 ? ' (démarreur)' : ''}`;
-    } else return;
-    r44Sound.play('click', chaseView ? 0.4 : 0.8);
-    showViewLabel(text);
+    const name = event.code === 'KeyT' ? (event.shiftKey ? 'masterBat' : 'clutch')
+        : event.code === 'KeyG' ? (event.shiftKey ? 'alternator' : 'governor') : event.code === 'KeyX' ? 'key' : null;
+    if (name) heliCommand(name, event.shiftKey ? -1 : 1);
 });
+// Commandes du R44 (clavier, tablette) : interrupteurs (masterBat, clutch, alternator, governor, nav, strobe, land),
+// clé (key, step : +1 vers START, -1 vers OFF), mixture ; message affiché, déclic
+function heliCommand(name, step = 1) {
+    const sys = heliSystems;
+    let text;
+    if (name === 'key') {
+        sys.turnMagnetos(step);
+        text = `Clé : ${['OFF', 'R', 'L', 'BOTH', 'START'][sys.key]}${sys.key === 4 ? ' (démarreur)' : ''}`;
+    } else if (name === 'mixture') {
+        sys.setMixture(sys.mixture > 0.5 ? 0 : 1);
+        text = `Mixture : ${sys.mixture > 0.5 ? 'riche (poussée)' : 'coupée (tirée)'}`;
+    } else {
+        sys.toggle(name);
+        const on = sys.switches[name];
+        text = {
+            masterBat: `MASTER BATT : ${on ? 'marche' : 'arrêt'}`,
+            clutch: on ? 'CLUTCH : embrayage (tension des courroies ~20 s)' : 'CLUTCH : débrayage',
+            alternator: `Alternateur (ALT) : ${on ? 'marche' : 'arrêt'}`,
+            governor: on ? 'Régulateur (GOVERNOR) : marche (actif au-dessus de 80 %)' : 'Régulateur (GOVERNOR) : arrêt',
+        }[name] ?? null;
+    }
+    r44Sound.play('click', chaseView ? 0.4 : 0.8);
+    if (text) showViewLabel(text);
+}
 // Éclairage des instruments au clavier : L éclaircit, Maj + L assombrit, tant que la touche est tenue (course entière en ~2 s)
 const PANEL_LIGHTS_RATE = 0.5;
 let panelLightsKey = 0, panelLightsTravel = 0;
@@ -4916,6 +4929,7 @@ updateNavPanelsButton();
 const tabletApi = {
     get systems() { return systems; },
     jetSystems, jet: () => aircraftType === 'f15', jetCommand, jetGear: () => controls.model.gearDown, jetSpeedbrake: () => controls.model.speedbrakeOut,
+    heliSystems, heliModel, heliCommand, heli: () => aircraftType === 'r44',
     controls, vor, atc, MAGNETOS, FUEL_SELECTOR,
     click: (id) => document.getElementById(id)?.click(),
     // Contenu d'un menu de la barre (Météo, Profil, En ligne), affiché dans un panneau sur iPad

@@ -2,6 +2,7 @@ import { Box3, Group, MathUtils, SRGBColorSpace, TextureLoader, Vector3 } from '
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FGAnimator } from './FGAnimator.js';
 import { R44_KEY } from './R44Systems.js';
+import { isTablet } from './Device.js';
 
 // Robinson R44 Raven II (modèle FlightGear d'Emmanuel Baranger, GPL-2.0, converti par asset/blender/build_r44.py) :
 // extérieur (r44.glb), cockpit (r44-cockpit.glb) et leurs animations (r44-anim.json), rejouées par FGAnimator avec
@@ -10,6 +11,8 @@ import { R44_KEY } from './R44Systems.js';
 // groupe de l'appareil.
 
 const URL = 'asset/r44/';
+// Téléphones et tablettes : textures réduites (fuselage et livrées en 1024 px), comme pour le F-15
+const LOW_MEMORY = isTablet();
 const deg = MathUtils.degToRad;
 const FT = 0.3048;
 
@@ -26,6 +29,31 @@ const R44_LIVERIES = {
 };
 const R44_DEFAULT_LIVERY = 'r44-default';
 const isR44Livery = (id) => Object.hasOwn(R44_LIVERIES, id ?? '');
+
+// Boutons des radios du tableau -> commandes des radios du jeu (Avionics.use)
+const RADIO_CONTROLS = {
+    m28__CommMHz: 'com1:outer', m28__CommKHz: 'com1:inner', m28__CommToggle: 'com1:swap',
+    m28__NavMHz: 'nav1:outer', m28__NavKHz: 'nav1:inner', m28__NavToggle: 'nav1:swap',
+    m27__Knob1000: 'xpdr:d0', m27__Knob100: 'xpdr:d1', m27__Knob10: 'xpdr:d2', m27__Knob1: 'xpdr:d3',
+    m27__KnobMode: 'xpdr:mode', m27__Ident: 'xpdr:ident',
+};
+
+const XPDR_MODES = ['OFF', 'SBY', 'ON', 'ALT', 'TST'];
+function radioProps(avionics) {
+    if (!avionics) return {};
+    const code = String(avionics.xpdr?.code ?? '7000').padStart(4, '0');
+    return {
+        'instrumentation/comm/frequencies/selected-mhz': avionics.com1.active / 1000,
+        'instrumentation/comm/frequencies/standby-mhz': avionics.com1.standby / 1000,
+        'instrumentation/nav/frequencies/selected-mhz': avionics.nav1.active / 1000,
+        'instrumentation/nav/frequencies/standby-mhz': avionics.nav1.standby / 1000,
+        'instrumentation/comm/power-btn': true, 'instrumentation/nav/power-btn': true,
+        'instrumentation/comm/volume': 0.7, 'instrumentation/nav/volume': 0.5,
+        'instrumentation/kt76a/digit1': Number(code[0]), 'instrumentation/kt76a/digit2': Number(code[1]),
+        'instrumentation/kt76a/digit3': Number(code[2]), 'instrumentation/kt76a/digit4': Number(code[3]),
+        'instrumentation/kt76a/mode': Math.max(0, XPDR_MODES.indexOf(avionics.xpdr?.mode)),
+    };
+}
 
 // Œil du pilote (place de droite, comme sur le vrai R44) et hauteur des patins
 const R44_EYE = new Vector3(0.252, -0.12, -3.405);
@@ -54,7 +82,7 @@ const liveryCache = new Map();
 function liveryTexture(id) {
     const entry = R44_LIVERIES[isR44Livery(id) ? id : R44_DEFAULT_LIVERY];
     if (!liveryCache.has(entry.file)) {
-        const texture = textureLoader.load(`${URL}liveries/${entry.file}.png`);
+        const texture = textureLoader.load(`${URL}liveries/${LOW_MEMORY ? 'mobile/' : ''}${entry.file}.jpg`);
         texture.flipY = false;                 // (coordonnées de texture du glTF)
         texture.colorSpace = SRGBColorSpace;
         texture.anisotropy = 4;
@@ -98,7 +126,7 @@ function prepareMaterials(root, cockpit) {
 async function loadR44() {
     const loader = new GLTFLoader();
     const [exterior, cockpit, data] = await Promise.all([
-        loader.loadAsync(`${URL}r44.glb`), loader.loadAsync(`${URL}r44-cockpit.glb`),
+        loader.loadAsync(`${URL}${LOW_MEMORY ? 'r44-mobile.glb' : 'r44.glb'}`), loader.loadAsync(`${URL}r44-cockpit.glb`),
         animData ?? fetch(`${URL}r44-anim.json`).then((r) => {
             if (!r.ok) throw new Error(`r44-anim.json : ${r.status}`);
             return r.json();
@@ -130,10 +158,24 @@ function registrationGlyphs(text) {
     });
 }
 
+// Pales en rotation rapide : le modèle FlightGear montre alors un disque flou (propdisc, au-dessus de 150 tr/min) ;
+// les pales elles-mêmes sont cachées (sinon, d'une image à l'autre, elles semblent sauter ou tourner à l'envers)
+function hideBladesWhenBlurred(animator, root) {
+    const main = [], tail = [];
+    root.traverse((o) => {
+        if (/^m6[89]__blade\d$/.test(o.name)) main.push(o);
+        else if (/^m7[23]__blade$/.test(o.name)) tail.push(o);
+    });
+    const slow = (property) => ({ op: 'less-than-equals', a: property, b: { value: 150 } });
+    if (main.length) animator.selects.push({ anim: { condition: slow('rotors/main/rpm') }, targets: main });
+    if (tail.length) animator.selects.push({ anim: { condition: slow('rotors/tail/rpm') }, targets: tail });
+}
+
 // Copie de l'extérieur pour les autres joueurs : son propre animateur (rotors, cône, portes)
 function cloneR44(template) {
     const group = template.clone(true);
     const animator = new FGAnimator(animData, [group]);
+    hideBladesWhenBlurred(animator, group);
     animator.assign(STATIC_PROPS);
     return { group, animator };
 }
@@ -185,11 +227,23 @@ class R44Cockpit {
         this.group.add(cockpit);
         this.model = exterior;
         this.animator = new FGAnimator(data, [exterior, cockpit]);
+        hideBladesWhenBlurred(this.animator, exterior);
         this.animator.assign(STATIC_PROPS);
         // Régulateur : interrupteur au bout de la poignée du collectif (pas de zone cliquable dans le modèle FlightGear)
         const collective = cockpit.getObjectByName('m10__Collective');
         if (collective) this.animator.addPick([collective], [{ buttons: [0, 2], repeatable: false,
             bindings: [{ command: 'property-toggle', property: 'controls/engines/engine/governor' }] }], 'Collective');
+        // Radios (KX 165 NAV/COM, transpondeur KT 76A) : leurs boutons règlent les radios du jeu (contrôle aérien, VOR),
+        // affichées en retour sur leurs tambours (voir update). Clic à droite ou molette vers le haut : +, à gauche ou vers
+        // le bas : -
+        for (const [name, id] of Object.entries(RADIO_CONTROLS)) {
+            const object = cockpit.getObjectByName(name);
+            if (!object) continue;
+            this.animator.addPick([object], [
+                { buttons: [0, 3], bindings: [{ command: 'game', id, step: 1 }] },
+                { buttons: [1, 2, 4], bindings: [{ command: 'game', id, step: -1 }] },
+            ], 'Radios', true);
+        }
         this.clickables = this.animator.pickMeshes;
         // Pilote (place de droite) : caché en vue cabine (on est à sa place) ; le passager n'est pas à bord
         cockpit.traverse((o) => { if (o.isMesh && /^m60__/.test(o.name)) this._pilot.push(o); });
@@ -234,7 +288,7 @@ class R44Cockpit {
     // button : 0 clic gauche (ou côté droit), 2 côté gauche, 3 molette vers le haut, 4 vers le bas
     activate(pick, button) {
         let result = this.animator.activate(pick, button);
-        if (!result.changed.length && !result.nasal.length) {
+        if (!result.changed.length && !result.nasal.length && !result.game.length) {
             // Pas de liaison pour ce bouton : la molette fait comme le clic, et inversement
             const fallback = { 3: 0, 4: 1, 2: 1, 0: 3 }[button];
             if (fallback !== undefined) result = this.animator.activate(pick, fallback);
@@ -312,6 +366,8 @@ class R44Cockpit {
             'instrumentation/alerts/rpm': Boolean(warn.lowRpm),
             'controls/lighting/turn-off-light': false,
             'sim/current-view/name': this._exterior ? 'Chase View' : 'Cockpit View',
+            // Radios du jeu (kHz -> MHz) sur les tambours du KX 165, code et mode du transpondeur sur le KT 76A
+            ...radioProps(state.avionics),
             // Immatriculation
             ...Object.fromEntries(glyphs.map((g, i) => [`sim/multiplay/generic/int[${i}]`, g])),
             'sim/multiplay/generic/float[22]': heli.bladePitchDeg ?? 0,

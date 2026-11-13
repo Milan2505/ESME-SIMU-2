@@ -9,6 +9,7 @@ Fichiers de ce dossier, convertis pour le simulateur par asset/blender/build_r44
   personnages de remorquage, les fumées du démarrage et les cônes de lumière ;
 - r44-cockpit.glb : intérieur (tableau de bord et instruments, manche cyclique, collectif, palonniers, sièges, pilote) ;
 - r44-anim.json : animations et zones cliquables des fichiers XML de FlightGear, traduites pour le jeu (FGAnimator.js) ;
-- liveries/*.png : huit livrées (Models/Liveries du paquet).
+- liveries/*.jpg : huit livrées (Models/Liveries du paquet), en JPEG ; liveries/mobile/ et r44-mobile.glb : les mêmes,
+  textures réduites à 1024 px pour les téléphones et tablettes.
 
 Ces fichiers restent sous GPL-2.0 ; le reste du projet est sous licence MIT.
