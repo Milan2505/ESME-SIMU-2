@@ -1,4 +1,7 @@
-import { Box3, Group, MathUtils, SRGBColorSpace, TextureLoader, Vector3 } from 'three';
+import {
+    Box3, BoxGeometry, CylinderGeometry, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial,
+    SRGBColorSpace, TextureLoader, TorusGeometry, Vector3,
+} from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FGAnimator } from './FGAnimator.js';
 import { R44_KEY } from './R44Systems.js';
@@ -185,6 +188,114 @@ function hideBladesWhenBlurred(animator, root) {
     if (tail.length) animator.selects.push({ anim: { condition: slow('rotors/tail/rpm') }, targets: tail });
 }
 
+// Animation d'une pièce par le collectif (propriété FlightGear du levier : 0 collectif en haut, 1 en bas)
+const collectiveAnims = (part) => part.anims.filter((a) => a.type === 'rotate' && a.property?.endsWith('float[10]'));
+const _v = new Vector3();
+
+// Sommet d'une pièce (au repos, repère du modèle) le plus loin d'un point
+function farthestVertex(object, base, from) {
+    const p = object.geometry.attributes.position, best = new Vector3();
+    let distance = -1;
+    for (let i = 0; i < p.count; i++) {
+        _v.fromBufferAttribute(p, i).applyMatrix4(base);
+        const d = _v.distanceTo(from);
+        if (d > distance) {
+            distance = d;
+            best.copy(_v);
+        }
+    }
+    return best;
+}
+
+// Levier du pas collectif : celui du modèle FlightGear n'est qu'une tige noire. Refait comme celui du R44 : soufflet
+// au pied, tube, bague de friction, poignée tournante des gaz (crantée), boîtier au bout avec l'interrupteur du
+// régulateur (GOVERNOR) et le bouton du démarreur. Accroché au levier d'origine (il en suit l'animation), qui reste
+// cliquable (régulateur) mais n'est plus dessiné
+function buildCollective(lever, part, hand = null) {
+    const anim = collectiveAnims(part)[0];
+    if (!anim) return;
+    const pivot = new Vector3().fromArray(anim.center);
+    const tip = farthestVertex(lever, part.base, pivot);
+    const length = tip.distanceTo(pivot);
+    // Poignée des gaz sous la main du pilote (hand : bout de ses doigts, au repos), sinon sur le dernier tiers
+    const handAlong = hand ? hand.clone().sub(pivot).dot(tip.clone().sub(pivot).normalize()) : length;
+    const metal = new MeshStandardMaterial({ color: 0xb4b8be, metalness: 0.8, roughness: 0.35 });
+    const rubber = new MeshStandardMaterial({ color: 0x1b1b1c, roughness: 0.85 });
+    const housing = new MeshStandardMaterial({ color: 0x2c2e31, metalness: 0.3, roughness: 0.5 });
+    const red = new MeshStandardMaterial({ color: 0xc4231e, roughness: 0.4 });
+    const group = new Group();
+    group.name = 'Collectif';
+    const add = (geometry, material, y) => {
+        const mesh = new Mesh(geometry, material);
+        mesh.position.y = y;
+        mesh.castShadow = true;
+        group.add(mesh);
+        return mesh;
+    };
+    const grip = MathUtils.clamp(handAlong - 0.1, length * 0.4, length * 0.66), gripLength = length - grip - 0.012;   // (axe y : du pied vers la poignée)
+    add(new CylinderGeometry(0.018, 0.045, 0.09, 20), rubber, 0.045);                  // soufflet
+    add(new CylinderGeometry(0.012, 0.012, grip - 0.08, 16), metal, 0.08 + (grip - 0.08) / 2);   // tube
+    add(new CylinderGeometry(0.017, 0.017, 0.016, 16), housing, grip);                 // bague de friction
+    add(new CylinderGeometry(0.019, 0.019, gripLength, 20), rubber, grip + 0.008 + gripLength / 2);   // poignée des gaz
+    for (let k = 1; k < 6; k++) add(new TorusGeometry(0.019, 0.0028, 6, 20), rubber, grip + 0.008 + gripLength * k / 6).rotation.x = Math.PI / 2;
+    add(new BoxGeometry(0.04, 0.046, 0.036), housing, length + 0.006);                  // boîtier
+    const toggle = add(new CylinderGeometry(0.0035, 0.0035, 0.024, 8), metal, length + 0.036);   // régulateur
+    toggle.rotation.z = 0.35;
+    const button = add(new CylinderGeometry(0.007, 0.007, 0.008, 12), red, length + 0.006);       // démarreur
+    button.rotation.x = Math.PI / 2;
+    button.position.z = 0.019;
+    // Placé dans le repère du modèle (pied au pivot, axe vers la poignée), puis ramené dans celui du levier d'origine
+    group.position.copy(pivot);
+    group.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), tip.clone().sub(pivot).normalize());
+    group.updateMatrix();
+    group.matrix.premultiply(part.base.clone().invert());
+    group.matrix.decompose(group.position, group.quaternion, group.scale);
+    lever.add(group);
+    lever.material = new MeshBasicMaterial({ visible: false });
+}
+
+// Main gauche du pilote sur la poignée du collectif. Dans le modèle FlightGear, l'épaule (20° par course) et le coude
+// (-55°) tournent sans suivre le levier (35°, autre pivot) : la main s'en écartait de 15 à 42 cm. Remplacés par deux
+// rotations calculées à chaque image (bras à deux segments dans le plan du levier : la main reste là où elle tient la
+// poignée au repos, collectif en haut), coude d'abord, puis épaule
+function setupArmOnCollective(animator, root) {
+    const [upper, forearm, lever] = ['m60__brasG', 'm60__avantbrasG', 'm10__Collective'].map((name) => root.getObjectByName(name));
+    const parts = [upper, forearm, lever].map((object) => object && animator.parts.get(object));
+    if (parts.some((part) => !part)) return null;
+    const [shoulderAnim] = collectiveAnims(parts[0]);
+    const elbowAnim = collectiveAnims(parts[1]).find((a) => a !== shoulderAnim);
+    const [leverAnim] = collectiveAnims(parts[2]);
+    if (!shoulderAnim || !elbowAnim || !leverAnim) return null;
+    const shoulder = { type: 'rotate', property: 'sim/r44/bras-epaule', factor: 1, axis: [1, 0, 0], center: shoulderAnim.center };
+    const elbow = { type: 'rotate', property: 'sim/r44/bras-coude', factor: 1, axis: [1, 0, 0], center: elbowAnim.center };
+    parts[0].anims = parts[0].anims.map((a) => (a === shoulderAnim ? shoulder : a));
+    parts[1].anims = [...parts[1].anims.filter((a) => a !== shoulderAnim && a !== elbowAnim), elbow, shoulder];
+    const S = new Vector3().fromArray(shoulderAnim.center), E = new Vector3().fromArray(elbowAnim.center);
+    return {
+        S, E, H: farthestVertex(forearm, parts[1].base, E),
+        pivot: new Vector3().fromArray(leverAnim.center), axis: new Vector3().fromArray(leverAnim.axis).normalize(),
+        factor: leverAnim.factor ?? 1, target: new Vector3(),
+    };
+}
+
+// Angles (deg) de l'épaule et du coude pour la valeur du levier (0 -> 1). Rotations autour de x : on travaille dans le
+// plan (y, z), où une rotation d'angle φ ajoute φ à atan2(z, y)
+function armAngles(ik, value) {
+    const T = ik.target.copy(ik.H).sub(ik.pivot).applyAxisAngle(ik.axis, deg(value * ik.factor)).add(ik.pivot);
+    const angle = (y, z) => Math.atan2(z, y);
+    const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+    const u = [ik.E.y - ik.S.y, ik.E.z - ik.S.z], w = [ik.H.y - ik.E.y, ik.H.z - ik.E.z], d = [T.y - ik.S.y, T.z - ik.S.z];
+    const L1 = Math.hypot(...u), L2 = Math.hypot(...w);
+    const D = MathUtils.clamp(Math.hypot(...d), Math.abs(L1 - L2) + 1e-4, L1 + L2 - 1e-4);
+    const bend0 = wrap(angle(...w) - angle(...u));
+    const bend = Math.sign(bend0 || 1) * Math.acos(MathUtils.clamp((D * D - L1 * L1 - L2 * L2) / (2 * L1 * L2), -1, 1));
+    const beta = bend - bend0;
+    const c = Math.cos(beta), s = Math.sin(beta);
+    const reach = [u[0] + w[0] * c - w[1] * s, u[1] + w[0] * s + w[1] * c];
+    const alpha = wrap(angle(...d) - angle(...reach));
+    return [MathUtils.radToDeg(alpha), MathUtils.radToDeg(beta)];
+}
+
 // Copie de l'extérieur pour les autres joueurs : son propre animateur (rotors, cône, portes)
 function cloneR44(template) {
     const group = template.clone(true);
@@ -247,8 +358,12 @@ class R44Cockpit {
         cockpit.traverse((o) => { if (/^m3[2-6]__lampon$/.test(o.name)) unused.push(o); });
         if (unused.length) this.animator.selects.push({ anim: { condition: { property: 'sim/r44/jamais' } }, targets: unused });
         this.animator.assign(STATIC_PROPS);
-        // Régulateur : interrupteur au bout de la poignée du collectif (pas de zone cliquable dans le modèle FlightGear)
+        // Levier du collectif refait, main du pilote dessus
         const collective = cockpit.getObjectByName('m10__Collective');
+        const collectivePart = collective && this.animator.parts.get(collective);
+        this._armIK = setupArmOnCollective(this.animator, cockpit);
+        if (collectivePart) buildCollective(collective, collectivePart, this._armIK?.H);
+        // Régulateur : interrupteur au bout de la poignée du collectif (pas de zone cliquable dans le modèle FlightGear)
         if (collective) this.animator.addPick([collective], [{ buttons: [0, 2], repeatable: false,
             bindings: [{ command: 'property-toggle', property: 'controls/engines/engine/governor' }] }], 'Collective');
         // Radios (KX 165 NAV/COM, transpondeur KT 76A) : leurs boutons règlent les radios du jeu (contrôle aérien, VOR),
@@ -414,6 +529,9 @@ class R44Cockpit {
             'sim/multiplay/generic/float[20]': (heli.coningDeg ?? 0) * 0.25, 'sim/multiplay/generic/float[21]': (heli.coningDeg ?? 0) * 0.1,
             'sim/multiplay/generic/bool[1]': this.yokesVisible,
         };
+        if (this._armIK) {
+            [props['sim/r44/bras-epaule'], props['sim/r44/bras-coude']] = armAngles(this._armIK, props['sim/multiplay/generic/float[10]']);
+        }
         a.assign(props);
         a.update(delta);
         // Voyant de la clé (texte du contacteur) : pour le message d'aide

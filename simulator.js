@@ -1063,7 +1063,9 @@ async function setAircraftType(type) {
     for (const light of [cessnaLandingLight, cessnaTaxiLight, jetLandingLight, jetTaxiLight, heliLandingLight, heliTaxiLight]) light.visible = false;
     // Modèle de vol : hélicoptère (HeliModel) ou avion (FlightModel), qui reprend l'environnement de l'autre
     controls.useModel(heli ? heliModel : planeModel);
-    controls.throttleRate = heli ? 0.3 : 1;   // (collectif : levé ou baissé plus doucement que les gaz d'un avion)
+    // (collectif : levé ou baissé plus doucement que les gaz d'un avion ; 0,3 avant : 3,3 s d'une butée à l'autre, trop
+    // lent pour arrondir ou remonter vite)
+    controls.throttleRate = heli ? 0.55 : 1;
     if (heli) controls.parkingBrake = false;  // (patins : pas de frein de parc ; B serre le frein rotor)
     WHEEL_HEIGHT = profile.wheelHeight;
     controls.minAltitude = WHEEL_HEIGHT;
@@ -4355,6 +4357,9 @@ function updateHud(delta) {
         n2: aircraftType === 'f15' ? jetSystems.engines.map((e) => e.n2) : undefined,
         ab: aircraftType === 'f15' ? jetSystems.afterburner : 0,
         throttle: controls.getThrottle(),   // (F-15 : case « GAZ % » du cadran des réacteurs)
+        // R44 : pas collectif (0 en bas -> 1 en haut) et son angle de pale (deg), à la place des volets et du trim
+        collective: aircraftType === 'r44' ? heliModel.throttle : undefined,
+        collectivePitch: aircraftType === 'r44' ? THREE.MathUtils.radToDeg(heliModel.collective) : 0,
         fuel: systems.fuelFraction,
         alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
         stallAlpha: THREE.MathUtils.radToDeg(controls.model.stallAlpha()),

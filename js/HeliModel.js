@@ -21,6 +21,10 @@ const G = 9.81;
 const RHO0 = 1.225;
 const STEP = 1 / 240;
 const deg = MathUtils.degToRad;
+// Aide au stationnaire : assiettes et vitesse de lacet obtenues commandes à fond
+const HELI_PITCH_RANGE = deg( 30 );
+const HELI_ROLL_RANGE = deg( 45 );
+const HELI_YAW_RATE = deg( 75 );    // par s (avant : 45°/s)
 
 // Caractéristiques : repère du modèle 3D (x à droite, y en haut, z vers l'arrière, mètres ; origine celle du modèle
 // FlightGear, ~2,2 m en arrière du mât)
@@ -387,15 +391,17 @@ class HeliModel extends FlightModel {
 		const holdTarget = ( Math.abs( input.pitch ) < 0.05 && Math.abs( input.roll ) < 0.05 ) ? hover : 0;
 		this._hold = ( this._hold ?? 0 ) + ( holdTarget - ( this._hold ?? 0 ) ) * Math.min( 1, dt * 1.5 );
 		const hold = this._hold;
-		// Assiettes visées (rad) : manche = ±18° ; près du stationnaire, manche lâché, contre la glissade
-		const pitchTarget = input.pitch * deg( 18 ) + hold * MathUtils.clamp( vForward * 0.035, - 0.18, 0.18 );
+		// Assiettes visées (rad) : manche à fond = ±30° en tangage, ±45° en roulis (avant : ±18° et ±22°, l'appareil
+		// semblait bridé : virages et accélérations mous) ; près du stationnaire, manche lâché, contre la glissade
+		const pitchTarget = input.pitch * HELI_PITCH_RANGE + hold * MathUtils.clamp( vForward * 0.035, - 0.18, 0.18 );
 		// Route tenue en vol en avant, manche lâché (+ = à gauche, comme le cap) : l'aide penche du côté où revenir
 		const track = Math.atan2( - this.velocity.x, - this.velocity.z );
 		if ( Math.abs( input.roll ) > 0.05 || this._track === undefined || cruise < 0.5 ) this._track = track;
 		const trackError = Math.atan2( Math.sin( this._track - track ), Math.cos( this._track - track ) );
-		const rollTarget = input.roll * deg( 22 ) - hold * MathUtils.clamp( - vRight * 0.035, - 0.18, 0.18 )
+		const rollTarget = input.roll * HELI_ROLL_RANGE - hold * MathUtils.clamp( - vRight * 0.035, - 0.18, 0.18 )
 			+ cruise * ( MathUtils.clamp( beta * 0.8, - 0.2, 0.2 ) + MathUtils.clamp( trackError * 1.2, - 0.15, 0.15 ) );
-		const kp = 2.2, kd = 1.1, ki = 0.6;
+		// (gain plus fort qu'avant, 2,2 : l'assiette demandée est prise plus vite ; amortissement relevé d'autant)
+		const kp = 2.8, kd = 1.3, ki = 0.6;
 		const ePitch = pitchTarget - pitch, eRoll = rollTarget - roll;
 		if ( ! onGround ) {
 			this._trimPitch = MathUtils.clamp( this._trimPitch + ePitch * ki * dt, - 0.6, 0.6 );
@@ -405,10 +411,10 @@ class HeliModel extends FlightModel {
 		let cyclicRoll = kp * eRoll - kd * this._omega.z + this._trimRoll;
 		// Au sol : manche au neutre (sauf ce que demande le pilote) pour ne pas basculer sur les patins
 		if ( onGround ) {
-			cyclicPitch = input.pitch * 0.5;
-			cyclicRoll = input.roll * 0.5;
+			cyclicPitch = input.pitch * 0.7;
+			cyclicRoll = input.roll * 0.7;
 		}
-		// Lacet : vitesse de lacet visée (palonniers : ±45°/s), cap tenu palonniers lâchés
+		// Lacet : vitesse de lacet visée (palonniers : ±HELI_YAW_RATE), cap tenu palonniers lâchés
 		// (appareil bien posé, rotor lent : cap pris tel quel ; dès qu'il s'allège, il est tenu)
 		const heading = this._currentHeading();
 		const firm = this.groundLoad > 0.85;
@@ -418,7 +424,7 @@ class HeliModel extends FlightModel {
 		headingError = Math.atan2( Math.sin( headingError ), Math.cos( headingError ) );
 		// Palonniers lâchés : stationnaire, cap tenu ; vol en avant, nez dans la trajectoire (glissade annulée : + = vent
 		// relatif de la droite, le nez doit venir à droite)
-		const yawRateTarget = Math.abs( input.yaw ) > 0.05 ? input.yaw * deg( 45 )
+		const yawRateTarget = Math.abs( input.yaw ) > 0.05 ? input.yaw * HELI_YAW_RATE
 			: ( 1 - cruise ) * headingError * 1.5 - cruise * MathUtils.clamp( beta * 2, - 0.6, 0.6 );
 		const eYaw = yawRateTarget - this._omega.y;
 		if ( ! onGround ) this._trimYaw = MathUtils.clamp( this._trimYaw + eYaw * 0.8 * dt, - 0.8, 0.8 );

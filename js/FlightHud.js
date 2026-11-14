@@ -113,10 +113,17 @@ class FlightHud {
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'AOA', aoa, `${Math.round(d.alpha)}°`,
                 [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]]), 'AOA'],
         ];
-        const right = [
+        // R44 : pas collectif (barre remplie de bas en haut, angle de pale) à la place des volets et du trim, sans objet
+        const surfaces = d.collective !== undefined ? [
+            [54, 210, (x, y, w, h) => this._bar(x, y, w, h, 'PAS', d.collective, `${d.collectivePitch.toFixed(1)}°`,
+                [[0, 0.75, COLORS.green], [0.75, 0.9, COLORS.yellow], [0.9, 1, COLORS.red]], true), 'PAS'],
+        ] : [
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FLAPS', 1 - flaps, `${Math.round(d.flaps)}°`, null, true,
                 d.flapMax > 0 ? 1 - d.flapTarget / d.flapMax : 1), 'FLAPS'],
             [44, 110, (x, y, w, h) => this._trim(x, y, w, h, d), 'TRIM'],
+        ];
+        const right = [
+            ...surfaces,
             [76, 210, (x, y, w, h) => this._altitudeTape(x, y, w, h, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro), 'ALTITUDE'],
             [54, 210, (x, y, w, h) => this._vsTape(x, y, w, h, d.verticalSpeed * FT * 60), 'VS'],
         ];
