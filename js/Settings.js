@@ -63,6 +63,13 @@ const PRESETS = {
 const DEFAULT_PRESET = 'haut';
 const CUSTOM = 'perso';
 
+// Valeurs d'un préréglage, sans son libellé
+function presetValues(preset) {
+    const values = { ...preset };
+    delete values.label;
+    return values;
+}
+
 class Settings extends EventTarget {
     // defaultPreset : préréglage tant que le joueur n'a rien choisi (tablette : « moyen »)
     constructor({ defaultPreset = DEFAULT_PRESET } = {}) {
@@ -73,6 +80,7 @@ class Settings extends EventTarget {
         delete this.values.label;
         this._load();
         this._selects = {};
+        this.persist = true;   // false : réglages jamais écrits dans localStorage (mode test, voir simulator.js)
     }
 
     // Construit le formulaire dans container
@@ -98,8 +106,7 @@ class Settings extends EventTarget {
     applyPreset(name) {
         if (!PRESETS[name]) return;
         this.preset = name;
-        const { label, ...values } = PRESETS[name];
-        Object.assign(this.values, values);
+        Object.assign(this.values, presetValues(PRESETS[name]));
         this._changed();
     }
 
@@ -112,8 +119,8 @@ class Settings extends EventTarget {
     }
 
     _matchingPreset() {
-        for (const [name, { label, ...values }] of Object.entries(PRESETS)) {
-            if (Object.entries(values).every(([key, value]) => this.values[key] === value)) return name;
+        for (const [name, preset] of Object.entries(PRESETS)) {
+            if (Object.entries(presetValues(preset)).every(([key, value]) => this.values[key] === value)) return name;
         }
         return CUSTOM;
     }
@@ -121,9 +128,11 @@ class Settings extends EventTarget {
     _changed() {
         for (const [key, select] of Object.entries(this._selects)) select.value = JSON.stringify(this.values[key]);
         if (this._presetSelect) this._presetSelect.value = JSON.stringify(this.preset);
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, preset: this.preset, values: this.values }));
-        } catch { /* stockage indisponible : réglages valables pour cette visite seulement */ }
+        if (this.persist) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, preset: this.preset, values: this.values }));
+            } catch { /* stockage indisponible : réglages valables pour cette visite seulement */ }
+        }
         this.dispatchEvent(new CustomEvent('change', { detail: this.values }));
     }
 
@@ -135,8 +144,7 @@ class Settings extends EventTarget {
         if (!saved?.values) return;
         // Réglage absent de la sauvegarde (ajouté depuis) : celui du préréglage enregistré
         if (PRESETS[saved.preset]) {
-            const { label, ...values } = PRESETS[saved.preset];
-            Object.assign(this.values, values);
+            Object.assign(this.values, presetValues(PRESETS[saved.preset]));
         }
         // Ne reprend que des valeurs encore proposées (le menu peut évoluer)
         for (const [key, option] of Object.entries(OPTIONS)) {

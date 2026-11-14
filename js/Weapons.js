@@ -145,7 +145,7 @@ const HIT_BOXES = {
 const HIT_RANGE = 14;   // m : au-delà de cette distance du centre de l'avion, le segment de l'obus est ignoré
 
 const _a = new Vector3(), _b = new Vector3(), _d = new Vector3(), _v = new Vector3(), _q = new Quaternion();
-const _m = new Matrix4(), _inv = new Matrix4(), _scale = new Vector3(), _z = new Vector3(0, 0, 1);
+const _m = new Matrix4(), _scale = new Vector3(), _z = new Vector3(0, 0, 1);
 const _fwd = new Vector3(), _up = new Vector3(), _right = new Vector3(), _p = new Vector3(), _back = new Vector3();
 
 // Segment [a, b] (repère avion) contre une boîte : fraction du segment au premier contact, ou null
@@ -1055,7 +1055,7 @@ class Weapons extends EventTarget {
     // Point du sol sous un rayon (origine, direction normalisée), ou null jusqu'à maxDistance
     groundPoint(origin, direction, maxDistance = MISSILE.maxRange + 4000, target = new Vector3()) {
         const height = (x, z) => this.terrain.heightAt(x, z);
-        let t = 0, previous = 0;
+        let t = 0, previous;
         while (t < maxDistance) {
             const step = 4 + t * 0.01;
             previous = t;

@@ -183,6 +183,7 @@ class Multiplayer extends EventTarget {
         this.troll = false;           // Wardog troll : Wardog, plus l'image et la musique quand on est abattu
         this.map = 'campagne';        // carte chargée par la page (celle de la partie : voir l'événement 'map')
         this.carrierRules = 'arcade'; // porte-avions : 'arcade' (catapulte et brins automatiques) ou 'realiste'
+        this.offline = false;         // true : aucune connexion aux relais (mode test, voir simulator.js)
         this.capture = null;          // Wardog, arbitre : état de la capture à publier (voir captureFrom), fourni par simulator.js
         this.lobby = new Map();       // parties annoncées au salon : id du créateur -> { host, players, names, seenAt }
         this._lobbySeq = new Map();   // id du créateur -> numéro de sa dernière annonce reçue (copies en retard ignorées)
@@ -481,7 +482,7 @@ class Multiplayer extends EventTarget {
             if (this.lobby.delete(id)) this._emitLobby();
             return;
         }
-        const text = (v) => String(v ?? '').replace(/[ -]/g, ' ').trim().slice(0, 20);
+        const text = (v) => String(v ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 20);
         const entry = {
             host: text(data.host) || 'Pilote',
             players: Math.min(MAX_PLAYERS, Math.max(1, Math.floor(Number(data.n) || 1))),
@@ -508,6 +509,7 @@ class Multiplayer extends EventTarget {
 
     // Connexion à tous les relais en parallèle ; prêt dès que l'un d'eux répond
     _connect() {
+        if (this.offline) return Promise.reject(new Error('Multijoueur coupé (mode test)'));
         if (this._clients.some((client) => client.connected)) return Promise.resolve();
         this._connecting ??= new Promise((resolve, reject) => {
             let failures = 0;
@@ -652,7 +654,7 @@ class Multiplayer extends EventTarget {
         // Tchat : message écrit d'un joueur de la partie (texte seul : affiché tel quel, jamais comme du HTML)
         if (typeof data.chat === 'string') {
             const player = this.players.get(id);
-            const text = data.chat.replace(/[ -]/g, ' ').trim().slice(0, MAX_CHAT);
+            const text = data.chat.replace(/\p{Cc}/gu, ' ').trim().slice(0, MAX_CHAT);
             if (player && text) this.dispatchEvent(new CustomEvent('chat', { detail: { id, name: player.name, text } }));
             return;
         }

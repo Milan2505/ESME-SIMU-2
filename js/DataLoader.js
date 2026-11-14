@@ -5,7 +5,7 @@ async function loadCSV(url) {
     if (!response.ok) {
         throw new Error(`Impossible de charger ${url} (${response.status})`);
     }
-    const text = (await response.text()).replace(/^﻿/, '');
+    const text = (await response.text()).replace(/^\uFEFF/, '');
     const [header, ...lines] = text.split(/\r?\n/).filter((line) => line.trim() !== '');
     const keys = header.split(';').map((key) => key.trim());
 

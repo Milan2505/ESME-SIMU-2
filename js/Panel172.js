@@ -2,7 +2,6 @@ import {
     BoxGeometry,
     CanvasTexture,
     CircleGeometry,
-    Color,
     CylinderGeometry,
     DoubleSide,
     ExtrudeGeometry,
@@ -24,7 +23,7 @@ import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';
 import { releaseAfterUpload } from './CanvasMemory.js';
 import { XPDR_MODES, DAVTRON_TOP, DAVTRON_BOTTOM, formatCom, formatNav } from './Avionics.js';
 import {
-    ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
+    ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
     asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawLabels, drawDisplays
 } from './InstrumentArt.js';
 

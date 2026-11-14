@@ -1,4 +1,4 @@
-import { MathUtils, Matrix4, Quaternion, Vector3 } from 'three';
+import { MathUtils, Quaternion, Vector3 } from 'three';
 import { FlightModel } from './FlightModel.js';
 
 // Modèle de vol d'hélicoptère (Robinson R44 Raven II), à la place de FlightModel quand on pilote le R44. Même interface
@@ -81,7 +81,6 @@ const R44_HELI = {
 };
 
 const _q = new Quaternion();
-const _m = new Matrix4();
 const _v = new Vector3();
 const _w = new Vector3();
 const _f = new Vector3();
@@ -340,8 +339,8 @@ class HeliModel extends FlightModel {
 		_moment.z -= A.rollDamping * this._omega.z;
 		// Anneaux tourbillonnaires : secousses
 		if ( this.vortexRing > 0.2 ) {
-			_moment.x += ( Math.random() - 0.5 ) * 3000 * this.vortexRing;
-			_moment.z += ( Math.random() - 0.5 ) * 3000 * this.vortexRing;
+			_moment.x += ( this.random() - 0.5 ) * 3000 * this.vortexRing;
+			_moment.z += ( this.random() - 0.5 ) * 3000 * this.vortexRing;
 		}
 
 		// --- Patins : contacts avec le sol ---

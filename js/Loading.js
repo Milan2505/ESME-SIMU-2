@@ -27,10 +27,8 @@ const STALL_SECONDS = 45;
 
 const items = [];        // { step, name, weight, fraction, state: 'loading' | 'done' | 'failed', error, retry, since }
 const listeners = new Set();
-let changed = 0;
 
 function notify() {
-    changed++;
     for (const listener of listeners) listener();
 }
 

@@ -70,6 +70,7 @@ class FlightModel extends EventDispatcher {
 		this.surfaceAt = () => 'grass';  // revêtement du sol en (x, z) : 'asphalt', 'grass' ou 'water' (lac)
 		this.obstacles = [];             // boîtes (Box3, repère monde) à ne pas percuter
 		this.turbulence = 0;             // 0 = air calme, 1 = tempête
+		this.random = Math.random;       // tirage des rafales et de l'aile qui tombe : remplaçable par un tirage à graine (tests, voir Random.js)
 		this.rotateSpeed = aircraft.rotateSpeed;
 		// Aides au pilotage (menu Paramètres > Pilotage), désactivées par défaut
 		this.assists = {
@@ -290,9 +291,9 @@ class FlightModel extends EventDispatcher {
 		}
 		this._gustTimer -= delta;
 		if ( this._gustTimer <= 0 ) {
-			_gustTarget.set( Math.random() - 0.5, ( Math.random() - 0.5 ) * 0.5, Math.random() - 0.5 ).multiplyScalar( 10 * this.turbulence );
-			this._gustRollTarget = ( Math.random() - 0.5 ) * 0.6 * this.turbulence;
-			this._gustTimer = 1 + Math.random() * 1.5;
+			_gustTarget.set( this.random() - 0.5, ( this.random() - 0.5 ) * 0.5, this.random() - 0.5 ).multiplyScalar( 10 * this.turbulence );
+			this._gustRollTarget = ( this.random() - 0.5 ) * 0.6 * this.turbulence;
+			this._gustTimer = 1 + this.random() * 1.5;
 		}
 		const k = 1 - Math.exp( - delta * 1.5 );
 		this._wind.lerp( _gustTarget, k );
@@ -376,7 +377,7 @@ class FlightModel extends EventDispatcher {
 			// Aile qui tombe : force au hasard ; côté au hasard moteur réduit, plutôt la gauche avec de la puissance (couple,
 			// facteur P) ou en dérapant vers la gauche (nez à gauche de la trajectoire : l'aile droite avance, porte plus)
 			const left = MathUtils.clamp( 0.5 + 0.35 * power + 4 * beta, 0.1, 0.9 );
-			this._wingDrop = ( Math.random() < left ? 1 : - 1 ) * ( 0.5 + 0.5 * Math.random() );
+			this._wingDrop = ( this.random() < left ? 1 : - 1 ) * ( 0.5 + 0.5 * this.random() );
 		} else if ( this.stalled && alpha < stallAlpha - A.stallRecovery ) {
 			this.stalled = false;
 		}

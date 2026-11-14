@@ -8,8 +8,6 @@ import {
     ExtrudeGeometry,
     Path,
     Shape,
-    ShapeGeometry,
-    Vector2,
     CylinderGeometry,
     DoubleSide,
     Group,
@@ -17,7 +15,6 @@ import {
     Mesh,
     MeshStandardMaterial,
     PlaneGeometry,
-    Quaternion,
     RepeatWrapping,
     ShaderMaterial,
     SphereGeometry,
@@ -63,7 +60,6 @@ const FLOOR_Y = -0.9;
 // Unités aéronautiques : la physique est en mètres et m/s, les instruments en nœuds et en pieds
 const KT = 3600 / 1852;   // m/s -> nœuds
 const FT = 1 / 0.3048;    // m -> pieds
-const NM = 1852;          // mille nautique (m)
 const PANEL_NIGHT_LIGHT = new Color(0xffbf45); // éclairage ambré des instruments
 const WHITE = new Color(0xffffff);
 

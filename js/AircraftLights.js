@@ -367,7 +367,7 @@ class AircraftLights {
         for (const [index, light] of this.lights.entries()) {
             const toEye = _eye.clone().sub(light.position);
             const distance = toEye.length();
-            let intensity = 1;
+            let intensity;
             const enabled = light.kind === 'landing' ? sw.land : sw[light.kind];   // taxi : sw.taxi
             if (!enabled) {
                 intensity = 0;

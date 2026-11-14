@@ -1,5 +1,5 @@
 import {
-    Box3, BoxGeometry, CylinderGeometry, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial,
+    Box3, BoxGeometry, CylinderGeometry, Group, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial,
     SRGBColorSpace, TextureLoader, TorusGeometry, Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';

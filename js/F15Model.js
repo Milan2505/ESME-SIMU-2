@@ -1,6 +1,5 @@
 import {
     AdditiveBlending,
-    BackSide,
     Box3,
     CanvasTexture,
     Color,
@@ -303,7 +302,7 @@ function prepare(scene) {
 
     // Recherche par préfixe (doublons numérotés : « Nose door 1.000 », « .001 »…) ; noms nettoyés par GLTFLoader
     // (espaces -> _, points retirés)
-    const clean = (s) => s.replace(/\s/g, '_').replace(/[[\]\.:/]/g, '');
+    const clean = (s) => s.replace(/\s/g, '_').replace(/[[\].:/]/g, '');
     const find = (...names) => names.flatMap((name) => {
         const key = clean(name);
         return [...nodes.entries()].filter(([n]) => n === key || (n.startsWith(key) && /^\d+$/.test(n.slice(key.length)))).flatMap(([, list]) => list);

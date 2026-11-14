@@ -205,8 +205,9 @@ function random(seed) {
 class Scenery {
     // terrain : { heightAt(x, z) } ; airport : { contains(x, z, marge) } ; corridor(x, z) : vrai dans l'axe d'approche
     // regions : centres des zones décorées (une par aérodrome), carrés de REGION m de demi-côté
-    constructor(scene, { renderer, terrain, airport, corridor, regions = [{ x: 0, z: 0 }] }) {
-        Object.assign(this, { scene, renderer, terrain, airport, corridor, regions });
+    // trees : false = sans arbres, donc sans le générateur EZ-Tree du CDN (mode test, hors réseau : voir simulator.js)
+    constructor(scene, { renderer, terrain, airport, corridor, regions = [{ x: 0, z: 0 }], trees = true }) {
+        Object.assign(this, { scene, renderer, terrain, airport, corridor, regions, trees });
         this.group = new Group();
         this.group.name = 'decor-realiste';
         this.group.visible = false;
@@ -237,7 +238,7 @@ class Scenery {
         const report = (fraction) => this.onProgress?.(fraction);
         // Chaque source à tour de rôle (nouvel essai après un échec : autre adresse, le navigateur peut garder en mémoire
         // l'import raté). Toutes en échec : le décor se fait quand même (maisons, rochers, fleurs), sans arbres
-        const treeModule = (async () => {
+        const treeModule = this.trees === false ? Promise.resolve({ Tree: null }) : (async () => {
             let failure;
             for (const url of EZ_TREE_URLS) {
                 try {
@@ -250,7 +251,7 @@ class Scenery {
             throw failure;
         })().catch((error) => ({ error }));
         const [treeLoaded, houseModels] = await Promise.all([treeModule, this._loadHouses()]);
-        const Tree = treeLoaded.error ? null : treeLoaded.Tree;
+        const Tree = treeLoaded.error ? null : treeLoaded.Tree ?? null;
         this.treesMissing = !Tree;
         report(0.3);
         // Construction par morceaux, en rendant la main au navigateur entre chacun : la page ne fige pas (portables)

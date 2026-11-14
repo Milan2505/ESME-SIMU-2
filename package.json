@@ -1,0 +1,22 @@
+{
+  "name": "esme-simu-2",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Simulateur de vol ESME. Site 100 % statique (GitHub Pages) : ce fichier ne sert qu'aux vérifications (lint, tests), rien n'en est publié.",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm test",
+    "check:full": "npm run check && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "mqtt": "5.14.1",
+    "three": "0.174.0"
+  }
+}

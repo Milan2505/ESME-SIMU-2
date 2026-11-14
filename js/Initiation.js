@@ -25,7 +25,6 @@ import { isTablet } from './Device.js';
 // quoi dire (le bouton du message clignote dans le panneau radio).
 
 const KT = 1.94384;
-const FT = 3.28084;
 const ADVICE_COOLDOWN = 14;     // s entre deux conseils du même type
 const GUIDE_REACHED = 14;       // m : balise de roulage atteinte
 const GLANCE = 3.5;             // s : en vol, coup d'œil sur la commande à manœuvrer avant de revenir dehors

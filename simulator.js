@@ -19,7 +19,7 @@ import { NightSky } from './js/NightSky.js';
 import { Storm } from './js/Storm.js';
 import { Cockpit, vorIndicator } from './js/Cockpit.js';
 import { VOR } from './js/VOR.js';
-import { Systems, TANK_CAPACITY, MAGNETOS, FUEL_SELECTOR } from './js/Systems.js';
+import { Systems, MAGNETOS, FUEL_SELECTOR } from './js/Systems.js';
 import { tabletRegistry } from './js/TabletRegistry.js';
 import { TabletPanels } from './js/TabletPanels.js';
 import { makeDraggable } from './js/Draggable.js';
@@ -90,6 +90,7 @@ import { loadF15, cloneF15, paintF15, animateF15, inletSchedule, moveInlets, INL
 import { F15Cockpit } from './js/F15Cockpit.js';
 import { JetSound } from './js/JetSound.js';
 import { VERSION, VERSION_DATE } from './js/Version.js';
+import { seededRandom } from './js/Random.js';
 import { Weapons } from './js/Weapons.js';
 import { Damage, SmokeTrail } from './js/Damage.js';
 import { Shield } from './js/Shield.js';
@@ -101,8 +102,14 @@ import { R44Systems } from './js/R44Systems.js';
 import { R44Sound } from './js/R44Sound.js';
 import { R44Cockpit, cloneR44, paintR44, R44_LIVERIES, R44_DEFAULT_LIVERY, isR44Livery, R44_LIGHT_LAYOUT, R44_SKID_HEIGHT } from './js/R44Model.js';
 
+// Mode test (?test=1) : tests automatiques (tests/e2e, Playwright) et essais reproductibles. Sans réseau ni hasard :
+// multijoueur coupé (aucune connexion aux relais), arbres EZ-Tree du CDN non chargés, voix radio de l'ordinateur (pas
+// de modèles à télécharger), musique du mode troll coupée, service worker non enregistré, graines fixes (vent, rafales,
+// aile qui tombe au décrochage), qualité « Bas » sans toucher aux réglages enregistrés ; état du vol et commandes
+// exposés dans window.__sim (voir CLAUDE.md)
+const TEST_MODE = new URLSearchParams(location.search).get('test') === '1';
 // Toujours la dernière version publiée, malgré le cache de 10 min de GitHub Pages (voir sw.js)
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
+if ('serviceWorker' in navigator && !TEST_MODE) navigator.serviceWorker.register('sw.js').catch((error) => console.warn(error));
 
 const CAM_FOV = 60, COCKPIT_FOV = 62, CAM_NEAR = 0.1, CAM_FAR = 3000;
 const COLOR_GROUND = 0x219313, COLOR_LIGHT = 0xfdfefe;
@@ -281,6 +288,7 @@ const graphics = new Graphics(renderer, scene, camera, sunLight);
 // tampons d'image en mémoire graphique, pour une image à peine plus fine sur un si petit écran
 if (isPhone()) graphics.pixelBudget = 0.9e6;
 const multiplayer = new Multiplayer();
+multiplayer.offline = TEST_MODE;   // (mode test : aucune connexion aux relais)
 multiplayer.map = MAP;
 // Porte-avions : règles d'appontage et de catapultage (solo : choix du menu principal ; en partie : celles du créateur)
 let soloCarrierRules = 'arcade';
@@ -299,6 +307,7 @@ remotePlayers.colorFor = (id, state) => (multiplayer.mode === 'wardog' && state.
 // Tour de contrôle (contrôleur automatique) : immatriculation française réaliste du Cessna
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
+if (TEST_MODE) wind.setSeed(1);   // (mode test : même vent à chaque fois)
 // Voix de la radio : voix réalistes (téléchargées à la première ouverture de la fenêtre), sinon voix de l'ordinateur
 const radioVoices = new RadioVoices();
 const f15Warnings = new F15Warnings({ voices: radioVoices });   // alarmes du F-15 (voyants, voix, HUD)
@@ -319,6 +328,10 @@ let systems = cessnaSystems;           // systèmes de l'avion piloté
 const planeModel = controls.model;
 const heliModel = new HeliModel(aircraft);
 heliModel.engine = heliSystems;
+if (TEST_MODE) {   // (mode test : rafales et aile qui tombe reproductibles, voir Random.js)
+    planeModel.random = seededRandom(1);
+    heliModel.random = seededRandom(2);
+}
 const jetFlight = { ...F15 };          // caractéristiques du F-15 pour le modèle de vol (masse : suit le carburant)
 // Radios du tableau (NAV/COM, transpondeur, DME, ADF...), lien avec le contrôle aérien (voir syncRadios)
 const avionics = new Avionics();
@@ -334,7 +347,7 @@ const CLASSIC_ASSETS = new Set(['TREE', 'TREE_F', 'FLOWER_Y', 'FLOWER_P', 'ROCK'
 // Décor réaliste (Scenery.js) : rien dans l'axe d'approche de la piste (x 220, nord-sud), ni sur l'aérodrome
 // Forêts et villages réalistes autour de chaque aérodrome (régions : centres), rien dans l'axe des pistes
 // (carte « Ville » : ni bois ni villages dans la ville et sur ses abords)
-const scenery = new Scenery(scene, { renderer, terrain, airport,
+const scenery = new Scenery(scene, { renderer, terrain, airport, trees: !TEST_MODE,
     corridor: (x, z) => airport.inCorridor(x, z) || Boolean(city?.contains(x, z, 120)),
     regions: airport.list.map((a) => ({ x: a.center.x, z: a.center.z })) });
 let aircraftModel = null;
@@ -2341,7 +2354,6 @@ document.getElementById('multi-creer').addEventListener('click', () => {
 });
 
 // Wardog : choix de l'équipe, avec les places restantes ; une équipe complète ne peut pas être choisie
-const teamsBox = document.getElementById('multi-equipes');
 const TEAM_LABELS = { bleu: 'Équipe bleue', rouge: 'Équipe rouge' };
 const enterButton = document.getElementById('multi-entrer');
 let teamChosenEarly = false;   // équipe choisie avant la confirmation de la partie : on y entre à la confirmation
@@ -3462,7 +3474,7 @@ function continueMapChoice() {
         location.replace(`${location.pathname}?carte=${mapChoice}`);
         return;
     }
-    newWind(Math.floor(Math.random() * 2 ** 32));   // nouvelle partie solo : nouveau vent
+    newWind(TEST_MODE ? 1 : Math.floor(Math.random() * 2 ** 32));   // nouvelle partie solo : nouveau vent (mode test : toujours le même)
     closeMainMenu();
     enterGame(openAirportChoice);
 }
@@ -4021,7 +4033,7 @@ atcTransponder.addEventListener('keydown', (event) => {
         lang = localStorage.getItem('atc-langue') ?? 'fr';
         voice = localStorage.getItem('atc-voix') !== '0';
         persons = Number(localStorage.getItem('atc-bord') ?? 2);
-        radioVoices.mode = localStorage.getItem('atc-voix-type') === 'system' ? 'system' : 'neural';
+        radioVoices.mode = TEST_MODE || localStorage.getItem('atc-voix-type') === 'system' ? 'system' : 'neural';   // (mode test : rien à télécharger)
     } catch { /* stockage indisponible */ }
     atcVoiceType.value = radioVoices.mode;
     // Voix réalistes téléchargées et préparées dès l'ouverture de la page (fil séparé : rien ne se fige), pour être
@@ -4042,7 +4054,7 @@ function setAtcButtonLabel(station, frequency) {
 }
 
 function renderAtc() {
-    const { icao, name, frequencies } = airport.aerodrome;
+    const { icao, frequencies } = airport.aerodrome;
     const station = atc.stations.find((st) => st.id === atc.freq);
     setAtcButtonLabel(station.label, frequencies[atc.freq]);
     if (atcPanel.hidden) return;
@@ -4237,7 +4249,7 @@ var initiation = new Initiation({
     // Départ : avion éteint au parking N4, en solo, vue cabine
     startCold: () => {
         multiplayer.leave();
-        newWind(Math.floor(Math.random() * 2 ** 32));   // chaque leçon : nouveau vent, donc piste en service tirée à nouveau
+        newWind(TEST_MODE ? 1 : Math.floor(Math.random() * 2 ** 32));   // chaque leçon : nouveau vent, donc piste en service tirée à nouveau
         atc.clearLog();
         selectAirport(airport.main);   // les leçons ont lieu à ESME
         airportPanel.hidden = true;
@@ -4652,9 +4664,6 @@ function shownInScene(object) {
     for (let o = object; o; o = o.parent) if (!o.visible) return false;
     return true;
 }
-function obsUnderPointer(event) {
-    return controlAt(event)?.id === 'obs';
-}
 
 // R44 : clic ou molette sur une commande du cockpit (zones cliquables du modèle FlightGear, voir FGAnimator) ; les
 // propriétés FlightGear changées sont reportées sur les systèmes. button : 0 clic (côté droit), 2 clic côté gauche,
@@ -4854,6 +4863,10 @@ window.addEventListener('keydown', (event) => {
 // anticrénelage, ombres, halo et décor faisaient dépasser la limite de Safari, qui fermait la page au chargement de la
 // partie), tablette « Moyen », ordinateur « Haut »
 const settings = new Settings({ defaultPreset: isPhone() ? 'bas' : isTablet() ? 'moyen' : 'haut' });
+if (TEST_MODE) {   // (mode test : qualité « Bas », rapide sans carte graphique ; les réglages du joueur ne sont pas touchés)
+    settings.persist = false;
+    settings.applyPreset('bas');
+}
 
 // Page morte pendant un chargement lourd (partie, F-15) : sur téléphone et tablette, Safari ferme la page sans prévenir
 // quand elle dépasse sa mémoire. Le chargement est marqué dans le stockage du navigateur pendant qu'il dure ; marque
@@ -5044,6 +5057,41 @@ window.esmeDebug = { scene, renderer, camera, controls, multiplayer, airport, te
     get weapons() { return weapons; }, get damage() { return damage; }, cibles: () => lastCombatTargets.map((t) => t.name) };
 window.esmeFreezes = () => ({ erreurs: loopErrors.slice(), aCoups: freezeLog.slice(), tachesLongues: longTasks.slice(), messagesLents: multiplayer.slowMessages.slice(),
     ...(previousFreeze ? { avantRechargement: previousFreeze } : {}) });
+// Tests automatiques (tests/e2e) et essais : état du jeu et du vol, commandes, lus et pilotés depuis Playwright ou la
+// console (voir TEST_MODE et CLAUDE.md)
+window.__sim = {
+    test: TEST_MODE, version: VERSION, map: MAP,
+    get aircraftType() { return aircraftType; },
+    // Où en est le jeu : 'chargement', 'menu', 'carte', 'aerodrome', 'hangar', 'depart', 'vol' ou 'crash'
+    get phase() {
+        if (loadingScreen.active) return 'chargement';
+        if (inMenu && !mainMenu.hidden) return 'menu';
+        if (!mapChoicePanel.hidden) return 'carte';
+        if (!airportPanel.hidden) return 'aerodrome';
+        if (inHangar) return 'hangar';
+        if (choosingSpawn) return 'depart';
+        return controls.isCrashed() ? 'crash' : 'vol';
+    },
+    // État du modèle de vol (unités SI : m, m/s, rad ; cap en degrés), lisible d'un coup
+    get state() {
+        const model = controls.model, p = aircraft.position;
+        return {
+            aircraft: aircraftType, onGround: model.onGround, crashed: model.crashed, stalled: model.stalled,
+            speed: model.airspeed, indicatedSpeed: model.indicatedSpeed, altitude: p.y, verticalSpeed: controls.getVerticalSpeed(),
+            heading: controls.getHeading(), roll: controls.getRoll(), alpha: model.alpha, throttle: model.throttle,
+            flaps: model.flaps, trim: model.trim, position: { x: p.x, y: p.y, z: p.z },
+            engineRunning: Boolean(systems.running), rpm: systems.rpm ?? 0,
+            rotorPercent: model.heli ? model.rotorPercent : null, loopErrors: loopErrors.length,
+        };
+    },
+    controls, wind, airport, settings,
+    get model() { return controls.model; },
+    get errors() { return loopErrors; },
+    // Commandes : gaz (0 -> 1 ; R44 : collectif), manche et palonnier (-1 -> 1, voir PlaneControls.setTouchInput), volets
+    setThrottle(value) { controls.throttle = Math.min(1, Math.max(0, value)); },
+    setInput(input) { controls.setTouchInput(input); },
+    setFlapLevel(level) { controls.setFlapLevel(level); },
+};
 
 // --- Filet de sécurité contre le jeu figé pour de bon -----------------------------------------------------------------
 // Page visible, code libre (le contrôle ci-dessous tourne à l'heure), mais plus aucune image depuis FREEZE_STALL ms :
@@ -5629,6 +5677,7 @@ async function showTroll() {
     trollMissing.textContent = '';
     clearTimeout(trollTimer);
     trollTimer = setTimeout(hideTroll, TROLL_TIME);
+    if (TEST_MODE) return;   // (mode test : l'image sans la musique)
     trollAudio ??= await (trollLoading ??= trollSong());
     if (!trollAudio) {
         trollLoading = null;   // (fichier ajouté entre-temps : retrouvé la fois suivante)

@@ -168,7 +168,7 @@ async function synthesize({ model, base, text, speaker = 0, lengthScale = 1 }) {
         try {
             ids = await phonemize(sentence.trim(), config.espeak.voice);
         } catch {
-            const clean = sentence.replace(/[«»"“”°()\[\]{}<>*_#|~^]/g, ' ').replace(/\s+/g, ' ').trim();
+            const clean = sentence.replace(/[«»"“”°()[\]{}<>*_#|~^]/g, ' ').replace(/\s+/g, ' ').trim();
             if (!clean) continue;
             try { ids = await phonemize(clean, config.espeak.voice); } catch { continue; }
         }

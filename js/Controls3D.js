@@ -11,8 +11,7 @@ import {
     Shape,
     SphereGeometry,
     SRGBColorSpace,
-    TorusGeometry,
-    Vector3
+    TorusGeometry
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';

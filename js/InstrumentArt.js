@@ -706,7 +706,7 @@ function drawPlates() {
     });
     k = 1.2;
     // NAV/COM : afficheur sur toute la largeur, puis commandes COM (gauche) et NAV (droite)
-    plate('navcom', '#18181a', (h) => {
+    plate('navcom', '#18181a', () => {
         t('BENDIX/KING', 5, 5, 3.6, '#f2f2f2', 'left');
         t('KX 155A TSO', 295, 5, 3.6, '#f2f2f2', 'right');
         ctx.fillStyle = '#050505';
@@ -915,7 +915,7 @@ function drawLabels(layout) {
     const f = L.flaps;
     t('WING FLAPS', f.scaleX + 30, 853, 6.5);
     const zones = [['#2b3c9c', 'UP', '110'], ['#3da2e0', '10°', '85'], ['#f4f4f4', '20°', ''], ['#f4f4f4', 'FULL', '']];
-    zones.forEach(([color, label, speed], i) => {
+    zones.forEach(([, label, speed], i) => {
         const y0 = f.top + i * f.step - f.step / 2;
         if (speed) t(speed, f.scaleX, y0 + f.step / 2, 6.2, i === 0 ? '#fff' : '#111');
         t(label, f.scaleX + 30, y0 + f.step / 2, 6.2);

@@ -374,7 +374,7 @@ class F15Cockpit {
                 o.material.roughness = Math.max(0.6, o.material.roughness ?? 0.6);
             }
         });
-        const get = (name) => byName.get(name.replace(/\s/g, '_').replace(/[[\]\.:/]/g, ''));
+        const get = (name) => byName.get(name.replace(/\s/g, '_').replace(/[[\].:/]/g, ''));
         // Images du HUD et des écrans du modèle (transparentes) : cachées, le HUD est dessiné à part
         // Verre du collimateur : les vitres du modèle (forme et inclinaison réelles), en verre teinté visible (leur image
         // d'origine était transparente : on ne voyait pas le verre) ; chants sombres. La symbologie est dessinée à part
