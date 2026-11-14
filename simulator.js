@@ -614,17 +614,27 @@ controls.addEventListener('reset', () => {
     releaseShuttle();
     carrierOps.arrest = carrierOps.onCat = null;
 });
-// Réaliste : crosse d'appontage (touche 9), lancement de la catapulte (touche 0), avion (pas le R44) sur la carte Mer
+// Avion (pas le R44) sur la carte Mer : touche 9 la crosse d'appontage, touche 0 le lancement de la catapulte (règles
+// réalistes ; en arcade, un message rappelle qu'elles sont automatiques). Ces deux touches ne changent alors plus de
+// caméra, quelles que soient les règles : avant, en arcade, 0 pour lancer la catapulte tournait la vue cabine à gauche
+// (caméra « Côté gauche »)
 function carrierKeys() {
-    return SEA && carrierRules() === 'realiste' && aircraftType !== 'r44';
+    return SEA && aircraftType !== 'r44';
 }
 window.addEventListener('keydown', (event) => {
     if (!carrierKeys() || event.repeat || isTypingTarget(event.target) || choosingSpawn || inMenu) return;
-    if (event.code === 'Digit9' || event.code === 'Numpad9') {
+    const nine = event.code === 'Digit9' || event.code === 'Numpad9', zero = event.code === 'Digit0' || event.code === 'Numpad0';
+    if (carrierRules() !== 'realiste') {
+        if (nine) carrierMessage('Arcade : la crosse sort toute seule avec le train');
+        if (zero) carrierMessage(aircraftType === 'f15' ? 'Arcade : la catapulte lance l\'avion dès la postcombustion'
+            : 'Arcade : la catapulte lance l\'avion dès 80 % de gaz');
+        return;
+    }
+    if (nine) {
         carrierOps.hook = !carrierOps.hook;
         carrierMessage(carrierOps.hook ? 'Crosse d\'appontage sortie' : 'Crosse d\'appontage rentrée');
     }
-    if ((event.code === 'Digit0' || event.code === 'Numpad0') && carrierOps.onCat) {
+    if (zero && carrierOps.onCat) {
         if (!launchPower(true)) {
             carrierMessage(aircraftType === 'f15' ? 'Catapulte : allumez d\'abord la postcombustion'
                 : 'Catapulte : poussez d\'abord les gaz (≥ 95 %)', true);
@@ -1303,8 +1313,8 @@ window.addEventListener('keydown', (event) => {
     }
     if (event.repeat) return;
     const match = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
-    // (porte-avions en règles réalistes : 9 et 0 manœuvrent la crosse et la catapulte, voir carrierKeys ; avant, ils
-    // changeaient aussi de caméra et passaient en vue cabine)
+    // (porte-avions : 9 et 0 manœuvrent la crosse et la catapulte, voir carrierKeys ; avant, ils changeaient aussi de
+    // caméra et passaient en vue cabine)
     if (match && !(carrierKeys() && (match[1] === '9' || match[1] === '0'))) setCabinViewPreset(Number(match[1]));
 });
 
