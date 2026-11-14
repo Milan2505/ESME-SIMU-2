@@ -394,16 +394,23 @@ controls.surfaceAt = (x, z) => (waterLake(x, z) ? 'water' : airport.surfaceAt(x,
 
 // --- Porte-avions (carte « Mer ») -------------------------------------------------------------------------------
 // Deux règles, choisies à la création de la partie (en solo : au menu principal) :
-// - Arcade : sur une catapulte, gaz à fond (≥ 80 %) -> lancé en ~2 s ; au toucher de la piste oblique, train sorti, un
-//   brin d'arrêt est toujours accroché (crosse automatique)
+// - Arcade : sur une catapulte, postcombustion allumée (Cessna : gaz ≥ 80 %) -> lancé en ~2 s ; au toucher de la piste
+//   oblique, train sorti, un brin d'arrêt est toujours accroché (crosse automatique)
 // - Réaliste : crosse d'appontage à sortir (touche 9), toucher entre le premier et le dernier brin, sinon « bolter » :
-//   remettre les gaz et refaire un tour ; catapulte : arrêté dessus, postcombustion (≥ 95 %), puis touche 0
+//   remettre les gaz et refaire un tour ; catapulte : arrêté dessus, postcombustion allumée (Cessna : gaz ≥ 95 %),
+//   puis touche 0
 // Catapulte : l'avion est tenu dans l'axe et poussé jusqu'à LAUNCH_SPEED au bout de la course, nez relevé (il s'envole).
 // Brins : décélération pour s'arrêter en ~ARREST_DISTANCE m, l'avion reste tenu tant que les gaz ne sont pas réduits
 const LAUNCH_SPEED = 78;        // m/s en bout de catapulte (~150 kt)
 const LAUNCH_SPEED_C172 = 35;   // (Cessna : ~70 kt, il s'envole bien avant)
 const ARREST_DISTANCE = 85;     // m
 const carrierOps = { launch: null, arrest: null, hook: false, armed: false, hintAt: 0, onCat: null };
+// Puissance de lancement atteinte : F-15, postcombustion allumée (manette au-delà du plein gaz sec, flammes visibles),
+// comme sur un vrai porte-avions ; Cessna (sans postcombustion) : gaz à 80 % (95 % en réaliste)
+function launchPower(realistic) {
+    if (aircraftType === 'f15') return controls.throttle > JET_MIL && jetSystems.afterburner > 0.05;
+    return controls.throttle >= (realistic ? 0.95 : 0.8);
+}
 function carrierMessage(text, red = false) {
     if (aircraftType === 'f15') weaponHud.message(text, red);
     showRadioMessage(text);
@@ -569,8 +576,9 @@ function updateCarrier(delta) {
         }
         carrierOps.onCat = found;
         carrierOps.armed = false;
-        carrierMessage(realistic ? `Catapulte ${found.cat.index} accrochée : postcombustion (gaz ≥ 95 %), puis touche 0 pour le lancement`
-            : `Catapulte ${found.cat.index} accrochée : gaz à fond (≥ 80 %) pour être lancé`);
+        const power = aircraftType === 'f15' ? 'postcombustion' : realistic ? 'plein gaz (≥ 95 %)' : 'gaz à fond (≥ 80 %)';
+        carrierMessage(realistic ? `Catapulte ${found.cat.index} accrochée : ${power}, puis touche 0 pour le lancement`
+            : `Catapulte ${found.cat.index} accrochée : ${power} pour être lancé`);
     }
     const under = carrierOps.onCat;
     if (!controls.isOnGround()) {
@@ -582,7 +590,7 @@ function updateCarrier(delta) {
     aircraft.position.z = held.z;
     model._groundYaw = under.yaw;
     model.airspeed = 0;
-    const ready = realistic ? controls.throttle >= 0.95 && carrierOps.armed : controls.throttle >= 0.8;
+    const ready = launchPower(realistic) && (!realistic || carrierOps.armed);
     if (!ready) return;
     carrierOps.launch = { cat: under.cat, yaw: under.yaw };
     carrierOps.onCat = null;
@@ -601,8 +609,10 @@ window.addEventListener('keydown', (event) => {
         carrierMessage(carrierOps.hook ? 'Crosse d\'appontage sortie' : 'Crosse d\'appontage rentrée');
     }
     if ((event.code === 'Digit0' || event.code === 'Numpad0') && carrierOps.onCat) {
-        if (controls.throttle < 0.95) carrierMessage('Catapulte : poussez d\'abord la postcombustion (gaz ≥ 95 %)', true);
-        else carrierOps.armed = true;
+        if (!launchPower(true)) {
+            carrierMessage(aircraftType === 'f15' ? 'Catapulte : allumez d\'abord la postcombustion'
+                : 'Catapulte : poussez d\'abord les gaz (≥ 95 %)', true);
+        } else carrierOps.armed = true;
     }
 });
 

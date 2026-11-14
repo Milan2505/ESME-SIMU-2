@@ -128,9 +128,9 @@ class Carrier extends Airport {
             return { id: `${config.id}-${id}`, name, detail, x: p.x, z: p.z, heading: heading + rotation, airport: this, ...extra };
         };
         this.spawns = [
-            spawnAt('cat1', 'Catapulte 1', 'Tribord avant · gaz à fond pour être lancé', cat.x, cat.z, Math.atan2(-cat.dx, -cat.dz),
+            spawnAt('cat1', 'Catapulte 1', 'Tribord avant · postcombustion pour être lancé', cat.x, cat.z, Math.atan2(-cat.dx, -cat.dz),
                 { cold: false, catapult: this.catapults[0] }),
-            spawnAt('cat2', 'Catapulte 2', 'Bâbord avant · gaz à fond pour être lancé', CATAPULTS[1].x, CATAPULTS[1].z,
+            spawnAt('cat2', 'Catapulte 2', 'Bâbord avant · postcombustion pour être lancé', CATAPULTS[1].x, CATAPULTS[1].z,
                 Math.atan2(-CATAPULTS[1].dx, -CATAPULTS[1].dz), { cold: false, catapult: this.catapults[1] }),
             spawnAt('pont', 'Pont arrière', 'Avion éteint, derrière l\'îlot : à mettre en route', PARK.x, PARK.z, Math.PI / 2, { cold: true, stand: 'P1' }),
         ];
