@@ -1564,16 +1564,31 @@ function updateCamera(delta, snap = false) {
 }
 
 // Le canvas est dimensionné par la grille CSS : on adapte le rendu à sa taille réelle
+let resizeWaiting = false;
 function resize() {
     const width = view.clientWidth, height = view.clientHeight;
     if (width === 0 || height === 0) return;
+    // Compilation de shaders en cours (voir checkNewShaders) : redimensionné à sa fin. Le canvas redimensionné est vide et
+    // le dessin attend la compilation : l'écran restait noir jusqu'à plusieurs secondes (au départ, la barre de menus
+    // qui apparaît redimensionne le canvas, pendant que ce qui vient d'apparaître se compile). D'ici là, l'image
+    // d'avant reste affichée, étirée à la nouvelle taille
+    if (shaderWarmup) {
+        if (!resizeWaiting) {
+            resizeWaiting = true;
+            shaderWarmup.then(() => {
+                resizeWaiting = false;
+                resize();
+            });
+        }
+        return;
+    }
     renderer.setSize(width, height, false);
     graphics.setSize(width, height);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     // Le canvas redimensionné est vide : on redessine tout de suite (sinon éclair noir jusqu'à l'image suivante). Pas
-    // avant la première compilation des shaders en arrière-plan (voir checkNewShaders), ni pendant
-    if (weather && sceneObjects >= 0 && !shaderWarmup) graphics.render();
+    // avant la première compilation des shaders en arrière-plan
+    if (weather && sceneObjects >= 0) graphics.render();
 }
 new ResizeObserver(resize).observe(view);
 resize();
@@ -6140,6 +6155,22 @@ function placeWarmView(kind, field) {
     updateCamera(0, true);
 }
 
+// Pièces de l'avion cachées au départ (flammes de postcombustion du F-15...) compilées elles aussi : three.js ne compile
+// que ce qui est visible. Sinon, compilées à leur première apparition (plein gaz : au lancement par la catapulte), image
+// figée le temps de la compilation. (Lumières exclues : en montrer une de plus ferait compiler toute la scène pour un
+// autre nombre de lumières)
+function compileWithHiddenParts(root) {
+    const hidden = [];
+    root.traverse((object) => {
+        if (object.visible || object.isLight) return;
+        hidden.push(object);
+        object.visible = true;
+    });
+    const compiling = compileScene();   // (la liste des shaders est faite tout de suite : visibilité rétablie aussitôt)
+    for (const object of hidden) object.visible = false;
+    return compiling;
+}
+
 async function warmUpWorld() {
     const views = airport.list.flatMap((field) => ['ensemble', 'hangar', 'piste', 'cabine'].map((kind) => [kind, field]));
     const compiling = task('shaders', 'Shaders', { weight: views.length });
@@ -6153,7 +6184,8 @@ async function warmUpWorld() {
         for (const [i, [kind, field]] of views.entries()) {
             placeWarmView(kind, field);
             updateWarmView();
-            await compileScene();
+            const body = aircraftType === 'f15' ? jetFrame : aircraftType === 'r44' ? heliFrame : airframe;
+            await (kind === 'piste' && i < 4 ? compileWithHiddenParts(body) : compileScene());   // (une fois : premier terrain)
             compiling.progress((i + 1) / views.length);
             // Quelques images dessinées derrière l'écran de chargement : ombres, post-traitement, variantes de shaders
             // que la compilation d'avance ne couvre pas, géométries et textures envoyées à la carte graphique
@@ -6270,9 +6302,6 @@ function drawFrame(time) {
         if (time < nextFrameTime - 1.5) return;
         nextFrameTime = Math.max(nextFrameTime + interval, time); // rattrape le retard sans s'emballer
     }
-    // Changement de résolution AVANT de dessiner : redimensionner le canvas l'efface ; fait après le dessin,
-    // l'image affichée était vide (éclair noir) jusqu'à l'image suivante
-    graphics.adaptResolution();
     const frameStart = performance.now();
     freezeFrameStart(frameStart);
     const delta = clock.getDelta();
@@ -6450,7 +6479,13 @@ function drawFrame(time) {
     // dessiner plus tôt forçait toute la compilation d'un coup, la page figeait jusqu'à 3,5 s pendant le chargement)
     const renderPause = inMenu || inHangar || choosingSpawn ? 8000 : MAX_RENDER_PAUSE;
     // (choix de la carte : la vidéo du fond couvre l'écran, rien à dessiner derrière)
-    if ((!shaderWarmup || performance.now() - shaderWarmupStart > renderPause) && !(mapPreviewCovers && !mapChoicePanel.hidden)) graphics.render();
+    const drawing = (!shaderWarmup || performance.now() - shaderWarmupStart > renderPause) && !(mapPreviewCovers && !mapChoicePanel.hidden);
+    // Changement de résolution juste avant de dessiner, et seulement si l'on dessine : redimensionner le canvas l'efface.
+    // Fait après le dessin, l'image affichée était vide (éclair noir) jusqu'à l'image suivante ; fait dans une image
+    // non dessinée (dessin suspendu par une compilation de shaders, fréquente juste après un départ), l'écran restait
+    // noir plusieurs secondes, le temps de la compilation (F-15 sur porte-avions surtout : le plus lourd)
+    graphics.adaptResolution(drawing);
+    if (drawing) graphics.render();
     lap('rendu');
     freezeFrameEnd();
     updatePerf(performance.now() - frameStart);

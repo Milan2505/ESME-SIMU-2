@@ -372,8 +372,9 @@ class Graphics {
         }
     }
 
-    // À appeler à chaque image : ajuste la résolution selon les images par seconde mesurées
-    adaptResolution() {
+    // À appeler à chaque image : ajuste la résolution selon les images par seconde mesurées. canResize : l'image est
+    // dessinée juste après (changer de résolution efface le canvas ; sans dessin derrière, il restait noir, voir drawFrame)
+    adaptResolution(canResize = true) {
         const q = this._quality;
         const now = performance.now();
         q.frames++;
@@ -381,7 +382,7 @@ class Graphics {
         const fps = (q.frames * 1000) / (now - q.start);
         q.frames = 0;
         q.start = now;
-        if (!this.autoResolution || document.hidden || now < q.holdUntil) return;
+        if (!canResize || !this.autoResolution || document.hidden || now < q.holdUntil) return;
 
         const ratio = this.renderer.getPixelRatio();
         q.goodSeconds = fps > HIGH_FPS * this.targetFps ? q.goodSeconds + 1 : 0;
