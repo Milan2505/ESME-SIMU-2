@@ -445,6 +445,12 @@ function catapultUnder() {
     }
     return null;
 }
+// Fin du lancement (bout de course, envol, crash, remise au départ) : la navette lâche l'avion et revient à son départ
+function releaseShuttle() {
+    const cat = carrierOps.launch?.cat;
+    carrierOps.launch = null;
+    cat?.carrier.releaseShuttle(cat.index);
+}
 function carrierTouchdown() {
     if (!SEA || aircraftType === 'r44') return;   // (R44 : il se pose où il veut sur le pont, sans brin)
     carrierOps.arrest = null;
@@ -493,7 +499,8 @@ function launchOffDeck(model, cat, speed) {
 function updateCarrier(delta) {
     const model = controls.model;
     if (controls.isCrashed()) {
-        carrierOps.launch = carrierOps.arrest = null;
+        releaseShuttle();
+        carrierOps.arrest = null;
         return;
     }
     // Coque : sous le niveau du pont, au-dessus du navire (voir controls.groundHeight) -> percutée
@@ -504,7 +511,8 @@ function updateCarrier(delta) {
     }
     // R44 : ni catapulte ni brins d'arrêt (il décolle et se pose à la verticale)
     if (aircraftType === 'r44') {
-        carrierOps.launch = carrierOps.arrest = carrierOps.onCat = null;
+        releaseShuttle();
+        carrierOps.arrest = carrierOps.onCat = null;
         return;
     }
     const realistic = carrierRules() === 'realiste';
@@ -543,22 +551,25 @@ function updateCarrier(delta) {
         // ne porte pas encore tout son poids
         if (controls.isOnGround() && along >= cat.stroke) {
             launchOffDeck(model, cat, Math.max(model.airspeed, target));
-            carrierOps.launch = null;
+            cat.carrier.moveShuttle(cat.index, cat.stroke);
+            releaseShuttle();
             return;
         }
         if (controls.isOnGround()) {
             // Tenu dans l'axe de la catapulte, accéléré pour atteindre la vitesse visée en bout de course. Freins
-            // (frein de parc, touche tenue) sans effet : la navette tire l'avion
+            // (frein de parc, touche tenue) sans effet : la navette tire l'avion. Navette dessinée sous la roulette de
+            // nez, au même point (même vitesse, même accélération que l'avion)
             const held = onCatapult(cat, along);
             aircraft.position.x = held.x;
             aircraft.position.z = held.z;
+            cat.carrier.moveShuttle(cat.index, along);
             const remaining = Math.max(1, cat.stroke - along);
             const accel = Math.max(0, target * target - model.airspeed * model.airspeed) / (2 * remaining);
             model.airspeed += (Math.max(accel, 5) + (model.controls?.brake ?? 0) * (model.aircraft?.brakes ?? 0)) * delta;
             if (along >= cat.stroke - 2) model.airspeed = Math.max(model.airspeed, target);
         }
         if (!controls.isOnGround() || along > cat.stroke + 5) {
-            carrierOps.launch = null;
+            releaseShuttle();
             launchGhostUntil = performance.now() + 3000;   // (envolé avant le bout de course : de même)
         }
         return;
@@ -599,7 +610,10 @@ function updateCarrier(delta) {
     shake = Math.max(shake, 0.6);
     carrierMessage(`Catapulte ${under.cat.index} : lancement !`);
 }
-controls.addEventListener('reset', () => { carrierOps.launch = carrierOps.arrest = carrierOps.onCat = null; });
+controls.addEventListener('reset', () => {
+    releaseShuttle();
+    carrierOps.arrest = carrierOps.onCat = null;
+});
 // Réaliste : crosse d'appontage (touche 9), lancement de la catapulte (touche 0)
 window.addEventListener('keydown', (event) => {
     if (!SEA || event.repeat || isTypingTarget(event.target) || choosingSpawn || inMenu) return;

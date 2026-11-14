@@ -1,9 +1,12 @@
 import {
     Box3,
     BoxGeometry,
+    BufferGeometry,
     DoubleSide,
+    Float32BufferAttribute,
     Group,
     MathUtils,
+    Matrix3,
     Mesh,
     MeshStandardMaterial,
     Vector3
@@ -56,6 +59,70 @@ const ISLAND = [
 const PARK = { x: 23, z: 118 };      // avion présenté au « hangar » (pont arrière, à tribord), nez vers bâbord
 const MODEL_URL = isTablet() ? 'asset/carrier/truman-mobile.glb' : 'asset/carrier/truman.glb';
 let modelLoading = null;   // (un seul chargement pour les deux navires : chacun en prend une copie)
+// Navette de chaque catapulte (et sa plaque) : tout ce qui dépasse du pont autour de son départ (m le long de l'axe :
+// en arrière, en avant ; de côté ; hauteur au-dessus du pont)
+const SHUTTLE_BOX = { back: 1.2, front: 1.6, side: 0.8, top: 0.5 };
+const SHUTTLE_PAUSE = 1;      // s : navette arrêtée en bout de course après le lancement
+const SHUTTLE_RETURN = 12;    // m/s : puis elle revient à son départ
+let shuttleParts = null;      // par catapulte : [{ geometry, material }] (pris dans le modèle, voir extractShuttles)
+
+function insideShuttle(c, p) {
+    const dx = p.x - c.x, dz = p.z - c.z;
+    const along = dx * c.dx + dz * c.dz, lateral = dx * c.dz - dz * c.dx;
+    return p.y > DECK + 0.005 && p.y < DECK + SHUTTLE_BOX.top && along > -SHUTTLE_BOX.back && along < SHUTTLE_BOX.front
+        && Math.abs(lateral) < SHUTTLE_BOX.side;
+}
+
+// Navettes des catapultes : dans le modèle, elles sont fondues dans le pont. Leurs triangles en sont retirés (réduits à
+// un point) et refaits en pièces à part (mêmes matériaux), placées au départ de chaque catapulte (origine : son départ,
+// au niveau de la mer), qu'on fait avancer avec l'avion (voir moveShuttle)
+function extractShuttles(scene) {
+    scene.updateMatrixWorld(true);
+    const parts = CATAPULTS.map(() => new Map());   // matériau -> { nom d'attribut -> valeurs }
+    const v = [new Vector3(), new Vector3(), new Vector3()], n = new Vector3();
+    scene.traverse((mesh) => {
+        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+        const geometry = mesh.geometry, position = geometry.attributes.position, index = geometry.index;
+        const normalMatrix = new Matrix3().getNormalMatrix(mesh.matrixWorld);
+        const count = index ? index.count : position.count;
+        let changed = false;
+        for (let t = 0; t + 2 < count; t += 3) {
+            const ids = [t, t + 1, t + 2].map((i) => (index ? index.getX(i) : i));
+            ids.forEach((id, k) => v[k].fromBufferAttribute(position, id).applyMatrix4(mesh.matrixWorld));
+            const cat = CATAPULTS.findIndex((c) => v.every((p) => insideShuttle(c, p)));
+            if (cat < 0) continue;
+            const c = CATAPULTS[cat];
+            let part = parts[cat].get(mesh.material);
+            if (!part) parts[cat].set(mesh.material, part = {});
+            ids.forEach((id, k) => {
+                for (const [name, attribute] of Object.entries(geometry.attributes)) {
+                    const values = part[name] ??= [];
+                    if (name === 'position') values.push(v[k].x - c.x, v[k].y, v[k].z - c.z);
+                    else if (name === 'normal') {
+                        n.fromBufferAttribute(attribute, id).applyMatrix3(normalMatrix).normalize();
+                        values.push(n.x, n.y, n.z);
+                    } else for (let j = 0; j < attribute.itemSize; j++) values.push(attribute.getComponent(id, j));
+                }
+            });
+            if (index) {
+                index.setX(t + 1, ids[0]);
+                index.setX(t + 2, ids[0]);
+            } else {
+                for (const i of [t + 1, t + 2]) position.setXYZ(i, position.getX(t), position.getY(t), position.getZ(t));
+            }
+            changed = true;
+        }
+        if (changed) (index ?? position).needsUpdate = true;
+    });
+    return parts.map((map) => [...map].map(([material, attributes]) => {
+        const geometry = new BufferGeometry();
+        for (const [name, values] of Object.entries(attributes)) {
+            const itemSize = name === 'position' || name === 'normal' ? 3 : values.length / (attributes.position.length / 3);
+            geometry.setAttribute(name, new Float32BufferAttribute(values, itemSize));
+        }
+        return { geometry, material };
+    }));
+}
 
 // Point dans un polygone (règle pair-impair)
 function insidePolygon(polygon, x, z) {
@@ -120,8 +187,10 @@ class Carrier extends Airport {
         // Catapultes (repère monde) : navette au départ, direction, course
         this.catapults = CATAPULTS.map((c, i) => ({
             index: i + 1, start: vector(c.x, DECK, c.z), direction: this.directionToWorld(new Vector3(c.dx, 0, c.dz)),
-            stroke: c.stroke, heading: rotation + Math.atan2(-c.dx, -c.dz),
+            stroke: c.stroke, heading: rotation + Math.atan2(-c.dx, -c.dz), carrier: this,
         }));
+        // Navettes : position le long de la course (m), tenue par un avion ou non, attente en bout de course
+        this._shuttles = CATAPULTS.map(() => ({ along: 0, held: false, pause: 0, group: null }));
         this.start = world(cat.x, cat.z);
         const spawnAt = (id, name, detail, x, z, heading, extra = {}) => {
             const p = world(x, z);
@@ -208,11 +277,23 @@ class Carrier extends Airport {
                 child.castShadow = !child.material.transparent;
                 child.material.side = DoubleSide;   // (faces du modèle FlightGear pas toutes orientées)
             });
+            shuttleParts = extractShuttles(gltf.scene);   // (avant les copies : géométrie du pont partagée)
             return gltf.scene;
         }), { weight: 4 });
         modelLoading.then((scene) => {
             model.add(scene.clone());
             model.updateMatrixWorld(true);
+            shuttleParts.forEach((parts, i) => {
+                const shuttle = new Group();
+                for (const { geometry, material } of parts) {
+                    const mesh = new Mesh(geometry, material);
+                    mesh.castShadow = mesh.receiveShadow = true;
+                    shuttle.add(mesh);
+                }
+                group.add(shuttle);
+                this._shuttles[i].group = shuttle;
+                this._placeShuttle(i);
+            });
         }, () => {});
 
         // Bande à la couleur de l'équipe, autour de l'îlot (les deux navires sont le même modèle)
@@ -257,7 +338,33 @@ class Carrier extends Airport {
     setNight(night) {
         if (this._deckLights) this._deckLights.emissiveIntensity = 0.05 + 2.5 * night;
     }
-    update() {}
+
+    // Navette de la catapulte n° index (1, 2) tenue sous la roulette de nez, à along m de son départ (lancement en cours)
+    moveShuttle(index, along) {
+        const s = this._shuttles[index - 1];
+        s.along = MathUtils.clamp(along, 0, CATAPULTS[index - 1].stroke);
+        s.held = true;
+        s.pause = SHUTTLE_PAUSE;
+        this._placeShuttle(index - 1);
+    }
+    // Avion lâché (envolé, ou sorti de la catapulte) : la navette s'arrête, puis revient à son départ (voir update)
+    releaseShuttle(index) {
+        this._shuttles[index - 1].held = false;
+    }
+    _placeShuttle(i) {
+        const s = this._shuttles[i], c = CATAPULTS[i];
+        s.group?.position.set(c.x + c.dx * s.along, 0, c.z + c.dz * s.along);
+    }
+    update(delta) {
+        for (const [i, s] of this._shuttles.entries()) {
+            if (s.held || s.along === 0) continue;
+            if (s.pause > 0) s.pause -= delta;
+            else {
+                s.along = Math.max(0, s.along - SHUTTLE_RETURN * delta);
+                this._placeShuttle(i);
+            }
+        }
+    }
 }
 
 export { Carrier, CARRIERS };
