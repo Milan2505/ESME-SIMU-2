@@ -25,6 +25,22 @@ function sharedAudioContext() {
     return context;
 }
 
+// Sortie commune de tous les sons, par un limiteur : chaque module (réacteurs, alarmes, radio, armes...) avait sa sortie
+// à lui, chacune presque au maximum ; leur somme dépassait le maximum dès que plusieurs jouaient ensemble (alarmes
+// sur la postcombustion du F-15) : son saturé. Sous ~-1,3 dB, rien ne change (le limiteur relève ce qu'il baisse
+// d'un gain fixe, « makeup » de la norme Web Audio : (1 / gain à 0 dB)^0,6 = +1,7 dB ici, compensé avant lui) ; au-dessus,
+// le niveau est plafonné sous 0 dB au lieu d'écrêter
+let output = null;
+function audioOutput() {
+    if (!output) {
+        const ctx = sharedAudioContext();
+        const limiter = new DynamicsCompressorNode(ctx, { threshold: -3, knee: 0, ratio: 20, attack: 0.002, release: 0.2 });
+        output = new GainNode(ctx, { gain: 0.821 });
+        output.connect(limiter).connect(ctx.destination);
+    }
+    return output;
+}
+
 function resumeAudio() {
     if (!context || context.state === 'running' || context.state === 'closed') return;
     context.resume().catch(() => { /* pas encore autorisé : réessayé au geste suivant */ });
@@ -67,4 +83,4 @@ function loadSound(audio, url) {
     });
 }
 
-export { sharedAudioContext, resumeAudio, loadSound };
+export { sharedAudioContext, audioOutput, resumeAudio, loadSound };

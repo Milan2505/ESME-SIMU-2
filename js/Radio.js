@@ -3,7 +3,7 @@
 // (8 000 échantillons par seconde, codage G.711 µ-law, ~8 ko/s), envoyé en paquets de 125 ms.
 // À l'écoute : filtre de bande "radio", légère saturation et souffle discret, petit "pschht" en fin de message.
 
-import { sharedAudioContext } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput } from './AudioUnlock.js';
 
 const RATE = 8000;              // échantillons par seconde envoyés
 const CHUNK = 1000;             // échantillons par paquet (125 ms)
@@ -102,7 +102,7 @@ class Radio extends EventTarget {
         const lowpass = new BiquadFilterNode(audio, { type: 'lowpass', frequency: 3000, Q: 0.7 });
         const shaper = new WaveShaperNode(audio, { curve: softClipCurve(1.8), oversample: '2x' });
         this._output = new GainNode(audio, { gain: this.volume * 0.9 });
-        this._input.connect(highpass).connect(lowpass).connect(shaper).connect(this._output).connect(audio.destination);
+        this._input.connect(highpass).connect(lowpass).connect(shaper).connect(this._output).connect(audioOutput());
 
         // Souffle : bruit blanc filtré, très bas pendant une réception, coupé sinon
         const noise = audio.createBuffer(1, audio.sampleRate * 2, audio.sampleRate);
@@ -111,7 +111,7 @@ class Radio extends EventTarget {
         this._noiseBuffer = noise;
         const hiss = new AudioBufferSourceNode(audio, { buffer: noise, loop: true });
         this._hiss = new GainNode(audio, { gain: 0 });
-        hiss.connect(new BiquadFilterNode(audio, { type: 'bandpass', frequency: 1800, Q: 0.6 })).connect(this._hiss).connect(audio.destination);
+        hiss.connect(new BiquadFilterNode(audio, { type: 'bandpass', frequency: 1800, Q: 0.6 })).connect(this._hiss).connect(audioOutput());
         hiss.start();
     }
 
@@ -260,7 +260,7 @@ class Radio extends EventTarget {
         const audio = this._audio;
         const source = new AudioBufferSourceNode(audio, { buffer: this._noiseBuffer });
         const gain = new GainNode(audio, { gain: 0 });
-        source.connect(new BiquadFilterNode(audio, { type: 'bandpass', frequency: 2200, Q: 0.8 })).connect(gain).connect(audio.destination);
+        source.connect(new BiquadFilterNode(audio, { type: 'bandpass', frequency: 2200, Q: 0.8 })).connect(gain).connect(audioOutput());
         const start = Math.max(time, audio.currentTime);
         gain.gain.setValueAtTime(0.05 * this.volume, start);
         gain.gain.exponentialRampToValueAtTime(0.001, start + duration);

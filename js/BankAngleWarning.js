@@ -3,7 +3,7 @@
 // « Bank angle, check! » (dans le casque). L'alarme se réarme une fois revenu sous 40°.
 // Sons : EGPWS MK VIII du projet FlightGear A310 (GPL-2.0) ; pilote : voix Piper Alan. Voir asset/sounds/LICENSE.txt
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 const SOUNDS = {
     voice: 'asset/sounds/bank-angle.wav',        // « BANK ANGLE » (dit deux fois de suite)
@@ -67,7 +67,7 @@ class BankAngleWarning {
     }
 
     _chain(nodes) {
-        nodes.reduce((a, b) => a.connect(b)).connect(this._audio.destination);
+        nodes.reduce((a, b) => a.connect(b)).connect(audioOutput());
         return nodes[0];
     }
 

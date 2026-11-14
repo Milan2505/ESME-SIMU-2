@@ -1,7 +1,7 @@
 // Alarme de décrochage Airbus : annonce vocale "STALL" puis "cricket", en boucle.
 // Sons issus du projet FlightGear A320-family (GPL-2.0), voir asset/sounds/
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 const SOUNDS = {
     voice:   'asset/sounds/stall_voice.wav',
@@ -33,7 +33,7 @@ class StallWarning {
         this._audio = sharedAudioContext();
         this._gain = this._audio.createGain();
         this._gain.gain.value = this.volume;
-        this._gain.connect(this._audio.destination);
+        this._gain.connect(audioOutput());
 
         const entries = await Promise.all(Object.entries(SOUNDS).map(async ([name, url]) => {
             return [name, await loadSound(this._audio, url)];

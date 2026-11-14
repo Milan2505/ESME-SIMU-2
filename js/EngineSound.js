@@ -3,7 +3,7 @@
 // Sources et licences : asset/sounds/LICENSE.txt
 // Fournit aussi le moteur des avions des autres joueurs, placé dans l'espace (distance, gauche/droite).
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 // Boucles : régime auquel chacune a été enregistrée (mesuré sur l'enregistrement) et niveau relatif (dB)
 const LAYERS = [
@@ -141,7 +141,7 @@ class EngineSound {
         // En cabine : passe-bas qui étouffe le moteur (aigus coupés par la carlingue, voir setCabin)
         this._muffle = new BiquadFilterNode(this._audio, { type: 'lowpass', frequency: this._cabin ? CABIN_CUTOFF : OUTSIDE_CUTOFF, Q: 0.5 });
         const limiter = new DynamicsCompressorNode(this._audio, { threshold: -10, knee: 6, ratio: 12, attack: 0.003, release: 0.15 });
-        this._master.connect(this._muffle).connect(body).connect(presence).connect(limiter).connect(this._audio.destination);
+        this._master.connect(this._muffle).connect(body).connect(presence).connect(limiter).connect(audioOutput());
 
         const urls = [...LAYERS.map(({ name, url }) => [name, url]), ...Object.entries(ONE_SHOTS)];
         const entries = await Promise.all(urls.map(async ([name, url]) => [name, await loadBuffer(this._audio, url)]));

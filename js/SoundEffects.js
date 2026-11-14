@@ -1,7 +1,7 @@
 // Bruitages : pluie, tonnerre, crash, pneus, ambiance extérieure. Sons des projets FlightGear A320-family, c172p et
 // c182s (GPL-2.0) et ambiances de parc de Thimras (CC0), voir asset/sounds/
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 const LOOPS = {
     rain:          'asset/sounds/rain.wav',
@@ -48,7 +48,7 @@ class SoundEffects {
         this._audio = sharedAudioContext();
         this._master = this._audio.createGain();
         this._master.gain.value = this.volume;
-        this._master.connect(this._audio.destination);
+        this._master.connect(audioOutput());
 
         const all = { ...LOOPS, ...SHOTS };
         const entries = await Promise.all(Object.entries(all).map(async ([name, url]) => {

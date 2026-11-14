@@ -7,7 +7,7 @@
 // - bruits ponctuels : déclic des interrupteurs, portes.
 // Fournit aussi les R44 des autres joueurs, placés dans l'espace (distance, gauche/droite, Doppler).
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 const DIR = 'asset/sounds/r44/';
 const NAMES = ['engine', 'engine-internal', 'rotor', 'rotor-internal', 'starter-inside', 'starter-outside', 'low-rpm-horn',
@@ -114,9 +114,9 @@ class R44Sound {
         this._master.gain.value = this.volume;
         this._muffle = new BiquadFilterNode(this._audio, { type: 'lowpass', frequency: this._cabin ? CABIN_CUTOFF : OUTSIDE_CUTOFF, Q: 0.5 });
         const limiter = new DynamicsCompressorNode(this._audio, { threshold: -10, knee: 6, ratio: 12, attack: 0.003, release: 0.15 });
-        this._master.connect(this._muffle).connect(limiter).connect(this._audio.destination);
+        this._master.connect(this._muffle).connect(limiter).connect(audioOutput());
         this._alarm = this._audio.createGain();          // klaxon : pas étouffé
-        this._alarm.connect(this._audio.destination);
+        this._alarm.connect(audioOutput());
         const entries = await Promise.all(NAMES.map(async (name) => [name, await loadSound(this._audio, `${DIR}${name}.wav`)]));
         this._buffers = Object.fromEntries(entries);
         const b = this._buffers;

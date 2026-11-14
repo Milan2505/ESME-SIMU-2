@@ -21,7 +21,7 @@ import {
     SRGBColorSpace,
     Vector3
 } from 'three';
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 import { SmokeTrail, puffTexture } from './Damage.js';
 import { Billboards } from './Billboards.js';
 
@@ -588,7 +588,7 @@ class WeaponSounds {
         const ctx = this.ctx, rate = ctx.sampleRate;
         this.master = ctx.createGain();
         this.master.gain.value = 0.9;
-        this.master.connect(ctx.destination);
+        this.master.connect(audioOutput());
         // Rafale : 50 coups (0,5 s), chacun un claquement grave et un souffle
         const period = Math.round(rate / GUN.rate);
         const gun = ctx.createBuffer(1, period * 50, rate);

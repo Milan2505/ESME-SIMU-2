@@ -8,7 +8,7 @@
 //   (alarme du vrai F-15 à forte incidence, à la place de l'alarme Airbus « STALL » du Cessna).
 // Fournit aussi les réacteurs des F-15 des autres joueurs, placés dans l'espace (distance, gauche/droite, Doppler).
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 const DIR = 'asset/sounds/f15/';
 const LOOPS = ['jet-whine', 'jet-intake-air', 'engine-jet-exhaust', 'engine-jet-afterburner', 'engine-jet-afterburner-inside', 'jfs-running', 'stall-600-chopped', 'gear-transit'];
@@ -119,10 +119,10 @@ class JetSound {
         this._master.gain.value = this.volume;
         this._muffle = new BiquadFilterNode(this._audio, { type: 'lowpass', frequency: this._cabin ? CABIN_CUTOFF : OUTSIDE_CUTOFF, Q: 0.5 });
         const limiter = new DynamicsCompressorNode(this._audio, { threshold: -10, knee: 6, ratio: 12, attack: 0.003, release: 0.15 });
-        this._master.connect(this._muffle).connect(limiter).connect(this._audio.destination);
+        this._master.connect(this._muffle).connect(limiter).connect(audioOutput());
         // Alarmes de la cabine : pas étouffées
         this._alarm = this._audio.createGain();
-        this._alarm.connect(this._audio.destination);
+        this._alarm.connect(audioOutput());
         const names = [...LOOPS, ...ONE_SHOTS];
         const entries = await Promise.all(names.map(async (name) => [name, await loadSound(this._audio, `${DIR}${name}.wav`)]));
         this._buffers = Object.fromEntries(entries);

@@ -5,7 +5,7 @@
 // radio (bande étroite, saturation légère, souffle). Si les voix réalistes sont indisponibles : voix de
 // l'ordinateur (synthèse vocale du navigateur). Chaque rôle garde toujours la même voix.
 
-import { sharedAudioContext } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput } from './AudioUnlock.js';
 
 const VOICES_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/';
 const MODELS = {
@@ -330,13 +330,13 @@ class RadioVoices extends EventTarget {
         const shaper = new WaveShaperNode(ctx, { curve: this._clipCurve(radio ? 2.2 : 1.3) });
         const gain = new GainNode(ctx, { gain: radio ? 0.9 : 0.8 });
         // Moniteur : voix directe dans la cabine (pas de casque ni de radio), juste un peu adoucie
-        if (instructor) source.connect(new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 7000 })).connect(new GainNode(ctx, { gain: 0.95 })).connect(ctx.destination);
-        else source.connect(highpass).connect(lowpass).connect(presence).connect(shaper).connect(gain).connect(ctx.destination);
+        if (instructor) source.connect(new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 7000 })).connect(new GainNode(ctx, { gain: 0.95 })).connect(audioOutput());
+        else source.connect(highpass).connect(lowpass).connect(presence).connect(shaper).connect(gain).connect(audioOutput());
         let hiss = null;
         if (radio) {
             hiss = new AudioBufferSourceNode(ctx, { buffer: this._noise(ctx), loop: true });
             const band = new BiquadFilterNode(ctx, { type: 'bandpass', frequency: 2000, Q: 0.6 });
-            hiss.connect(band).connect(new GainNode(ctx, { gain: 0.018 })).connect(ctx.destination);
+            hiss.connect(band).connect(new GainNode(ctx, { gain: 0.018 })).connect(audioOutput());
             hiss.start();
         }
         return new Promise((resolve) => {

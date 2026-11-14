@@ -1,4 +1,4 @@
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 // Alarmes du F-15 (seulement sur le F-15 : les alarmes du Cessna — DÉCROCHAGE, BANK ANGLE, SINK RATE / PULL UP de
 // l'EGPWS Airbus — n'y sonnent plus). Comme sur le vrai avion :
@@ -60,19 +60,26 @@ const LABELS = {
 };
 const WARNINGS = ['pullUp', 'fireL', 'fireR', 'amadFire', 'overG', 'altLow', 'gearWarning'];
 const SOUND_DIR = 'asset/sounds/f15/';
-// Annonces enregistrées (voix du F-15) : phrase -> fichier
-const RECORDED = { bingo: 'betty-bingo-fuel', fuelLow: 'betty-fuel-low', overG: 'betty-ows-overload' };
+// Annonces enregistrées (voix du F-15) : phrase -> fichier. (« Over G » : plus l'enregistrement betty-ows-overload,
+// écrêté dans l'original, 4 % des échantillons au maximum, son saturé quel que soit le volume : voix d'alarme calculée)
+const RECORDED = { bingo: 'betty-bingo-fuel', fuelLow: 'betty-fuel-low' };
 const CAUTION_VOICE = 'betty-warning';
 const GEAR_TONE = 'f-15-warning-tone';
 // Avertisseur de surcharge (OWS) : part du facteur de charge permis -> tonalité, en boucle (f-15-cadc.xml : ows-overg-*)
 const OWS_TONES = [[0.96, 'ows-overload-96'], [0.92, 'ows-overload-92'], [0.85, 'ows-overload-85']];
 const SAMPLE_FILES = [...Object.values(RECORDED), CAUTION_VOICE, GEAR_TONE, ...OWS_TONES.map(([, f]) => f)];
 // Niveau de chaque enregistrement, calculé sur les fichiers : volume perçu égalisé (voix ~0,2 efficace en sortie,
-// tonalités un peu moins), crête sous 0,95 (pas de saturation) ; les originaux vont du faible à la saturation (« Over G »)
+// tonalités un peu moins), crête sous 0,95 (pas de saturation) ; les originaux vont du faible à la saturation
 const SAMPLE_GAIN = {
-    'betty-warning': 0.79, 'betty-bingo-fuel': 1.16, 'betty-fuel-low': 0.79, 'betty-ows-overload': 0.42,
+    'betty-warning': 0.79, 'betty-bingo-fuel': 1.16, 'betty-fuel-low': 0.79,
     'ows-overload-85': 0.22, 'ows-overload-92': 0.25, 'ows-overload-96': 0.22, 'f-15-warning-tone': 1.11,
 };
+// Tonalités de l'avertisseur de surcharge : ~900 Hz, écrêtées dans les originaux (2 à 4 % des échantillons) ; passe-bas :
+// la note reste, le grésillement des harmoniques aiguës de l'écrêtage part
+const OWS_CUTOFF = 2000;   // Hz
+// Voix d'alarme calculée (voix neuronale) : niveau efficace et crête visés avant la chaîne du casque (×1,8, puis ×1,3 en
+// sortie) ; elle arrivait sans réglage, jusqu'à ~2,3 fois le maximum : saturée
+const VOICE_RMS = 0.085, VOICE_PEAK = 0.4;
 
 class F15Warnings {
     constructor({ voices = null } = {}) {
@@ -133,7 +140,7 @@ class F15Warnings {
             this._ows = null;
         }
         if (!file) return;
-        const played = this._playSample(file);
+        const played = this._playSample(file, SAMPLE_GAIN[file], this._owsIn);
         if (!played) return;
         played.source.loop = true;
         this._ows = { file, ...played };
@@ -153,8 +160,19 @@ class F15Warnings {
                 }
                 const ctx = this._context();
                 if (!ctx) return;
-                const buffer = ctx.createBuffer(1, audio.samples.length, audio.sampleRate);
-                buffer.copyToChannel(audio.samples instanceof Float32Array ? audio.samples : Float32Array.from(audio.samples), 0);
+                const samples = Float32Array.from(audio.samples);
+                let peak = 0, sum = 0;
+                for (const v of samples) {
+                    peak = Math.max(peak, Math.abs(v));
+                    sum += v * v;
+                }
+                const rms = Math.sqrt(sum / Math.max(1, samples.length));
+                if (peak > 0) {
+                    const scale = Math.min(VOICE_RMS / Math.max(rms, 1e-6), VOICE_PEAK / peak);
+                    for (let i = 0; i < samples.length; i++) samples[i] *= scale;
+                }
+                const buffer = ctx.createBuffer(1, samples.length, audio.sampleRate);
+                buffer.copyToChannel(samples, 0);
                 this._buffers.set(key, buffer);
             }
         })();
@@ -170,7 +188,7 @@ class F15Warnings {
         const ctx = this._audio;
         this._out = ctx.createGain();
         this._out.gain.value = 1.3;   // (alarmes au-dessus du bruit des réacteurs)
-        this._out.connect(ctx.destination);
+        this._out.connect(audioOutput());
         // Casque : bande de l'interphone
         this._voiceIn = ctx.createBiquadFilter();
         this._voiceIn.type = 'highpass';
@@ -181,6 +199,8 @@ class F15Warnings {
         const gain = ctx.createGain();
         gain.gain.value = 1.8;
         this._voiceIn.connect(low).connect(gain).connect(this._out);
+        this._owsIn = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: OWS_CUTOFF, Q: 0.7 });
+        this._owsIn.connect(this._out);
         this._loadSamples();
         return ctx;
     }

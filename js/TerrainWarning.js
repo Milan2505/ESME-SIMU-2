@@ -9,7 +9,7 @@
 // du MK VIII, simplifiées (droites).
 // Sons : EGPWS MK VIII du projet FlightGear A310 (GPL-2.0). Voir asset/sounds/LICENSE.txt
 
-import { sharedAudioContext, loadSound } from './AudioUnlock.js';
+import { sharedAudioContext, audioOutput, loadSound } from './AudioUnlock.js';
 
 const SOUNDS = {
     terrain: 'asset/sounds/terrain.wav',      // « TERRAIN »
@@ -63,7 +63,7 @@ class TerrainWarning {
     async _load() {
         this._audio = sharedAudioContext();
         this._speaker = new GainNode(this._audio, { gain: this.volume });
-        this._speaker.connect(this._audio.destination);
+        this._speaker.connect(audioOutput());
         const entries = await Promise.all(Object.entries(SOUNDS).map(async ([name, url]) => {
             return [name, await loadSound(this._audio, url)];
         }));
