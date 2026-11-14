@@ -453,7 +453,9 @@ function releaseShuttle() {
 }
 function carrierTouchdown() {
     if (!SEA || aircraftType === 'r44') return;   // (R44 : il se pose où il veut sur le pont, sans brin)
-    carrierOps.arrest = null;
+    // Déjà accroché (rebond, puis nouveau toucher) : le brin tient toujours. Avant, ce second toucher, au-delà des brins,
+    // comptait comme un « bolter » et libérait l'avion, qui roulait jusqu'au bout du pont et tombait à l'eau
+    if (carrierOps.arrest) return;
     const field = airport.carrierAt(aircraft.position.x, aircraft.position.z);
     if (!field) return;
     const { along, lateral } = field.landingAreaAt(aircraft.position.x, aircraft.position.z);
@@ -466,8 +468,7 @@ function carrierTouchdown() {
         return;
     }
     const wire = wires.reduce((best, w, i) => (Math.abs(w - along) < Math.abs(wires[best] - along) ? i : best), 0) + 1;
-    const speed = controls.getSpeed();
-    carrierOps.arrest = { decel: Math.max(8, speed * speed / (2 * ARREST_DISTANCE)), stopped: false, wire };
+    carrierOps.arrest = { speed: controls.getSpeed(), x: aircraft.position.x, z: aircraft.position.z, stopped: false, wire };
     carrierMessage(`Brin n° ${wire} accroché !`);
 }
 // Fin de catapulte : l'avion passe en vol, dans l'axe, à la vitesse donnée (m/s), un peu montant et nez levé (même
@@ -518,18 +519,28 @@ function updateCarrier(delta) {
     const realistic = carrierRules() === 'realiste';
     if (!realistic) carrierOps.hook = model.gearDown;   // (arcade : crosse sortie avec le train)
 
-    // Brin accroché : freinage, puis l'avion reste tenu (gaz à réduire)
+    // Brin accroché : l'avion est arrêté en ARREST_DISTANCE m, quels que soient les gaz (pleins gaz au toucher, comme
+    // les vrais pilotes, pour repartir en cas de « bolter »), puis tenu (gaz à réduire). Vitesse permise selon le chemin
+    // parcouru depuis le brin (décélération constante : v = v0 √(1 - d / D)). Avant, une décélération fixe était retirée
+    // à chaque image, mais la poussée du F-15 en postcombustion (~10 m/s²) la compensait en partie : accroché au brin 4,
+    // l'avion arrivait au bout du pont et tombait à l'eau. Rebond : le brin tient toujours (avant : il lâchait l'avion)
     const arrest = carrierOps.arrest;
     if (arrest) {
-        if (!controls.isOnGround()) carrierOps.arrest = null;
-        else if (!arrest.stopped) {
-            model.airspeed = Math.max(0, model.airspeed - arrest.decel * delta);
-            if (model.airspeed === 0) {
+        if (!arrest.stopped) {
+            const run = Math.hypot(aircraft.position.x - arrest.x, aircraft.position.z - arrest.z);
+            const allowed = arrest.speed * Math.sqrt(Math.max(0, 1 - run / ARREST_DISTANCE));
+            if (controls.isOnGround()) model.airspeed = Math.min(model.airspeed, allowed);
+            else {
+                const horizontal = Math.hypot(model.velocity.x, model.velocity.z);
+                if (horizontal > allowed) model.velocity.multiply(new THREE.Vector3(allowed / horizontal, 1, allowed / horizontal));
+            }
+            if (allowed < 1 && controls.isOnGround()) {
+                model.airspeed = 0;
                 arrest.stopped = true;
                 if (!realistic) controls.throttle = 0;
                 carrierMessage(`Appontage réussi (brin n° ${arrest.wire}) ! Réduisez les gaz pour libérer le brin`);
             }
-        } else {
+        } else if (controls.isOnGround()) {
             model.airspeed = 0;
             if (controls.throttle < 0.25) carrierOps.arrest = null;   // brin libéré
         }
