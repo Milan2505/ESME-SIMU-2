@@ -327,6 +327,14 @@ function prepare(scene) {
 
     // --- Gouvernes ---
     const p = {};
+    // Crosse d'appontage : sous la queue, entre les tuyères ; charnière au bout avant de la pièce (en haut), elle
+    // descend en tournant autour de l'axe transversal (avant : fondue dans la cellule avec les pièces fixes)
+    const hook = find('Hook').filter((o) => o.name !== clean('Hook.cover'));
+    if (hook.length) {
+        const box = new Box3();
+        for (const o of hook) box.expandByObject(o);
+        p.hook = pivot('hook', hook, new Vector3((box.min.x + box.max.x) / 2, box.max.y, box.min.z), new Vector3(1, 0, 0));
+    }
     p.stabL = pivot('stabL', find('StabilatorL'), fg(7.9652, -1.7929, 0), new Vector3(1, 0, 0));
     p.stabR = pivot('stabR', find('StabilatorR'), fg(7.9652, 1.7929, 0), new Vector3(1, 0, 0));
     p.aileronL = pivot('aileronL', find('AileronL'), fg(5.0335, -5.3892, 0.4772), axisBetween([5.0335, -5.3892, 0.4772], [4.4189, -3.7767, 0.5701]));
@@ -809,6 +817,7 @@ function moveInlets(current, target, delta) {
 // Animation : state = { pitch, roll, yaw (-1 -> 1, + = cabrer / gauche), flaps (0 -> 1), speedbrake (0 -> 1),
 // canopy (0 -> 1), gear (0 rentré -> 1 sorti), steer (-1 -> 1), wheelSpeed (m/s), onGround, n2 [g, d] (%),
 // ab [g, d] (0 -> 1), time (s) }
+const HOOK_DOWN = 62;   // degrés : crosse d'appontage sortie (hook, 0 rentrée -> 1 sortie)
 const _canopyShift = new Vector3();
 const _spinAxis = new Vector3();
 const WHEEL_SPIN_MAX = 10;   // rad/s : ~0,17 rad par image à 60 i/s (atteint vers 4 à 5 m/s)
@@ -839,6 +848,7 @@ function animateF15(model, state, delta) {
     rot(P.airbrake, -state.speedbrake * 45);
     rot(P.airbrakeRam, -state.speedbrake * 16);
     rot(P.canopy, state.canopy * 20);
+    rot(P.hook, (state.hook ?? 0) * HOOK_DOWN);
     if (P.canopy) P.canopy.position.copy(P.canopy.userData.home).add(_canopyShift.set(0, 0, Math.min(1, state.canopy * 4) * 0.01));
 
     // Train : position (0 rentré -> 1 sorti) ; roulette orientée au sol, roues qui roulent

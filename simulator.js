@@ -614,10 +614,12 @@ controls.addEventListener('reset', () => {
     releaseShuttle();
     carrierOps.arrest = carrierOps.onCat = null;
 });
-// Réaliste : crosse d'appontage (touche 9), lancement de la catapulte (touche 0)
+// Réaliste : crosse d'appontage (touche 9), lancement de la catapulte (touche 0), avion (pas le R44) sur la carte Mer
+function carrierKeys() {
+    return SEA && carrierRules() === 'realiste' && aircraftType !== 'r44';
+}
 window.addEventListener('keydown', (event) => {
-    if (!SEA || event.repeat || isTypingTarget(event.target) || choosingSpawn || inMenu) return;
-    if (carrierRules() !== 'realiste') return;
+    if (!carrierKeys() || event.repeat || isTypingTarget(event.target) || choosingSpawn || inMenu) return;
     if (event.code === 'Digit9' || event.code === 'Numpad9') {
         carrierOps.hook = !carrierOps.hook;
         carrierMessage(carrierOps.hook ? 'Crosse d\'appontage sortie' : 'Crosse d\'appontage rentrée');
@@ -968,15 +970,18 @@ function updateJet(delta) {
     const hydraulics = jetSystems.engines.some((e) => e.running && e.n2 > 40);
     moveInlets(jetInlet, inletSchedule({ mach: model.airspeed / 340, alphaDeg: THREE.MathUtils.radToDeg(model.alpha),
         onGround: controls.isOnGround(), hydraulics, airspeed: model.airspeed }), delta);
+    // Crosse d'appontage (carte Mer : touche 9 en réaliste, avec le train en arcade) : sort ou rentre en ~1,5 s
+    jetHook = THREE.MathUtils.clamp(jetHook + (carrierOps.hook ? 1 : -1) * delta / 1.5, 0, 1);
     animateF15(jetModel, {
         pitch: inputs.pitch, roll: inputs.roll, yaw: inputs.yaw, flaps: controls.getFlaps(), speedbrake: model.speedbrake,
         canopy: jetCanopy, gear, steer: THREE.MathUtils.clamp(inputs.yaw + inputs.roll * 0.5, -1, 1),
         wheelSpeed: controls.getSpeed(), onGround: controls.isOnGround(),
         n2: jetSystems.engines.map((e) => e.n2), ab: jetSystems.engines.map((e) => e.ab), time: clock.elapsedTime,
-        inlet: jetInlet.inlet, ramp4: jetInlet.ramp4,
+        inlet: jetInlet.inlet, ramp4: jetInlet.ramp4, hook: jetHook,
     }, delta);
 }
 const jetInlet = { inlet: INLET_MAX, ramp4: INLET_MAX };   // position des entrées d'air (degrés), voir inletSchedule
+let jetHook = 0;   // crosse d'appontage (0 rentrée -> 1 sortie)
 
 // Train (touche Y, poignée du cockpit) ; aérofrein (touche U, bouton de la manette des gaz)
 function toggleGear() {
@@ -1298,7 +1303,9 @@ window.addEventListener('keydown', (event) => {
     }
     if (event.repeat) return;
     const match = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
-    if (match) setCabinViewPreset(Number(match[1]));
+    // (porte-avions en règles réalistes : 9 et 0 manœuvrent la crosse et la catapulte, voir carrierKeys ; avant, ils
+    // changeaient aussi de caméra et passaient en vue cabine)
+    if (match && !(carrierKeys() && (match[1] === '9' || match[1] === '0'))) setCabinViewPreset(Number(match[1]));
 });
 
 function recenterCamera() {
@@ -3395,7 +3402,7 @@ for (const [name, label] of Object.entries({ arcade: 'Arcade', realiste: 'Réali
     button.type = 'button';
     button.textContent = label;
     button.dataset.regles = name;
-    button.title = name === 'arcade' ? 'Catapulte et brins d’arrêt automatiques' : 'Crosse à sortir (touche 9), catapulte à lancer (touche 0)';
+    button.title = name === 'arcade' ? 'Catapulte et brins d’arrêt automatiques' : 'Crosse d’appontage à sortir (touche 9), catapulte à lancer en postcombustion (touche 0)';
     button.addEventListener('click', () => {
         button.blur();
         if (mapChoiceFor === 'multi') createRules = name;
@@ -3487,7 +3494,7 @@ for (const [name, label] of Object.entries({ arcade: 'Arcade', realiste: 'Réali
     button.textContent = label;
     button.dataset.regles = name;
     button.setAttribute('role', 'radio');
-    button.title = name === 'arcade' ? 'Catapulte et brins d\'arrêt automatiques' : 'Crosse à sortir (touche 9), catapulte à lancer (touche 0)';
+    button.title = name === 'arcade' ? 'Catapulte et brins d\'arrêt automatiques' : 'Crosse d’appontage à sortir (touche 9), catapulte à lancer en postcombustion (touche 0)';
     button.addEventListener('click', () => {
         button.blur();
         soloCarrierRules = createRules = name;
