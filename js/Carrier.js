@@ -42,10 +42,11 @@ const LANDING_DIR = { x: -Math.sin(ANGLE), z: -Math.cos(ANGLE) };
 const WIRE_1 = { x: -2.4, z: 111.7 };
 const RUNWAY = { x: WIRE_1.x - 48 * LANDING_DIR.x, z: WIRE_1.z - 48 * LANDING_DIR.z, length: 215, width: 24 };
 const WIRES = [48, 61, 73, 86];                             // brins d'arrêt : distance au seuil (m)
-// Catapultes d'étrave : départ (avion arrêté devant le déflecteur de souffle), direction (un peu vers bâbord), course
+// Catapultes d'étrave : navette au départ (la roulette de nez de l'avion se pose dessus, voir noseWheelAhead dans
+// simulator.js), direction (un peu vers bâbord), course de la navette
 const CATAPULTS = [
-    { x: 17.9, z: -56.5, dx: -0.0904, dz: -0.9959, stroke: 102 },   // n° 1, tribord
-    { x: -8.1, z: -49.5, dx: -0.0290, dz: -0.9996, stroke: 106 },   // n° 2, bâbord
+    { x: 17.31, z: -62.88, dx: -0.0904, dz: -0.9959, stroke: 95.6 },   // n° 1, tribord
+    { x: -8.31, z: -56.97, dx: -0.0290, dz: -0.9996, stroke: 98.5 },   // n° 2, bâbord
 ];
 // Îlot (passerelle, mât avant et radars) et mât arrière : obstacles
 const ISLAND = [
@@ -116,7 +117,7 @@ class Carrier extends Airport {
             };
         });
         this.runwayLength = RUNWAY.length;
-        // Catapultes (repère monde) : départ, direction, course
+        // Catapultes (repère monde) : navette au départ, direction, course
         this.catapults = CATAPULTS.map((c, i) => ({
             index: i + 1, start: vector(c.x, DECK, c.z), direction: this.directionToWorld(new Vector3(c.dx, 0, c.dz)),
             stroke: c.stroke, heading: rotation + Math.atan2(-c.dx, -c.dz),
@@ -127,9 +128,10 @@ class Carrier extends Airport {
             return { id: `${config.id}-${id}`, name, detail, x: p.x, z: p.z, heading: heading + rotation, airport: this, ...extra };
         };
         this.spawns = [
-            spawnAt('cat1', 'Catapulte 1', 'Tribord avant · gaz à fond pour être lancé', cat.x, cat.z, Math.atan2(-cat.dx, -cat.dz), { cold: false }),
+            spawnAt('cat1', 'Catapulte 1', 'Tribord avant · gaz à fond pour être lancé', cat.x, cat.z, Math.atan2(-cat.dx, -cat.dz),
+                { cold: false, catapult: this.catapults[0] }),
             spawnAt('cat2', 'Catapulte 2', 'Bâbord avant · gaz à fond pour être lancé', CATAPULTS[1].x, CATAPULTS[1].z,
-                Math.atan2(-CATAPULTS[1].dx, -CATAPULTS[1].dz), { cold: false }),
+                Math.atan2(-CATAPULTS[1].dx, -CATAPULTS[1].dz), { cold: false, catapult: this.catapults[1] }),
             spawnAt('pont', 'Pont arrière', 'Avion éteint, derrière l\'îlot : à mettre en route', PARK.x, PARK.z, Math.PI / 2, { cold: true, stand: 'P1' }),
         ];
         this.aerodrome = { ...config.aerodrome, speech: config.speech, holdingX: 0,

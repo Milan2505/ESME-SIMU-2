@@ -408,6 +408,20 @@ function carrierMessage(text, red = false) {
     if (aircraftType === 'f15') weaponHud.message(text, red);
     showRadioMessage(text);
 }
+// Roulette de nez : distance (m) devant l'origine de l'avion, le long de son axe. Sur une catapulte, c'est elle qui est
+// posée sur la navette (avant : l'origine de l'avion, la roulette du F-15 restait ~3 m derrière la navette)
+const noseWheelPoint = new THREE.Vector3();
+function noseWheelAhead() {
+    const wheel = aircraftType === 'f15' ? jetModel?.userData.parts.noseSpin : aircraftType === 'c172' ? gear?.gear.spins[0] : null;
+    if (!wheel) return 0;
+    wheel.updateWorldMatrix(true, false);
+    return -aircraft.worldToLocal(wheel.getWorldPosition(noseWheelPoint)).z;
+}
+// Origine de l'avion, roulette de nez à `along` m de la navette au départ de la catapulte (repère monde, x et z)
+function onCatapult(cat, along) {
+    const d = along - noseWheelAhead();
+    return { x: cat.start.x + cat.direction.x * d, z: cat.start.z + cat.direction.z * d };
+}
 // Catapulte sous l'avion (presque arrêté au départ de la course, à peu près dans l'axe), sinon null. Tolérances
 // larges : une fois dessus, l'avion est accroché et remis exactement dans l'axe (voir updateCarrier)
 function catapultUnder() {
@@ -415,7 +429,7 @@ function catapultUnder() {
     for (const field of airport.list) {
         for (const cat of field.catapults ?? []) {
             const dx = p.x - cat.start.x, dz = p.z - cat.start.z;
-            const along = dx * cat.direction.x + dz * cat.direction.z;
+            const along = dx * cat.direction.x + dz * cat.direction.z + noseWheelAhead();
             const lateral = Math.abs(dx * cat.direction.z - dz * cat.direction.x);
             const yaw = Math.atan2(-cat.direction.x, -cat.direction.z);
             const misaligned = Math.abs(Math.atan2(Math.sin(controls.model._groundYaw - yaw), Math.cos(controls.model._groundYaw - yaw)));
@@ -517,7 +531,7 @@ function updateCarrier(delta) {
         const target = Math.max(10, (aircraftType === 'f15' ? LAUNCH_SPEED : LAUNCH_SPEED_C172) - headwind);
         model._groundYaw = yaw;
         const dx = aircraft.position.x - cat.start.x, dz = aircraft.position.z - cat.start.z;
-        const along = dx * cat.direction.x + dz * cat.direction.z;
+        const along = dx * cat.direction.x + dz * cat.direction.z + noseWheelAhead();   // (course de la navette)
         // Bout de course : la navette lâche l'avion, qui quitte le pont lancé (comme une vraie catapulte), même si l'aile
         // ne porte pas encore tout son poids
         if (controls.isOnGround() && along >= cat.stroke) {
@@ -528,8 +542,9 @@ function updateCarrier(delta) {
         if (controls.isOnGround()) {
             // Tenu dans l'axe de la catapulte, accéléré pour atteindre la vitesse visée en bout de course. Freins
             // (frein de parc, touche tenue) sans effet : la navette tire l'avion
-            aircraft.position.x = cat.start.x + cat.direction.x * along;
-            aircraft.position.z = cat.start.z + cat.direction.z * along;
+            const held = onCatapult(cat, along);
+            aircraft.position.x = held.x;
+            aircraft.position.z = held.z;
             const remaining = Math.max(1, cat.stroke - along);
             const accel = Math.max(0, target * target - model.airspeed * model.airspeed) / (2 * remaining);
             model.airspeed += (Math.max(accel, 5) + (model.controls?.brake ?? 0) * (model.aircraft?.brakes ?? 0)) * delta;
@@ -562,8 +577,9 @@ function updateCarrier(delta) {
         carrierOps.onCat = null;
         return;
     }
-    aircraft.position.x = under.cat.start.x;
-    aircraft.position.z = under.cat.start.z;
+    const held = onCatapult(under.cat, 0);   // (roulette de nez sur la navette)
+    aircraft.position.x = held.x;
+    aircraft.position.z = held.z;
     model._groundYaw = under.yaw;
     model.airspeed = 0;
     const ready = realistic ? controls.throttle >= 0.95 && carrierOps.armed : controls.throttle >= 0.8;
@@ -2751,6 +2767,10 @@ function spawnAt(spawn) {
     currentSpawn = spawn;
     aircraft.position.set(spawn.x, 0, spawn.z);
     aircraft.rotation.set(0, spawn.heading, 0);
+    if (spawn.catapult) {   // (porte-avions : roulette de nez sur la navette)
+        const held = onCatapult(spawn.catapult, 0);
+        aircraft.position.set(held.x, 0, held.z);
+    }
     controls.placeOnGround();
     applySpawnState();
     controls.saveState();
