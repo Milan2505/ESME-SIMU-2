@@ -161,19 +161,24 @@ class LoadingScreen {
     }
 
     // Affiche l'écran jusqu'à ce que tout soit prêt, puis lance prepare() (shaders, préchauffage : inscrits à leur
-    // tour). Rend une promesse résolue dès que tout est prêt : la partie s'ouvre d'elle-même (le son est déjà autorisé
-    // par les clics du menu, voir unlockSounds dans simulator.js)
-    async open(prepare) {
+    // tour), puis reveal() (entrée dans la partie et ses premières images, encore derrière l'écran). Rend une promesse
+    // résolue à l'effacement de l'écran : la partie s'ouvre d'elle-même (le son est déjà autorisé par les clics du
+    // menu, voir unlockSounds dans simulator.js)
+    async open(prepare, reveal) {
         this.active = true;
         this._skipFailures = false;
         this._shown = 0;
         this.element.hidden = false;
         this._render();
-        await this._waitReady();
-        await prepare?.();
-        await this._waitReady();
-        this.active = false;
-        this.element.hidden = true;
+        try {
+            await this._waitReady();
+            await prepare?.();
+            await this._waitReady();
+            await reveal?.();
+        } finally {
+            this.active = false;
+            this.element.hidden = true;
+        }
     }
 
     _waitReady() {

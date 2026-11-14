@@ -394,6 +394,15 @@
 			</div>
 		</div>
 	</div>
+	<script>
+		// Changement de carte en vol libre : la page rechargée va droit à l'écran de chargement (voir resumeAfterUpdate
+		// dans simulator.js). Affiché tout de suite : avant, le menu principal et la scène passaient à l'écran le temps
+		// que le simulateur démarre
+		try {
+			const resume = JSON.parse(sessionStorage.getItem('esme-mise-a-jour') || 'null');
+			if (resume && resume.volLibre && Date.now() - resume.le < 5 * 60000) document.getElementById('chargement').hidden = false;
+		} catch (e) { /* stockage indisponible */ }
+	</script>
 
 	<!-- Choix de la carte (Vol libre, et Multijoueur avant de créer une partie) : Campagne, Ville ou Mer ; une autre carte
 	     que celle chargée recharge la page, puis la suite reprend d'elle-même (voir simulator.js : openMapChoice) -->

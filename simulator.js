@@ -2477,6 +2477,8 @@ try {
 if (resumeState && !(Date.now() - resumeState.le < 5 * 60000)) resumeState = null;   // (vieux de plus de 5 min : ignoré)
 function resumeAfterUpdate() {
     const saved = resumeState;
+    // (écran de chargement déjà affiché par index.html au changement de carte ; ouvert pour de bon par enterGame)
+    document.getElementById('chargement').hidden = !saved?.volLibre;
     // Carte changée au choix du départ (vol libre en solo) : retour au choix du départ, sur la nouvelle carte
     // (une fois tout le script exécuté : appelé pendant le chargement, enterGame utilisait des variables déclarées plus
     // loin (worldWarm) et plantait, la page restait au menu sur la nouvelle carte)
@@ -6184,6 +6186,27 @@ async function warmUpWorld() {
     }
 }
 
+// Premières images de la partie, dessinées derrière l'écran de chargement : il ne s'efface qu'ensuite. Avant, la partie
+// commençait à l'effacement de l'écran ; sa première image, suspendue le temps de compiler ce qui venait d'apparaître
+// (voir checkNewShaders), laissait voir une fraction de seconde la dernière image du préchauffage (l'avion, au hangar
+// ou en cabine, sur l'autre aérodrome)
+async function drawStartFrames() {
+    try {
+        aircraft.updateMatrixWorld();
+        updateCamera(0, true);
+        updateWarmView();
+        await compileScene();
+        for (let frame = 0; frame < 2; frame++) {
+            updateWarmView();
+            graphics.render();
+            await nextFrame();
+        }
+        sceneObjects = countSceneObjects();   // (déjà compilé : pas de pause du dessin à la première image visible)
+    } catch (error) {
+        console.error('Premières images :', error);   // (on entre quand même dans la partie)
+    }
+}
+
 // Entrée en partie : écran de chargement si quelque chose manque (la première fois : toujours, pour le préchauffage)
 async function enterGame(start) {
     if (worldWarm && loadingScreen.ready) {
@@ -6196,21 +6219,28 @@ async function enterGame(start) {
             if (worldWarm) return;
             await warmUpWorld();
             worldWarm = true;
+        }, async () => {
+            await start();   // (hangar d'équipe en Wardog : attend le F-15)
+            await drawStartFrames();
         });
     } finally {
         markHeavyLoad(false);
     }
     clock.getDelta();              // (pas de saut du temps après l'attente)
     graphics.holdResolution();     // ni de baisse de résolution : les i/s de l'attente ne comptent pas
-    start();
 }
 
 let initiationErrorShown = false;
 let lastTouchInset = '', lastLeftReserve = -1;
-// Avion choisi la dernière fois (hangar) : repris au lancement (le F-15 se charge pendant le menu principal)
+// Avion choisi la dernière fois (hangar) : repris au lancement (le F-15 se charge pendant le menu principal). Suivi par
+// l'écran de chargement : avant, la partie pouvait s'ouvrir avant lui (préchauffage fait avec le Cessna, qui
+// apparaissait au hangar avant d'être remplacé)
 try {
     const savedType = localStorage.getItem('avion');
-    if (savedType === 'f15' || savedType === 'r44') setAircraftType(savedType).catch(() => setAircraftType('c172'));
+    if (savedType === 'f15' || savedType === 'r44') {
+        track('avion', savedType === 'f15' ? 'F-15C Eagle' : 'Robinson R44', () => setAircraftType(savedType))
+            .catch(() => setAircraftType('c172'));
+    }
 } catch { /* stockage indisponible */ }
 
 // Boucle d'images protégée : une erreur dans une image ne l'arrête plus. three.js ne redemande l'image suivante qu'après
