@@ -59,9 +59,11 @@ const ISLAND = [
 const PARK = { x: 23, z: 118 };      // avion présenté au « hangar » (pont arrière, à tribord), nez vers bâbord
 const MODEL_URL = isTablet() ? 'asset/carrier/truman-mobile.glb' : 'asset/carrier/truman.glb';
 let modelLoading = null;   // (un seul chargement pour les deux navires : chacun en prend une copie)
-// Navette de chaque catapulte (et sa plaque) : tout ce qui dépasse du pont autour de son départ (m le long de l'axe :
-// en arrière, en avant ; de côté ; hauteur au-dessus du pont)
-const SHUTTLE_BOX = { back: 1.2, front: 1.6, side: 0.8, top: 0.5 };
+// Navette de chaque catapulte : toutes les pièces autour de son départ (m le long de l'axe : en arrière, en avant ; de
+// côté ; au-dessus et au-dessous du pont), d'un seul tenant : rampe sous la roulette, corps gris et ses rails, de
+// 3,4 m derrière à 1,4 m devant, enfoncés jusqu'à 12 cm dans la fente. Avant, seul ce qui dépassait du pont était pris :
+// le corps, qui plonge dans la fente, restait sur place et la navette avançait en deux morceaux
+const SHUTTLE_BOX = { back: 3.6, front: 1.6, side: 0.8, top: 0.5, bottom: 0.2 };
 const SHUTTLE_PAUSE = 1;      // s : navette arrêtée en bout de course après le lancement
 const SHUTTLE_RETURN = 12;    // m/s : puis elle revient à son départ
 let shuttleParts = null;      // par catapulte : [{ geometry, material }] (pris dans le modèle, voir extractShuttles)
@@ -69,8 +71,8 @@ let shuttleParts = null;      // par catapulte : [{ geometry, material }] (pris 
 function insideShuttle(c, p) {
     const dx = p.x - c.x, dz = p.z - c.z;
     const along = dx * c.dx + dz * c.dz, lateral = dx * c.dz - dz * c.dx;
-    return p.y > DECK + 0.005 && p.y < DECK + SHUTTLE_BOX.top && along > -SHUTTLE_BOX.back && along < SHUTTLE_BOX.front
-        && Math.abs(lateral) < SHUTTLE_BOX.side;
+    return p.y > DECK - SHUTTLE_BOX.bottom && p.y < DECK + SHUTTLE_BOX.top && along > -SHUTTLE_BOX.back
+        && along < SHUTTLE_BOX.front && Math.abs(lateral) < SHUTTLE_BOX.side;
 }
 
 // Navettes des catapultes : dans le modèle, elles sont fondues dans le pont. Leurs triangles en sont retirés (réduits à
@@ -89,6 +91,8 @@ function extractShuttles(scene) {
         for (let t = 0; t + 2 < count; t += 3) {
             const ids = [t, t + 1, t + 2].map((i) => (index ? index.getX(i) : i));
             ids.forEach((id, k) => v[k].fromBufferAttribute(position, id).applyMatrix4(mesh.matrixWorld));
+            // (face au ras du pont : le pont lui-même, laissé en place)
+            if (v.every((p) => Math.abs(p.y - DECK) < 0.002)) continue;
             const cat = CATAPULTS.findIndex((c) => v.every((p) => insideShuttle(c, p)));
             if (cat < 0) continue;
             const c = CATAPULTS[cat];
