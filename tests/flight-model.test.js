@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Box3, Object3D, Vector3 } from 'three';
-import { makeAircraft, airborne, run, KT } from './helpers/flight.js';
+import { makeAircraft, airborne, run, rotationPilot, pitchHold, headingHold, KT } from './helpers/flight.js';
 import { seededRandom } from '../js/Random.js';
 import { FlightModel } from '../js/FlightModel.js';
 import { CESSNA_172 } from '../js/Cessna172.js';
@@ -38,11 +38,14 @@ test('plein gaz : l\'avion accélère, décolle (événement liftoff) puis monte
     model.flaps = 1 / 3;
     run(f, 3);
     assert.ok(model.airspeed > 4 && model.onGround, `ça roule : ${model.airspeed.toFixed(1)} m/s après 3 s`);
-    const t = run(f, 60, { pilot: () => { model.controls.pitch = model.indicatedSpeed > 26 ? 0.5 : 0; }, until: () => !model.onGround });
+    // Rotation comme un pilote (assiette de 8° dès 51 kt indiqués), axe tenu au palonnier ; puis montée à 8° d'assiette
+    const rotate = rotationPilot(f, { rotateKt: 51 }), axis = headingHold(f, 0);
+    const t = run(f, 60, { pilot: () => { rotate(); axis(); }, until: () => !model.onGround });
     assert.ok(t < 60, 'envol en moins de 60 s');
     assert.deepEqual(events, ['liftoff']);
     assert.ok(model.airspeed > 24, `vitesse à l'envol ${(model.airspeed / KT).toFixed(0)} kt`);
-    run(f, 15, { pilot: () => { model.controls.pitch = 0.1; } });
+    const climb = pitchHold(f, 8);
+    run(f, 15, { pilot: () => { climb(); axis(); } });
     assert.ok(object.position.y > 10, `altitude après 15 s : ${object.position.y.toFixed(1)} m`);
     assert.equal(model.crashed, false);
 });

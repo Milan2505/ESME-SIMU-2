@@ -5,6 +5,7 @@ import {
 	Vector3
 } from 'three';
 import { FlightModel } from './FlightModel.js';
+import { InputRamp } from './InputRamp.js';
 
 // Commandes de l'avion au clavier : les touches deviennent des commandes (manche, gaz, trim, volets, freins)
 // transmises au modèle de vol (FlightModel.js, la physique) ; fournit aussi les valeurs des instruments.
@@ -55,6 +56,7 @@ class PlaneControls extends Controls {
 		this._touch = { pitch: 0, roll: 0, yaw: 0, brake: 0, trim: 0 };
 		this._rotationVector = new Vector3( 0, 0, 0 );   // touches enfoncées (-1, 0 ou 1) et manche tactile
 		this._controls = new Vector3( 0, 0, 0 );         // position réelle des gouvernes, qui suit les touches en douceur
+		this.inputRamp = new InputRamp();                // modèle réaliste : montée progressive des commandes (InputRamp.js)
 		this._lastQuaternion = new Quaternion();
 		this._lastPosition = new Vector3();
 		this._savedPosition = object.position.clone();
@@ -143,6 +145,7 @@ class PlaneControls extends Controls {
 		this.model.throttle = this._savedThrottle;
 		this.model.restart( this._savedOnGround );
 		this._controls.set( 0, 0, 0 );
+		this.inputRamp.reset();
 		this.dispatchEvent( _resetEvent );
 	}
 
@@ -161,8 +164,14 @@ class PlaneControls extends Controls {
 		}
 		const previousY = object.position.y;
 
-		// Gouvernes : suivent les touches progressivement (une touche n'est qu'un "tout ou rien")
-		this._controls.lerp( this._rotationVector, 1 - Math.exp( - delta / _CONTROL_SMOOTHING * 3 ) );
+		// Gouvernes : suivent les touches progressivement (une touche n'est qu'un "tout ou rien"). Modèle réaliste : montée
+		// et retour à vitesse limitée (InputRamp), une touche ne braque pas à fond d'un coup ; simplifié : lissage d'origine
+		if ( model.realistic ) {
+			const v = this.inputRamp.update( { pitch: this._rotationVector.x, yaw: this._rotationVector.y, roll: this._rotationVector.z }, delta );
+			this._controls.set( v.pitch, v.yaw, v.roll );
+		} else {
+			this._controls.lerp( this._rotationVector, 1 - Math.exp( - delta / _CONTROL_SMOOTHING * 3 ) );
+		}
 		Object.assign( model.controls, {
 			pitch: this._controls.x,
 			yaw: this._controls.y,
