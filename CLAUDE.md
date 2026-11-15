@@ -27,12 +27,13 @@ Règles :
 - Toute modification du modèle de vol (`FlightModel.js`, `HeliModel.js`, `Cessna172.js`, `F15.js`, `PlaneControls.js`,
   `Atmosphere.js`, `Propulsion.js`)
   doit garder les tests de performances verts (`tests/perf-c172.test.js`) ou les faire passer au vert. Ne jamais
-  assouplir une tolérance ni changer une source : elles viennent du manuel de vol du 172P (POH 1981, D1192-13, sections
-  1 à 6), chaque valeur avec sa section, sa figure et sa page. `tests/flight-regression.test.js` (envol sans saut, arrondi,
+  assouplir une tolérance ni changer une source : elles viennent du manuel de vol du 172P (POH édition 1985,
+  D1251-13, relu sur scan ; mêmes performances que 1981) et de la fiche FAA TCDS 3A12 (rév. 69, p. 13-14), chaque
+  valeur avec sa figure et sa page. `tests/flight-regression.test.js` (envol sans saut, arrondi,
   vent de travers, relâchement du manche : bornes mesurées sur le modèle d'avant le lot 1) doit rester vert aussi.
 - Variante de référence : Cessna 172P (1981, Lycoming O-320-D2J de 160 ch, 2 400 lb) partout : modèle 3D, sons, moteur,
-  masse et centrage (`WeightBalance.js`), performances. Ce qui n'a pas pu être relu sur le PDF du manuel est marqué
-  « lecture non vérifiée » dans le code.
+  masse et centrage (`WeightBalance.js`), performances. Ce qui n'a pas été relu dans une source primaire est marqué
+  « non relu » dans le code.
 - Aucun test en `todo` aujourd'hui (les cinq du lot 0 sont passés au vert à l'étape 1a du lot 1 : performances). Un todo
   ne se pose que pour un chantier identifié de la feuille de route, jamais pour faire passer une vérification.
 - Un test qui échoue à cause du banc d'essai (automatisme de test, tolérance numérique de l'intégration) se corrige dans

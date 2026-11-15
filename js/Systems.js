@@ -5,7 +5,7 @@
 
 const GALLON = 3.785;                  // litres (affichage en gallons US, comme dans l'avion)
 const TANK_CAPACITY = 20;              // gallons utilisables par aile : réservoirs standard du 172P, 21,5 gal dont 1,5 inutilisable
-                                       // (POH 172P sect. 2 p. 2-6 ; 43 gal au total, 40 utilisables)
+                                       // (TCDS 3A12 p. 14 : deux réservoirs de 21,5 gal, 40 gal utilisables)
 const LOW_FUEL = 5;                    // alarme carburant bas (gal)
 const START_TIME = 1.2;                // moteur amorcé : il démarre après 1,2 s de démarreur
 const START_TIME_UNPRIMED = 4.5;       // sans amorçage (pompe), il faut insister : ~4,5 s de démarreur en tout

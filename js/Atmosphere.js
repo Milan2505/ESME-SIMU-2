@@ -72,7 +72,8 @@ function nearestTable( calibration, flaps ) {
 
 // Erreur de position : CAS (m/s) -> IAS (m/s) d'après la table d'étalonnage du manuel de vol, [ { flaps, kcas: [...],
 // kias: [...] }, ... ] (flaps : position des volets 0 -> 1 de la table ; on prend la table la plus proche). Interpolation
-// linéaire, prolongée en ligne droite au-delà des points ; sans table, IAS = CAS
+// linéaire ; au-delà du dernier point, prolongée par le dernier segment ; sous le premier (point de décrochage), écart
+// IAS - CAS constant (le manuel ne donne rien en dessous) ; sans table, IAS = CAS
 function iasFromCas( cas, calibration, flaps = 0 ) {
 	if ( ! calibration || calibration.length === 0 ) return cas;
 	const table = nearestTable( calibration, flaps );
@@ -86,10 +87,11 @@ function casFromIas( ias, calibration, flaps = 0 ) {
 	return Math.max( 0, interpolate( table.kias, table.kcas, ias / KT ) * KT );
 }
 
-// y(x) par morceaux sur des abscisses croissantes, prolongé par les segments extrêmes
+// y(x) par morceaux sur des abscisses croissantes ; sous le premier point, écart y - x constant ; au-delà du dernier,
+// prolongé par le dernier segment
 function interpolate( xs, ys, x ) {
 	const n = xs.length;
-	if ( n === 1 ) return ys[ 0 ] + ( x - xs[ 0 ] );
+	if ( n === 1 || x <= xs[ 0 ] ) return ys[ 0 ] + ( x - xs[ 0 ] );
 	let i = 1;
 	while ( i < n - 1 && x > xs[ i ] ) i ++;
 	const t = ( x - xs[ i - 1 ] ) / ( xs[ i ] - xs[ i - 1 ] );

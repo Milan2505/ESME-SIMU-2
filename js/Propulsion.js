@@ -1,7 +1,7 @@
 import { RHO0 } from './Atmosphere.js';
 
 // Moteur à pistons et hélice à pas fixe (Cessna 172P : Lycoming O-320-D2J de 160 ch à 2 700 tr/min, hélice McCauley
-// 1C160/DTM7557 de 75 in, POH 172P sect. 1 p. 1-3). Le régime n'est pas imposé : il résulte de l'équilibre entre le couple
+// 1C160/DTM7557 de 75 in, fiche FAA TCDS 3A12 rév. 69 p. 13). Le régime n'est pas imposé : il résulte de l'équilibre entre le couple
 // du moteur et le couple absorbé par l'hélice (inertie de l'ensemble), comme sur le vrai avion : ~2 350 tr/min plein gaz à
 // l'arrêt, ~2 450 en montée, 2 700 (ligne rouge) en palier plein gaz au niveau de la mer, ~1 000 en plané moteur réduit.
 // - Moteur : puissance à pleine admission P_WOT(régime) = P_nominale × r × (1 + pente × (1 − r)) (r = régime / régime

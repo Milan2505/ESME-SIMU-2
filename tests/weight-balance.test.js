@@ -1,10 +1,10 @@
-// Masse et centrage (js/WeightBalance.js, computeLoad) : calcul pur, sans la fenêtre ; valeurs du POH 172P (sect. 2 et 6)
+// Masse et centrage (js/WeightBalance.js, computeLoad) : calcul pur, sans la fenêtre ; valeurs du POH 172P 1985 (fig. 6-5) et de la fiche TCDS 3A12 rév. 69
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeLoad, WB_LIMITS, WB_GALLON, FUEL_DENSITY } from '../js/WeightBalance.js';
+import { computeLoad, checkLoad, WB_NORMAL, WB_UTILITY, WB_LIMITS, WB_GALLON, FUEL_DENSITY } from '../js/WeightBalance.js';
 
 const IN = 0.0254, LB = 0.45359237;
-const EMPTY = { mass: 1467 * LB, arm: 57300 / 1467 * IN };   // avion vide équipé (exemple du POH 172P sect. 6, valeurs du module)
+const EMPTY = { mass: 1467 * LB, arm: 57300 / 1467 * IN };   // avion vide équipé (POH 172P fig. 6-5 p. 6-10)
 const reference = { pilot: 80, copilot: 0, rear: 0, baggage: 10, fuelLeft: 75, fuelRight: 75 };
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} ≠ ${b}`);
 
@@ -36,7 +36,7 @@ test('les passagers arrière reculent le centrage, les bagages (soute A) encore 
     close(rear.mass - base.mass, 80);
 });
 
-test('limites du manuel du 172P (sect. 2 p. 2-6 et 2-7) converties en kg et en litres : 2 400 lb, utilitaire 2 100, bagages 120, 20 gal utilisables par aile', () => {
+test('limites du 172P (TCDS 3A12 p. 13-14) converties en kg et en litres : 2 400 lb, utilitaire 2 100, bagages 120, 20 gal utilisables par aile', () => {
     close(WB_LIMITS.maxTakeoff, 2400 * LB);
     close(WB_LIMITS.maxUtility, 2100 * LB);
     close(WB_LIMITS.maxBaggage, 120 * LB);
@@ -52,4 +52,11 @@ test('quatre adultes, bagages et pleins : masse maximale dépassée ; pilote seu
     assert.ok(light.mass < WB_LIMITS.maxUtility);
     const solo = computeLoad(reference);
     assert.ok(solo.mass < WB_LIMITS.maxTakeoff && solo.cg > 35 * IN && solo.cg < 47.3 * IN, `pilote seul, pleins : ${solo.mass.toFixed(0)} kg à ${(solo.cg / IN).toFixed(1)} in`);
+});
+
+test('domaine de centrage du 172P (TCDS 3A12 p. 13) : normale 35,0 in à 1 950 lb -> 39,5 in à 2 400 lb, arrière 47,3 ; utilitaire 35,0 -> 36,5 in à 2 100 lb, arrière 40,5', () => {
+    const inches = (points) => points.map(([cg, kg]) => [Math.round(cg / IN * 10) / 10, Math.round(kg / LB)]);
+    assert.deepEqual(inches(WB_NORMAL), [[35, 1500], [35, 1950], [39.5, 2400], [47.3, 2400], [47.3, 1500]]);
+    assert.deepEqual(inches(WB_UTILITY), [[35, 1500], [35, 1950], [36.5, 2100], [40.5, 2100], [40.5, 1500]]);
+    assert.equal(checkLoad({ ...reference, plan: { taxi: 0, trip: 0, procedures: 0, alternate: 0, finalReserve: 0, extra: 0, contingency: 0, burn: 30, taxiBurn: 10, tas: 100 } }).problems.length, 0, 'chargement de référence accepté');
 });

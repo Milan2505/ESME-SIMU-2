@@ -17,7 +17,7 @@ function settle({ throttle, speedKt = 0, altitudeFt = 0, mixture = 1, health = 1
     return { rpm: engine.rpm, thrust: engine.thrust, hp: engine.power / HP, advance: engine.advance, engine };
 }
 
-test('plein gaz à l\'arrêt : régime statique 2 300 à 2 420 tr/min (172P, hélice 1C160/DTM7557 ; TCDS 3A12), poussée 2 200 à 2 700 N', () => {
+test('plein gaz à l\'arrêt : régime statique 2 300 à 2 420 tr/min (TCDS 3A12 rév. 69 p. 13 : « not over 2420, not under 2300 »), poussée 2 200 à 2 700 N', () => {
     const e = new PistonPropeller(CESSNA_172);
     within(e.staticRpm, 2300, 2420, 'régime statique (tr/min)');
     within(e.staticThrust, 2200, 2700, 'poussée statique (N)');
@@ -25,12 +25,12 @@ test('plein gaz à l\'arrêt : régime statique 2 300 à 2 420 tr/min (172P, hé
     within(s.rpm, e.staticRpm - 15, e.staticRpm + 15, 'régime établi par intégration = régime d\'équilibre');
 });
 
-test('ralenti manette fermée : 600 à 800 tr/min (POH 172P sect. 4, 600 à 700 au ralenti), essai moteur à 55 % : 1 600 à 1 800', () => {
+test('ralenti manette fermée : 600 à 800 tr/min (POH 172P sect. 4 : 600 à 700, non relu), essai moteur à 55 % : 1 600 à 1 800', () => {
     within(settle({ throttle: 0 }).rpm, 600, 800, 'ralenti (tr/min)');
     within(settle({ throttle: 0.55 }).rpm, 1600, 1800, 'régime à 55 % de manette (essai moteur à 1 700)');
 });
 
-test('160 ch à 2 700 tr/min pleine admission au niveau de la mer (POH 172P sect. 1 p. 1-3), ~75 % à 8 000 ft (sect. 1 : croisière 75 % à 8 000 ft)', () => {
+test('160 ch à 2 700 tr/min pleine admission au niveau de la mer (TCDS 3A12 p. 13), ~75 % à 8 000 ft (POH p. ii : croisière 75 % à 8 000 ft)', () => {
     const E = CESSNA_172.engine, e = new PistonPropeller(CESSNA_172);
     const omega = 2 * Math.PI * 2700 / 60;
     const best = PistonPropeller.bestMixture(1, E);
@@ -40,7 +40,7 @@ test('160 ch à 2 700 tr/min pleine admission au niveau de la mer (POH 172P sect
     within(high / 160, 0.72, 0.78, 'part de la puissance à 8 000 ft, appauvri');
 });
 
-test('palier plein gaz à 123 kt : 2 650 à 2 750 tr/min (ligne rouge 2 700, POH sect. 2 p. 2-6) ; montée à 76 kt : 2 400 à 2 550', () => {
+test('palier plein gaz à 123 kt : 2 650 à 2 750 tr/min (limite 2 700, TCDS 3A12 p. 13) ; montée à 76 kt : 2 400 à 2 550', () => {
     within(settle({ throttle: 1, speedKt: 123 }).rpm, 2650, 2750, 'régime à 123 kt plein gaz');
     const climb = settle({ throttle: 1, speedKt: 76 });
     within(climb.rpm, 2400, 2550, 'régime en montée à 76 kt');
@@ -48,7 +48,7 @@ test('palier plein gaz à 123 kt : 2 650 à 2 750 tr/min (ligne rouge 2 700, POH
     assert.ok(climb.thrust < settle({ throttle: 1 }).thrust, 'et reste sous la poussée statique');
 });
 
-test('moulinet : moteur coupé à 65 kt, l\'hélice tourne (500 à 1 200 tr/min) et freine (−150 à −350 N : finesse 9,1 du POH sect. 3) ; au ralenti, ~1 000 tr/min et presque pas de traction', () => {
+test('moulinet : moteur coupé à 65 kt, l\'hélice tourne (500 à 1 200 tr/min) et freine (−150 à −350 N : finesse 9,1 du POH fig. 3-1 p. 3-11) ; au ralenti, ~1 000 tr/min et presque pas de traction', () => {
     const dead = settle({ throttle: 0, speedKt: 65, health: 0 });
     within(dead.rpm, 500, 1200, 'régime en moulinet (tr/min)');
     within(dead.thrust, -350, -150, 'traînée de l\'hélice en moulinet (N)');
@@ -69,7 +69,7 @@ test('mixture : plein riche coûte quelques % au niveau de la mer et plus en alt
     assert.ok(settle({ throttle: 1, mixture: 0.1 }).hp < 0.1 * settle({ throttle: 1 }).hp, 'levier à 10 % : le moteur ne tient plus (Systems le coupe sous 8 %)');
 });
 
-test('une magnéto (santé 0,93) à l\'essai moteur : chute de 50 à 125 tr/min (POH 172P sect. 4 : 125 au plus, 50 d\'écart au plus)', () => {
+test('une magnéto (santé 0,93) à l\'essai moteur : chute de 50 à 125 tr/min (POH 172P sect. 4 : 125 au plus, 50 d\'écart au plus ; non relu)', () => {
     const both = settle({ throttle: 0.55 }).rpm, single = settle({ throttle: 0.55, health: 0.93 }).rpm;
     within(both - single, 50, 125, 'chute de régime sur une magnéto');
 });

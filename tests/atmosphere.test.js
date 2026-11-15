@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isa, isaTemperature, mach, tasToCas, casToTas, iasFromCas, casFromIas, RHO0 } from '../js/Atmosphere.js';
+import { CESSNA_172 } from '../js/Cessna172.js';
 
 const FT = 0.3048, KT = 0.514444;
 const near = (value, expected, tolerance, what) => assert.ok(Math.abs(value - expected) <= tolerance * Math.abs(expected),
@@ -64,4 +65,13 @@ test('erreur de position : interpolation de la table du manuel par cran de volet
     assert.equal(iasFromCas(0, calibration, 0), 0, 'jamais négative');
     near(casFromIas(iasFromCas(65 * KT, calibration, 0), calibration, 0) / KT, 65, 1e-9, 'inverse');
     assert.equal(iasFromCas(33, null), 33, 'sans table : IAS = CAS');
+});
+
+test('badin du 172P : table du POH (fig. 5-1 p. 5-9) prolongée par les points de décrochage (fig. 5-3 p. 5-12), écart constant en dessous', () => {
+    const table = CESSNA_172.airspeedCalibration;
+    for (const [flaps, kcas, kias] of [[0, 51, 44], [1 / 3, 48, 35], [1, 46, 33], [0, 56, 50], [1 / 3, 49, 40], [1, 47, 40], [1, 70, 70]]) {
+        near(iasFromCas(kcas * KT, table, flaps) / KT, kias, 1e-9, `${kcas} KCAS -> ${kias} KIAS, volets ${flaps}`);
+    }
+    near(iasFromCas(44 * KT, table, 1) / KT, 31, 1e-9, 'sous le décrochage volets 30° : écart de 13 kt gardé');
+    for (const t of table) for (let i = 1; i < t.kcas.length; i++) assert.ok(t.kcas[i] > t.kcas[i - 1] && t.kias[i] > t.kias[i - 1], 'table croissante');
 });
