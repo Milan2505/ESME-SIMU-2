@@ -33,7 +33,6 @@ const F15 = {
 	staticThrust: 211000,             // N (2 × 105,7 kN, postcombustion à fond)
 	power: Infinity,                  // (hélice : sans objet)
 	windmillDrag: 0,
-	densityAltitude: true,            // air moins dense en altitude : portance, traînée et poussée baissent
 	// Traînée d'onde : au-delà de Mach 0,80, la traînée monte en flèche jusqu'à Mach 1,05, puis se stabilise
 	// (avant 0,88 : plein gaz sec ~625 kt au ras du sol, maintenant ~585 kt ; postcombustion 675 -> ~655 kt)
 	machCritical: 0.80,

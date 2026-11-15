@@ -31,6 +31,7 @@ import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
 import { ATC, METARS } from './js/ATC.js';
+import { isaTemperature } from './js/Atmosphere.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
@@ -949,7 +950,7 @@ function updateHeli(delta) {
     const warn = sys.warnings;
     r44Sound.update({
         engineRpm: sys.rpm, running: sys.running, cranking: sys.cranking, rotorRpm: model.rotorRpm,
-        load: THREE.MathUtils.clamp(model.rotorThrust / (model.aircraft.mass * 9.81), 0, 1.3) * 0.8,
+        load: THREE.MathUtils.clamp(model.rotorThrust / (model.mass * 9.81), 0, 1.3) * 0.8,
         // Claquement des pales : descente dans son propre sillage, arrondi (forte traction), anneaux tourbillonnaires
         slap: THREE.MathUtils.clamp(-model.velocity.y / 6, 0, 1) * 0.6 + model.vortexRing * 0.6 + Math.max(0, model.loadFactor - 1.2),
         speed: model.airspeed, horn: warn.lowRpmHorn && !quiet,
@@ -967,7 +968,7 @@ const CANOPY_TIME = 5;
 function updateJet(delta) {
     const model = controls.model;
     model.jetThrust = controls.isCrashed() ? 0 : jetSystems.thrust;
-    jetFlight.mass = F15.emptyMass + jetSystems.fuelKg;
+    model.mass = F15.emptyMass + jetSystems.fuelKg;
     // Verrière : la commande suit l'interrupteur des systèmes (ouverte au parking) ; refermée en roulant vite
     jetCanopyOpen = jetSystems.switches.canopy;
     if (jetCanopyOpen && (!controls.isOnGround() || controls.getSpeed() > 20)) jetSystems.switches.canopy = jetCanopyOpen = false;
@@ -1002,7 +1003,7 @@ function updateJet(delta) {
     // Entrées d'air : commande du calculateur (Mach, incidence, au sol, pression hydraulique : réacteurs tournants),
     // suivie par les vérins (voir inletSchedule)
     const hydraulics = jetSystems.engines.some((e) => e.running && e.n2 > 40);
-    moveInlets(jetInlet, inletSchedule({ mach: model.airspeed / 340, alphaDeg: THREE.MathUtils.radToDeg(model.alpha),
+    moveInlets(jetInlet, inletSchedule({ mach: model.mach, alphaDeg: THREE.MathUtils.radToDeg(model.alpha),
         onGround: controls.isOnGround(), hydraulics, airspeed: model.airspeed }), delta);
     // Crosse d'appontage (carte Mer : touche 9 en réaliste, avec le train en arcade) : sort ou rentre en ~1,5 s
     jetHook = THREE.MathUtils.clamp(jetHook + (carrierOps.hook ? 1 : -1) * delta / 1.5, 0, 1);
@@ -1798,6 +1799,11 @@ function setWeather(name) {
     sunLight.color.set(w.sunColor ?? COLOR_LIGHT);
     setDaylight(1 - 0.92 * w.night);   // lumière renvoyée sur l'avion et dans la cabine : presque rien la nuit
     controls.turbulence = w.turbulence;
+    // Température du METAR de cette météo (ATC.js) : écart à l'atmosphère type au niveau du terrain, pour la densité de
+    // l'air des modèles de vol (Atmosphere.js : portance, traînée, puissance du moteur)
+    const metar = METARS[name];
+    const groundLevel = terrain.heightAt(aircraft.position.x, aircraft.position.z);
+    planeModel.temperatureOffset = heliModel.temperatureOffset = metar ? metar.temp + 273.15 - isaTemperature(groundLevel) : 0;
     clouds.setWeather(w.clouds);
     atc.setWeather(name, w);
     cloudLayer.setWeather(w.overcast ?? null, w.clouds);
@@ -4364,7 +4370,7 @@ function applyLoad(load) {
 function updateLoad() {
     if (aircraftType !== 'c172') return;   // (masse du F-15 : voir updateJet ; R44 : masse fixe)
     const loaded = computeLoad({ ...currentLoad, fuelLeft: cessnaSystems.fuel[0] * WB_GALLON, fuelRight: cessnaSystems.fuel[1] * WB_GALLON });
-    controls.model.aircraft.mass = loaded.mass;
+    controls.model.mass = loaded.mass;   // (propriété de l'instance : l'objet CESSNA_172 partagé n'est pas touché)
     controls.model.cgOffset = loaded.cg - CG_REFERENCE;
 }
 applyLoad(weightBalance.load);
@@ -4452,7 +4458,7 @@ function cockpitState() {
         } : null,
         jet: aircraftType === 'f15' ? {
             g: controls.model.loadFactor,
-            mach: controls.getSpeed() / 340,
+            mach: controls.model.mach,
             alpha: controls.isOnGround() ? 0 : THREE.MathUtils.radToDeg(controls.model.alpha),
             beta: THREE.MathUtils.radToDeg(controls.model.beta),
             gear: controls.model.gearPosition,
@@ -5077,7 +5083,9 @@ window.__sim = {
         const model = controls.model, p = aircraft.position;
         return {
             aircraft: aircraftType, onGround: model.onGround, crashed: model.crashed, stalled: model.stalled,
-            speed: model.airspeed, indicatedSpeed: model.indicatedSpeed, altitude: p.y, verticalSpeed: controls.getVerticalSpeed(),
+            speed: model.airspeed, indicatedSpeed: model.indicatedSpeed, calibratedSpeed: model.calibratedSpeed ?? model.indicatedSpeed,
+            mach: model.mach ?? 0, mass: model.mass, temperatureOffset: model.temperatureOffset ?? 0, modelRpm: model.rpm ?? 0,
+            altitude: p.y, verticalSpeed: controls.getVerticalSpeed(),
             heading: controls.getHeading(), roll: controls.getRoll(), alpha: model.alpha, throttle: model.throttle,
             flaps: model.flaps, trim: model.trim, position: { x: p.x, y: p.y, z: p.z },
             engineRunning: Boolean(systems.running), rpm: systems.rpm ?? 0,
@@ -6025,8 +6033,8 @@ function updateF15Warnings(frameDelta) {
     f15Warnings.update(delta, active ? {
         powered: jetSystems.busPowered, airborne: !controls.isOnGround(), crashed: controls.isCrashed(),
         position: aircraft.position, velocity: controls.model.velocity, ground: (x, z) => terrain.heightAt(x, z),
-        wheelHeight: WHEEL_HEIGHT, speed: controls.getSpeed(), g: controls.model.loadFactor, mass: controls.model.aircraft.mass,
-        mach: controls.getSpeed() / 340, gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake,
+        wheelHeight: WHEEL_HEIGHT, speed: controls.getSpeed(), g: controls.model.loadFactor, mass: controls.model.mass,
+        mach: controls.model.mach, gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake,
         canopy: jetCanopy, fuelKg: jetSystems.fuelKg, engines: jetSystems.engines, systemWarnings: jetSystems.warnings,
         jfsLow: jetSystems.jfsRunning && !jetSystems.jfsReady, damage,
     } : null);
@@ -6462,8 +6470,10 @@ function drawFrame(time) {
             sounds.click(chaseView ? 0.15 : 0.3);
         }
     }
-    if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed());
+    // (C172 : le régime vient du modèle de vol, équilibre moteur / hélice ; le levier de mixture lui est transmis)
+    if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
     controls.model.enginePower = systems.power;
+    controls.model.mixture = systems.mixture ?? 1;
     controls.model.flapsPowered = systems.flapsPowered;
     const jet = aircraftType === 'f15', heli = aircraftType === 'r44', cessna = aircraftType === 'c172';
     if (jet) updateJet(delta);

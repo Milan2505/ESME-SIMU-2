@@ -67,10 +67,12 @@ export function attitude(fixture) {
 
 // Automatismes de test : chacun rend une fonction pilot(t) à passer à run(). Ils agissent sur model.controls et
 // model.throttle, comme le ferait un joueur ; gains modestes et intégrateurs bornés (pas de pompage)
-export function speedHold(fixture, target, { gain = 0.1, integral = 0.01, damping = 0.3 } = {}) {   // vitesse tenue au manche
+// speedHold : vitesse tenue au manche ; indicated : vitesse lue au badin (KIAS, comme les vitesses du manuel) au lieu de la
+// vitesse vraie
+export function speedHold(fixture, target, { gain = 0.1, integral = 0.01, damping = 0.3, indicated = false } = {}) {
     let acc = 0, previous = null;
     return () => {
-        const speed = fixture.model.airspeed;
+        const speed = indicated ? fixture.model.indicatedSpeed : fixture.model.airspeed;
         const error = speed - target;                    // trop vite : on tire (pitch > 0 = cabrer)
         const rate = previous === null ? 0 : (speed - previous) / DT;   // accélération : on anticipe
         previous = speed;

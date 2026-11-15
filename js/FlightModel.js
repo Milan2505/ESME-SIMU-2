@@ -6,16 +6,22 @@ import {
 	Vector3
 } from 'three';
 import { CESSNA_172 } from './Cessna172.js';
+import { isa, tasToCas, iasFromCas, RHO0 } from './Atmosphere.js';
+import { PistonPropeller } from './Propulsion.js';
 
 // Modèle de vol : portance (calculée sur chaque demi-aile), traînée, poussée et poids selon l'incidence et la vitesse,
 // avec effet de sol et décrochage ; au sol, roulage sur les roues jusqu'à ce que l'aile porte l'avion.
 // Aucune dépendance au clavier ni à la page : on lui donne des commandes (manche, gaz, trim, volets, freins),
 // il fait avancer l'avion (object : position et orientation). Les caractéristiques viennent de Cessna172.js.
+// Atmosphère type (Atmosphere.js) pour tous les avions, avec l'écart de température de la météo (temperatureOffset) :
+// la densité baisse avec l'altitude et la chaleur (portance, traînée, puissance). Vitesses : airspeed = vitesse vraie
+// (TAS), calibratedSpeed = vitesse corrigée (CAS), indicatedSpeed = vitesse lue au badin (IAS, erreur de position de
+// l'avion). Moteur à hélice (aircraft.engine, Propulsion.js) : régime et poussée par équilibre des couples ; réacteurs
+// (aircraft.jet) : poussée donnée par JetSystems. Masse et centrage sont des propriétés de l'instance (mass, cgOffset),
+// l'objet des caractéristiques n'est jamais modifié.
 // Événements : 'liftoff', 'touchdown' { impact }, 'crash' { reason }.
 
 const GRAVITY = 9.81;
-const AIR_DENSITY = 1.225;         // kg/m³ (niveau de la mer)
-const SPEED_OF_SOUND = 340;        // m/s (traînée d'onde des avions rapides, voir _dragCoefficient)
 const STEP = 1 / 120;              // pas de calcul (s) : plusieurs pas par image si besoin
 // Centrage (voir cgOffset) : incidence en plus tenue par le trim, et stabilité en moins, par mètre de recul
 const CG_TRIM_ALPHA = MathUtils.degToRad( 12 );   // ~1,2° pour 10 cm
@@ -62,7 +68,7 @@ class FlightModel extends EventDispatcher {
 	constructor( object, aircraft = CESSNA_172 ) {
 		super();
 		this.object = object;
-		this.aircraft = aircraft;
+		this.aircraft = aircraft;        // (accesseur : pose aussi mass et engine)
 
 		// Environnement
 		this.minAltitude = 1;            // hauteur du centre de l'avion au-dessus du sol, roues posées
@@ -70,6 +76,7 @@ class FlightModel extends EventDispatcher {
 		this.surfaceAt = () => 'grass';  // revêtement du sol en (x, z) : 'asphalt', 'grass' ou 'water' (lac)
 		this.obstacles = [];             // boîtes (Box3, repère monde) à ne pas percuter
 		this.turbulence = 0;             // 0 = air calme, 1 = tempête
+		this.temperatureOffset = 0;      // écart de température de la météo à l'atmosphère type (K), voir Atmosphere.js
 		this.random = Math.random;       // tirage des rafales et de l'aile qui tombe : remplaçable par un tirage à graine (tests, voir Random.js)
 		this.rotateSpeed = aircraft.rotateSpeed;
 		// Aides au pilotage (menu Paramètres > Pilotage), désactivées par défaut
@@ -83,8 +90,10 @@ class FlightModel extends EventDispatcher {
 		// Commandes du pilote
 		this.controls = { pitch: 0, roll: 0, yaw: 0, brake: 0 }; // profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins
 		this.throttle = 0.3;             // 0 -> 1
-		this.enginePower = 1;            // puissance disponible (0 = moteur arrêté), voir Systems.js
+		this.mixture = 1;                // levier de mixture (1 = plein riche), moteur à hélice, voir Systems.js
+		this.enginePower = 1;            // santé du moteur (0 = arrêté, 0,93 une seule magnéto…), voir Systems.js
 		this.jetThrust = 0;              // réacteurs (aircraft.jet) : poussée au niveau de la mer (N), voir JetSystems.js
+		this.thrust = 0;                 // poussée de l'hélice à ce pas (N), voir _propulsion
 		// Dégâts au combat (voir Damage.js) : poussée restante, portance de chaque demi-aile (gauche, droite), traînée
 		// en plus (trous, tôles arrachées), efficacité des gouvernes (empennage touché)
 		this.damage = { thrust: 1, wingLift: [ 1, 1 ], drag: 0, control: 1 };
@@ -114,7 +123,9 @@ class FlightModel extends EventDispatcher {
 		this._angularVelocity = new Vector3(); // repère avion (rad/s) : x tangage (+ = cabrer), y lacet, z roulis (+ = gauche)
 		this._wind = new Vector3();      // rafales (repère monde, m/s)
 		this.wind = new Vector3();       // vent moyen de la météo (repère monde, m/s), voir Wind.js
-		this.indicatedSpeed = 0;         // vitesse lue à l'anémomètre (au sol : roulage + vent de face)
+		this.indicatedSpeed = 0;         // vitesse lue à l'anémomètre (IAS ; au sol : roulage + vent de face)
+		this.calibratedSpeed = 0;        // vitesse corrigée (CAS) : pression dynamique vraie, sans l'erreur de position
+		this.mach = 0;                   // nombre de Mach (traînée d'onde, HUD du F-15)
 		this._gustRoll = 0;
 		this._gustRollTarget = 0;
 		this._gustTimer = 0;
@@ -143,6 +154,22 @@ class FlightModel extends EventDispatcher {
 		this.loadFactor = 1;             // facteur de charge (g) : portance / poids (accéléromètre, HUD du F-15)
 	}
 
+	// Caractéristiques de l'avion (Cessna172.js, F15.js…) : les changer remet la masse de référence et le moteur à hélice
+	// (aircraft.engine, voir Propulsion.js). L'objet n'est jamais modifié : la masse chargée vit dans l'instance (mass)
+	get aircraft() {
+		return this._aircraft;
+	}
+	set aircraft( aircraft ) {
+		this._aircraft = aircraft;
+		this.mass = aircraft.mass;       // kg : masse actuelle (Masse et centrage, carburant), voir simulator.js
+		this.propulsion = aircraft.engine && aircraft.propeller ? new PistonPropeller( aircraft ) : null;   // (HeliModel garde engine pour R44Systems)
+	}
+
+	// Régime de l'hélice (tr/min), 0 sans moteur à hélice
+	get rpm() {
+		return this.propulsion ? this.propulsion.rpm : 0;
+	}
+
 	// Pose l'avion sur le sol à sa position actuelle (cap conservé), moteur au ralenti
 	placeOnGround() {
 		const front = _forward.copy( _front ).applyQuaternion( this.object.quaternion );
@@ -151,6 +178,7 @@ class FlightModel extends EventDispatcher {
 		this._settleRoll = this._settlePitch = this._gear = this._gearSpeed = 0;
 		this.onGround = true;
 		this.throttle = 0;
+		this.propulsion?.reset( true );
 		this.airspeed = 0;
 		this.velocity.set( 0, 0, 0 );
 		this.gearDown = true;
@@ -170,6 +198,7 @@ class FlightModel extends EventDispatcher {
 		this.speedbrakeOut = false;
 		this.speedbrake = 0;
 		this.velocity.copy( front ).multiplyScalar( this.airspeed );
+		this.propulsion?.reset( true );
 		this._groundYaw = Math.atan2( - front.x, - front.z );
 		this._groundPitch = 0;
 		this._settleRoll = this._settlePitch = this._gear = this._gearSpeed = 0;
@@ -206,11 +235,28 @@ class FlightModel extends EventDispatcher {
 		return true;
 	}
 
-	// Masse volumique de l'air (kg/m³) à l'altitude de l'avion (atmosphère type), pour les avions qui montent haut
+	// Masse volumique de l'air (kg/m³) à l'altitude de l'avion : atmosphère type et température de la météo
 	airDensity() {
-		if ( ! this.aircraft.densityAltitude ) return AIR_DENSITY;
-		const h = Math.max( 0, this.object.position.y );
-		return AIR_DENSITY * Math.max( 0.05, 1 - 2.2558e-5 * h ) ** 4.2559;
+		return isa( this.object.position.y, this.temperatureOffset ).density;
+	}
+
+	// Vitesses pour les instruments à partir de la vitesse vraie (m/s) : CAS (pression dynamique) et IAS (erreur de
+	// position de l'avion, selon les volets)
+	_setIndicatedSpeeds( tas ) {
+		this.calibratedSpeed = tasToCas( tas, this.object.position.y, this.temperatureOffset );
+		this.indicatedSpeed = iasFromCas( this.calibratedSpeed, this.aircraft.airspeedCalibration, this.flaps );
+	}
+
+	// Moteur à hélice (Propulsion.js) : régime et poussée à ce pas, pour la vitesse de l'air le long de l'axe (m/s)
+	_propulsion( dt, axialSpeed ) {
+		if ( ! this.propulsion ) return;
+		this.propulsion.update( dt, { throttle: this.throttle, mixture: this.mixture, health: this.enginePower, axialSpeed, density: this.airDensity() } );
+		this.thrust = this.propulsion.thrust * this.damage.thrust;
+	}
+
+	// Poussée de référence des effets moteur (couple, souffle, facteur P) : plein gaz à l'arrêt
+	_staticThrust() {
+		return this.propulsion ? this.propulsion.staticThrust : this.aircraft.staticThrust;
 	}
 
 	// Fait avancer la simulation de delta secondes
@@ -251,7 +297,7 @@ class FlightModel extends EventDispatcher {
 	stallSpeed() {
 		const A = this.aircraft;
 		const maxLift = this._liftCoefficient( this.stallAlpha() );
-		return Math.sqrt( 2 * A.mass * GRAVITY / ( this.airDensity() * A.wingArea * maxLift ) );
+		return Math.sqrt( 2 * this.mass * GRAVITY / ( this.airDensity() * A.wingArea * maxLift ) );
 	}
 
 	// Incidence que fixe le tab de trim (manche lâché)
@@ -267,7 +313,7 @@ class FlightModel extends EventDispatcher {
 	trimSpeed() {
 		const A = this.aircraft;
 		const alpha = Math.min( this.trimAlpha(), this.stallAlpha() - MathUtils.degToRad( 5 ) );
-		return Math.sqrt( 2 * A.mass * GRAVITY / ( this.airDensity() * A.wingArea * this._liftCoefficient( alpha ) ) );
+		return Math.sqrt( 2 * this.mass * GRAVITY / ( this.airDensity() * A.wingArea * this._liftCoefficient( alpha ) ) );
 	}
 
 	// Vrai un peu avant le décrochage (incidence à moins de 4° de la limite : 5 à 7 kt avant, comme l'avertisseur du
@@ -314,21 +360,24 @@ class FlightModel extends EventDispatcher {
 		return Math.max( peak * 0.55, peak - 3.5 * ( alpha - stallAlpha ) );
 	}
 
-	// Poussée de l'hélice (N) : limitée à l'arrêt, puis à puissance constante (elle baisse avec la vitesse)
-	_thrust( speed ) {
-		// Réacteurs : poussée donnée par les systèmes, qui baisse avec la densité de l'air
-		if ( this.aircraft.jet ) return this.jetThrust * this.damage.thrust * ( this.airDensity() / AIR_DENSITY ) ** 0.75;
-		return this.throttle * this.enginePower * this.damage.thrust * Math.min( this.aircraft.staticThrust, this.aircraft.power / Math.max( 1, speed ) );
+	// Poussée (N) : hélice calculée à ce pas par _propulsion (moteur à hélice), ou réacteurs (poussée donnée par les
+	// systèmes, qui baisse avec la densité de l'air)
+	_thrust() {
+		if ( this.aircraft.jet ) return this.jetThrust * this.damage.thrust * ( this.airDensity() / RHO0 ) ** 0.75;
+		if ( this.propulsion ) return this.thrust;
+		return this.throttle * this.enginePower * this.damage.thrust * Math.min( this.aircraft.staticThrust, this.aircraft.power / Math.max( 1, this.airspeed ) );
 	}
 
-	// Coefficient de traînée : forme + volets + induite (réduite près du sol) + hélice au ralenti + aile décrochée
-	_dragCoefficient( lift, groundEffect = 1, speed = 0 ) {
+	// Coefficient de traînée : forme + volets + induite (réduite près du sol) + aile décrochée (+ hélice au ralenti pour un
+	// avion sans modèle d'hélice : avec Propulsion.js, le moulinet freine par sa traction négative)
+	_dragCoefficient( lift, groundEffect = 1 ) {
 		const A = this.aircraft;
 		let cd = A.cd0 + A.flapDrag * this.flaps + A.inducedDrag * lift * lift * groundEffect
-			+ A.windmillDrag * ( 1 - this.throttle * this.enginePower ) + ( this.stalled ? A.stallDrag : 0 ) + this.damage.drag;
+			+ ( this.stalled ? A.stallDrag : 0 ) + this.damage.drag;
+		if ( ! this.propulsion && A.windmillDrag ) cd += A.windmillDrag * ( 1 - this.throttle * this.enginePower );
 		// Train sorti, aérofrein ; traînée d'onde à l'approche de Mach 1 (avions rapides)
 		if ( A.gearTime ) cd += A.gearDrag * this.gearPosition + A.speedbrakeDrag * this.speedbrake;
-		if ( A.waveDrag ) cd += A.waveDrag * MathUtils.smoothstep( speed / SPEED_OF_SOUND, A.machCritical, 1.05 );
+		if ( A.waveDrag ) cd += A.waveDrag * MathUtils.smoothstep( this.mach, A.machCritical, 1.05 );
 		return cd;
 	}
 
@@ -357,9 +406,13 @@ class FlightModel extends EventDispatcher {
 		// Vent relatif : incidence (dans le plan de symétrie de l'avion) et dérapage
 		_air.subVectors( this.velocity, this._wind ).sub( this.wind );
 		const speed = Math.max( 0.1, _air.length() );
-		// Vitesse indiquée (anémomètre) : la vitesse vraie corrigée de la densité de l'air (en altitude, elle est plus faible)
+		// Vitesses des instruments (CAS, IAS) depuis la vitesse vraie ; densité et Mach du moment ; hélice pour ce pas
 		this.airspeed = speed;
-		this.indicatedSpeed = A.densityAltitude ? speed * Math.sqrt( this.airDensity() / AIR_DENSITY ) : speed;
+		this._setIndicatedSpeeds( speed );
+		const air = isa( object.position.y, this.temperatureOffset );
+		const rho = air.density;
+		this.mach = speed / air.speedOfSound;
+		this._propulsion( dt, _air.dot( _forward ) );
 		const alpha = Math.atan2( - _air.dot( _planeUp ), _air.dot( _forward ) );
 		const beta = Math.asin( MathUtils.clamp( _air.dot( _right ) / speed, - 1, 1 ) );
 		this.alpha = alpha;
@@ -368,7 +421,7 @@ class FlightModel extends EventDispatcher {
 		const stallAlpha = this.stallAlpha();
 		// Effets du moteur : part de la poussée maxi (0 -> 1) et poids de la basse vitesse (0 en croisière, ~0,5 près du
 		// décrochage) ; voir plus bas (couple, souffle hélicoïdal, facteur P)
-		const power = this._thrust( speed ) / A.staticThrust;
+		const power = MathUtils.clamp( this._thrust() / this._staticThrust(), 0, 1 );
 		const slow = MathUtils.clamp( 1 - speed / A.engineEffectSpeed, 0, 1 );
 		if ( ! this.stalled && alpha > stallAlpha ) {
 			this.stalled = true;
@@ -392,7 +445,7 @@ class FlightModel extends EventDispatcher {
 		const groundEffect = k / ( 1 + k );        // 1 = loin du sol
 		this.groundEffect = 1 - groundEffect;      // 0 -> ~0,07 : intensité de l'effet de sol (instruments, tests)
 
-		const pressure = 0.5 * this.airDensity() * speed * speed * A.wingArea;
+		const pressure = 0.5 * rho * speed * speed * A.wingArea;
 		// Portance appliquée aux ailes, pas seulement au centre de gravité : chaque demi-aile (centre de poussée à un quart
 		// d'envergure du fuselage) a son propre vent relatif, celui de l'avion plus la vitesse que lui donne la rotation
 		// de l'avion (ω × r). En virage (lacet), l'aile extérieure va plus vite et porte plus : l'avion s'incline de
@@ -412,7 +465,7 @@ class FlightModel extends EventDispatcher {
 			const panelSpeed = Math.max( 0.1, _panelAir.length() );
 			const panelAlpha = Math.atan2( - _panelAir.dot( _planeUp ), _panelAir.dot( _forward ) );
 			const panelLift = this._liftCoefficient( panelAlpha, this.stalled ) * groundLift * this.damage.wingLift[ side < 0 ? 0 : 1 ]
-				* 0.5 * this.airDensity() * panelSpeed * panelSpeed * A.wingArea / 2;
+				* 0.5 * rho * panelSpeed * panelSpeed * A.wingArea / 2;
 			_liftDirection.crossVectors( _right, _panelAir ).normalize();   // perpendiculaire au vent relatif de cette aile
 			_force.addScaledVector( _liftDirection, panelLift );
 			liftForce += panelLift;
@@ -421,16 +474,16 @@ class FlightModel extends EventDispatcher {
 			this.wingLift[ side < 0 ? 0 : 1 ] = panelLift;
 		}
 		const lift = liftForce / pressure;   // coefficient de portance de l'avion entier (traînée induite, facteur de charge)
-		this.loadFactor = liftForce / ( A.mass * GRAVITY );
-		_force.addScaledVector( _air, - ( this._dragCoefficient( lift, groundEffect, speed ) + A.sideslipDrag * beta * beta ) * pressure / speed )
+		this.loadFactor = liftForce / ( this.mass * GRAVITY );
+		_force.addScaledVector( _air, - ( this._dragCoefficient( lift, groundEffect ) + A.sideslipDrag * beta * beta ) * pressure / speed )
 			.addScaledVector( _right, - A.sideForce * beta * pressure )
-			.addScaledVector( _forward, this._thrust( speed ) );
+			.addScaledVector( _forward, this._thrust() );
 		// Accélération latérale ressentie (sans la pesanteur, repère avion, + = vers la droite) : bille de l'indicateur
 		// de virage. Centrée en virage coordonné ; en dérapage, la force latérale du fuselage la déporte
-		this.sideAcceleration = _force.dot( _right ) / A.mass;
-		_force.y -= A.mass * GRAVITY;
+		this.sideAcceleration = _force.dot( _right ) / this.mass;
+		_force.y -= this.mass * GRAVITY;
 		const climbBefore = this.velocity.y;
-		this.velocity.addScaledVector( _force, dt / A.mass );
+		this.velocity.addScaledVector( _force, dt / this.mass );
 		// Juste après l'envol : la variation de vitesse verticale s'installe progressivement (voir LIFTOFF_EASE_TIME)
 		const ease = MathUtils.smoothstep( this._liftoffEase, 0, 1 );
 		if ( this._liftoffEase < 1 ) this.velocity.y = climbBefore + ( this.velocity.y - climbBefore ) * ( 0.15 + 0.85 * ease );
@@ -471,7 +524,7 @@ class FlightModel extends EventDispatcher {
 		// de charge maxi (à grande vitesse, manche au ventre : 9 g, pas 15)
 		if ( A.gLimit ) {
 			const base = A.cl0 + A.flapLift * this.flaps;
-			const weight = A.mass * GRAVITY / Math.max( 1, pressure );
+			const weight = this.mass * GRAVITY / Math.max( 1, pressure );
 			alphaTarget = MathUtils.clamp( alphaTarget, ( A.gLimitNegative * weight - base ) / A.clAlpha, ( A.gLimit * weight - base ) / A.clAlpha );
 		}
 		// Relâchement du manche (voir pitchRate plus bas) : il commence quand l'incidence visée revient vers celle du
@@ -613,29 +666,32 @@ class FlightModel extends EventDispatcher {
 		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
 		const headwind = - ( this.wind.x * _forward.x + this.wind.z * _forward.z );
 		let air = Math.max( 0, speed + headwind );
+		this.mach = 0;
+		this._propulsion( dt, air );
 		const pressure = 0.5 * this.airDensity() * air * air * A.wingArea;
 		const lift = this._liftCoefficient( this._groundPitch );
-		const wheelLoad = Math.max( 0, 1 - lift * pressure / ( A.mass * GRAVITY ) );
+		const wheelLoad = Math.max( 0, 1 - lift * pressure / ( this.mass * GRAVITY ) );
 		// Pente de la piste dans l'axe de roulage (sans le cabré de l'avion) : > 0 en montée
 		this._groundNormal( object.position.x, object.position.z, _normal );
 		_forward.set( - Math.sin( this._groundYaw ), 0, - Math.cos( this._groundYaw ) );
 		const slope = _forward.addScaledVector( _normal, - _forward.dot( _normal ) ).normalize().y;
 		// Manche tiré au sol : la profondeur braquée vers le haut freine un peu l'avion (aérofrein léger)
 		const elevatorDrag = A.elevatorGroundDrag * Math.max( 0, input.pitch );
-		speed += ( ( this._thrust( air ) - ( this._dragCoefficient( lift, 1, air ) + elevatorDrag ) * pressure ) / A.mass - GRAVITY * slope ) * dt;
+		speed += ( ( this._thrust() - ( this._dragCoefficient( lift, 1 ) + elevatorDrag ) * pressure ) / this.mass - GRAVITY * slope ) * dt;
 		const onWater = this.surface === 'water';
 		speed -= ( A.rolling[ this.surface ] + ( onWater ? 0 : input.brake * A.brakes ) ) * wheelLoad * dt;
 		// Eau : traînée des roues et des carénages qui fendent l'eau (encore un peu quand l'aile porte : ils trempent)
 		if ( onWater ) speed -= A.waterDrag * speed * speed * Math.max( 0.3, wheelLoad ) * dt;
 		this.airspeed = speed = Math.max( 0, speed );
-		this.indicatedSpeed = air = Math.max( 0, speed + headwind );
+		air = Math.max( 0, speed + headwind );
+		this._setIndicatedSpeeds( air );
 
 		// Palonnier (et manche à basse vitesse) : moins d'autorité quand ça va vite
 		const steer = MathUtils.clamp( input.yaw + input.roll * 0.5, - 1, 1 );
 		const authority = Math.min( 1, speed / 3 ) * ( 1 - 0.6 * Math.min( 1, speed / this.rotateSpeed ) );
 		this._groundYaw += steer * 0.6 * authority * ( onWater ? A.waterSteering : 1 ) * dt;
 		// Plein gaz au roulage (décollage) : couple et souffle de l'hélice tirent le nez à gauche, du pied droit
-		this._groundYaw += A.engineGroundYaw * ( this._thrust( air ) / A.staticThrust ) * Math.min( 1, speed / 8 ) * dt;
+		this._groundYaw += A.engineGroundYaw * MathUtils.clamp( this._thrust() / this._staticThrust(), 0, 1 ) * Math.min( 1, speed / 8 ) * dt;
 
 		// Profondeur : le nez ne se lève qu'avec assez de vitesse, sinon il retombe sur sa roulette
 		// Aide "rotation automatique" : manche au neutre, le trim lève doucement le nez jusqu'à son assiette
@@ -800,6 +856,7 @@ class FlightModel extends EventDispatcher {
 		this.stalled = false;
 		this._stallBreak = 0;
 		this.airspeed = 0;
+		this.thrust = 0;
 		this.velocity.set( 0, 0, 0 );
 		this.throttle = 0;
 		this.dispatchEvent( { type: 'crash', reason } );

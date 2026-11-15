@@ -172,11 +172,11 @@ function drawFuelSelector(ctx, hotspots, w, h) {
     ctx.strokeRect(3, 3, w - 6, h - 6);
     // (plaque étroite, ~180 px : elle passe entre les palonniers, voir FUEL_PLATE dans Cockpit.js)
     label(ctx, 'TAKEOFF\nLANDING', w / 2 - 46, 16, 7);
-    label(ctx, 'BOTH\n53 gal', w / 2, 16, 7);
+    label(ctx, 'BOTH\n40 gal', w / 2, 16, 7);
     label(ctx, 'ALL FLIGHT\nATTITUDES', w / 2 + 48, 16, 7);
     label(ctx, 'FUEL\nSELECTOR', w - 28, 44, 7);
-    label(ctx, 'LEFT\n26.5 gal\nLEVEL\nFLIGHT\nONLY', 18, h / 2 + 28, 7);
-    label(ctx, 'RIGHT\n26.5 gal\nLEVEL\nFLIGHT\nONLY', w - 18, h / 2 + 28, 7);
+    label(ctx, 'LEFT\n20 gal\nLEVEL\nFLIGHT\nONLY', 18, h / 2 + 28, 7);
+    label(ctx, 'RIGHT\n20 gal\nLEVEL\nFLIGHT\nONLY', w - 18, h / 2 + 28, 7);
     // Contour de la poignée (forme en ailes du vrai sélecteur)
     const cx = w / 2, cy = h / 2 + 18;
     ctx.strokeStyle = '#e6e6e6';

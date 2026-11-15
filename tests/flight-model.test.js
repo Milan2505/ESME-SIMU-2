@@ -2,9 +2,10 @@
 // chiffrées (voir perf-c172.test.js). Hasard à graine fixe : chaque test est reproductible.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Box3, Vector3 } from 'three';
+import { Box3, Object3D, Vector3 } from 'three';
 import { makeAircraft, airborne, run, KT } from './helpers/flight.js';
 import { seededRandom } from '../js/Random.js';
+import { FlightModel } from '../js/FlightModel.js';
 import { CESSNA_172 } from '../js/Cessna172.js';
 import { F15 } from '../js/F15.js';
 
@@ -35,8 +36,8 @@ test('plein gaz : l\'avion accélère, décolle (événement liftoff) puis monte
     model.throttle = 1;
     model.setFlapLevel(1);
     model.flaps = 1 / 3;
-    run(f, 2);
-    assert.ok(model.airspeed > 5 && model.onGround, 'ça roule');
+    run(f, 3);
+    assert.ok(model.airspeed > 4 && model.onGround, `ça roule : ${model.airspeed.toFixed(1)} m/s après 3 s`);
     const t = run(f, 60, { pilot: () => { model.controls.pitch = model.indicatedSpeed > 26 ? 0.5 : 0; }, until: () => !model.onGround });
     assert.ok(t < 60, 'envol en moins de 60 s');
     assert.deepEqual(events, ['liftoff']);
@@ -110,6 +111,44 @@ test('obstacle sur la trajectoire : collision', () => {
     model.addEventListener('crash', (e) => { reason = e.reason; });
     run(f, 30, { pilot: () => { model.controls.pitch = 0; }, until: () => model.crashed });
     assert.equal(reason, 'Collision avec un obstacle');
+});
+
+test('masse et moteur en propriétés de l\'instance : changer la masse ne touche pas CESSNA_172, changer d\'avion la remet', () => {
+    const { model } = makeAircraft();
+    const reference = CESSNA_172.mass;
+    assert.equal(model.mass, reference);
+    assert.ok(model.propulsion && model.rpm > 0, 'moteur à hélice créé, au ralenti');
+    model.mass = 900;
+    model.restart(true);
+    assert.equal(model.mass, 900, 'restart garde la masse chargée');
+    assert.equal(CESSNA_172.mass, reference, 'l\'objet partagé n\'est pas modifié');
+    assert.ok(model.stallSpeed() < new FlightModel(new Object3D(), { ...CESSNA_172 }).stallSpeed(), 'plus léger : décroche plus lentement');
+    model.aircraft = F15;
+    assert.equal(model.mass, F15.mass, 'autre avion : masse de référence de celui-ci');
+    assert.equal(model.propulsion, null, 'réacteurs : pas de modèle d\'hélice');
+    assert.equal(model.rpm, 0);
+});
+
+test('vitesses : TAS, CAS et IAS distinctes ; en altitude la CAS est plus faible que la TAS, le badin du 172P sous-lit à basse vitesse (POH fig. 5-1)', () => {
+    const low = airborne(makeAircraft(), { altitude: 10, speed: 70 * KT, throttle: 0.5 });
+    run(low, 0.1, { pilot: () => { low.model.controls.pitch = 0; } });
+    assert.ok(Math.abs(low.model.calibratedSpeed - low.model.airspeed) < 0.2, 'au niveau de la mer, CAS = TAS');
+    assert.ok(Math.abs(low.model.indicatedSpeed / KT - 70) < 1.5, `70 KCAS lisse se lit ~70 KIAS : ${(low.model.indicatedSpeed / KT).toFixed(1)}`);
+    const slow = airborne(makeAircraft(), { altitude: 10, speed: 56 * KT, throttle: 0.5 });
+    run(slow, 0.1, { pilot: () => { slow.model.controls.pitch = 0; } });
+    assert.ok(Math.abs(slow.model.indicatedSpeed / KT - 50) < 1.5, `56 KCAS lisse se lit ~50 KIAS : ${(slow.model.indicatedSpeed / KT).toFixed(1)}`);
+    const high = airborne(makeAircraft(), { altitude: 3000, speed: 70 * KT, throttle: 0.8 });
+    run(high, 0.1, { pilot: () => { high.model.controls.pitch = 0; } });
+    assert.ok(high.model.calibratedSpeed < 0.9 * high.model.airspeed, `à 3 000 m, CAS ${(high.model.calibratedSpeed / KT).toFixed(0)} kt bien sous la TAS 70 kt`);
+    assert.ok(high.model.mach > 0.1 && high.model.mach < 0.12, `Mach ${high.model.mach.toFixed(3)}`);
+});
+
+test('température de la météo : air chaud, moins de portance (vitesse de décrochage vraie plus élevée) et moins de puissance', () => {
+    const cold = makeAircraft().model, hot = makeAircraft().model;
+    hot.temperatureOffset = 30;
+    assert.ok(hot.airDensity() < 0.92 * cold.airDensity());
+    assert.ok(hot.stallSpeed() > cold.stallSpeed() * 1.03, 'décrochage (TAS) plus rapide par air chaud');
+    assert.equal(hot.stallSpeed() * Math.sqrt(hot.airDensity()) / Math.sqrt(cold.airDensity()) / cold.stallSpeed() > 0.999, true, 'même vitesse corrigée');
 });
 
 test('F-15 : train rentrant refusé au sol, rentré en vol en gearTime s ; aérofrein', () => {

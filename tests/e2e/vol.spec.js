@@ -67,6 +67,11 @@ for (const { carte, avion } of SCENARIOS) {
             const moved = Math.hypot(after.position.x - start.position.x, after.position.z - start.position.z);
             expect(moved, 'l\'avion a avancé').toBeGreaterThan(50);
             expect(after.speed).toBeGreaterThan(10);
+            // C172 : régime de l'hélice calculé par le modèle de vol (Propulsion.js) et suivi par le compte-tours
+            if (avion === 'c172') {
+                expect(after.modelRpm, 'hélice entraînée plein gaz').toBeGreaterThan(1800);
+                expect(Math.abs(after.rpm - after.modelRpm), 'compte-tours sur le régime du modèle').toBeLessThan(150);
+            }
         }
         expect(errors, 'erreurs console pendant le vol').toEqual([]);
         const capture = testInfo.outputPath(`vol-${carte}-${avion}.png`);

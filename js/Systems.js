@@ -4,7 +4,8 @@
 // l'alimentation des volets ; la cabine, les instruments et les feux lisent l'état d'ici.
 
 const GALLON = 3.785;                  // litres (affichage en gallons US, comme dans l'avion)
-const TANK_CAPACITY = 26.5;            // gallons utilisables par aile
+const TANK_CAPACITY = 20;              // gallons utilisables par aile : réservoirs standard du 172P, 21,5 gal dont 1,5 inutilisable
+                                       // (POH 172P sect. 2 p. 2-6 ; 43 gal au total, 40 utilisables)
 const LOW_FUEL = 5;                    // alarme carburant bas (gal)
 const START_TIME = 1.2;                // moteur amorcé : il démarre après 1,2 s de démarreur
 const START_TIME_UNPRIMED = 4.5;       // sans amorçage (pompe), il faut insister : ~4,5 s de démarreur en tout
@@ -246,12 +247,14 @@ class Systems extends EventTarget {
         return Math.max(...tanks) < LOW_FUEL_FEED && !this.fuelPumpRunning;
     }
 
-    // Puissance du moteur (0 -> 1) : magnétos (une seule : ~4 % de moins), mixture, alimentation (toux sans pompe
-    // quand le réservoir est presque vide)
+    // Santé du moteur (0 -> 1), lue par le modèle de vol : arrêté, magnétos (une seule : ~7 % de moins, soit ~60 tr/min de
+    // chute à l'essai moteur ; le manuel admet 125 au plus), alimentation (toux sans pompe quand le réservoir est presque
+    // vide). La mixture n'y est plus : son effet sur la puissance (selon la densité de l'air) est dans Propulsion.js, qui
+    // reçoit le levier (FlightModel.mixture)
     get power() {
         if (!this.running) return 0;
         const feed = this._fuelFeedWeak ? 0.75 + 0.2 * Math.sin(this._time * 9) * Math.sin(this._time * 2.3) : 1;
-        return (this.singleMagneto ? 0.96 : 1) * this._mixturePower * feed;
+        return (this.singleMagneto ? 0.93 : 1) * feed;
     }
 
     // Carburant restant (0 -> 1), pour la jauge du HUD (comme JetSystems.fuelFraction)
@@ -274,8 +277,9 @@ class Systems extends EventTarget {
         };
     }
 
-    // throttle : 0 -> 1 ; airspeed (m/s) : fait tourner l'hélice moteur coupé
-    update(delta, throttle, airspeed) {
+    // throttle : 0 -> 1 ; airspeed (m/s) : fait tourner l'hélice moteur coupé ; modelRpm : régime calculé par le modèle de
+    // vol (FlightModel.rpm, équilibre moteur / hélice), suivi quand le moteur tourne ; null : formule d'ici
+    update(delta, throttle, airspeed, modelRpm = null) {
         this._throttle = throttle;
         this._time = (this._time ?? 0) + delta;
         // Amorçage : pompe en marche, moteur arrêté, mixture poussée -> du carburant arrive aux cylindres (démarrage
@@ -332,15 +336,19 @@ class Systems extends EventTarget {
             this.hobbs += delta / 3600;
             this.tachHours += delta / 3600 * this.rpm / 2400;
         }
-        // Régime : moteur (gaz, mixture) ou hélice entraînée par le vent relatif / le démarreur
-        const target = this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
+        // Régime : moteur en marche, celui du modèle de vol (ou, sans lui, une formule selon gaz et mixture) ; sinon
+        // hélice entraînée par le démarreur ou le vent relatif
+        const fromModel = this.running && modelRpm !== null;
+        const target = fromModel ? modelRpm
+            : this.running ? 750 + 1950 * throttle * this._mixturePower + airspeed * 4 - (this.singleMagneto ? 100 : 0)
             : starting && this.switches.masterBat && this.battery > 0.05 ? 280 : airspeed * 18;
         if (!this.running && !starting && this.rpm > target) {
             // Moteur coupé : l'hélice ralentit sur sa lancée (frottements, compressions) et s'arrête en ~3,8 s depuis le
             // ralenti, en même temps que le son d'arrêt (engine-cut.wav) ; en vol, elle reste entraînée par le vent
             this.rpm = Math.max(target, this.rpm - (75 + 0.45 * this.rpm) * delta);
         } else {
-            this.rpm += (target - this.rpm) * (1 - Math.exp(-(this.running ? 3 : 1.5) * delta));
+            // (régime du modèle : suivi serré, l'aiguille du compte-tours garde juste un peu d'inertie)
+            this.rpm += (target - this.rpm) * (1 - Math.exp(-(fromModel ? 8 : this.running ? 3 : 1.5) * delta));
         }
     }
 

@@ -33,3 +33,4 @@ Les joueurs échangent leurs positions par un relais MQTT public (WebSocket séc
 - Mâts d'éclairage du parking : Kenney, City Kit Roads (CC0)
 - Tours de contrôle et aérogares : base de modèles de scènes FlightGear, licence GPL-2.0 (`asset/airport/LICENSE.txt`)
 - Sons : projets FlightGear c172p et A320-family (GPL-2.0) ; moteur enregistré dans la cabine d'un Cessna 172 par JLWSound (Freesound, CC0), voir `asset/sounds/LICENSE.txt`
+- Données de vol du Cessna 172P (`js/Cessna172.js`, `js/Propulsion.js`, `js/WeightBalance.js`, `tests/perf-c172.test.js`) : manuel de vol Cessna 172P 1981 (POH D1192-13 : performances, limitations, masse et centrage), fiche moteur Lycoming O-320. Aucune donnée reprise du fichier JSBSim c172p de FlightGear (GPL-2.0)

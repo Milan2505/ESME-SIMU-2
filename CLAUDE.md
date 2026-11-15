@@ -1,7 +1,7 @@
 # Simulateur de vol ESME
 
 Simulateur de vol dans le navigateur (three.js, modules ES, aucun outil de construction) : site 100 % statique publié
-par GitHub Pages depuis la branche `main`. Trois appareils (Cessna 172, F-15C Eagle, Robinson R44), trois cartes
+par GitHub Pages depuis la branche `main`. Trois appareils (Cessna 172P, F-15C Eagle, Robinson R44), trois cartes
 (Campagne, Ville, Mer avec porte-avions), multijoueur sans serveur (relais MQTT publics). Code et commentaires en
 français. Feuille de route des chantiers : `docs/feuille-de-route.md`.
 
@@ -13,7 +13,7 @@ Le site reste statique : `package.json` ne sert qu'aux vérifications, rien de `
 | Commande | Contenu | Durée |
 |---|---|---|
 | `npm run lint` | ESLint, règles recommandées (`eslint.config.js`) sur tout le code | ~5 s |
-| `npm test` | tests Node (`tests/*.test.js`) : modèles de vol, ILS, VOR, vent, masse et centrage, import map, performances C172 | ~1 s |
+| `npm test` | tests Node (`tests/*.test.js`) : modèles de vol, atmosphère, moteur et hélice, comportements réglés en jeu (non-régression), ILS, VOR, vent, masse et centrage, import map, performances C172P | ~3 s |
 | `npm run check` | lint + tests Node : **à lancer après chaque modification** | ~5 s |
 | `npm run test:e2e` | Playwright (`tests/e2e/`) : le vrai simulateur dans Chromium sans fenêtre, WebGL logiciel, sans réseau | ~2,5 min |
 | `npm run check:full` | check + test:e2e | ~3 min |
@@ -24,13 +24,17 @@ Règles :
 - `npm run check:full` est obligatoire quand la modification touche au rendu (Graphics, shaders, modèles 3D, cabines),
   à l'interface (`index.html`, `style.css`, menus, fenêtres, tactile), au chargement (`Loading.js`, écran de chargement,
   assets, import map) ou à `simulator.js`, et toujours en fin de lot.
-- Toute modification du modèle de vol (`FlightModel.js`, `HeliModel.js`, `Cessna172.js`, `F15.js`, `PlaneControls.js`)
+- Toute modification du modèle de vol (`FlightModel.js`, `HeliModel.js`, `Cessna172.js`, `F15.js`, `PlaneControls.js`,
+  `Atmosphere.js`, `Propulsion.js`)
   doit garder les tests de performances verts (`tests/perf-c172.test.js`) ou les faire passer au vert. Ne jamais
-  assouplir une tolérance ni changer une source : elles viennent des manuels de vol (172P 1981 et 172S 2007, section 5).
-- Tests marqués `{ todo: 'lot 1 : modèle de vol' }` dans `tests/perf-c172.test.js` : ils échouent aujourd'hui (le
-  modèle actuel est faux sur ces points) et n'empêchent pas `check` de passer. **Le lot 1 doit retirer ces todo et les
-  faire passer au vert.** Un todo ne se pose que pour un chantier identifié de la feuille de route, jamais pour faire
-  passer une vérification.
+  assouplir une tolérance ni changer une source : elles viennent du manuel de vol du 172P (POH 1981, D1192-13, sections
+  1 à 6), chaque valeur avec sa section, sa figure et sa page. `tests/flight-regression.test.js` (envol sans saut, arrondi,
+  vent de travers, relâchement du manche : bornes mesurées sur le modèle d'avant le lot 1) doit rester vert aussi.
+- Variante de référence : Cessna 172P (1981, Lycoming O-320-D2J de 160 ch, 2 400 lb) partout : modèle 3D, sons, moteur,
+  masse et centrage (`WeightBalance.js`), performances. Ce qui n'a pas pu être relu sur le PDF du manuel est marqué
+  « lecture non vérifiée » dans le code.
+- Aucun test en `todo` aujourd'hui (les cinq du lot 0 sont passés au vert à l'étape 1a du lot 1 : performances). Un todo
+  ne se pose que pour un chantier identifié de la feuille de route, jamais pour faire passer une vérification.
 - Un test qui échoue à cause du banc d'essai (automatisme de test, tolérance numérique de l'intégration) se corrige dans
   `tests/helpers/` ; un test qui échoue parce que le simulateur est faux reste rouge.
 
@@ -79,7 +83,12 @@ départ), les caméras, les fenêtres (paramètres, météo, carte, tour, en lig
 Appareils et physique (`js/`) :
 - `FlightModel.js` : modèle de vol des avions (portance par demi-aile, traînée, poussée, effet de sol, décrochage,
   roulage, toucher, obstacles, dégâts) ; commandes et événements `liftoff` / `touchdown` / `crash`. `random` : tirage
-  remplaçable (rafales, aile qui tombe). `Cessna172.js`, `F15.js` : caractéristiques. `HeliModel.js` : hélicoptère R44
+  remplaçable (rafales, aile qui tombe). Propriétés de l'instance : `mass`, `cgOffset`, `mixture`, `temperatureOffset`
+  (l'objet des caractéristiques n'est jamais modifié) ; vitesses `airspeed` (TAS), `calibratedSpeed` (CAS),
+  `indicatedSpeed` (IAS), `mach`, régime `rpm`. `Cessna172.js`, `F15.js` : caractéristiques (le Cessna : blocs `engine`,
+  `propeller`, `airspeedCalibration` du POH 172P). `Atmosphere.js` : atmosphère type OACI avec écart de température, et
+  conversions TAS / CAS / IAS. `Propulsion.js` : moteur à pistons (puissance selon régime, densité, mixture) et hélice à
+  pas fixe (Ct, Cp selon le paramètre d'avancement J), régime par équilibre des couples, moulinet moteur coupé. `HeliModel.js` : hélicoptère R44
   (élément de pale, patins), même interface. `PlaneControls.js` : clavier et tactile -> commandes du modèle, valeurs
   des instruments. `Random.js` : tirage à graine (mulberry32).
 - Systèmes : `Systems.js` (C172 : électricité, moteur, carburant, dépression, feux), `JetSystems.js` (F-15 : JFS,
@@ -105,6 +114,8 @@ Appareils et physique (`js/`) :
   `Initiation.js` (leçon guidée), `WeightBalance.js` (masse et centrage, `computeLoad` pur), `DataLoader.js`,
   `Version.js` (généré).
 
-Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion seul, automatismes de test), 
+Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion seul, automatismes de test, vitesses
+tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu), `atmosphere.test.js`, `propulsion.test.js`,
+`perf-c172.test.js` (performances contre le POH 172P), 
 `helpers/c172-perf.js` (procédures de mesure), `*.test.js` (node --test), `e2e/server.js` (serveur local, CDN remplacé
 par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `playwright.config.js`, `eslint.config.js`.

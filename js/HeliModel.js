@@ -30,7 +30,6 @@ const HELI_YAW_RATE = deg( 75 );    // par s (avant : 45°/s)
 // FlightGear, ~2,2 m en arrière du mât)
 const R44_HELI = {
 	label: 'Robinson R44 Raven II',
-	densityAltitude: true,              // performances qui baissent avec l'altitude
 	mass: 930,                          // kg : à vide 685 + pilote, passager et ~2/3 du carburant
 	cg: new Vector3( 0, - 0.3, - 2.25 ),
 	inertia: new Vector3( 1650, 1500, 600 ),   // kg·m² : tangage (x), lacet (y), roulis (z)
@@ -275,7 +274,7 @@ class HeliModel extends FlightModel {
 		const rpmFraction = Omega / omega100;
 		const bladeStall = MathUtils.smoothstep( rpmFraction, 0.62, 0.82 );
 		// État d'anneaux tourbillonnaires : descente verticale entre ~0,4 et 1,5 vitesse induite, peu de vitesse
-		const vh = Math.sqrt( Math.max( 1, this.aircraft.mass * G ) / ( 2 * rho * area ) );
+		const vh = Math.sqrt( Math.max( 1, this.mass * G ) / ( 2 * rho * area ) );
 		const descent = - climb / vh;
 		const vrs = MathUtils.smoothstep( descent, 0.3, 0.7 ) * ( 1 - MathUtils.smoothstep( descent, 1.4, 2 ) )
 			* ( 1 - MathUtils.smoothstep( speed, 6, 12 ) );

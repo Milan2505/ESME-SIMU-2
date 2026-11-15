@@ -2,13 +2,17 @@ import { MathUtils } from 'three';
 
 const deg = MathUtils.degToRad;
 
-// Caractéristiques du Cessna 172 pour le modèle de vol (FlightModel.js) : ordres de grandeur réels
-// (masse, aile, moteur de 160 ch), ajustés pour la jouabilité. Unités SI : m, kg, N, W, m/s, radians.
-// Un autre avion = un autre objet de ce type, sans toucher à la physique.
+// Caractéristiques du Cessna 172P (1981, Lycoming O-320-D2J de 160 ch, 2 400 lb) pour le modèle de vol (FlightModel.js) :
+// ordres de grandeur réels, ajustés pour la jouabilité ; les performances (décollage, montée, vitesse maxi, décrochage,
+// plané) sont vérifiées contre le manuel de vol (POH 172P, section 5) par tests/perf-c172.test.js.
+// Unités SI : m, kg, N, W, m/s, radians. Un autre avion = un autre objet de ce type, sans toucher à la physique.
+
+const HP = 745.7;   // W par cheval
 
 const CESSNA_172 = {
 	// Masse et aile
-	mass: 1100,                       // kg (masse au décollage)
+	mass: 1089,                       // kg : masse maxi au décollage, 2 400 lb (POH 172P sect. 2 p. 2-6) ; en jeu, la masse
+	                                  // réelle vient de Masse et centrage (FlightModel.mass), celle-ci sert de référence
 	wingArea: 16.2,                   // m²
 	wingspan: 11,                     // m (effet de sol)
 	wingHeight: 2.6,                  // hauteur de l'aile au-dessus du sol, roues posées (m)
@@ -25,11 +29,34 @@ const CESSNA_172 = {
 	stallDrag: 0.15,                  // aile décrochée : traînée en plus
 	sideForce: 0.6,                   // force latérale du fuselage en dérapage (par radian)
 
-	// Moteur et hélice
-	staticThrust: 3400,               // poussée plein gaz à l'arrêt (N) : accélération franche au décollage
-	power: 110000,                    // puissance utile de l'hélice (W) : la poussée baisse avec la vitesse ; croisière ~125 kt
-	                                  // (pleine poussée jusqu'à ~80 km/h, puis montée ~4 m/s, assiette ~10°)
-	windmillDrag: 0.012,              // hélice au ralenti : elle freine l'avion (finesse ~9 en plané)
+	// Moteur et hélice (voir Propulsion.js : régime par équilibre des couples, poussée selon le paramètre d'avancement)
+	engine: {                         // Lycoming O-320-D2J : 160 ch à 2 700 tr/min (POH 172P sect. 1 p. 1-3), ligne rouge 2 700 (sect. 2 p. 2-6)
+		ratedPower: 160 * HP,         // W au frein, pleine admission, niveau de la mer
+		ratedRpm: 2700,
+		torqueSlope: 0.05,            // couple +5 % à régime nul (courbe Lycoming : ~143 ch à 2 400, ~120 ch à 2 000 tr/min)
+		friction: [ 8, 47 ],          // N·m de frottements : à l'arrêt, puis en plus au régime nominal (~21 ch à 2 700)
+		idleRpm: 700,                 // régime de départ au ralenti (POH sect. 4 : 600 à 700 tr/min)
+		idleAdmission: 0.12,          // part de la puissance indiquée manette fermée : ralenti ~700 tr/min à l'arrêt
+		throttleCurve: 1,             // admission = manette^1 : manette à 55 % -> ~1 650 tr/min à l'arrêt (essai moteur à 1 700)
+		throttleLag: 0.25,            // s : remplissage de la tubulure, pompe de reprise
+		inertia: 0.6,                 // kg·m² : hélice, vilebrequin et accessoires
+		richness: 1.08,               // richesse plein riche au niveau de la mer, par rapport à la meilleure puissance
+		richnessLever: 0.7,           // levier au-delà duquel la richesse ne monte plus (plein riche dès 70 % de course)
+	},
+	propeller: {                      // McCauley 1C160/DTM7557, bipale à pas fixe, 75 in (POH 172P sect. 1 p. 1-3)
+		diameter: 1.905,              // m
+		// Ct(J) et Cp(J) = c0 + c1 J + c2 J² ajustés sur le POH : statique plein gaz ~2 350 tr/min, montée 76 kt 700 ft/min
+		// (fig. 5-5 p. 5-14), palier plein gaz 2 700 tr/min à 123 kt (sect. 1), plané hélice en moulinet finesse 9,1 (sect. 3)
+		ct: [ 0.105, - 0.0299, - 0.0671 ],
+		cp: [ 0.0552, 0.0062, - 0.0334 ],
+	},
+	// Anémomètre : erreur de position de la prise statique, KCAS -> KIAS par cran de volets (POH 172P fig. 5-1 p. 5-8,
+	// prise statique normale) ; flaps : position des volets (0 -> 1) de chaque table
+	airspeedCalibration: [
+		{ flaps: 0, kcas: [ 56, 62, 70, 79, 89, 98, 107, 117, 126, 135, 145, 154 ], kias: [ 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160 ] },
+		{ flaps: 1 / 3, kcas: [ 49, 55, 62, 70, 79, 89, 98, 108 ], kias: [ 40, 50, 60, 70, 80, 90, 100, 110 ] },
+		{ flaps: 1, kcas: [ 47, 53, 61, 70, 80, 84 ], kias: [ 40, 50, 60, 70, 80, 85 ] },
+	],
 
 	// Gouvernes et stabilité : rotations (rad/s) à pleine efficacité, l'efficacité croît avec le carré de la vitesse
 	rollRate: 0.7,

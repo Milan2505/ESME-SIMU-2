@@ -1,16 +1,16 @@
-// Masse et centrage (js/WeightBalance.js, computeLoad) : calcul pur, sans la fenêtre
+// Masse et centrage (js/WeightBalance.js, computeLoad) : calcul pur, sans la fenêtre ; valeurs du POH 172P (sect. 2 et 6)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeLoad, WB_LIMITS, WB_GALLON, FUEL_DENSITY } from '../js/WeightBalance.js';
 
 const IN = 0.0254, LB = 0.45359237;
-const EMPTY = { mass: 755, arm: 0.98 };   // avion vide équipé (valeurs du module)
-const reference = { pilot: 80, copilot: 0, rear: 0, baggage: 10, fuelLeft: 76, fuelRight: 76 };
+const EMPTY = { mass: 1467 * LB, arm: 57300 / 1467 * IN };   // avion vide équipé (exemple du POH 172P sect. 6, valeurs du module)
+const reference = { pilot: 80, copilot: 0, rear: 0, baggage: 10, fuelLeft: 75, fuelRight: 75 };
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} ≠ ${b}`);
 
 test('chargement de référence : masse, moment, centrage (bras du manuel en pouces)', () => {
     const r = computeLoad(reference);
-    const fuelKg = 152 * FUEL_DENSITY;
+    const fuelKg = 150 * FUEL_DENSITY;
     close(r.fuelKg, fuelKg);
     close(r.mass, EMPTY.mass + 80 + 10 + fuelKg);
     const moment = EMPTY.mass * EMPTY.arm + 80 * 37 * IN + 10 * 95 * IN + fuelKg * 48 * IN;
@@ -36,18 +36,20 @@ test('les passagers arrière reculent le centrage, les bagages (soute A) encore 
     close(rear.mass - base.mass, 80);
 });
 
-test('limites du manuel du 172S converties en kg et en litres', () => {
-    close(WB_LIMITS.maxTakeoff, 2550 * LB);
-    close(WB_LIMITS.maxUtility, 2200 * LB);
+test('limites du manuel du 172P (sect. 2 p. 2-6 et 2-7) converties en kg et en litres : 2 400 lb, utilitaire 2 100, bagages 120, 20 gal utilisables par aile', () => {
+    close(WB_LIMITS.maxTakeoff, 2400 * LB);
+    close(WB_LIMITS.maxUtility, 2100 * LB);
     close(WB_LIMITS.maxBaggage, 120 * LB);
-    close(WB_LIMITS.tankLitres, 26.5 * WB_GALLON);
+    close(WB_LIMITS.tankLitres, 20 * WB_GALLON);
     assert.equal(WB_GALLON, 3.785);
     assert.equal(FUEL_DENSITY, 0.72);
 });
 
-test('quatre adultes, bagages et pleins : masse maximale dépassée', () => {
-    const heavy = computeLoad({ pilot: 90, copilot: 90, rear: 180, baggage: 50, fuelLeft: 100, fuelRight: 100 });
+test('quatre adultes, bagages et pleins : masse maximale dépassée ; pilote seul et pleins : dans la catégorie normale', () => {
+    const heavy = computeLoad({ pilot: 90, copilot: 90, rear: 180, baggage: 50, fuelLeft: 75, fuelRight: 75 });
     assert.ok(heavy.mass > WB_LIMITS.maxTakeoff, `${heavy.mass.toFixed(0)} kg`);
     const light = computeLoad({ pilot: 75, copilot: 0, rear: 0, baggage: 0, fuelLeft: 40, fuelRight: 40 });
     assert.ok(light.mass < WB_LIMITS.maxUtility);
+    const solo = computeLoad(reference);
+    assert.ok(solo.mass < WB_LIMITS.maxTakeoff && solo.cg > 35 * IN && solo.cg < 47.3 * IN, `pilote seul, pleins : ${solo.mass.toFixed(0)} kg à ${(solo.cg / IN).toFixed(1)} in`);
 });

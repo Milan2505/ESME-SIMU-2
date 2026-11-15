@@ -1,30 +1,37 @@
-// Masse et centrage du Cessna 172S (valeurs du manuel de vol, converties en kg et en mètres en arrière de la référence,
-// la cloison pare-feu) : chargement (pilote, passagers, bagages, carburant gauche / droite), calcul de la masse et du
-// centrage, graphique du domaine de centrage (catégories normale et utilitaire) mis à jour en direct.
-// Le chargement choisi est appliqué à l'avion à la fermeture de la fenêtre (voir simulator.js).
+// Masse et centrage du Cessna 172P (1981 : valeurs du manuel de vol, POH 172P sections 2 et 6, converties en kg et en
+// mètres en arrière de la référence, la face avant de la cloison pare-feu) : chargement (pilote, passagers, bagages,
+// carburant gauche / droite), calcul de la masse et du centrage, graphique du domaine de centrage (catégories normale et
+// utilitaire) mis à jour en direct. Le chargement choisi est appliqué à l'avion à la fermeture de la fenêtre (voir
+// simulator.js : FlightModel.mass et cgOffset).
 
 const LB = 0.45359237;          // lb -> kg
 const IN = 0.0254;              // pouce -> m
 const GALLON = 3.785;           // L
 const FUEL_DENSITY = 0.72;      // kg/L (AVGAS 100LL)
 
-const EMPTY = { mass: 755, arm: 0.98 };         // avion vide équipé (masse de base, bras)
+// Avion vide équipé : exemple de chargement du POH 172P sect. 6 (« sample airplane » : 1 467 lb, moment 57 300 lb·in,
+// soit un bras de 39,1 in ; valeur de l'exemple du manuel, lecture non vérifiée sur le PDF, page image ; à remplacer par
+// la pesée de l'avion si le projet en a une). Masse à vide standard du Skyhawk II : 1 440 lb (POH sect. 1)
+const EMPTY = { mass: 1467 * LB, arm: 57300 / 1467 * IN };
+// Bras de levier (POH 172P sect. 6 fig. 6-3 p. 6-7, « loading arrangements »)
 const ARMS = {
-    pilot: 37 * IN,             // sièges avant (position moyenne)
+    pilot: 37 * IN,             // sièges avant (réglables de 34 à 46 in, position moyenne)
     copilot: 37 * IN,
     rear: 73 * IN,              // banquette arrière
-    baggage: 95 * IN,           // soute A
-    fuel: 48 * IN,              // réservoirs d'aile
+    baggage: 95 * IN,           // soute 1 (stations 82 à 108 ; la soute 2, bras 123, n'est pas modélisée)
+    fuel: 48 * IN,              // réservoirs d'aile (station 48, tous les réservoirs)
 };
-const LIMITS = {
-    maxTakeoff: 2550 * LB,      // masse maximale au décollage (normale)
-    maxUtility: 2200 * LB,      // utilitaire
-    maxBaggage: 120 * LB,
-    tankLitres: 26.5 * GALLON,  // carburant utilisable par aile
+const LIMITS = {                // POH 172P sect. 2 p. 2-6 et 2-7
+    maxTakeoff: 2400 * LB,      // masse maximale au décollage et à l'atterrissage, catégorie normale (rampe : 2 407 lb)
+    maxUtility: 2100 * LB,      // utilitaire (banquette et soute vides)
+    maxBaggage: 120 * LB,       // soute 1 (120 lb ; soutes 1 et 2 ensemble : 120 lb)
+    tankLitres: 20 * GALLON,    // carburant utilisable par aile : réservoirs standard, 21,5 gal dont 1,5 inutilisable
 };
-// Domaine de centrage (centrage en m, masse en kg)
-const NORMAL = [[35 * IN, 1500 * LB], [35 * IN, 1950 * LB], [41 * IN, 2550 * LB], [47.3 * IN, 2550 * LB], [47.3 * IN, 1500 * LB]];
-const UTILITY = [[35 * IN, 1500 * LB], [35 * IN, 1950 * LB], [37.5 * IN, 2200 * LB], [40.5 * IN, 2200 * LB], [40.5 * IN, 1500 * LB]];
+// Domaine de centrage (centrage en m, masse en kg), POH 172P sect. 2 p. 2-7 : normale, avant 35,0 in jusqu'à 1 950 lb puis
+// en ligne droite jusqu'à 39,5 in à 2 400 lb, arrière 47,3 in ; utilitaire, avant 35,0 in jusqu'à 1 950 lb puis 35,5 in à
+// 2 100 lb, arrière 40,5 in
+const NORMAL = [[35 * IN, 1500 * LB], [35 * IN, 1950 * LB], [39.5 * IN, 2400 * LB], [47.3 * IN, 2400 * LB], [47.3 * IN, 1500 * LB]];
+const UTILITY = [[35 * IN, 1500 * LB], [35 * IN, 1950 * LB], [35.5 * IN, 2100 * LB], [40.5 * IN, 2100 * LB], [40.5 * IN, 1500 * LB]];
 const FT = 0.3048;
 
 // Bilan carburant (« Afficher plus ») : durées en minutes, consommations en L/h. Réserve finale VFR : 30 min de jour,
@@ -42,9 +49,11 @@ const SURFACES = {
     mouille: { label: 'Herbe mouillée (estim.)', takeoff: 1.3, landing: 1.6 },
 };
 
-// Manuel du 172S, décollage court (volets 10°), niveau de la mer, 20 °C : [masse lb, roulement ft, passage 50 ft ft]
-const TAKEOFF = [[2200, 725, 1305], [2400, 860, 1540], [2550, 980, 1745]];
-const LANDING = [2550, 585, 1335];   // atterrissage court (volets 30°), même référence
+// POH 172P fig. 5-4 p. 5-12 et 5-13, décollage court (volets 10°, plein gaz freins serrés), niveau de la mer, 20 °C :
+// [masse lb, roulement ft, passage 50 ft ft]. La ligne 2 400 lb suit la section 1 (890 / 1 625 ft à 15 °C, +3,5 % à 20 °C) ;
+// les lignes 2 200 et 2 000 lb sont lues sur la figure (page image : lecture non vérifiée)
+const TAKEOFF = [[2000, 605, 1110], [2200, 750, 1375], [2400, 920, 1685]];
+const LANDING = [2400, 555, 1300];   // atterrissage court (volets 30°), fig. 5-10 p. 5-23 : 540 / 1 280 ft à 15 °C (sect. 1)
 
 const DEFAULT_LOAD = { pilot: 80, copilot: 0, rear: 0, baggage: 10, fuelLeft: 76, fuelRight: 76, sync: true };
 
