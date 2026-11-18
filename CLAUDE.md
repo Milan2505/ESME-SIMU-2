@@ -24,7 +24,7 @@ Règles :
 - `npm run check:full` est obligatoire quand la modification touche au rendu (Graphics, shaders, modèles 3D, cabines),
   à l'interface (`index.html`, `style.css`, menus, fenêtres, tactile), au chargement (`Loading.js`, écran de chargement,
   assets, import map) ou à `simulator.js`, et toujours en fin de lot.
-- Toute modification du modèle de vol (`FlightModel.js`, `HeliModel.js`, `Cessna172.js`, `F15.js`, `PlaneControls.js`,
+- Toute modification du modèle de vol (`FlightModel.js`, `RigidBodyModel.js`, `data/C172pAero.js`, `InputRamp.js`, `HeliModel.js`, `Cessna172.js`, `F15.js`, `PlaneControls.js`,
   `Atmosphere.js`, `Propulsion.js`)
   doit garder les tests de performances verts (`tests/perf-c172.test.js`) ou les faire passer au vert. Ne jamais
   assouplir une tolérance ni changer une source : elles viennent du manuel de vol du 172P (POH édition 1985,
@@ -34,7 +34,7 @@ Règles :
 - Variante de référence : Cessna 172P (1981, Lycoming O-320-D2J de 160 ch, 2 400 lb) partout : modèle 3D, sons, moteur,
   masse et centrage (`WeightBalance.js`), performances. Ce qui n'a pas été relu dans une source primaire est marqué
   « non relu » dans le code.
-- Aucun test en `todo` aujourd'hui (les cinq du lot 0 sont passés au vert à l'étape 1a du lot 1 : performances). Un todo
+- Un seul test en `todo` : la vrille établie (`flying-qualities.test.js`, reste à faire du lot 1). Un todo
   ne se pose que pour un chantier identifié de la feuille de route, jamais pour faire passer une vérification.
 - Un test qui échoue à cause du banc d'essai (automatisme de test, tolérance numérique de l'intégration) se corrige dans
   `tests/helpers/` ; un test qui échoue parce que le simulateur est faux reste rouge.
@@ -89,7 +89,12 @@ Appareils et physique (`js/`) :
   `indicatedSpeed` (IAS), `mach`, régime `rpm`. `Cessna172.js`, `F15.js` : caractéristiques (le Cessna : blocs `engine`,
   `propeller`, `airspeedCalibration` du POH 172P). `Atmosphere.js` : atmosphère type OACI avec écart de température, et
   conversions TAS / CAS / IAS. `Propulsion.js` : moteur à pistons (puissance selon régime, densité, mixture) et hélice à
-  pas fixe (Ct, Cp selon le paramètre d'avancement J), régime par équilibre des couples, moulinet moteur coupé. `HeliModel.js` : hélicoptère R44
+  pas fixe (Ct, Cp selon le paramètre d'avancement J), régime par équilibre des couples, moulinet moteur coupé.
+  `RigidBodyModel.js` : modèle « réaliste » du Cessna (hérite de FlightModel, même interface) : corps rigide à 6 axes par
+  forces et moments, train ressort-amortisseur, décrochage et vrille ; données sous GPL-2.0 dans `data/C172pAero.js` (UIUC,
+  JSBSim c172p). Choisi par le réglage « Modèle de vol (Cessna) » (`flightModel`, simplifié par défaut), au départ
+  (`syncPlaneModel` dans simulator.js), jamais sur la carte Mer. `InputRamp.js` : montée progressive des commandes
+  clavier et tactiles du modèle réaliste (réglage `controlRamp`). `HeliModel.js` : hélicoptère R44
   (élément de pale, patins), même interface. `PlaneControls.js` : clavier et tactile -> commandes du modèle, valeurs
   des instruments. `Random.js` : tirage à graine (mulberry32).
 - Systèmes : `Systems.js` (C172 : électricité, moteur, carburant, dépression, feux), `JetSystems.js` (F-15 : JFS,
@@ -117,6 +122,9 @@ Appareils et physique (`js/`) :
 
 Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion seul, automatismes de test, vitesses
 tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu), `atmosphere.test.js`, `propulsion.test.js`,
-`perf-c172.test.js` (performances contre le POH 172P), 
+`perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
+`flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
+`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `helpers/modes.js` (modèle linéaire, identification),
+
 `helpers/c172-perf.js` (procédures de mesure), `*.test.js` (node --test), `e2e/server.js` (serveur local, CDN remplacé
-par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `playwright.config.js`, `eslint.config.js`.
+par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `e2e/realiste.spec.js` (modèle réaliste : initiation, vol libre), `playwright.config.js`, `eslint.config.js`.

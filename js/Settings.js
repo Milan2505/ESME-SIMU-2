@@ -30,6 +30,11 @@ const OPTIONS = {
                   choices: [[false, 'Désactivé'], [true, 'Activé']] },
     perf:       { label: 'Afficher la fluidité', hint: 'Images par seconde et résolution, en haut à gauche de l\'écran (touche P)',
                   choices: [[false, 'Non'], [true, 'Oui']] },
+    // Modèle de vol du Cessna (feuille de route, lot 1) : simplifié par défaut, le temps de comparer en vol
+    flightModel:     { group: 'Pilotage', label: 'Modèle de vol (Cessna)', hint: "Simplifié : le modèle d'origine, très stable. Réaliste : avion à 6 axes par forces et moments (oscillations amorties, lacet inverse aux ailerons, décrochage avec aile qui tombe, vrais effets du moteur). Pris en compte au prochain départ ; la carte Mer garde le simplifié",
+                       choices: [['simplifie', 'Simplifié'], ['realiste', 'Réaliste']] },
+    controlRamp:     { group: 'Pilotage', label: 'Douceur des commandes (clavier, tactile)', hint: "Modèle réaliste : une touche braque la gouverne progressivement, comme une main qui tire de plus en plus sur le manche. Vive : profondeur à fond en 1 s ; normale : 2 s ; douce : 3 s",
+                       choices: [[0.5, 'Vive'], [1, 'Normale'], [1.5, 'Douce']] },
     // Aides au pilotage : désactivées par défaut (pilotage réaliste)
     rotationAuto:    { group: 'Pilotage', label: 'Rotation automatique', hint: 'Au sol, le trim lève le nez tout seul au décollage',
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
@@ -49,7 +54,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { flightModel: 'simplifie', controlRamp: 1, hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages

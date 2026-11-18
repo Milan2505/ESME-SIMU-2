@@ -140,6 +140,24 @@ Livre un tableau mesuré / manuel pour chaque valeur.
 
 **Critères d'acceptation** : montée au niveau de la mer entre 650 et 800 ft/min ; montée plus faible à 5 000 ft ; décrochage lisse 50 à 55 kt ; spirale qui ne se redresse plus seule depuis 45° ; ancien modèle sélectionnable.
 
+**État (18/11/2026)** : modèle réaliste livré (`js/RigidBodyModel.js`, données `js/data/C172pAero.js`), au choix dans
+Paramètres > Pilotage > « Modèle de vol (Cessna) », simplifié par défaut. Performances du POH 172P vertes sur les deux
+modèles ; qualités de vol comparées au modèle linéaire UIUC (`tests/flying-qualities.test.js`) ; joueur au clavier avec
+montée progressive des commandes (`js/InputRamp.js`, `tests/keyboard-pilot.test.js`).
+
+**Reste à faire du lot 1** :
+- Carte Mer : le Cessna y garde le modèle simplifié. La catapulte et les brins d'arrêt (`simulator.js`) pilotent des
+  champs internes du modèle simplifié (`_liftoffEase`, vitesse posée directement…) ; il faut les réécrire en efforts
+  (crochet, câble) pour le modèle réaliste.
+- Vrille établie : l'autorotation démarre au décrochage avec le pied à fond et PARE l'arrête en moins d'un tour, mais
+  après ~1 tour le nez plonge (-60 à -80°), l'incidence retombe vers 13° et la vitesse passe 90 KIAS : un piqué en
+  spirale, pas une vrille (vitesse basse et stable). Test en attente : `tests/flying-qualities.test.js` (todo). Piste :
+  portance et traînée de l'aile décrochée, tables de vrille du fichier c172p (roulis dû au lacet ×35 aile décrochée).
+- Spirale : le critère « spirale qui ne se redresse plus seule depuis 45° » contredit les données. Le modèle linéaire
+  UIUC (Roskam) donne une spirale stable, à peine (λ = -0,014 /s à 100 KTAS) ; le modèle réaliste la suit
+  (λ = -0,013 /s : de 20° à 10° en ~60 s). À trancher : garder les données, ou une source primaire d'essais en vol du
+  C172 qui montre une spirale neutre ou instable.
+
 **Suite possible** : même travail pour le F-15 (`F15.js` : CL et CD en fonction du Mach, commandes électriques comme vraie loi de pilotage) et vérification du R44 contre son manuel (le header de `HeliModel.js` est déjà de bonne facture : théorie de l'élément de pale).
 
 ---

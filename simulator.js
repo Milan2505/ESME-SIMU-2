@@ -99,6 +99,7 @@ import { WeaponHud } from './js/WeaponHud.js';
 import { F15Warnings } from './js/F15Warnings.js';
 import { buildF15Stores } from './js/F15Stores.js';
 import { HeliModel } from './js/HeliModel.js';
+import { RigidBodyModel } from './js/RigidBodyModel.js';
 import { R44Systems } from './js/R44Systems.js';
 import { R44Sound } from './js/R44Sound.js';
 import { R44Cockpit, cloneR44, paintR44, R44_LIVERIES, R44_DEFAULT_LIVERY, isR44Livery, R44_LIGHT_LAYOUT, R44_SKID_HEIGHT } from './js/R44Model.js';
@@ -329,9 +330,29 @@ let systems = cessnaSystems;           // systèmes de l'avion piloté
 const planeModel = controls.model;
 const heliModel = new HeliModel(aircraft);
 heliModel.engine = heliSystems;
+// Cessna, modèle de vol « réaliste » (6 axes par forces et moments, RigidBodyModel.js) : au choix dans les Paramètres
+// (simplifié par défaut). Pas sur la carte Mer : la catapulte et les brins pilotent des champs internes du modèle
+// simplifié (feuille de route, lot 1, reste à faire)
+const realisticModel = new RigidBodyModel(aircraft);
 if (TEST_MODE) {   // (mode test : rafales et aile qui tombe reproductibles, voir Random.js)
     planeModel.random = seededRandom(1);
+    realisticModel.random = seededRandom(1);
     heliModel.random = seededRandom(2);
+}
+// Modèle de vol de l'avion de ce type (c172, f15) selon le réglage « Modèle de vol (Cessna) »
+function planeModelFor(type) {
+    return type === 'c172' && !SEA && settings.values.flightModel === 'realiste' ? realisticModel : planeModel;
+}
+// Réglage pris en compte au départ (spawnAt) et au changement d'appareil, jamais en vol : l'avion repart de zéro
+function syncPlaneModel() {
+    if (aircraftType === 'r44') return;
+    const model = planeModelFor(aircraftType);
+    if (model === controls.model) return;
+    const old = controls.model;
+    controls.useModel(model);
+    model.mass = old.mass;
+    model.cgOffset = old.cgOffset;
+    model.temperatureOffset = old.temperatureOffset;
 }
 const jetFlight = { ...F15 };          // caractéristiques du F-15 pour le modèle de vol (masse : suit le carburant)
 // Radios du tableau (NAV/COM, transpondeur, DME, ADF...), lien avec le contrôle aérien (voir syncRadios)
@@ -1101,8 +1122,9 @@ async function setAircraftType(type) {
     taxiLight = jet ? jetTaxiLight : heli ? heliTaxiLight : cessnaTaxiLight;
     // Le phare de l'avion caché s'éteint (une lumière allumée, même cachée, compte)
     for (const light of [cessnaLandingLight, cessnaTaxiLight, jetLandingLight, jetTaxiLight, heliLandingLight, heliTaxiLight]) light.visible = false;
-    // Modèle de vol : hélicoptère (HeliModel) ou avion (FlightModel), qui reprend l'environnement de l'autre
-    controls.useModel(heli ? heliModel : planeModel);
+    // Modèle de vol : hélicoptère (HeliModel) ou avion (FlightModel, ou RigidBodyModel : voir planeModelFor), qui reprend
+    // l'environnement de l'autre
+    controls.useModel(heli ? heliModel : planeModelFor(type));
     // (collectif : levé ou baissé plus doucement que les gaz d'un avion ; 0,3 avant : 3,3 s d'une butée à l'autre, trop
     // lent pour arrondir ou remonter vite)
     controls.throttleRate = heli ? 0.55 : 1;
@@ -1803,7 +1825,7 @@ function setWeather(name) {
     // l'air des modèles de vol (Atmosphere.js : portance, traînée, puissance du moteur)
     const metar = METARS[name];
     const groundLevel = terrain.heightAt(aircraft.position.x, aircraft.position.z);
-    planeModel.temperatureOffset = heliModel.temperatureOffset = metar ? metar.temp + 273.15 - isaTemperature(groundLevel) : 0;
+    planeModel.temperatureOffset = realisticModel.temperatureOffset = heliModel.temperatureOffset = metar ? metar.temp + 273.15 - isaTemperature(groundLevel) : 0;
     clouds.setWeather(w.clouds);
     atc.setWeather(name, w);
     cloudLayer.setWeather(w.overcast ?? null, w.clouds);
@@ -2860,6 +2882,7 @@ function spawnAt(spawn) {
         const held = onCatapult(spawn.catapult, 0);
         aircraft.position.set(held.x, 0, held.z);
     }
+    syncPlaneModel();
     controls.placeOnGround();
     applySpawnState();
     controls.saveState();
@@ -4929,12 +4952,17 @@ function applySettings(values) {
     perfPanel.hidden = !values.perf;
     remotePlayers.showLabels = values.labels;
     radio.setVolume(values.radioVolume);
-    Object.assign(controls.assists, {
-        rotation: values.rotationAuto,
-        stallProtection: values.stallProtection,
-        smoothLiftoff: values.smoothLiftoff,
-        crosswindCorrection: values.crosswind ?? false,
-    });
+    for (const model of [planeModel, realisticModel]) {
+        Object.assign(model.assists, {
+            rotation: values.rotationAuto,
+            stallProtection: values.stallProtection,
+            smoothLiftoff: values.smoothLiftoff,
+            crosswindCorrection: values.crosswind ?? false,
+        });
+    }
+    // Modèle de vol du Cessna : tout de suite au menu, au hangar et au choix du départ ; sinon au prochain départ
+    if (inMenu || inHangar || choosingSpawn) syncPlaneModel();
+    controls.inputRamp.setScale(values.controlRamp ?? 1);
     heliModel.assists.heliStability = values.heliStability ?? true;   // (R44 : son propre modèle de vol)
 }
 
@@ -5082,7 +5110,7 @@ window.__sim = {
     get state() {
         const model = controls.model, p = aircraft.position;
         return {
-            aircraft: aircraftType, onGround: model.onGround, crashed: model.crashed, stalled: model.stalled,
+            aircraft: aircraftType, flightModel: model.realistic ? 'realiste' : 'simplifie', onGround: model.onGround, crashed: model.crashed, stalled: model.stalled,
             speed: model.airspeed, indicatedSpeed: model.indicatedSpeed, calibratedSpeed: model.calibratedSpeed ?? model.indicatedSpeed,
             mach: model.mach ?? 0, mass: model.mass, temperatureOffset: model.temperatureOffset ?? 0, modelRpm: model.rpm ?? 0,
             altitude: p.y, verticalSpeed: controls.getVerticalSpeed(),
