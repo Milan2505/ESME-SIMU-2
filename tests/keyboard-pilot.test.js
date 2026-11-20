@@ -3,12 +3,14 @@
 // (js/InputRamp.js, réglages par défaut) avant le modèle, comme dans le jeu. Le « joueur » ne voit que ce qu'un joueur voit
 // (assiette, inclinaison, cap, badin, variomètre, hauteur) et ne fait que presser ou relâcher des touches, avec une zone
 // morte et un peu d'anticipation. Décollage, montée, virage à 30°, approche et arrondi doivent rester réalistes :
-// tangage ≤ 15°/s, facteur de charge ≤ 2 g en manœuvre normale, toucher à moins de 3 m/s de vitesse de descente.
+// tangage ≤ 15°/s, facteur de charge ≤ 2 g en manœuvre normale, toucher à moins de 3 m/s de vitesse de descente
+// (limites de la demande du 18/11/2026 ; 15°/s sans source : 20°/s pour le joueur naïf, décision du 20/11/2026).
 // (Le tactile passe par la même montée progressive : PlaneControls ajoute le manche tactile aux touches.)
 // Le joueur relâche la touche quand le nez, à la vitesse où il bouge, atteindra la cible dans ~0,6 s (il regarde le nez
 // bouger). Mesuré le 18/11/2026 : le même joueur sans montée progressive atteint 2,04 g et 0,24 g dans le virage ; un
 // joueur qui tient la touche jusqu'à l'assiette visée sans anticiper fait encore monter le nez à ~29°/s à la rotation
-// (souffle de l'hélice sur la profondeur, plein gaz) : la douceur des commandes (Paramètres) est là pour lui.
+// (souffle de l'hélice sur la profondeur, plein gaz). Depuis le 20/11/2026, la montée de la profondeur est 4 fois plus
+// lente sous 60 KIAS (normale à 90 KIAS, voir InputRamp.js) : rotation du joueur naïf à 17°/s, arrondi à 9°/s.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeAircraft, airborne, run, attitude, KT, DT } from './helpers/flight.js';
@@ -51,7 +53,7 @@ function keyboardPlayer(f, { naive = false, smoothness = 1 } = {}) {
         },
         // Un pas : touches -> montée progressive -> modèle ; mesures
         apply() {
-            const v = ramp.update(keys, DT);
+            const v = ramp.update(keys, DT, f.model.indicatedSpeed / KT);
             Object.assign(f.model.controls, { pitch: v.pitch, roll: v.roll, yaw: v.yaw });
         },
         record() {
@@ -75,8 +77,8 @@ function fly(f, player, seconds, decide, until) {
 function report(t, label, m, extra = '') {
     t.diagnostic(`${label} : tangage max ${m.maxPitchRate.toFixed(1)}°/s, facteur de charge ${m.minLoad === Infinity ? '-' : m.minLoad.toFixed(2)} à ${m.maxLoad.toFixed(2)} g${extra}`);
 }
-function assertRealistic(m) {
-    assert.ok(m.maxPitchRate <= 15, `vitesse de tangage max ${m.maxPitchRate.toFixed(1)}°/s (≤ 15)`);
+function assertRealistic(m, { maxRate = 15 } = {}) {
+    assert.ok(m.maxPitchRate <= maxRate, `vitesse de tangage max ${m.maxPitchRate.toFixed(1)}°/s (≤ ${maxRate})`);
     assert.ok(m.maxLoad <= 2, `facteur de charge max ${m.maxLoad.toFixed(2)} g (≤ 2)`);
     assert.ok(m.minLoad === Infinity || m.minLoad >= 0, `facteur de charge min ${m.minLoad.toFixed(2)} g (≥ 0)`);
 }
@@ -110,7 +112,7 @@ function takeoffScenario(t, style) {
     const roll = takeoffAndClimb(f, player, 40);
     report(t, `décollage et montée${style.naive ? ' (naïf)' : ''}`, player.measure, `, envol en ${roll.toFixed(1)} s, ${(object.position.y / 0.3048).toFixed(0)} ft après 40 s de montée à ${(model.indicatedSpeed / KT).toFixed(0)} KIAS`);
     assert.ok(roll < 90 && !model.crashed, 'envol');
-    assertRealistic(player.measure);
+    assertRealistic(player.measure, { maxRate: style.naive ? 20 : 15 });
     assert.ok(object.position.y > 100, `hauteur après 40 s de montée : ${object.position.y.toFixed(0)} m`);
     assert.ok(Math.abs(model.indicatedSpeed / KT - 70) < 10, `vitesse de montée ${(model.indicatedSpeed / KT).toFixed(0)} KIAS (70 visés)`);
 }
@@ -138,7 +140,7 @@ function turnScenario(t, style) {
     }, () => turned > 360 && Math.abs(attitude(f).bank * RAD) < 3);
     report(t, `virage à 30°${style.naive ? ' (naïf)' : ''}`, player.measure, `, inclinaison max ${maxBank.toFixed(1)}°, altitude ${((minY - y0) / 0.3048).toFixed(0)} à +${((maxY - y0) / 0.3048).toFixed(0)} ft`);
     assert.ok(!model.crashed && turned > 360, `360° effectués (${turned.toFixed(0)}°)`);
-    assertRealistic(player.measure);
+    assertRealistic(player.measure, { maxRate: style.naive ? 20 : 15 });
     assert.ok(maxBank >= 25 && maxBank <= 40, `inclinaison max ${maxBank.toFixed(1)}°`);
     assert.ok(maxY - y0 < 100 * 0.3048 && y0 - minY < 100 * 0.3048, `altitude tenue : ${((minY - y0) / 0.3048).toFixed(0)} à +${((maxY - y0) / 0.3048).toFixed(0)} ft`);
 }
@@ -172,20 +174,37 @@ function landingScenario(t, style) {
     run(f, 3, { pilot: () => { model.controls.pitch = 0; model.controls.roll = 0; } });
     report(t, `approche et arrondi${style.naive ? ' (naïf)' : ''}`, player.measure, `, descente ${flareSink?.toFixed(1)} m/s en début d'arrondi, toucher à ${impacts[0]?.toFixed(2)} m/s après ${t0.toFixed(0)} s`);
     assert.ok(impacts.length > 0 && !model.crashed, 'posé sans crash');
-    assertRealistic(player.measure);
+    assertRealistic(player.measure, { maxRate: style.naive ? 20 : 15 });
     assert.ok(impacts[0] < 3, `vitesse de descente au toucher ${impacts[0].toFixed(2)} m/s (< 3)`);
     assert.ok(model.onGround && !events.slice(1).includes('liftoff'), `pas de rebond : ${events.join(',')}`);
 }
 
-// Joueur naïf (demande du 18/11/2026) : il échoue en douceur normale (rotation ~29°/s, virage 2,4 g, arrondi ~20°/s) ;
-// ni la douceur « douce », ni une montée en deux temps essayée hors du code ne le font passer partout. Décision en attente
-// (feuille de route, lot 1, reste à faire) : ses tests tournent et affichent leurs mesures, sans faire échouer la suite
-const NAIVE_TODO = 'joueur naïf : réglage de la montée progressive à décider (feuille de route, lot 1)';
-for (const [label, style, options] of [['joueur qui anticipe', {}, {}], ['joueur naïf', { naive: true }, { todo: NAIVE_TODO }]]) {
-    test(`[realiste] ${label}, douceur normale : décollage et montée au clavier, nez ≤ 15°/s, facteur de charge ≤ 2 g, montée établie`, options, (t) => takeoffScenario(t, style));
-    test(`[realiste] ${label}, douceur normale : virage à 30° au clavier, 360° en palier, facteur de charge ≤ 2 g, altitude à ±100 ft`, options, (t) => turnScenario(t, style));
-    test(`[realiste] ${label}, douceur normale : approche et arrondi au clavier, volets 30°, toucher à moins de 3 m/s, sans rebond`, options, (t) => landingScenario(t, style));
+for (const [label, style] of [['joueur qui anticipe', {}], ['joueur naïf', { naive: true }]]) {
+    const rate = style.naive ? 20 : 15;
+    test(`[realiste] ${label}, douceur normale : décollage et montée au clavier, nez ≤ ${rate}°/s, facteur de charge ≤ 2 g, montée établie`, (t) => takeoffScenario(t, style));
+    test(`[realiste] ${label}, douceur normale : approche et arrondi au clavier, volets 30°, nez ≤ ${rate}°/s, toucher à moins de 3 m/s, sans rebond`, (t) => landingScenario(t, style));
 }
+test('[realiste] joueur qui anticipe, douceur normale : virage à 30° au clavier, 360° en palier, nez ≤ 15°/s, facteur de charge ≤ 2 g, altitude à ±100 ft', (t) => turnScenario(t, {}));
+// Virage du joueur naïf (20/11/2026) : à 93 KIAS, il laisse l'avion descendre à 700 ft/min dans l'inclinaison, puis tient
+// la touche de cabré jusqu'à l'assiette visée : manche à 0,69, 2,37 g. La montée plus lente à basse vitesse n'y joue pas
+// (93 kt), un retour plus rapide au relâchement non plus ; seule une montée en 6 s à toutes les vitesses le fait passer
+// (1,88 g). Décision en attente (feuille de route, lot 1)
+test('[realiste] joueur naïf, douceur normale : virage à 30° au clavier, 360° en palier, nez ≤ 20°/s, facteur de charge ≤ 2 g, altitude à ±100 ft', { todo: 'virage du joueur naïf : 2,37 g, décision en attente (feuille de route, lot 1)' }, (t) => turnScenario(t, { naive: true }));
+
+test('montée progressive de la profondeur plus lente à basse vitesse (InputRamp.pitchFactor) : × 4 sous 60 KIAS, × 1 dès 90 KIAS, dans les deux sens ; ailerons et direction inchangés', () => {
+    const ramp = new InputRamp();
+    assert.equal(ramp.pitchFactor(40), 4);
+    assert.equal(ramp.pitchFactor(60), 4);
+    assert.equal(ramp.pitchFactor(75), 2.5);
+    assert.equal(ramp.pitchFactor(90), 1);
+    assert.equal(ramp.pitchFactor(120), 1);
+    assert.equal(ramp.pitchFactor(undefined), 1);
+    const v = ramp.update({ pitch: 1, roll: 1 }, 0.4, 50);
+    assert.ok(Math.abs(v.pitch - 0.05) < 1e-9, `profondeur à 50 KIAS : ${v.pitch.toFixed(3)} après 0,4 s (fond en 8 s)`);
+    assert.ok(Math.abs(v.roll - 0.4) < 1e-9, `ailerons à 50 KIAS : ${v.roll.toFixed(3)} après 0,4 s (fond en 1 s)`);
+    const down = new InputRamp().update({ pitch: -1 }, 0.4, 50);
+    assert.ok(Math.abs(down.pitch + 0.05) < 1e-9, `à piquer à 50 KIAS : ${down.pitch.toFixed(3)} après 0,4 s (fond en 8 s aussi)`);
+});
 
 test('montée progressive (InputRamp) : touche tenue -> braquage croissant, touche tapée -> petit braquage, retour au relâchement', () => {
     const ramp = new InputRamp();

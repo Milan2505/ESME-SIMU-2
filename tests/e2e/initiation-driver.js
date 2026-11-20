@@ -15,6 +15,7 @@
 export async function installInitiationDriver({ fastUntil = -1 } = {}) {
     const sim = window.__sim, init = sim.initiation, controls = sim.controls, model = sim.model, sys = () => sim.systems;
     const { InputRamp } = await import('/js/InputRamp.js');
+    const { CIRCUIT, TURN_AT } = await import('/js/Initiation.js');   // géométrie du tour de piste de la leçon
     const KT = 0.514444, FT = 0.3048, RAD = 180 / Math.PI;
     const ramp = new InputRamp();
     const wrap = (a) => ((a + 540) % 360) - 180;
@@ -36,7 +37,7 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
             const auto = step.auto && init._state.spoken && init._time - init._state.spokenAt > step.auto;
             const how = step.next ? 'explication' : step.end ? 'fin' : (done ?? radio) ? 'condition'
                 : !init._state.spoken ? 'dépassée avant de commencer' : auto ? 'délai écoulé' : 'dépassée';
-            const where = step.flight ? ` (${Math.round(c.agl)} ft, ${Math.round(c.along ?? 0)} m le long de l'axe, ${Math.round(c.lateral ?? 0)} m à côté, ${Math.round(c.speedKt)} kt)` : '';
+            const where = step.flight ? ` (${Math.round(c.aal ?? c.agl)} ft au-dessus du terrain, ${Math.round(c.along ?? 0)} m le long de l'axe, ${Math.round(c.lateral ?? 0)} m à côté, ${Math.round(c.speedKt)} kt)` : '';
             D.log.push({ index: init.index, title: step.title, how: how + where, ok: ['explication', 'fin', 'condition'].includes(how), t: init._time });
             console.log(`[étape] ${init.index} ${step.title} : ${how}${where}`);
         }
@@ -58,7 +59,9 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
     // --- Pilotage, à chaque pas de calcul ---------------------------------------------------------------------------
     let previousPitch = null, previousBank = null, previousSpeed = null, speedI = null, altI = null, throttleI = null, coordI = 0, pathI = 0;
     const att = () => ({ pitch: model.pitchAttitude * RAD, bank: controls.getRoll() * RAD, heading: controls.getHeading() });
-    const height = () => p().y - model.groundHeight(p().x, p().z) - model.minAltitude;   // m, roues
+    const height = () => p().y - model.groundHeight(p().x, p().z) - model.minAltitude;   // m, roues, au-dessus du sol
+    // Hauteur au-dessus de l'aérodrome (m, roues) : celle de l'altimètre calé au terrain, pour le tour de piste
+    const aal = () => { const rw = runway(); return rw ? p().y - model.groundHeight(rw.threshold.x, rw.threshold.z) - model.minAltitude : height(); };
     // Assiette visée -> manche (gain de la commande en effort compensé : à grande vitesse, il faut tirer plus)
     function pitchTo(target, dt) {
         const a = att(), rate = previousPitch === null ? 0 : (a.pitch - previousPitch) / dt;
@@ -94,7 +97,7 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
         return clamp(speedI + 0.4 * (v - kias) + 2 * accel, -12, 18);
     }
     function altitudeByPitch(ft, dt) {
-        const err = ft - height() / FT, vs = model.velocity.y / FT * 60;
+        const err = ft - aal() / FT, vs = model.velocity.y / FT * 60;
         altI = clamp((altI ?? att().pitch) + err * 0.002 * dt, -6, 10);
         return clamp(altI + 0.012 * err - 0.004 * vs, -6, 12);
     }
@@ -160,10 +163,10 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
         if (!model.onGround) { D.max.load = Math.max(D.max.load, model.loadFactor); D.max.minLoad = Math.min(D.max.minLoad, model.loadFactor); }
         // Branches : montée dans l'axe, vent traversier, vent arrière, base, finale
         const leg = D.leg ?? 'upwind';
-        if (leg === 'upwind' && along > 1700 && height() / FT > 300) D.leg = 'crosswind';
-        else if (leg === 'crosswind' && lateral > 600) D.leg = 'downwind';
-        else if (leg === 'downwind' && along < -1400) D.leg = 'base';
-        else if (leg === 'base' && lateral < 400) D.leg = 'final';
+        if (leg === 'upwind' && along > TURN_AT.crosswind && aal() / FT > 650) D.leg = 'crosswind';
+        else if (leg === 'crosswind' && lateral > TURN_AT.downwind && aal() / FT > 880) D.leg = 'downwind';
+        else if (leg === 'downwind' && along < TURN_AT.base) D.leg = 'base';
+        else if (leg === 'base' && lateral < TURN_AT.final) D.leg = 'final';
         D.leg ??= 'upwind';
         const fp = D.fp ?? 'roll';
         if (fp === 'roll') {
@@ -178,9 +181,9 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
         if (fp === 'climb' || fp === 'level' || fp === 'descent') {
             const maxBank = 20;
             if (D.leg === 'upwind') track(rw, 0, 0, 1, 0, 400, maxBank, dt);
-            else if (D.leg === 'crosswind') track(rw, 2100, 0, 0, 1, 400, maxBank, dt);
-            else if (D.leg === 'downwind') track(rw, 0, 1000, -1, 0, 400, maxBank, dt);
-            else if (D.leg === 'base') track(rw, -1800, 0, 0, -1, 400, maxBank, dt);
+            else if (D.leg === 'crosswind') track(rw, CIRCUIT[1][0], 0, 0, 1, 400, maxBank, dt);
+            else if (D.leg === 'downwind') track(rw, 0, CIRCUIT[2][1], -1, 0, 400, maxBank, dt);
+            else if (D.leg === 'base') track(rw, CIRCUIT[4][0], 0, 0, -1, 400, maxBank, dt);
             else track(rw, 0, 0, 1, 0, 300, maxBank, dt);
             coordinate(dt);
         }
@@ -188,7 +191,7 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
             throttleTo(1, dt);
             pitchTo(speedByPitch(75, dt), dt);
             autoTrim(dt);
-            if (height() / FT > 950) { D.fp = 'level'; altI = null; note('palier à 1000 ft'); }
+            if (aal() / FT > 950) { D.fp = 'level'; altI = null; note('palier à 1000 ft'); }
         } else if (fp === 'level') {
             rpmByThrottle(2100, dt);
             pitchTo(altitudeByPitch(1000, dt), dt);
@@ -299,7 +302,7 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
             if (D.mode === 'flight') fly(dt);
             else if (D.mode === 'taxi' && D.guide) taxi(D.guide, dt);
             else { D.cmd.pitch = D.cmd.roll = D.cmd.yaw = 0; D.cmd.brake = 1; }   // attente au sol : freins tenus
-            const v = ramp.update(D.cmd, dt);
+            const v = ramp.update(D.cmd, dt, model.indicatedSpeed / KT);
             Object.assign(model.controls, { pitch: v.pitch, roll: v.roll, yaw: v.yaw, brake: Math.max(D.cmd.brake ?? 0, controls.parkingBrake ? 1 : 0) });
             controls._controls.set(v.pitch, v.yaw, v.roll);
             stepOriginal(dt);

@@ -1,0 +1,2 @@
+# Hook git : script shell, fins de ligne LF (sinon « /bin/sh^M » sous Linux et macOS)
+.githooks/commit-msg text eol=lf

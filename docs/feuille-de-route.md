@@ -154,19 +154,18 @@ montée progressive des commandes (`js/InputRamp.js`, `tests/keyboard-pilot.test
 - Carte Mer : le Cessna y garde le modèle simplifié. La catapulte et les brins d'arrêt (`simulator.js`) pilotent des
   champs internes du modèle simplifié (`_liftoffEase`, vitesse posée directement…) ; il faut les réécrire en efforts
   (crochet, câble) pour le modèle réaliste.
-- Initiation, mesurée sur le modèle réaliste (`npm run test:initiation`, 18/11/2026) : 65 étapes sur 66 validées par
-  leur condition. Seuil physiquement inatteignable : « 900 pieds : volets, phare, pompe » attend 880 ft, mais la leçon
-  passe au virage vent arrière vers 450 m de l'axe ; l'avion y est à 618 ft. Le tracé (`CIRCUIT`, `js/Initiation.js` :
-  600 ft au virage vent traversier, 1 000 ft au virage vent arrière) demande ~900 ft/min, le 172P en monte ~700 à
-  2 400 lb (POH fig. 5-6), moins avec 10° de volets ; vrai aussi au modèle simplifié (mêmes performances). À décider :
-  tracé, seuil ou ordre des étapes. Autre constat (pas physique) : « Dégager la piste » accepte une sortie par l'herbe
-  (toute zone autre que la piste) ; posé à 272 m du seuil à 52 kt, l'avion s'arrête vers 580 m, au-delà de la bretelle
-  (500 m), et le pilote de test a dégagé par l'herbe en revenant.
-- Joueur naïf au clavier (tient la touche jusqu'à l'assiette visée, sans anticiper) : hors limites en douceur normale
-  (rotation 29,5°/s, virage à 30° 20°/s et 2,37 g, arrondi 20°/s ; limites 15°/s, 2 g). La douceur « douce » ne suffit
-  pas (25,3°/s à la rotation), ni une montée en 6 s (19,1°/s), ni une montée en deux temps (16,9 à 24,1°/s). Décision en
-  attente : régler la montée progressive autrement, ou accepter ce comportement. Tests en todo :
-  `tests/keyboard-pilot.test.js`.
+- Initiation (`npm run test:initiation`) : corrigée le 20/11/2026. Le tour de piste suit la géométrie d'un vrai circuit
+  (virage vent traversier vers 700 ft, AIM 4-3-3 ; vent arrière à 1 300 m de l'axe, AFH p. 8-3 ; voir `CIRCUIT` dans
+  `js/Initiation.js`) : l'étape « 900 pieds » se fait en vent traversier. « Dégager la piste » n'accepte plus que la
+  bretelle. Au niveau 1, le moniteur collationne aussi entre deux étapes (la leçon pouvait rester bloquée).
+  Reste, signalé par la recherche du 20/11/2026 : le 172P n'a pas de pompe électrique (alimentation par gravité et
+  amorceur manuel, POH p. 7-20), alors que la cabine et la leçon en ont une ; et l'étape « 900 pieds » (volets rentrés,
+  phare éteint) n'a pas de source (POH p. 4-14 : volets rentrés à 60 KIAS, obstacles franchis).
+- Joueur naïf au clavier (tient la touche jusqu'à l'assiette visée, sans anticiper) : depuis le 20/11/2026, la montée de
+  la profondeur est 4 fois plus lente sous 60 KIAS (normale à 90 KIAS, `js/InputRamp.js`) : rotation à 17°/s, arrondi
+  dans les limites (tests). Reste le virage à 30° (93 KIAS) : 2,37 g, le joueur laisse descendre puis tire jusqu'à
+  l'assiette visée ; seule une montée en 6 s à toutes les vitesses le fait passer (1,88 g). Décision en attente ; test en
+  todo : `tests/keyboard-pilot.test.js`.
 - Vrille : testée en catégorie utilitaire, seule configuration où le POH 172P l'autorise (2 100 lb, centrage avant
   36,5 in ; POH 1981 p. 2-7, 2-8, 4-18, 4-19), dans `tests/flying-qualities.test.js` : 2 tours décrochés à assiette
   prononcée, passage en spirale au 5e ou 6e tour avec vitesse et facteur de charge qui montent, sortie PARE en moins

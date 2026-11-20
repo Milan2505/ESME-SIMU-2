@@ -14,6 +14,7 @@ const _changeEvent = { type: 'change' };
 const _resetEvent = { type: 'reset' };
 
 const _EPS = 0.000001;
+const _KT = 0.514444;               // m/s par nœud
 const _MAX_DELTA = 0.1;            // évite les sauts après un onglet en arrière-plan
 const _CONTROL_SMOOTHING = 0.5;    // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
 const _TRIM_RATE = MathUtils.degToRad( 8 ); // vitesse du tab de trim, touche enfoncée (d'une butée à l'autre en ~9 s)
@@ -167,7 +168,7 @@ class PlaneControls extends Controls {
 		// Gouvernes : suivent les touches progressivement (une touche n'est qu'un "tout ou rien"). Modèle réaliste : montée
 		// et retour à vitesse limitée (InputRamp), une touche ne braque pas à fond d'un coup ; simplifié : lissage d'origine
 		if ( model.realistic ) {
-			const v = this.inputRamp.update( { pitch: this._rotationVector.x, yaw: this._rotationVector.y, roll: this._rotationVector.z }, delta );
+			const v = this.inputRamp.update( { pitch: this._rotationVector.x, yaw: this._rotationVector.y, roll: this._rotationVector.z }, delta, model.indicatedSpeed / _KT );
 			this._controls.set( v.pitch, v.yaw, v.roll );
 		} else {
 			this._controls.lerp( this._rotationVector, 1 - Math.exp( - delta / _CONTROL_SMOOTHING * 3 ) );

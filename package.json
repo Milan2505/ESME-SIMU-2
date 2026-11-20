@@ -5,6 +5,7 @@
   "description": "Simulateur de vol ESME. Site 100 % statique (GitHub Pages) : ce fichier ne sert qu'aux vérifications (lint, tests), rien n'en est publié.",
   "type": "module",
   "scripts": {
+    "prepare": "node .githooks/install.js",
     "lint": "eslint .",
     "test": "node --test tests/*.test.js",
     "test:e2e": "playwright test",

@@ -166,10 +166,18 @@ class GroundGuide {
 // Sommets du circuit, par rapport au seuil de la piste du décollage : [le long de l'axe (m), vers le côté du tour de piste
 // (m, à gauche ou à droite selon la piste, voir Airport.js), hauteur (ft)].
 // Le premier (après l'envol) est posé devant l'avion aligné, voir FlightPath.set
+// Géométrie d'un vrai tour de piste (20/11/2026) : hauteur du circuit 1 000 ft au-dessus de l'aérodrome (AIM 4-3-3 a.1) ;
+// virage vent traversier commencé après le bout de piste, à 300 ft au plus sous la hauteur du circuit, donc vers 700 ft
+// (AIM 4-3-3, fig. 4-3-3) ; la montée se finit en vent traversier, virage vent arrière une fois à la hauteur du circuit
+// (FAA AC 90-66C § 11.7, Airplane Flying Handbook FAA-H-8083-3C p. 8-4 : voir l'étape « Virage vent arrière », qui attend
+// 880 ft) ; branche vent arrière à 1/2 à 1 mile de la piste (AFH p. 8-3) : 1 000 m, dans la vallée dégagée autour de la
+// piste (~1 050 m de part et d'autre de l'axe, simulator.js : clearings ; au-delà, les collines montent à 900 ft).
+// Hauteurs des étapes du circuit : au-dessus de l'aérodrome (c.aal, comme à l'altimètre), pas du sol sous l'avion.
+// (Avant : virage vent traversier à 600 ft et à 2 100 m ; il fallait ~900 ft/min pour faire l'étape « 900 pieds »)
 const CIRCUIT = [
     [450, 0, 80],          // après l'envol
-    [2100, 0, 600],        // virage vent traversier
-    [2100, 1000, 1000],    // virage vent arrière
+    [2700, 0, 700],        // virage vent traversier
+    [2700, 1000, 1000],    // virage vent arrière
     [0, 1000, 1000],       // travers du seuil : on réduit
     [-1800, 1000, 750],    // virage en étape de base
     [-1800, 0, 450],       // dernier virage
@@ -575,8 +583,12 @@ class Initiation {
         };
         c.lead = (c.speedKt / KT) * TURN_LEAD;   // m parcourus pendant la consigne de virage
         const rw = this._runway ?? s?.active;
+        c.aal = c.agl;
         if (rw) {
             const p = this.aircraft.position;
+            // Hauteur au-dessus de l'aérodrome (ft, seuil de la piste de la leçon), comme à l'altimètre calé au terrain : le
+            // tour de piste se vole à 1 000 ft au-dessus du terrain, quel que soit le relief sous l'avion
+            c.aal = c.agl + (this.groundHeight(p.x, p.z) - this.groundHeight(rw.threshold.x, rw.threshold.z)) / 0.3048;
             c.runway = rw;
             c.along = (p.x - rw.threshold.x) * rw.direction.x + (p.z - rw.threshold.z) * rw.direction.z;
             c.lateral = (p.x - rw.threshold.x) * rw.circuitSide.x + (p.z - rw.threshold.z) * rw.circuitSide.z;   // > 0 : côté du circuit
@@ -810,7 +822,7 @@ class Initiation {
         advise('taxi', c.onGround && c.groundKt > 18 && c.s && c.s.zone !== 'runway', t('Vous roulez trop vite. Au roulage, pas plus de 10 nœuds : réduisez les gaz, freinez avec B.',
             'You are taxiing too fast. No more than 10 knots: reduce power, brake with B.'));
         advise('fast', c.airborne && c.speedKt > 125, t('Trop vite pour le tour de piste : réduisez les gaz.', 'Too fast for the circuit: reduce power.'));
-        advise('low', c.airborne && c.agl < 300 && !c.s?.final && c.along !== undefined && c.along < 0, t('Vous êtes trop bas : remettez de la puissance et remontez vers 1000 pieds.',
+        advise('low', c.airborne && c.aal < 300 && !c.s?.final && c.along !== undefined && c.along < 0, t('Vous êtes trop bas : remettez de la puissance et remontez vers 1000 pieds.',
             'You are too low: add power and climb back to 1000 feet.'));
     }
 
@@ -893,6 +905,8 @@ function buildSteps(level, lang = 'fr') {
     const turned = (c, deg) => c.runway.heading + (right(c) ? deg : -deg);   // cap après un virage de deg° côté circuit
     const rwySay = (rw) => T(`piste ${[...rw.name].map((d) => DIGITS_FR[d]).join(' ')}`, `runway ${[...rw.name].map((d) => DIGITS_EN[d]).join(' ')}`);
     const steps = [];
+    // Gestes des 900 pieds faits : volets rentrés, phare d'atterrissage et pompe électrique éteints
+    const after900 = (c) => c.flaps === 0 && !c.sys.switches.land && !c.sys.switches.fuelPump;
     // Phases : clé (les étapes en vol avancent d'elles-mêmes) et nom affiché
     const PH = {
         intro: T('Présentation', 'Introduction'), prestart: T('Avant la mise en route', 'Before start'), start: T('Mise en route', 'Engine start'),
@@ -1102,7 +1116,7 @@ function buildSteps(level, lang = 'fr') {
         say: T("Plein gaz : maintenez la barre Espace. Gardez l'axe avec A et E. À 55 nœuds sur l'anémomètre, tirez doucement sur le manche, touche S, pour décoller.",
             'Full power: hold the space bar. Keep the centre line with A and E. At 55 knots on the airspeed indicator, gently pull back on the yoke, S key, to take off.') });
     add(P, { title: T('Montée', 'Climb'), camera: 'none', urgent: true, target: 'inst:asi',
-        done: (c) => c.agl > 300,
+        done: (c) => c.aal > 300,
         say: T("Vous volez ! Gardez 75 nœuds en montée : nez plus haut si l'on va trop vite, plus bas si l'on ralentit. Passez dans les cadres jaunes : ils dessinent tout le tour de piste.",
             "You're flying! Hold 75 knots in the climb: nose up if we're too fast, nose down if we slow down. Fly through the yellow frames: they trace the whole circuit.") });
     P = 'circuit';
@@ -1113,20 +1127,23 @@ function buildSteps(level, lang = 'fr') {
         why: T("Le trim annule l'effort sur le manche : l'avion garde sa vitesse tout seul, vous pilotez plus finement et sans fatigue.",
             'The trim removes the force on the yoke: the aeroplane keeps its speed by itself, so you fly more precisely and without tiring.') });
     add(P, { title: T('Virage vent traversier', 'Crosswind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 35,
-        wait: (c) => c.along > TURN_AT.crosswind - c.lead && c.agl > 300, waiting: T("Continuez la montée droit devant, dans les cadres, vers 600 pieds.", 'Keep climbing straight ahead, through the frames, to 600 feet.'),
+        wait: (c) => c.along > TURN_AT.crosswind - c.lead && c.aal > 650, waiting: T("Continuez la montée droit devant, dans les cadres, vers 700 pieds.", 'Keep climbing straight ahead, through the frames, to 700 feet.'),
         done: (c) => headingDiff(c.heading, turned(c, 90)) < 20,
         say: (c) => T(`Virage à ${hand(c)} maintenant, en suivant les cadres : cap ${capSay(turned(c, 90))}, avec 20 degrés d'inclinaison. Touche ${bankKey(c)} pour incliner, et un peu de S pour tenir le nez. Continuez de monter vers 1000 pieds.`,
             `Turn ${hand(c)} now, following the frames: heading ${capSay(turned(c, 90))}, with 20 degrees of bank. ${bankKey(c)} key to bank, and a little S to hold the nose up. Keep climbing to 1000 feet.`) });
     add(P, { title: T('900 pieds : volets, phare, pompe', '900 feet: flaps, light, pump'), camera: 'none', urgent: true, auto: 25,
         parts: [['flaps:lever', (c) => c.flaps === 0], ['switch:land', (c) => !c.sys.switches.land], ['switch:fuelPump', (c) => !c.sys.switches.fuelPump]],
-        wait: (c) => c.agl > 880 && c.lateral > 100, waiting: T('Continuez la montée à 75 nœuds.', 'Keep climbing at 75 knots.'),
-        done: (c) => c.flaps === 0 && !c.sys.switches.land && !c.sys.switches.fuelPump,
+        // En vent traversier, virage fini (un avion qui monte bien passe 880 ft pendant le virage : il ne saute pas ce virage)
+        wait: (c) => c.aal > 880 && c.lateral > 100 && headingDiff(c.heading, turned(c, 90)) < 30, waiting: T('Continuez la montée à 75 nœuds.', 'Keep climbing at 75 knots.'),
+        done: after900,
         say: T("900 pieds : rentrez les volets, touche T. Puis éteignez le phare d'atterrissage, LAND, et la pompe électrique, FUEL PUMP.",
             '900 feet: retract the flaps, T key. Then switch off the LAND light and the electric FUEL PUMP.'),
         why: T("Loin du sol, la pompe de secours et le phare ne servent plus ; volets rentrés, l'avion traîne moins et monte mieux.",
             'Away from the ground, the backup pump and the landing light are no longer needed; with the flaps up, the aeroplane has less drag and climbs better.') });
     add(P, { title: T('Virage vent arrière', 'Downwind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 40,
-        wait: (c) => c.lateral > TURN_AT.downwind - c.lead && c.along > 200, waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
+        // Une fois les gestes des 900 pieds faits (ou l'avion déjà à 1 000 ft) : un avion qui monte moins bien continue en vent
+        // traversier jusqu'à la hauteur du circuit (AC 90-66C § 11.7), et l'étape « 900 pieds » n'est pas sautée
+        wait: (c) => c.lateral > TURN_AT.downwind - c.lead && c.along > 200 && c.aal > 880 && (after900(c) || c.aal > 1000), waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
         done: (c) => c.s?.downwind || headingDiff(c.heading, c.runway.heading + 180) < 20,
         say: (c) => T(`Virage à ${hand(c)} maintenant : cap ${capSay(c.runway.heading + 180)}, la branche vent arrière. La piste doit défiler à ${hand(c)}, parallèle.`,
             `Turn ${hand(c)} now: heading ${capSay(c.runway.heading + 180)}, the downwind leg. The runway should slide by on our ${hand(c)}, parallel.`) });
@@ -1134,13 +1151,13 @@ function buildSteps(level, lang = 'fr') {
         say1: T("J'annonce notre position à la Tour : vent arrière.", "I'm reporting our position to the Tower: downwind."),
         say2: T('Annoncez votre position à la Tour : vent arrière. Le message clignote dans le panneau radio.', 'Report your position to the Tower: downwind. The message is flashing in the radio panel.') });
     add(P, { title: T("Palier : assiette d'attente", 'Level off: holding attitude'), camera: 'none', target: ['inst:alt', 'throttle'], urgent: true, auto: 20,
-        done: (c) => c.agl > 800 && c.rpm < 2250,
+        done: (c) => c.aal > 800 && c.rpm < 2250,
         say: T("À 1000 pieds, passez en palier, en assiette d'attente : réduisez la puissance vers 2100 tours et gardez le nez juste au-dessus de l'horizon. La vitesse se stabilise vers 85 nœuds, le variomètre revient à zéro.",
             'At 1000 feet, level off in the holding attitude: reduce power to about 2100 RPM and keep the nose just above the horizon. The speed settles around 85 knots, the vertical speed back to zero.'),
         why: T("L'assiette d'attente : un palier à vitesse réduite, qui laisse le temps de préparer l'atterrissage sans arriver trop vite. Le tour de piste se fait à 1000 pieds au-dessus du terrain.",
             'The holding attitude: level flight at reduced speed, which leaves time to prepare the landing without arriving too fast. The circuit is flown 1000 feet above the airfield.') });
     add(P, { title: T('Trim en palier', 'Level trim'), target: 'trimWheel', camera: 'none', urgent: true, auto: 15,
-        done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 && Math.abs(c.s?.agl - 1000) < 250 ? dt : 0)) > 4,
+        done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 && Math.abs(c.aal - 1000) < 250 ? dt : 0)) > 4,
         say: T("Retrimez pour le palier : W ou X jusqu'à ce que l'avion reste à 1000 pieds manche lâché. Le variomètre doit rester sur zéro.",
             'Re-trim for level flight: W or X until the aeroplane stays at 1000 feet hands off. The vertical speed should stay at zero.') });
     add(P, { title: T('Vent arrière : phare, pompe, volets', 'Downwind: light, pump, flaps'), camera: 'none', auto: 30,
@@ -1190,7 +1207,8 @@ function buildSteps(level, lang = 'fr') {
     add(P, { title: T('Dégager la piste', 'Vacate the runway'), camera: 'none',
         guide: () => [[250, 0], [275, 0]],
         act: (c, t) => t.teleport([[250, 0], [275, 0]]),
-        done: (c) => c.s && c.s.zone !== 'runway' && c.s.zone !== 'entry',
+        // Sur la bretelle après le point d'attente, ou déjà sur le parking ; une sortie par l'herbe ne compte pas
+        done: (c) => c.s?.zone === 'taxiway' || c.s?.zone === 'apron',
         say: (c) => {
             const left = c.runway && (275 - c.runway.threshold.x) * c.runway.left.x + (0 - c.runway.threshold.z) * c.runway.left.z > 0;
             return T(`Dégagez la piste par la voie de circulation au milieu, à ${left ? 'gauche' : 'droite'} : roulez doucement jusqu'au deuxième anneau jaune, après le point d'attente.`,
@@ -1245,4 +1263,4 @@ function buildSteps(level, lang = 'fr') {
     return steps;
 }
 
-export { Initiation, buildSteps };
+export { Initiation, buildSteps, CIRCUIT, TURN_AT };

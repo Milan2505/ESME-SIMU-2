@@ -48,12 +48,7 @@ test('modèle réaliste · initiation complète niveau 1 : chaque étape validé
     console.log(report);
     expect(result.state.crashed, 'pas de crash').toBe(false);
     expect(result.end, 'leçon menée jusqu\'au bilan').toBe(true);
-    // Seule exception connue, physique (18/11/2026) : « 900 pieds » attend 880 ft à plus de 100 m de l'axe, mais la leçon
-    // passe d'elle-même au virage vent arrière vers 450 m de l'axe ; l'avion y est à ~620 ft. Le tracé (CIRCUIT, Initiation.js)
-    // demande ~900 ft/min sur le vent traversier, le 172P en monte ~700 à 2 400 lb (POH fig. 5-6), moins volets à 10°.
-    // Seuil non modifié (décision à prendre : feuille de route, lot 1)
-    const KNOWN = ['900 pieds : volets, phare, pompe'];
-    const failed = result.log.filter((l) => !l.ok && !KNOWN.includes(l.title)).map((l) => `${l.index} ${l.title} (${l.how})`);
+    const failed = result.log.filter((l) => !l.ok).map((l) => `${l.index} ${l.title} (${l.how})`);
     expect(failed, 'étapes passées sans que leur condition soit remplie').toEqual([]);
     expect(result.log.length, 'toutes les étapes avant le bilan').toBe(result.steps.length - 1);
     expect(errors, 'erreurs console').toEqual([]);

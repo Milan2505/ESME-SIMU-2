@@ -22,8 +22,8 @@ export default [
         languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.serviceworker } },
     },
     {
-        // Tests Node et configuration ; les tests de bout en bout pilotent aussi le navigateur (page.evaluate)
-        files: ['tests/**/*.js', 'eslint.config.js', 'playwright.config.js'],
+        // Tests Node, hook git (.githooks) et configuration ; les tests de bout en bout pilotent aussi le navigateur (page.evaluate)
+        files: ['tests/**/*.js', '.githooks/**/*.js', 'eslint.config.js', 'playwright.config.js', 'playwright.initiation.config.js'],
         languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
     },
 ];

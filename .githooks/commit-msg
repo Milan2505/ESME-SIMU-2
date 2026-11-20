@@ -1,0 +1,10 @@
+#!/bin/sh
+# Hook git commit-msg : format des messages de commit (voir commit-msg.js et CLAUDE.md, section Git)
+node_bin=$(command -v node 2>/dev/null)
+if [ -z "$node_bin" ] && [ -x "/c/Program Files/nodejs/node.exe" ]; then node_bin="/c/Program Files/nodejs/node.exe"; fi
+if [ -z "$node_bin" ]; then
+	echo "Commit refusé : le hook commit-msg (.githooks) a besoin de Node.js pour vérifier le format du message, et node est" >&2
+	echo "introuvable dans le PATH de git. Installez Node.js LTS ou lancez git depuis un terminal où node est dans le PATH." >&2
+	exit 1
+fi
+exec "$node_bin" "$(dirname "$0")/commit-msg.js" "$1"

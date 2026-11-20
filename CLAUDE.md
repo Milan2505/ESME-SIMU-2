@@ -35,7 +35,7 @@ Règles :
 - Variante de référence : Cessna 172P (1981, Lycoming O-320-D2J de 160 ch, 2 400 lb) partout : modèle 3D, sons, moteur,
   masse et centrage (`WeightBalance.js`), performances. Ce qui n'a pas été relu dans une source primaire est marqué
   « non relu » dans le code.
-- Tests en `todo` : les trois du joueur naïf au clavier (`keyboard-pilot.test.js`, décision en attente, lot 1). Un todo
+- Test en `todo` : le virage à 30° du joueur naïf au clavier (`keyboard-pilot.test.js`, décision en attente, lot 1). Un todo
   ne se pose que pour un chantier identifié de la feuille de route, jamais pour faire passer une vérification.
 - Un test qui échoue à cause du banc d'essai (automatisme de test, tolérance numérique de l'intégration) se corrige dans
   `tests/helpers/` ; un test qui échoue parce que le simulateur est faux reste rouge.
@@ -57,6 +57,10 @@ boutons du menu ; `tests/e2e/server.js` sert `index.html` avec three et mqtt pri
   puis une ligne vide et le détail (ce qui change, pourquoi, tests qui le couvrent). Types : `feat`, `fix`, `perf`,
   `refactor`, `test`, `docs`, `chore`. Zones : `flight`, `heli`, `f15`, `carrier`, `atc`, `ui`, `audio`, `multi`,
   `scenery`, `terrain`, `tests`, `tooling`… **Jamais la réponse du chat comme message de commit.**
+- Hook `commit-msg` versionné (`.githooks/`, activé par `npm install` : script `prepare`, `core.hooksPath`) : il refuse
+  tout message hors de ce format (sauf les messages écrits par git : fusion, annulation, `fixup!`/`squash!`/`amend!` d'un
+  message au format). Testé par `tests/commit-msg.test.js`. Avec `core.hooksPath`, git ne lit plus `.git/hooks` : un hook
+  local s'ajoute dans `.githooks/`.
 - Ne pas committer `node_modules/`, `test-results/`, `playwright-report/`, `*.blend1` (voir `.gitignore`).
 
 ## Numéro de version (obligatoire après chaque modification)
