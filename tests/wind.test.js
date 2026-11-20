@@ -65,3 +65,21 @@ test('la direction moyenne dérive lentement avec le temps, sauf pendant une sus
     wind.update();
     assert.ok(Math.abs(wind.base - held) > 1e-6, 'reprise : elle tourne de nouveau');
 });
+
+test('horloge remplaçable (mode test : temps de vol) : même vent quelle que soit l\'heure réelle, et il suit cette horloge', (t) => {
+    const metar = { wind: 46, knots: 4, variation: 27, gust: 0 };
+    const at = (realTime, flightSeconds) => {
+        t.mock.timers.enable({ apis: ['Date'], now: realTime });
+        const wind = new Wind();
+        wind.now = () => 1.8e9 + flightSeconds;
+        wind.setSeed(1);
+        wind.set(metar);
+        wind.update();
+        const v = wind.vector.clone();
+        t.mock.timers.reset();
+        return v;
+    };
+    const morning = at(Date.UTC(2026, 0, 1, 8), 0), evening = at(Date.UTC(2026, 5, 1, 20), 0);
+    assert.ok(morning.distanceTo(evening) < 1e-9, 'même vent à deux heures réelles différentes');
+    assert.ok(at(NOW, 0).distanceTo(at(NOW, 120)) > 1e-6, 'le vent varie avec l\'horloge remplacée');
+});

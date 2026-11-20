@@ -40,6 +40,12 @@ class Wind {
     }
 
     // Vent d'une nouvelle partie : seed (entier) -> décalage de direction (0 à 360°), facteur de force, phase du cycle
+    // Horloge du vent (s) : l'heure réelle (en multijoueur, même vent pour tous) ; remplacée en mode test par le temps de
+    // vol, accéléré avec lui (voir simulator.js)
+    now() {
+        return Date.now() / 1000;
+    }
+
     setSeed(seed) {
         let s = seed >>> 0;
         const rnd = () => {   // mulberry32
@@ -71,7 +77,7 @@ class Wind {
     // Dérive lente de la direction moyenne suspendue (true) ou reprise là où elle s'était arrêtée (false). Les variations
     // et rafales continuent
     setHold(on) {
-        const t = Date.now() / 1000;
+        const t = this.now();
         if (on && this._heldAt === null) this._heldAt = t + this._driftOffset;
         else if (!on && this._heldAt !== null) {
             this._driftOffset = this._heldAt - t;
@@ -90,7 +96,7 @@ class Wind {
     }
 
     update() {
-        const t = Date.now() / 1000;
+        const t = this.now();
         // Dérive lente de la direction moyenne : au plus ~10° par minute, souvent bien moins (arrêtée pendant une leçon)
         const td = this._heldAt ?? t + this._driftOffset;
         const drift = this.seedDirection + 360 * (td + this.seedPhase) / 7200 + 35 * Math.sin(td * 2 * Math.PI / 3000) + 10 * Math.sin(td * 2 * Math.PI / 1300 + 2.4);

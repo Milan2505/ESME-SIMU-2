@@ -311,6 +311,10 @@ remotePlayers.colorFor = (id, state) => (multiplayer.mode === 'wardog' && state.
 // Vent variable (force et direction selon la météo) : agit sur l'avion, annoncé par l'ATIS et les contrôleurs
 const wind = new Wind();
 if (TEST_MODE) wind.setSeed(1);   // (mode test : même vent à chaque fois)
+// Mode test : le vent suit le temps de vol (accéléré avec lui, voir simulateStep), compté depuis le dernier tirage
+// (newWind) : même vent à chaque essai, quelle que soit l'heure. (Déclaré ici : la météo lit le vent dès le chargement)
+let windClock = 0;
+if (TEST_MODE) wind.now = () => 1.8e9 + windClock;
 // Voix de la radio : voix réalistes (téléchargées à la première ouverture de la fenêtre), sinon voix de l'ordinateur
 const radioVoices = new RadioVoices();
 const f15Warnings = new F15Warnings({ voices: radioVoices });   // alarmes du F-15 (voyants, voix, HUD)
@@ -2649,6 +2653,7 @@ const multiLien = document.getElementById('multi-lien');
 // Vent de la partie : tiré au hasard à chaque vol en solo ; en multijoueur, tiré du code de la partie (le même pour
 // tous ses joueurs, voir Wind.setSeed)
 function newWind(seed) {
+    if (TEST_MODE) windClock = 0;
     wind.setSeed(seed);
     atc.resetRunwayInUse();
 }
@@ -6445,6 +6450,7 @@ renderer.setAnimationLoop((time) => {
 // réel de la radio sont divisées par le même facteur (TimeScale.js). En jeu, simTimeScale vaut 1 : rien ne change
 let simTimeScale = 1;
 function simulateStep(delta) {
+    if (!choosingSpawn) windClock += delta;
     wind.update();
     controls.model.wind.copy(wind.vector);
     if (!choosingSpawn) controls.update( delta );
@@ -6491,6 +6497,7 @@ function drawFrame(time) {
         }
     }
 
+    if (TEST_MODE && !choosingSpawn) windClock += Math.min(delta, 0.1);   // (même pas que la physique)
     wind.update();
     controls.model.wind.copy(wind.vector);
     if (!choosingSpawn) controls.update( delta );

@@ -52,7 +52,8 @@ Règles :
 `index.html?test=1` (voir `TEST_MODE` dans `simulator.js`) : multijoueur coupé (`Multiplayer.offline`), arbres EZ-Tree
 du CDN non chargés (`Scenery` : `trees: false`), voix muettes (`RadioVoices` mode 'silent' : chaque message dure son
 temps de lecture), musique du mode troll coupée, service worker
-non enregistré, graines fixes (vent, rafales, aile qui tombe : `Random.js`), qualité « Bas » sans toucher aux réglages
+non enregistré, graines fixes (vent, rafales, aile qui tombe : `Random.js`), vent sur le temps de vol (`Wind.now`, même vent à
+chaque essai), qualité « Bas » sans toucher aux réglages
 enregistrés (`Settings.persist = false`). `window.__sim` : `phase` (chargement, menu, carte, aerodrome, hangar, depart,
 vol, crash), `state` (vitesse, altitude, cap, moteur…), `controls`, `model`, `setThrottle`, `setInput`, `setFlapLevel`,
 `errors`, `setTimeScale(n)` (temps accéléré, 1 à 32, mode test seulement : pas supplémentaires de 0,1 s au plus avant
