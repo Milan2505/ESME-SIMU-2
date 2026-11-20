@@ -29,12 +29,14 @@ test('modèle réaliste · initiation complète niveau 1 : chaque étape validé
     expect(await page.evaluate(() => window.__sim.state.flightModel)).toBe('realiste');
     // INITIATION_JUSQUA : débogage seulement (étapes passées au bouton Passer jusqu'à cet indice) ; jamais dans npm run test:e2e
     await page.evaluate(installInitiationDriver, { fastUntil: Number(process.env.INITIATION_JUSQUA ?? -1) });
+    // Temps accéléré ×8 (mode test : même physique, pas de 0,1 s au plus ; radio et moniteur accélérés, voir simulateStep)
+    await page.evaluate(() => window.__sim.setTimeScale(8));
 
     // Jusqu'au bilan (dernière étape), ou crash, ou leçon arrêtée
     await page.waitForFunction(() => {
         const i = window.__sim.initiation;
         return !i.active || i.step?.end || window.__sim.state.crashed;
-    }, null, { timeout: 40 * 60_000, polling: 1000 });
+    }, null, { timeout: 40 * 60_000, polling: 250 });
     const result = await page.evaluate(() => ({
         log: window.__driver.log, notes: window.__driver.notes, max: window.__driver.max,
         end: Boolean(window.__sim.initiation.step?.end), state: window.__sim.state,

@@ -100,6 +100,7 @@ import { F15Warnings } from './js/F15Warnings.js';
 import { buildF15Stores } from './js/F15Stores.js';
 import { HeliModel } from './js/HeliModel.js';
 import { RigidBodyModel } from './js/RigidBodyModel.js';
+import { timeScale as gameTimeScale } from './js/TimeScale.js';
 import { R44Systems } from './js/R44Systems.js';
 import { R44Sound } from './js/R44Sound.js';
 import { R44Cockpit, cloneR44, paintR44, R44_LIVERIES, R44_DEFAULT_LIVERY, isR44Livery, R44_LIGHT_LAYOUT, R44_SKID_HEIGHT } from './js/R44Model.js';
@@ -4062,7 +4063,8 @@ atcTransponder.addEventListener('keydown', (event) => {
         lang = localStorage.getItem('atc-langue') ?? 'fr';
         voice = localStorage.getItem('atc-voix') !== '0';
         persons = Number(localStorage.getItem('atc-bord') ?? 2);
-        radioVoices.mode = TEST_MODE || localStorage.getItem('atc-voix-type') === 'system' ? 'system' : 'neural';   // (mode test : rien à télécharger)
+        // (mode test : rien à télécharger, et aucune voix : chaque message dure son temps de lecture, accéléré avec le temps)
+        radioVoices.mode = TEST_MODE ? 'silent' : localStorage.getItem('atc-voix-type') === 'system' ? 'system' : 'neural';
     } catch { /* stockage indisponible */ }
     atcVoiceType.value = radioVoices.mode;
     // Voix réalistes téléchargées et préparées dès l'ouverture de la page (fil séparé : rien ne se fige), pour être
@@ -5127,6 +5129,12 @@ window.__sim = {
     get errors() { return loopErrors; },
     // Commandes : gaz (0 -> 1 ; R44 : collectif), manche et palonnier (-1 -> 1, voir PlaneControls.setTouchInput), volets
     setThrottle(value) { controls.throttle = Math.min(1, Math.max(0, value)); },
+    // Temps accéléré (mode test seulement, 1 à 32) : le jeu avance de scale fois le temps réel (voir simulateStep)
+    get timeScale() { return simTimeScale; },
+    setTimeScale(scale) {
+        if (!TEST_MODE) return;
+        simTimeScale = gameTimeScale.value = Math.max(1, Math.min(32, Number(scale) || 1));
+    },
     setInput(input) { controls.setTouchInput(input); },
     setFlapLevel(level) { controls.setFlapLevel(level); },
 };
@@ -6431,6 +6439,30 @@ renderer.setAnimationLoop((time) => {
         try { graphics.render(); } catch { /* rien de plus à faire pour cette image */ }
     }
 });
+// Mode test : temps accéléré (window.__sim.setTimeScale). Le temps de jeu avance de simTimeScale fois le temps réel : avant
+// chaque image, des pas supplémentaires de 0,1 s au plus (le plus grand pas du jeu, voir PlaneControls) font avancer le
+// vent, le modèle de vol, les systèmes, la radio et la leçon ; l'image n'est dessinée qu'une fois. Les attentes en temps
+// réel de la radio sont divisées par le même facteur (TimeScale.js). En jeu, simTimeScale vaut 1 : rien ne change
+let simTimeScale = 1;
+function simulateStep(delta) {
+    wind.update();
+    controls.model.wind.copy(wind.vector);
+    if (!choosingSpawn) controls.update( delta );
+    checkPlaneCollisions();
+    if (!choosingSpawn) updateWaterSink( delta );
+    if (SEA && !choosingSpawn) updateCarrier( delta );
+    try { initiation.update( delta ); }
+    catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
+    updateAtc( delta );
+    if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
+    controls.model.enginePower = systems.power;
+    controls.model.mixture = systems.mixture ?? 1;
+    controls.model.flapsPowered = systems.flapsPowered;
+    if (aircraftType === 'f15') updateJet(delta);
+    if (aircraftType === 'r44') updateHeli(delta);
+    updateLoad();
+}
+
 function drawFrame(time) {
     lastLoopAt = performance.now();   // (filet de sécurité : la boucle tourne, voir watchFreeze)
     // Écran de chargement : rien n'est dessiné derrière lui (sauf les images du préchauffage, voir warmUpWorld) ; toute
@@ -6449,6 +6481,15 @@ function drawFrame(time) {
     const frameStart = performance.now();
     freezeFrameStart(frameStart);
     const delta = clock.getDelta();
+    // Mode test, temps accéléré : pas supplémentaires avant l'image (la part de l'image elle-même : 0,1 s au plus)
+    if (simTimeScale > 1) {
+        let extra = Math.min(delta, 0.25) * simTimeScale - Math.min(delta, 0.1);
+        while (extra > 1e-4) {
+            const step = Math.min(extra, 0.1);
+            simulateStep(step);
+            extra -= step;
+        }
+    }
 
     wind.update();
     controls.model.wind.copy(wind.vector);
@@ -6471,11 +6512,13 @@ function drawFrame(time) {
         shake = Math.max(shake, Math.min(speed, 12) * wheelLoad * roughness);
     }
     updateHeadTarget( delta );
+    // (mode test : la leçon et la radio avancent au même pas que la physique, 0,1 s au plus, même sous forte charge)
+    const lessonDelta = TEST_MODE ? Math.min(delta, 0.1) : delta;
     // Une erreur de la leçon ne doit jamais figer le simulateur (radio, caméra et rendu viennent après)
-    try { initiation.update( delta ); }
+    try { initiation.update( lessonDelta ); }
     catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
     updateSpawnMarkers();
-    updateAtc( delta );
+    updateAtc( lessonDelta );
     updateCamera( delta );
     lap('caméra, ATC, initiation');
     // Molette de trim (touches W / X, ou à la souris) : un cran entendu tous les 0,6°

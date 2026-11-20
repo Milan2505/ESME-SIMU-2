@@ -6,6 +6,7 @@
 // l'ordinateur (synthèse vocale du navigateur). Chaque rôle garde toujours la même voix.
 
 import { sharedAudioContext, audioOutput } from './AudioUnlock.js';
+import { wait, timeScale } from './TimeScale.js';   // attentes au temps de jeu (accéléré en mode test)
 
 const VOICES_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/';
 const MODELS = {
@@ -55,12 +56,12 @@ const PHONETIC_FR = {
 };
 const MALE_VOICE = /paul|henri|claude|thomas|david|mark|george|guy|daniel|ryan|male|homme/i;
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class RadioVoices extends EventTarget {
     constructor() {
         super();
-        this.mode = 'neural';          // 'neural' (voix réalistes) ou 'system' (voix de l'ordinateur)
+        this.mode = 'neural';          // 'neural' (voix réalistes), 'system' (voix de l'ordinateur) ou 'silent' (mode test :
+                                       // aucune voix, chaque message dure son temps de lecture, accéléré avec le temps)
         this.lang = 'fr';
         this.status = { state: 'idle', progress: 0 };   // idle | loading | ready | error
         this._models = new Map();      // modèle -> Promise<{ session, config }>
@@ -71,7 +72,7 @@ class RadioVoices extends EventTarget {
     }
 
     setMode(mode) {
-        this.mode = mode === 'system' ? 'system' : 'neural';
+        this.mode = mode === 'system' || mode === 'silent' ? mode : 'neural';
         if (this.mode === 'neural') this.preload();
         this._emit();
     }
@@ -127,6 +128,7 @@ class RadioVoices extends EventTarget {
     // ids : liste où noter les numéros des calculs demandés (cancelRequests les annule, même pas encore commencés)
     async prepare(text, role, { lang = this.lang, seed = '', ids = null } = {}) {
         const language = CAST[lang] ? lang : this.lang;
+        if (this.mode === 'silent') return this._silent(text);
         const spoken = language === 'fr' ? text.replace(/\b(Alpha|Charlie|Echo|Foxtrot|Hotel|India|Juliett|Mike|November|Quebec|Romeo|Sierra|Uniform|Whiskey|X-ray|Yankee|Zulu)\b/g, (w) => PHONETIC_FR[w]) : text;
         if (this.mode === 'neural' && this.status.state !== 'error') {
             const pilot = role === 'pilot' || role === 'otherPilot';
@@ -178,7 +180,7 @@ class RadioVoices extends EventTarget {
         return {
             play: () => new Promise((resolve) => {
                 finish = resolve;
-                setTimeout(resolve, (0.8 + text.length * 0.065) * 1000);
+                setTimeout(resolve, (0.8 + text.length * 0.065) * 1000 / timeScale.value);
             }),
             cancel: () => finish?.(),
         };
@@ -383,6 +385,15 @@ class RadioVoices extends EventTarget {
         this.stopInstructor();
         const token = this._instructorToken = {};
         const spoken = text.replace(/«|»/g, '');
+        // Mode muet (mode test) : la consigne dure son temps de lecture ; stopInstructor l'interrompt
+        if (this.mode === 'silent') {
+            await new Promise((resolve) => {
+                this._silentInstructor = resolve;
+                setTimeout(resolve, (0.8 + spoken.length * 0.065) * 1000 / timeScale.value);
+            });
+            if (token === this._instructorToken) this._silentInstructor = null;
+            return;
+        }
         if (this.mode === 'neural' && this.status.state !== 'error') {
             // Voix du moniteur pas encore téléchargée : il se tait, sa consigne reste affichée (la leçon continue)
             if (!this._loaded.has(CAST[this.lang].instructor.model)) {
@@ -426,6 +437,8 @@ class RadioVoices extends EventTarget {
         const ids = this._instructorToken?.ids;
         if (ids?.length && this._voiceWorker) this._voiceWorker.postMessage({ type: 'cancel', ids });
         this._instructorToken = null;
+        this._silentInstructor?.();
+        this._silentInstructor = null;
         for (const finish of [...this._playing]) {
             if (finish.role !== 'instructor') continue;
             try { finish.source.stop(); } catch { /* déjà arrêtée */ }

@@ -2,6 +2,7 @@
 // et server.js), en mode test (?test=1 : voir simulator.js, TEST_MODE). Un scénario par appareil et par carte : menu
 // principal sans erreur console, départ en vol libre par les vrais boutons, 10 s de vol plein gaz, capture d'écran.
 import { test, expect } from '@playwright/test';
+import { waitSimSeconds } from './sim-time.js';
 
 const SCENARIOS = [
     { carte: 'campagne', avion: 'c172' },
@@ -19,7 +20,8 @@ for (const { carte, avion } of SCENARIOS) {
         page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
         // Aucun réseau : tout vient du serveur local (three et mqtt depuis node_modules)
         await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
-        const sim = (expression) => page.evaluate(expression);
+        // (argument transmis à la page : sans lui, le R44 recevait le plein collectif au lieu de 0,6, voir setThrottle)
+        const sim = (expression, arg) => page.evaluate(expression, arg);
         const phase = async (name, timeout = 60_000) => page.waitForFunction((p) => window.__sim?.phase === p, name, { timeout });
 
         await page.goto(`/?test=1&carte=${carte}`);
@@ -46,6 +48,9 @@ for (const { carte, avion } of SCENARIOS) {
         await phase('depart');
         await page.click('#depart-liste button');
         await phase('vol', 120_000);
+        await sim(() => window.__sim.setTimeScale(4));   // temps accéléré (mode test : même physique, voir simulateStep)
+        // Cause d'un éventuel crash, pour le message d'échec
+        await sim(() => window.__sim.controls.addEventListener('crash', (e) => { window.__crashReason = `${e.reason} (vitesse ${window.__sim.state.speed.toFixed(1)} m/s, hauteur ${window.__sim.state.altitude.toFixed(1)} m)`; }));
         const start = await sim(() => window.__sim.state);
         expect(start.aircraft).toBe(avion);
         expect(start.crashed).toBe(false);
@@ -53,12 +58,12 @@ for (const { carte, avion } of SCENARIOS) {
 
         // Plein gaz (R44 : collectif levé, l'aide au stationnaire tient l'assiette). Sans carte graphique, les images
         // sont lentes et le temps simulé par image est plafonné (PlaneControls : 0,1 s) : on attend que l'appareil
-        // roule vraiment (ou que le R44 ait décollé), puis 10 s de vol de plus
+        // roule vraiment (ou que le R44 ait décollé), puis 10 s de vol de plus, en temps simulé (sim-time.js)
         await sim((a) => window.__sim.setThrottle(a === 'r44' ? 0.6 : 1), avion);
         await page.waitForFunction((a) => { const s = window.__sim.state; return s.crashed || (a === 'r44' ? !s.onGround : s.speed > 10); }, avion, { timeout: 120_000 });
-        await page.waitForTimeout(10_000);
+        await waitSimSeconds(page, 10);
         const after = await sim(() => window.__sim.state);
-        expect(after.crashed, 'pas de crash').toBe(false);
+        expect(after.crashed, `pas de crash (${await sim(() => window.__crashReason)})`).toBe(false);
         expect(after.loopErrors, 'aucune erreur dans la boucle d\'images').toBe(0);
         if (avion === 'r44') {
             expect(after.onGround, 'le R44 a décollé').toBe(false);

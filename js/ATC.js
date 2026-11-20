@@ -1,4 +1,5 @@
 import { EventDispatcher } from 'three';
+import { wait } from './TimeScale.js';   // attentes au temps de jeu (accéléré en mode test)
 
 // Contrôle aérien de l'aérodrome : contrôleur automatique (à règles) sur trois fréquences — Sol (mise en route,
 // roulage), Tour (piste, circuit, zone) et Approche (hors de la zone). Phraséologie officielle (DGAC en
@@ -75,7 +76,6 @@ const RUNWAY_FREE_STATES = ['idle', 'startup', 'taxiIn', 'toGround', 'leaving', 
 const RUNWAY_SWITCH = 105;
 const TOWER_STATES = ['holding', 'lineup', 'takeoff', 'circuit', 'inbound', 'downwind', 'continue', 'landing', 'touchgo', 'landed', 'vacate', 'leaving'];
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const headingDiff = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
 
 // Morceau de message : texte affiché (d) et texte prononcé (s)

@@ -164,7 +164,8 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
         // Branches : montée dans l'axe, vent traversier, vent arrière, base, finale
         const leg = D.leg ?? 'upwind';
         if (leg === 'upwind' && along > TURN_AT.crosswind && aal() / FT > 650) D.leg = 'crosswind';
-        else if (leg === 'crosswind' && lateral > TURN_AT.downwind && aal() / FT > 880) D.leg = 'downwind';
+        // (la leçon annonce le virage vent arrière une fois l'étape « 900 pieds » finie)
+        else if (leg === 'crosswind' && lateral > TURN_AT.downwind && init.index > init.steps.findIndex((st) => st.title.startsWith('900 pieds'))) D.leg = 'downwind';
         else if (leg === 'downwind' && along < TURN_AT.base) D.leg = 'base';
         else if (leg === 'base' && lateral < TURN_AT.final) D.leg = 'final';
         D.leg ??= 'upwind';
@@ -280,11 +281,11 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
         }
         D.mode = 'hold';
         if (step.title === 'Essai des magnétos') {
-            // Clé tournée cran par cran : L (2 s), R (2 s), BOTH ; la leçon mesure les chutes
+            // Clé tournée cran par cran : L (1,5 s), R (1,5 s), BOTH ; la leçon mesure les chutes
             const t = init._time - D.stepStart, m = sys().magnetos;
-            if (t > 1 && t < 3 && m === 3) sys().turnMagnetos(-1);
-            else if (t > 3.5 && t < 6 && m === 2) sys().turnMagnetos(-1);
-            else if (t > 6.5 && m === 1) sys().turnMagnetos(2);
+            if (t > 0.3 && t < 1.5 && m === 3) sys().turnMagnetos(-1);
+            else if (t > 1.8 && t < 3 && m === 2) sys().turnMagnetos(-1);
+            else if (t > 3.3 && m === 1) sys().turnMagnetos(2);
             return;
         }
         if (step.radio || step.title === "Autorisés à s'aligner" || step.atis) return;   // le moniteur fait la radio

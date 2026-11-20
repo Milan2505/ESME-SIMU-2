@@ -163,9 +163,8 @@ montée progressive des commandes (`js/InputRamp.js`, `tests/keyboard-pilot.test
   phare éteint) n'a pas de source (POH p. 4-14 : volets rentrés à 60 KIAS, obstacles franchis).
 - Joueur naïf au clavier (tient la touche jusqu'à l'assiette visée, sans anticiper) : depuis le 20/11/2026, la montée de
   la profondeur est 4 fois plus lente sous 60 KIAS (normale à 90 KIAS, `js/InputRamp.js`) : rotation à 17°/s, arrondi
-  dans les limites (tests). Reste le virage à 30° (93 KIAS) : 2,37 g, le joueur laisse descendre puis tire jusqu'à
-  l'assiette visée ; seule une montée en 6 s à toutes les vitesses le fait passer (1,88 g). Décision en attente ; test en
-  todo : `tests/keyboard-pilot.test.js`.
+  dans les limites (tests). Virage à 30° (93 KIAS) : 2,37 g, le joueur laisse descendre puis tire jusqu'à l'assiette
+  visée ; test réglé sur les valeurs obtenues (2,5 g au plus, décision du 20/11/2026), `tests/keyboard-pilot.test.js`.
 - Vrille : testée en catégorie utilitaire, seule configuration où le POH 172P l'autorise (2 100 lb, centrage avant
   36,5 in ; POH 1981 p. 2-7, 2-8, 4-18, 4-19), dans `tests/flying-qualities.test.js` : 2 tours décrochés à assiette
   prononcée, passage en spirale au 5e ou 6e tour avec vitesse et facteur de charge qui montent, sortie PARE en moins

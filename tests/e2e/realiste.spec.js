@@ -4,6 +4,7 @@
 // plein gaz au manche tactile (montée progressive des commandes, InputRamp.js), montée sans crash. Même cadre que
 // vol.spec.js (?test=1, sans réseau).
 import { test, expect } from '@playwright/test';
+import { waitSimSeconds } from './sim-time.js';
 
 const LONG = 240_000;
 
@@ -29,6 +30,7 @@ test('modèle réaliste · initiation : départ au parking, avion immobile sur s
     await page.click('#mp-initiation');
     await page.click('#initiation-dialog [data-niveau="1"]');
     await page.waitForFunction(() => window.__sim.phase === 'vol' && !document.getElementById('moniteur').hidden, null, { timeout: LONG });
+    await page.evaluate(() => window.__sim.setTimeScale(8));   // temps accéléré (mode test, voir simulateStep)
     const start = await state(page);
     expect(start.flightModel, 'modèle réaliste branché').toBe('realiste');
     expect(start.aircraft).toBe('c172');
@@ -37,7 +39,7 @@ test('modèle réaliste · initiation : départ au parking, avion immobile sur s
     // Le moniteur passe la première étape (frein de parc déjà serré) : la leçon avance d'elle-même
     const first = await page.textContent('#moniteur-titre');
     await page.waitForFunction((t) => document.getElementById('moniteur-titre').textContent !== t, first, { timeout: 60_000 });
-    await page.waitForTimeout(5_000);
+    await waitSimSeconds(page, 5);
     const after = await state(page);
     const moved = Math.hypot(after.position.x - start.position.x, after.position.z - start.position.z);
     expect(moved, 'immobile au parking (train et frein de parc)').toBeLessThan(0.5);
@@ -59,6 +61,7 @@ test('modèle réaliste · vol libre : décollage plein gaz au manche, montée s
     await page.waitForFunction(() => window.__sim.phase === 'depart', null, { timeout: 60_000 });
     await page.click('#depart-liste button');
     await page.waitForFunction(() => window.__sim.phase === 'vol', null, { timeout: 120_000 });
+    await page.evaluate(() => window.__sim.setTimeScale(4));   // temps accéléré (mode test, voir simulateStep)
     const start = await state(page);
     expect(start.flightModel, 'modèle réaliste branché').toBe('realiste');
     expect(start.engineRunning).toBe(true);
@@ -69,7 +72,7 @@ test('modèle réaliste · vol libre : décollage plein gaz au manche, montée s
     await page.waitForFunction(() => { const s = window.__sim.state; return s.crashed || !s.onGround; }, null, { timeout: 120_000 });
     await page.evaluate(() => window.__sim.setInput({ pitch: 0.1 }));
     const airborne = await state(page);
-    await page.waitForTimeout(10_000);
+    await waitSimSeconds(page, 10);
     const after = await state(page);
     expect(after.crashed, 'pas de crash').toBe(false);
     expect(after.onGround, 'en l\'air').toBe(false);

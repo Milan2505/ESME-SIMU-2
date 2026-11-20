@@ -578,7 +578,7 @@ class Initiation {
             groundKt: this.controls.getSpeed() * KT,   // au sol : vitesse de roulage, sans le vent de face (lu à l'anémomètre)
             agl: s?.agl ?? 0, heading: this.controls.getHeading(), flaps: this.controls.getFlapLevel(),
             throttle: this.controls.getThrottle(), rpm: this.systems.rpm, roll: this.controls.getRoll(),
-            airborne: Boolean(s?.airborne), position: this.aircraft.position,
+            airborne: Boolean(s?.airborne), position: this.aircraft.position, index: this.index,
             atcOpen: !document.getElementById('atc').hidden,
         };
         c.lead = (c.speedKt / KT) * TURN_LEAD;   // m parcourus pendant la consigne de virage
@@ -647,7 +647,7 @@ class Initiation {
                 // Niveau 1 : instruction reçue juste à la fin de l'étape précédente (après l'atterrissage, « dégagez par
                 // A », l'avion vite arrêté) : le moniteur collationne aussi entre deux étapes, sinon la radio attend le
                 // collationnement, l'étape attend la radio, et la leçon reste bloquée
-                if (this.level === 1 && this.atc.pending) this._autoRadio(step, c);
+                if (this.level === 1 && this.atc.pending) this._autoRadio(step, c, delta);
                 return;
             }
         }
@@ -667,7 +667,7 @@ class Initiation {
             this._state.afterDone = true;
             step.afterSay(c, this);
         }
-        if (this.level === 1 || this._state.skipped) this._autoRadio(step, c);
+        if (this.level === 1 || this._state.skipped) this._autoRadio(step, c, delta);
         else this._radioHints(step, c);
         this._adviseFlight(c);
         if ((this._htmlTick = (this._htmlTick ?? 0) + delta) > 0.25) {
@@ -722,13 +722,14 @@ class Initiation {
     }
 
     // Niveau 1 : le moniteur fait la radio (appels, collationnements, changements de fréquence, transpondeur)
-    _autoRadio(step, c) {
+    _autoRadio(step, c, delta = 1 / 60) {
         const atc = this.atc;
         if (atc.busy || atc.blockedBy) return;
         if (atc.pending) {
             if (this._state.speaking && !step.flight) return;   // collationnement à la fin de sa phrase
-            this._readbackDelay = (this._readbackDelay ?? 0) + 1;
-            if (this._readbackDelay > 40) {   // ~0,7 s : le temps de réagir
+            // ~0,7 s de jeu : le temps de réagir (avant : 40 images, soit 4 s à 10 images/s)
+            this._readbackDelay = (this._readbackDelay ?? 0) + delta;
+            if (this._readbackDelay > 0.7) {
                 this._readbackDelay = 0;
                 atc.choose('readback');
             }
@@ -1140,10 +1141,11 @@ function buildSteps(level, lang = 'fr') {
             '900 feet: retract the flaps, T key. Then switch off the LAND light and the electric FUEL PUMP.'),
         why: T("Loin du sol, la pompe de secours et le phare ne servent plus ; volets rentrés, l'avion traîne moins et monte mieux.",
             'Away from the ground, the backup pump and the landing light are no longer needed; with the flaps up, the aeroplane has less drag and climbs better.') });
+    const step900 = steps.at(-1);
     add(P, { title: T('Virage vent arrière', 'Downwind turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 40,
-        // Une fois les gestes des 900 pieds faits (ou l'avion déjà à 1 000 ft) : un avion qui monte moins bien continue en vent
-        // traversier jusqu'à la hauteur du circuit (AC 90-66C § 11.7), et l'étape « 900 pieds » n'est pas sautée
-        wait: (c) => c.lateral > TURN_AT.downwind - c.lead && c.along > 200 && c.aal > 880 && (after900(c) || c.aal > 1000), waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
+        // La leçon attend la fin de l'étape « 900 pieds » (seuil inchangé) : un avion qui monte moins bien continue en vent
+        // traversier jusqu'à la hauteur du circuit (AC 90-66C § 11.7), et l'étape « 900 pieds » n'est jamais sautée
+        wait: (c) => c.lateral > TURN_AT.downwind - c.lead && c.along > 200 && c.index > steps.indexOf(step900), waiting: T('Continuez en vent traversier, montée vers 1000 pieds.', 'Continue on crosswind, climbing to 1000 feet.'),
         done: (c) => c.s?.downwind || headingDiff(c.heading, c.runway.heading + 180) < 20,
         say: (c) => T(`Virage à ${hand(c)} maintenant : cap ${capSay(c.runway.heading + 180)}, la branche vent arrière. La piste doit défiler à ${hand(c)}, parallèle.`,
             `Turn ${hand(c)} now: heading ${capSay(c.runway.heading + 180)}, the downwind leg. The runway should slide by on our ${hand(c)}, parallel.`) });

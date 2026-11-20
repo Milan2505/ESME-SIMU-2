@@ -12,14 +12,21 @@ Le site reste statique : `package.json` ne sert qu'aux vérifications, rien de `
 
 | Commande | Contenu | Durée |
 |---|---|---|
-| `npm run lint` | ESLint, règles recommandées (`eslint.config.js`) sur tout le code | ~5 s |
+| `npm run lint` | ESLint, règles recommandées (`eslint.config.js`) sur tout le code (cache dans `node_modules/.cache`) | ~1 s |
 | `npm test` | tests Node (`tests/*.test.js`) : modèles de vol, atmosphère, moteur et hélice, comportements réglés en jeu (non-régression), ILS, VOR, vent, masse et centrage, import map, performances C172P | ~3 s |
 | `npm run check` | lint + tests Node : **à lancer après chaque modification** | ~5 s |
-| `npm run test:e2e` | Playwright (`tests/e2e/`, sauf l'initiation complète) : le vrai simulateur dans Chromium sans fenêtre, WebGL logiciel, sans réseau | ~7 min |
-| `npm run check:full` | check + test:e2e | ~8 min |
-| `npm run test:initiation` | Playwright : initiation complète sur le modèle réaliste, chaque étape validée par sa condition (`tests/e2e/initiation.spec.js`, pilote de test `initiation-driver.js`) ; à lancer quand on touche à l'initiation, à l'ATC ou au modèle réaliste | ~15 min |
+| `npm run test:e2e` | Playwright (`tests/e2e/`, sauf l'initiation complète) : le vrai simulateur dans Chromium sans fenêtre, WebGL logiciel, sans réseau ; en parallèle, en temps accéléré | ~1,5 min |
+| `npm run check:full` | check + test:e2e | ~2 min |
+| `npm run test:initiation` | Playwright : initiation complète sur le modèle réaliste, chaque étape validée par sa condition (`tests/e2e/initiation.spec.js`, pilote de test `initiation-driver.js`) ; quand lancer : voir les règles ci-dessous ; en temps accéléré ×8 | ~2 min |
 
 Règles :
+- Quand lancer quoi (décision du 20/11/2026) : pendant le travail, seulement `npm run check` ; `npm run check:full` une
+  seule fois, juste avant le commit ; `npm run test:initiation` seulement si la leçon ou le vol du Cessna ont changé
+  (`js/Initiation.js`, `js/ATC.js`, `js/RigidBodyModel.js`, `js/FlightModel.js`, `js/data/C172pAero.js`, `js/Cessna172.js`,
+  `js/Propulsion.js`, `js/Atmosphere.js`, `js/InputRamp.js`, `js/PlaneControls.js`), une seule fois avant le commit. Les
+  tests de bout en bout tournent en parallèle (un simulateur par cœur) et en temps accéléré (`window.__sim.setTimeScale`,
+  mode test seulement : même physique, pas de 0,1 s au plus ; radio et moniteur muets et accélérés) : ~1,5 min pour
+  `test:e2e`, ~2 min pour `test:initiation`.
 - Ne jamais annoncer une tâche finie sans `npm run check` vert, et dire quels tests couvrent la modification (tests
   existants qui l'exercent, ou tests ajoutés). Pas de test qui la couvre : le dire aussi.
 - `npm run check:full` est obligatoire quand la modification touche au rendu (Graphics, shaders, modèles 3D, cabines),
@@ -35,7 +42,7 @@ Règles :
 - Variante de référence : Cessna 172P (1981, Lycoming O-320-D2J de 160 ch, 2 400 lb) partout : modèle 3D, sons, moteur,
   masse et centrage (`WeightBalance.js`), performances. Ce qui n'a pas été relu dans une source primaire est marqué
   « non relu » dans le code.
-- Test en `todo` : le virage à 30° du joueur naïf au clavier (`keyboard-pilot.test.js`, décision en attente, lot 1). Un todo
+- Aucun test en `todo` aujourd'hui. Un todo
   ne se pose que pour un chantier identifié de la feuille de route, jamais pour faire passer une vérification.
 - Un test qui échoue à cause du banc d'essai (automatisme de test, tolérance numérique de l'intégration) se corrige dans
   `tests/helpers/` ; un test qui échoue parce que le simulateur est faux reste rouge.
@@ -43,11 +50,13 @@ Règles :
 ## Mode test du simulateur (`?test=1`)
 
 `index.html?test=1` (voir `TEST_MODE` dans `simulator.js`) : multijoueur coupé (`Multiplayer.offline`), arbres EZ-Tree
-du CDN non chargés (`Scenery` : `trees: false`), voix radio de l'ordinateur, musique du mode troll coupée, service worker
+du CDN non chargés (`Scenery` : `trees: false`), voix muettes (`RadioVoices` mode 'silent' : chaque message dure son
+temps de lecture), musique du mode troll coupée, service worker
 non enregistré, graines fixes (vent, rafales, aile qui tombe : `Random.js`), qualité « Bas » sans toucher aux réglages
 enregistrés (`Settings.persist = false`). `window.__sim` : `phase` (chargement, menu, carte, aerodrome, hangar, depart,
 vol, crash), `state` (vitesse, altitude, cap, moteur…), `controls`, `model`, `setThrottle`, `setInput`, `setFlapLevel`,
-`errors`. `window.esmeDebug` existe aussi, en tout mode. Les tests e2e (`tests/e2e/vol.spec.js`) passent par les vrais
+`errors`, `setTimeScale(n)` (temps accéléré, 1 à 32, mode test seulement : pas supplémentaires de 0,1 s au plus avant
+chaque image, `simulateStep` ; attentes de la radio divisées d'autant, `js/TimeScale.js`). `window.esmeDebug` existe aussi, en tout mode. Les tests e2e (`tests/e2e/vol.spec.js`) passent par les vrais
 boutons du menu ; `tests/e2e/server.js` sert `index.html` avec three et mqtt pris dans `node_modules` (versions
 épinglées dans `package.json`, vérifiées par `tests/import-map.test.js`) ; les captures sont dans `test-results/`.
 

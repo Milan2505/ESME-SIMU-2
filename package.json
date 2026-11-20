@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "prepare": "node .githooks/install.js",
-    "lint": "eslint .",
+    "lint": "eslint --cache --cache-strategy content --cache-location node_modules/.cache/eslint/ .",
     "test": "node --test tests/*.test.js",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm test",
