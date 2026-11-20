@@ -5120,8 +5120,10 @@ window.__sim = {
             rotorPercent: model.heli ? model.rotorPercent : null, loopErrors: loopErrors.length,
         };
     },
-    controls, wind, airport, settings,
+    controls, wind, airport, settings, atc, avionics,
     get model() { return controls.model; },
+    get systems() { return systems; },
+    get initiation() { return initiation; },
     get errors() { return loopErrors; },
     // Commandes : gaz (0 -> 1 ; R44 : collectif), manche et palonnier (-1 -> 1, voir PlaneControls.setTouchInput), volets
     setThrottle(value) { controls.throttle = Math.min(1, Math.max(0, value)); },

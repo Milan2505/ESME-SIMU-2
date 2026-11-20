@@ -631,7 +631,13 @@ class Initiation {
         if (!this._state.spoken) {
             const radioQuiet = !this.atc.busy && !(this.level === 1 && this.atc.pending);
             if (safe(() => step.wait(c)) && (step.urgent || radioQuiet)) this._enter();
-            else return;
+            else {
+                // Niveau 1 : instruction reçue juste à la fin de l'étape précédente (après l'atterrissage, « dégagez par
+                // A », l'avion vite arrêté) : le moniteur collationne aussi entre deux étapes, sinon la radio attend le
+                // collationnement, l'étape attend la radio, et la leçon reste bloquée
+                if (this.level === 1 && this.atc.pending) this._autoRadio(step, c);
+                return;
+            }
         }
         if (step.parts) this._refreshParts(step, c);
         if (this._state.glanceUntil && this._time > this._state.glanceUntil) {

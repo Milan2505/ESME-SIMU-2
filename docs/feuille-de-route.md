@@ -138,7 +138,12 @@ Garde l'ancien modèle derrière un réglage « Modèle de vol : simplifié / r�
 Livre un tableau mesuré / manuel pour chaque valeur.
 ```
 
-**Critères d'acceptation** : montée au niveau de la mer entre 650 et 800 ft/min ; montée plus faible à 5 000 ft ; décrochage lisse 50 à 55 kt ; spirale qui ne se redresse plus seule depuis 45° ; ancien modèle sélectionnable.
+**Critères d'acceptation** : montée au niveau de la mer entre 650 et 800 ft/min ; montée plus faible à 5 000 ft ; décrochage lisse 50 à 55 kt ; spirale légèrement stable, conforme au modèle linéaire UIUC (décision du 18/11/2026 : on
+garde les données sourcées) : pente λ mesurée en test depuis 20° d'inclinaison, manche lâché, à ±0,01 /s de celle du
+modèle UIUC au même point de vol (-0,014 /s à 100 KTAS et 1 000 m, constante de temps ~70 s ; mesuré -0,013 /s, soit
+~79 s : `tests/flying-qualities.test.js`) ; ancien modèle sélectionnable. (Critère d'origine abandonné : « spirale qui ne
+se redresse plus seule depuis 45° », sans source ; le point 4 du constat, « neutre à légèrement instable », n'est pas
+sourcé non plus.)
 
 **État (18/11/2026)** : modèle réaliste livré (`js/RigidBodyModel.js`, données `js/data/C172pAero.js`), au choix dans
 Paramètres > Pilotage > « Modèle de vol (Cessna) », simplifié par défaut. Performances du POH 172P vertes sur les deux
@@ -149,14 +154,26 @@ montée progressive des commandes (`js/InputRamp.js`, `tests/keyboard-pilot.test
 - Carte Mer : le Cessna y garde le modèle simplifié. La catapulte et les brins d'arrêt (`simulator.js`) pilotent des
   champs internes du modèle simplifié (`_liftoffEase`, vitesse posée directement…) ; il faut les réécrire en efforts
   (crochet, câble) pour le modèle réaliste.
-- Vrille établie : l'autorotation démarre au décrochage avec le pied à fond et PARE l'arrête en moins d'un tour, mais
-  après ~1 tour le nez plonge (-60 à -80°), l'incidence retombe vers 13° et la vitesse passe 90 KIAS : un piqué en
-  spirale, pas une vrille (vitesse basse et stable). Test en attente : `tests/flying-qualities.test.js` (todo). Piste :
-  portance et traînée de l'aile décrochée, tables de vrille du fichier c172p (roulis dû au lacet ×35 aile décrochée).
-- Spirale : le critère « spirale qui ne se redresse plus seule depuis 45° » contredit les données. Le modèle linéaire
-  UIUC (Roskam) donne une spirale stable, à peine (λ = -0,014 /s à 100 KTAS) ; le modèle réaliste la suit
-  (λ = -0,013 /s : de 20° à 10° en ~60 s). À trancher : garder les données, ou une source primaire d'essais en vol du
-  C172 qui montre une spirale neutre ou instable.
+- Initiation, mesurée sur le modèle réaliste (`npm run test:initiation`, 18/11/2026) : 65 étapes sur 66 validées par
+  leur condition. Seuil physiquement inatteignable : « 900 pieds : volets, phare, pompe » attend 880 ft, mais la leçon
+  passe au virage vent arrière vers 450 m de l'axe ; l'avion y est à 618 ft. Le tracé (`CIRCUIT`, `js/Initiation.js` :
+  600 ft au virage vent traversier, 1 000 ft au virage vent arrière) demande ~900 ft/min, le 172P en monte ~700 à
+  2 400 lb (POH fig. 5-6), moins avec 10° de volets ; vrai aussi au modèle simplifié (mêmes performances). À décider :
+  tracé, seuil ou ordre des étapes. Autre constat (pas physique) : « Dégager la piste » accepte une sortie par l'herbe
+  (toute zone autre que la piste) ; posé à 272 m du seuil à 52 kt, l'avion s'arrête vers 580 m, au-delà de la bretelle
+  (500 m), et le pilote de test a dégagé par l'herbe en revenant.
+- Joueur naïf au clavier (tient la touche jusqu'à l'assiette visée, sans anticiper) : hors limites en douceur normale
+  (rotation 29,5°/s, virage à 30° 20°/s et 2,37 g, arrondi 20°/s ; limites 15°/s, 2 g). La douceur « douce » ne suffit
+  pas (25,3°/s à la rotation), ni une montée en 6 s (19,1°/s), ni une montée en deux temps (16,9 à 24,1°/s). Décision en
+  attente : régler la montée progressive autrement, ou accepter ce comportement. Tests en todo :
+  `tests/keyboard-pilot.test.js`.
+- Vrille : testée en catégorie utilitaire, seule configuration où le POH 172P l'autorise (2 100 lb, centrage avant
+  36,5 in ; POH 1981 p. 2-7, 2-8, 4-18, 4-19), dans `tests/flying-qualities.test.js` : 2 tours décrochés à assiette
+  prononcée, passage en spirale au 5e ou 6e tour avec vitesse et facteur de charge qui montent, sortie PARE en moins
+  d'1/4 de tour, ~1 100 ft pour 1 tour et sa sortie, 2,3 à 2,7 fois plus pour 6 tours, comme au POH. Écarts restants,
+  non sourcés en chiffres : la vitesse monte dès le 2e tour (67 -> 96 KIAS en 4 tours), ~1,5 s par tour ; « surtout à
+  droite » non reproduit (spirale au 5e tour à gauche, au 6e à droite) ; au centrage arrière (40,5 in), la vrille reste
+  décrochée 6 tours. À reprendre si une source chiffrée (essais en vol, NASA) donne vitesse et taux de rotation.
 
 **Suite possible** : même travail pour le F-15 (`F15.js` : CL et CD en fonction du Mach, commandes électriques comme vraie loi de pilotage) et vérification du R44 contre son manuel (le header de `HeliModel.js` est déjà de bonne facture : théorie de l'élément de pale).
 

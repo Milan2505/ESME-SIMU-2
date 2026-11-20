@@ -6,6 +6,8 @@ const PORT = 8765;
 
 export default defineConfig({
     testDir: 'tests/e2e',
+    // Initiation complète (~15 min) : à part, npm run test:initiation (playwright.initiation.config.js)
+    testIgnore: '**/initiation.spec.js',
     timeout: 300_000,            // par test : écran de chargement compris (shaders compilés par le processeur)
     expect: { timeout: 30_000 },
     fullyParallel: false,

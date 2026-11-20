@@ -127,51 +127,87 @@ test('lacet inverse : ailerons seuls à droite à 65 KIAS, le nez part d\'abord 
     assert.ok(minHeading < -0.5, `le nez part à gauche (lacet inverse) : cap ${minHeading.toFixed(2)}° au plus à gauche`);
 });
 
-// --- Vrille (POH 172P sect. 4, « Spins », non relu : manche plein arrière et pied à fond au décrochage ; sortie : gaz
-// réduits, ailerons au neutre, pied à fond opposé, manche franchement vers l'avant, puis ressource) ---------------------
+// --- Vrille, en catégorie utilitaire : seule configuration où le POH 172P autorise les vrilles -----------------------
+// Sources (POH Cessna 172P, édition 1981, relu sur ManualsLib le 18/11/2026) :
+// - sect. 2, p. 2-7 et 2-8 : catégorie utilitaire, 2 100 lb au plus, centrage de 35,0 in (1 950 lb) à 36,5 in (2 100 lb)
+//   vers l'avant, 40,5 in vers l'arrière ; vrilles approuvées, places arrière et soute vides, volets rentrés ;
+// - sect. 4, p. 4-18 et 4-19 : entrée depuis un décrochage gaz réduits, manche amené progressivement plein arrière, pied à
+//   fond dans le sens de la vrille juste avant la rupture, ailerons au neutre ; « jusqu'à 2 tours, rotation assez rapide
+//   et assiette prononcée » ; sortie (gaz réduits, ailerons au neutre, pied à fond opposé, manche franchement vers l'avant,
+//   tenus jusqu'à l'arrêt de la rotation) « en moins d'un quart de tour » ; « au moins 1 000 ft pour une vrille d'un tour
+//   et sa sortie, un peu plus du double pour 6 tours » ; « au-delà de deux à trois tours, la vrille tend à se changer en
+//   spirale, surtout à droite, avec une augmentation de la vitesse et du facteur de charge ».
+// Mesuré au centrage avant (36,5 in) : passage en spirale (aile qui ne porte plus décrochée) au 5e tour à gauche, au 6e
+// à droite. Non reproduit : « surtout à droite ». Au centrage arrière (40,5 in), la vrille reste décrochée 6 tours.
+// Non sourcé, donc non testé : vitesse et taux de rotation en vrille (le modèle accélère dès le 2e tour, ~1,5 s par tour).
+const LB = 0.45359237, IN = 0.0254;
+const UTILITY = { mass: 2100 * LB, cgForward: 36.5 * IN };
 const _omega = new Vector3();
-function spin({ side, turnsBeforeRecovery = 1 }) {
-    const f = airborne(realistic(), { altitude: 2000, speed: 65 * KT, throttle: 0 }), { model, object } = f;
+function spin({ side, turns: held, mass = UTILITY.mass, cg = UTILITY.cgForward }) {
+    const f = airborne(realistic(), { altitude: 2500, speed: 65 * KT, throttle: 0 }), { model, object } = f;
+    model.mass = mass;
+    model.cgOffset = cg - 1.0;   // (cgOffset : écart au centrage de référence du modèle, 1,0 m, voir simulator.js)
     model.trim = 0;
-    const r = { stallSpeed: null, entryTurns: 0, entryTime: null, recoveryTurns: null, recoveryTime: null, altitudeLost: null, maxSpeed: 0, crashed: false, level: false };
-    let phase = 'slow', stick = 0, turns = 0, tStall = null, tPare = null, turnsAtPare = 0, y0 = object.position.y, yPare = null;
-    run(f, 120, { pilot: (t) => {
+    const r = { perTurn: [], recoveryTurns: null, altitudeLost: null, maxLoad: 0, crashed: false, level: false };
+    let phase = 'slow', stick = 0, turns = 0, tPare = null, turnsAtPare = 0, yEntry = null, current = null;
+    const y0 = object.position.y;
+    run(f, 180, { pilot: (t) => {
         const c = model.controls, a = attitude(f);
         _omega.copy(model._angularVelocity).applyQuaternion(object.quaternion);
         turns += _omega.y * DT / (2 * Math.PI) * side;   // tours du côté du pied (+ : à gauche pour side = 1)
         if (phase === 'slow') {
-            // Palier gaz réduits : l'assiette monte doucement (~1 kt/s), jusqu'au décrochage
+            // Palier gaz réduits, assiette qui monte doucement ; juste avant la rupture : manche plein arrière, pied à fond
             stick = Math.max(-1, Math.min(1, stick + DT * (0.08 * (y0 - object.position.y) - 0.15 * model.velocity.y)));
             Object.assign(c, { pitch: stick, roll: 0, yaw: 0 });
-            if (model.stalled) { phase = 'spin'; tStall = t; turns = 0; r.stallSpeed = model.indicatedSpeed / KT; }
+            if (t > 1 && (model.alpha > model.stallAlpha() - 1 / RAD || model.stalled)) { phase = 'spin'; turns = 0; yEntry = object.position.y; }
         } else if (phase === 'spin') {
             Object.assign(c, { pitch: 1, roll: 0, yaw: side });
-            if (turns >= turnsBeforeRecovery) { phase = 'pare'; tPare = t; turnsAtPare = turns; yPare = object.position.y; r.entryTime = t - tStall; }
+            const k = Math.max(0, Math.floor(turns));
+            if (current?.k !== k) { current = { k, n: 0, stalled: 0, pitch: 0, maxKias: 0, maxLoad: 0 }; r.perTurn.push(current); }
+            current.n++; current.stalled += model.stalled ? 1 : 0; current.pitch += a.pitch * RAD;
+            current.maxKias = Math.max(current.maxKias, model.indicatedSpeed / KT); current.maxLoad = Math.max(current.maxLoad, model.loadFactor);
+            if (turns >= held) { phase = 'pare'; tPare = t; turnsAtPare = turns; }
         } else if (phase === 'pare') {
             Object.assign(c, { pitch: -0.5, roll: 0, yaw: -side });
-            if (Math.abs(_omega.y) < 0.1 && t - tPare > 0.3) { phase = 'pullout'; r.recoveryTime = t - tPare; r.recoveryTurns = turns - turnsAtPare; }
+            if (Math.abs(_omega.y) < 0.1 && t - tPare > 0.3) { phase = 'pullout'; r.recoveryTurns = turns - turnsAtPare; }
         } else if (phase === 'pullout') {
+            // Ressource : ailes à plat, manche tiré à 30 %
             Object.assign(c, { pitch: 0.3, yaw: 0, roll: Math.max(-1, Math.min(1, -2 * a.bank)) });
-            if (a.pitch > 0) { phase = 'done'; r.level = true; r.altitudeLost = yPare - object.position.y; }
+            if (a.pitch > 0) { phase = 'done'; r.level = true; r.altitudeLost = (yEntry - object.position.y) / 0.3048; }
         }
-        if (phase !== 'slow') r.maxSpeed = Math.max(r.maxSpeed, model.indicatedSpeed / KT);
+        if (phase !== 'slow') r.maxLoad = Math.max(r.maxLoad, model.loadFactor);
     }, until: () => phase === 'done' });
     r.crashed = model.crashed;
-    r.entryTurns = turnsAtPare;
+    r.perTurn = r.perTurn.map((p) => ({ turn: p.k + 1, stalled: p.stalled / p.n, pitch: p.pitch / p.n, maxKias: p.maxKias, maxLoad: p.maxLoad }));
     return r;
 }
+const describe = (r) => r.perTurn.map((p) => `tour ${p.turn} : ${(p.stalled * 100).toFixed(0)} % décroché, assiette ${p.pitch.toFixed(0)}°, ${p.maxKias.toFixed(0)} KIAS, ${p.maxLoad.toFixed(1)} g`).join(' ; ');
+const oneTurn = {};
 for (const [label, side] of [['à gauche', 1], ['à droite', -1]]) {
-    test(`vrille ${label} : autorotation au décrochage avec le pied à fond, sortie par PARE en moins d'un tour, ressource sous la VNE`, (t) => {
-        const r = spin({ side });
-        t.diagnostic(`décrochage ${r.stallSpeed?.toFixed(0)} KIAS, 1 tour en ${r.entryTime?.toFixed(1)} s, arrêt ${r.recoveryTime?.toFixed(1)} s après PARE (${r.recoveryTurns?.toFixed(2)} tour), perte ${r.altitudeLost?.toFixed(0)} m, vitesse max ${r.maxSpeed.toFixed(0)} KIAS`);
-        assert.ok(r.stallSpeed !== null && r.stallSpeed < 60, `décrochage gaz réduits à ${r.stallSpeed?.toFixed(0)} KIAS`);
-        assert.ok(r.entryTime !== null && r.entryTime < 10, `un tour d'autorotation du côté du pied en ${r.entryTime?.toFixed(1)} s`);
-        assert.ok(r.recoveryTurns !== null && r.recoveryTurns < 1, `rotation arrêtée ${r.recoveryTime?.toFixed(1)} s après PARE, ${r.recoveryTurns?.toFixed(2)} tour de plus`);
+    test(`vrille ${label}, catégorie utilitaire (2 100 lb, centrage avant 36,5 in) : 1 tour, sortie PARE en moins d'1/4 de tour, ~1 000 ft perdus (POH 172P p. 4-18)`, (t) => {
+        const r = oneTurn[side] = spin({ side, turns: 1 });
+        t.diagnostic(`${describe(r)} ; sortie en ${r.recoveryTurns?.toFixed(2)} tour ; ${r.altitudeLost?.toFixed(0)} ft perdus de l'entrée à la ressource`);
         assert.ok(r.level && !r.crashed, 'ressource jusqu\'à l\'assiette positive, sans crash');
-        assert.ok(r.maxSpeed < 158, `vitesse max ${r.maxSpeed.toFixed(0)} KIAS < VNE 158 KIAS (POH 172P sect. 2, non relu)`);
+        assert.ok(r.perTurn[0].stalled >= 0.8, `autorotation aile décrochée du côté du pied : ${(r.perTurn[0].stalled * 100).toFixed(0)} % du 1er tour`);
+        assert.ok(r.recoveryTurns !== null && r.recoveryTurns < 0.25, `rotation arrêtée en ${r.recoveryTurns?.toFixed(2)} tour (POH : moins d'1/4)`);
+        // POH : « au moins 1 000 ft » à prévoir : valeur de planification arrondie ; ±25 %, la ressource du banc d'essai
+        // (manche à 30 %) n'est pas celle d'un pilote d'essai
+        assert.ok(r.altitudeLost >= 750 && r.altitudeLost <= 1250, `${r.altitudeLost.toFixed(0)} ft perdus (POH : ~1 000 ft ±25 %)`);
+    });
+    test(`vrille prolongée ${label}, catégorie utilitaire, centrage avant : rotation rapide et assiette prononcée 2 tours, puis passage en spirale (vitesse et facteur de charge qui montent), sortie PARE (POH 172P p. 4-18, 4-19)`, (t) => {
+        const r = spin({ side, turns: 6 });
+        t.diagnostic(`${describe(r)} ; sortie en ${r.recoveryTurns?.toFixed(2)} tour ; ${r.altitudeLost?.toFixed(0)} ft perdus`);
+        assert.ok(r.level && !r.crashed, 'ressource sans crash');
+        const [first, second] = r.perTurn;
+        assert.ok(first.stalled >= 0.8 && second.stalled >= 0.8, 'aile décrochée les deux premiers tours');
+        assert.ok(second.pitch <= -40, `assiette prononcée au 2e tour : ${second.pitch.toFixed(0)}°`);
+        const later = r.perTurn.slice(2);
+        assert.ok(later.some((p) => p.stalled < 0.5), 'après 2 tours, passage en spirale : un tour où l\'aile ne porte plus décrochée');
+        assert.ok(Math.max(...later.map((p) => p.maxKias)) > second.maxKias && Math.max(...later.map((p) => p.maxLoad)) > second.maxLoad, 'vitesse et facteur de charge qui augmentent');
+        assert.ok(r.maxLoad <= 4.4, `facteur de charge max ${r.maxLoad.toFixed(1)} g (catégorie utilitaire : +4,4 g, POH p. 2-8)`);
+        assert.ok(r.recoveryTurns !== null && Math.abs(r.recoveryTurns) < 0.25, `rotation arrêtée en ${r.recoveryTurns?.toFixed(2)} tour`);
+        // POH : 6 tours et la sortie demandent « un peu plus du double » d'1 tour et sa sortie
+        const ratio = r.altitudeLost / oneTurn[side].altitudeLost;
+        assert.ok(ratio >= 2 && ratio <= 3, `${r.altitudeLost.toFixed(0)} ft, ${ratio.toFixed(2)} fois la vrille d'un tour (POH : un peu plus du double)`);
     });
 }
-// Chantier identifié (feuille de route, lot 1, reste à faire) : la vrille ne s'établit pas. Après ~1 tour, le nez plonge
-// (assiette -60 à -80°), l'incidence retombe vers 13° et la vitesse monte au-delà de 90 KIAS : un piqué en spirale, pas
-// une vrille, où la vitesse reste basse et stable
-test.todo('vrille établie : 3 tours avec une vitesse indiquée stable sous 70 KIAS et une incidence au-dessus de 20°');
