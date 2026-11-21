@@ -165,6 +165,7 @@
 				<button id="retour-hangar" title="Retour au hangar : changer d'avion, de livrée, d'immatriculation">Hangar (changer d'avion)</button>
 				<button id="retour-aerodrome" title="Retour au choix de l'aérodrome">Changer d'aérodrome</button>
 				<button id="nav-panneaux" title="Afficher ou masquer les indicateurs VOR et ILS en vue extérieure (touche O : VOR seul)">VOR / ILS : masqués</button>
+				<button id="peripheriques" title="Manche, yoke, palonnier, manette des gaz, manette Xbox : assigner les axes et les boutons">Périphériques…</button>
 			</div>
 			<table class="aide">
 				<tr><th colspan="2">Pilotage (clavier AZERTY)</th></tr>
@@ -351,6 +352,7 @@
 				<button id="mp-initiation" class="mp-bouton"><strong>Initiation</strong><small>Apprendre à piloter avec un moniteur</small></button>
 				<button id="mp-masse" class="mp-bouton"><strong>Masse et centrage</strong><small>Pilote, passagers, bagages et carburant</small></button>
 				<button id="mp-parametres" class="mp-bouton"><strong>Paramètres</strong><small>Graphismes et aides au pilotage</small></button>
+				<button id="mp-peripheriques" class="mp-bouton"><strong>Périphériques</strong><small>Manche, yoke, palonnier, manette</small></button>
 				<a class="mp-bouton" href="manuel.html"><strong>Manuel</strong><small>Commandes et procédures</small></a>
 			</nav>
 		</div>
@@ -661,6 +663,23 @@
 		<div class="mc-boutons">
 			<button id="mc-defaut" type="button">Chargement par défaut</button>
 			<button id="mc-fermer" type="button" class="mc-valider">Appliquer et fermer</button>
+		</div>
+	</dialog>
+
+	<!-- Commandes > Périphériques : manches, yokes, palonniers, manettes (Gamepad API, voir DevicesWindow.js) -->
+	<dialog id="peripheriques-dialog">
+		<h3>Périphériques</h3>
+		<p class="reglages-intro">Manche, yoke, palonnier, manette des gaz ou manette de jeu : branchez-le, puis appuyez sur un de ses boutons. Plusieurs à la fois. Les axes agissent directement, en plus du clavier ; les réglages sont gardés pour chaque périphérique.</p>
+		<h4 class="periph-groupe">Branchés</h4>
+		<div id="periph-appareils"></div>
+		<h4 class="periph-groupe">Fonctions · <span id="periph-avion"></span></h4>
+		<div id="periph-fonctions"></div>
+		<p id="periph-message" role="status"></p>
+		<div class="multi-ligne">
+			<button id="periph-exporter" class="periph-secondaire" title="Enregistrer les profils dans un fichier JSON">Exporter</button>
+			<button id="periph-importer" class="periph-secondaire" title="Reprendre des profils exportés (JSON)">Importer</button>
+			<input id="periph-fichier" type="file" accept=".json,application/json" hidden>
+			<button id="periph-fermer">Fermer</button>
 		</div>
 	</dialog>
 

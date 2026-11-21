@@ -135,6 +135,7 @@ function tabletRegistry(sim) {
                         { id: 'carte', label: 'CARTE', type: 'toggle', action: () => sim.toggleMap(), value: () => sim.mapOpen(), states: ['FERMÉE', 'OUVERTE'] },
                         { id: 'photo', label: 'MODE PHOTO', type: 'button', action: () => sim.togglePhotoMode() },
                         { id: 'parametres', label: 'PARAMÈTRES', type: 'button', action: () => sim.openSettings() },
+                        { id: 'peripheriques', label: 'PÉRIPHÉRIQUES', type: 'button', action: () => sim.openDevices() },
                     ],
                 },
             ],

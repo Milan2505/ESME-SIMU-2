@@ -199,6 +199,20 @@ de la souris et du tactile (PlaneControls.setTouchInput montre comment les entr�
 Le menu Commandes doit toujours s'adapter à l'appareil choisi au hangar, comme aujourd'hui.
 ```
 
+**État (21/11/2026)** : livré. `js/GamepadMapping.js` (pur : fonctions, préréglages reconnus par le couple
+fabricant:produit USB de l'identifiant Chrome ou Firefox, ou XInput / disposition standard pour la Xbox ; axes : inversion,
+zone morte, courbe cubique, sensibilité ; profils dans localStorage `esme-peripheriques`, export et import JSON),
+`js/Gamepads.js` (lecture une fois par image, branchement à chaud, fronts des boutons, écoute « Assigner »),
+`js/DevicesWindow.js` (fenêtre Commandes > Périphériques, aussi au menu principal et sur tablette ; fonctions de
+l'appareil choisi au hangar). Axes appliqués directement, sans montée progressive (`PlaneControls.setAxisInput`) ; gaz,
+collectif, poussée et mixture d'un levier appliqués quand le levier bouge (clavier, souris, départ et leçon gardent la
+main) ; freins roue par roue sur le modèle réaliste. Tests : `tests/gamepads.test.js`, `tests/e2e/peripheriques.spec.js`
+(yoke et palonnier Saitek simulés : fenêtre, « Assigner », décollage et montée du C172 au yoke seul).
+**Reste à faire** : la disposition des préréglages (sens des leviers, numéros des boutons, axes du TFRP, chapeau chinois
+vu comme un axe hors plage au centre) vient des noms d'axes DirectInput et de l'usage courant, pas d'un essai sur le
+matériel : à relever sur de vrais périphériques (Chrome et Firefox). Poignée des gaz du R44 et commandes du F-15 (train,
+aérofrein, changement d'arme) non assignables.
+
 ---
 
 ### Lot 3. Atmosphère, altimètre et météo réelle

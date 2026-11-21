@@ -7,7 +7,7 @@ import {
 import { FlightModel } from './FlightModel.js';
 import { InputRamp } from './InputRamp.js';
 
-// Commandes de l'avion au clavier : les touches deviennent des commandes (manche, gaz, trim, volets, freins)
+// Commandes de l'avion au clavier (et axes des périphériques, voir setAxisInput) : les touches deviennent des commandes (manche, gaz, trim, volets, freins)
 // transmises au modèle de vol (FlightModel.js, la physique) ; fournit aussi les valeurs des instruments.
 
 const _changeEvent = { type: 'change' };
@@ -56,7 +56,11 @@ class PlaneControls extends Controls {
 		// elles s'ajoutent au clavier
 		this._touch = { pitch: 0, roll: 0, yaw: 0, brake: 0, trim: 0 };
 		this._rotationVector = new Vector3( 0, 0, 0 );   // touches enfoncées (-1, 0 ou 1) et manche tactile
-		this._controls = new Vector3( 0, 0, 0 );         // position réelle des gouvernes, qui suit les touches en douceur
+		this._smoothed = new Vector3( 0, 0, 0 );         // part du clavier et du tactile, qui suit les touches en douceur
+		this._controls = new Vector3( 0, 0, 0 );         // position réelle des gouvernes : clavier et tactile + périphériques
+		// Périphériques (manche, yoke, palonnier, manette : Gamepads.js) : axes appliqués directement, sans montée
+		// progressive ; null = aucun. Voir setAxisInput
+		this._pad = null;
 		this.inputRamp = new InputRamp();                // modèle réaliste : montée progressive des commandes (InputRamp.js)
 		this._lastQuaternion = new Quaternion();
 		this._lastPosition = new Vector3();
@@ -146,6 +150,7 @@ class PlaneControls extends Controls {
 		this.model.throttle = this._savedThrottle;
 		this.model.restart( this._savedOnGround );
 		this._controls.set( 0, 0, 0 );
+		this._smoothed.set( 0, 0, 0 );
 		this.inputRamp.reset();
 		this.dispatchEvent( _resetEvent );
 	}
@@ -169,18 +174,29 @@ class PlaneControls extends Controls {
 		// et retour à vitesse limitée (InputRamp), une touche ne braque pas à fond d'un coup ; simplifié : lissage d'origine
 		if ( model.realistic ) {
 			const v = this.inputRamp.update( { pitch: this._rotationVector.x, yaw: this._rotationVector.y, roll: this._rotationVector.z }, delta, model.indicatedSpeed / _KT );
-			this._controls.set( v.pitch, v.yaw, v.roll );
+			this._smoothed.set( v.pitch, v.yaw, v.roll );
 		} else {
-			this._controls.lerp( this._rotationVector, 1 - Math.exp( - delta / _CONTROL_SMOOTHING * 3 ) );
+			this._smoothed.lerp( this._rotationVector, 1 - Math.exp( - delta / _CONTROL_SMOOTHING * 3 ) );
 		}
+		// Axes des périphériques : la position du manche est celle de la gouverne, tout de suite (ni rampe ni lissage)
+		const pad = this._pad;
+		this._controls.set(
+			MathUtils.clamp( this._smoothed.x + ( pad?.pitch ?? 0 ), - 1, 1 ),
+			MathUtils.clamp( this._smoothed.y + ( pad?.yaw ?? 0 ), - 1, 1 ),
+			MathUtils.clamp( this._smoothed.z + ( pad?.roll ?? 0 ), - 1, 1 ) );
+		// Freins : clavier, tactile, frein de parc sur les deux roues ; périphériques roue par roue (seul le modèle réaliste
+		// freine chaque roue à part : les autres reçoivent le plus fort des deux)
+		const brakeLeft = pad?.brakeLeft ?? 0, brakeRight = pad?.brakeRight ?? 0;
+		const brake = Math.max( this._moveState.brake, this._touch.brake, this.parkingBrake ? 1 : 0 );
 		Object.assign( model.controls, {
 			pitch: this._controls.x,
 			yaw: this._controls.y,
 			roll: this._controls.z,
-			brake: Math.max( this._moveState.brake, this._touch.brake, this.parkingBrake ? 1 : 0 ),
+			brake: model.realistic ? brake : Math.max( brake, brakeLeft, brakeRight ),
+			brakeLeft, brakeRight,
 		} );
-		model.throttle = Math.min( 1, Math.max( 0, model.throttle + this.accel * this.throttleRate * delta ) );
-		const trim = MathUtils.clamp( this._moveState.trimUp - this._moveState.trimDown + this._touch.trim, - 1, 1 );
+		model.throttle = Math.min( 1, Math.max( 0, model.throttle + ( this.accel + ( pad?.accel ?? 0 ) ) * this.throttleRate * delta ) );
+		const trim = MathUtils.clamp( this._moveState.trimUp - this._moveState.trimDown + this._touch.trim + ( pad?.trim ?? 0 ), - 1, 1 );
 		model.trim = MathUtils.clamp( model.trim + trim * _TRIM_RATE * delta,
 			model.aircraft.trimTabMin, model.aircraft.trimTabMax );
 
@@ -241,6 +257,14 @@ class PlaneControls extends Controls {
 		this._updateVectors();
 	}
 
+	// Périphériques (voir Gamepads.js, simulator.js) : { pitch (+ = cabrer), roll (+ = à gauche), yaw (+ = à gauche),
+	// brakeLeft, brakeRight (0 -> 1), trim (+ = cabrer, tenu), accel (gaz : + = plus, tenu) }, champs absents = 0 ;
+	// null : aucun périphérique. Contrairement au tactile, rien n'est réécrit par ailleurs : la valeur reste jusqu'au
+	// prochain appel
+	setAxisInput( input ) {
+		this._pad = input;
+	}
+
 	// --- Valeurs pour les instruments, le son et l'affichage ---
 
 	getRoll() {
@@ -268,15 +292,16 @@ class PlaneControls extends Controls {
 	getThrottle() {
 		return this.model.throttle;
 	}
-	// Commandes du pilote : profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins (touche B ou frein de
-	// parc) ; toeBrake : pointes des pieds sur les freins (touche B seule, 0 / 1)
+	// Commandes du pilote : profondeur (+ = cabrer), ailerons et palonnier (+ = gauche), freins (touche B, frein de parc
+	// ou pédales) ; toeBrake : pointes des pieds sur les freins (touche B ou pédales, sans le frein de parc)
 	getInputs() {
+		const pedals = Math.max( this._pad?.brakeLeft ?? 0, this._pad?.brakeRight ?? 0 );
 		return {
 			pitch: this._controls.x,
 			roll: this._controls.z,
 			yaw: this._controls.y,
-			brake: Math.max( this._moveState.brake, this._touch.brake, this.parkingBrake ? 1 : 0 ),
-			toeBrake: Math.max( this._moveState.brake, this._touch.brake ),
+			brake: Math.max( this._moveState.brake, this._touch.brake, this.parkingBrake ? 1 : 0, pedals ),
+			toeBrake: Math.max( this._moveState.brake, this._touch.brake, pedals ),
 		};
 	}
 	// Trim : angle du tab (degrés, + = à cabrer), repère de décollage et butées

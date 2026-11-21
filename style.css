@@ -2522,6 +2522,142 @@ body:has(#simulator.jeu) {
   background: linear-gradient(90deg, #2580d1, #1d5c9c);
 }
 
+/* Commandes > Périphériques (DevicesWindow.js) : même thème bleu nuit que les Paramètres */
+#peripheriques-dialog {
+  box-sizing: border-box;
+  width: min(980px, 94vw);
+  max-width: none;
+  max-height: 90vh;
+  padding: 26px 32px 20px;
+  overflow: auto;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  font-size: 14px;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#peripheriques-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#peripheriques-dialog h3 {
+  margin: 0 0 6px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 24px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#peripheriques-dialog .reglages-intro {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #9fb2c4;
+}
+#peripheriques-dialog .periph-groupe {
+  margin: 16px 0 4px;
+  padding-bottom: 6px;
+  font-size: 12px;
+  font-weight: normal;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.4);
+}
+#peripheriques-dialog .periph-vide,
+#peripheriques-dialog small {
+  font-size: 12px;
+  color: #8a9db0;
+}
+.periph-appareil {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.periph-appareil button { margin-left: auto; }
+.periph-ligne {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1.2fr) auto auto minmax(110px, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.periph-ligne:hover { background: rgba(143, 211, 255, 0.06); }
+.periph-ligne.ecoute { background: rgba(29, 111, 184, 0.35); }
+.periph-nom small { display: block; }
+.periph-affectation { font-size: 13px; color: #cfe3f5; }
+.periph-reglages {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding-left: 12px;
+  font-size: 12px;
+  color: #9fb2c4;
+}
+.periph-reglages label { display: inline-flex; align-items: center; gap: 6px; }
+.periph-reglages input { accent-color: #3d8fd6; }
+.periph-reglages input[type="range"] { width: 90px; }
+.periph-reglages span { min-width: 38px; }
+.periph-test { display: flex; align-items: center; gap: 8px; }
+.periph-barre {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+.periph-barre span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: #3d8fd6;
+}
+.periph-centre .periph-barre::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.periph-test output { min-width: 48px; font-size: 12px; text-align: right; color: #9fb2c4; }
+#periph-message { min-height: 1.2em; margin: 12px 0 0; text-align: left; font-size: 13px; color: #8fd3ff; }
+#periph-message.erreur { color: #ffb070; }
+#peripheriques-dialog .multi-ligne { justify-content: flex-end; gap: 10px; margin-top: 14px; }
+#peripheriques-dialog button {
+  padding: 6px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border: 1px solid #3d8fd6;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#peripheriques-dialog button:hover { background: linear-gradient(90deg, #2580d1, #1d5c9c); }
+#peripheriques-dialog button.periph-secondaire {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+#peripheriques-dialog button.periph-secondaire:hover { background: rgba(143, 211, 255, 0.18); border-color: #8fd3ff; }
+#peripheriques-dialog button:disabled { opacity: 0.35; cursor: default; }
+@media (max-width: 700px) {
+  .periph-ligne { grid-template-columns: 1fr auto auto; }
+  .periph-affectation, .periph-test { grid-column: 1 / -1; }
+}
+
 /* Fenêtres Multijoueur et Initiation : même thème que le menu principal et les Paramètres (bleu nuit) */
 #multi-dialog,
 #initiation-dialog {

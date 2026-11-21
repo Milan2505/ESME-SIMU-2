@@ -40,6 +40,9 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
+import { GamepadProfiles, brakeCommands, deviceName, presetFor } from './js/GamepadMapping.js';
+import { Gamepads } from './js/Gamepads.js';
+import { DevicesWindow } from './js/DevicesWindow.js';
 import { isTablet, isPhone, isStandalone, isIOS } from './js/Device.js';
 import { track, task, progress, LoadingScreen } from './js/Loading.js';
 // Tablette : marque sur la page (bande de la barre d'état d'iOS en plein écran, voir style.css)
@@ -4986,6 +4989,85 @@ document.getElementById('paramètre').addEventListener('keydown', (event) => {
 });
 document.getElementById('reglages-fermer').addEventListener('click', () => settingsDialog.close());
 
+// --- Périphériques : manches, yokes, palonniers, manettes des gaz, manettes de jeu (Gamepad API, lot 2) ---------------
+// Lus une fois par image (updateGamepads, en tête de drawFrame : les pas du temps accéléré les voient aussi). Profils
+// par périphérique dans localStorage (pas en mode test), préréglages reconnus par l'identifiant (GamepadMapping.js)
+const gamepadProfiles = new GamepadProfiles();
+if (TEST_MODE) gamepadProfiles.persist = false;
+const gamepads = new Gamepads(gamepadProfiles);
+const devicesWindow = new DevicesWindow(document.getElementById('peripheriques-dialog'), gamepads, gamepadProfiles, () => aircraftType);
+function openDevices() {
+    closeMenus();
+    devicesWindow.open();
+}
+document.getElementById('peripheriques').addEventListener('click', (event) => { event.currentTarget.blur(); openDevices(); });
+document.getElementById('mp-peripheriques').addEventListener('click', () => openDevices());
+// Périphérique branché en vol : son nom et son préréglage, un instant à l'écran
+gamepads.addEventListener('change', ({ detail }) => {
+    for (const pad of detail.added) {
+        if (inMenu) continue;
+        const preset = presetFor(pad);
+        showViewLabel(`${deviceName(pad.id)} : ${preset ? preset.label : 'à régler dans Commandes > Périphériques'}`);
+    }
+});
+// Gaz, collectif, poussée et mixture d'un levier : position absolue, appliquée seulement quand le levier bouge (sinon le
+// clavier, la souris, le tactile, le départ et la leçon ne pourraient plus les changer)
+const PAD_THROTTLE = { c172: 'throttle', r44: 'collective', f15: 'thrust' };
+const padLevers = {};
+const LOOK_RATE = 1.6;   // rad/s : regard libre au chapeau chinois
+let padFiring = false;
+function updateGamepads(delta) {
+    gamepads.aircraft = aircraftType;
+    const state = gamepads.poll();
+    const edges = gamepads.takeEdges();
+    // Pas de pilotage au menu, au hangar, au choix du départ, ni fenêtre ouverte (« Assigner » : l'axe bougé ne pilote pas)
+    const active = gamepads.pads.length > 0 && !inMenu && !inHangar && !choosingSpawn && !document.querySelector('dialog[open]');
+    if (!active) {
+        controls.setAxisInput(null);
+        if (padFiring) { padFiring = false; pullTrigger(false); }
+        return;
+    }
+    const { axes, buttons } = state;
+    const brakes = brakeCommands(axes, buttons);
+    controls.setAxisInput({
+        pitch: axes.pitch ?? 0, roll: -(axes.roll ?? 0), yaw: -(axes.yaw ?? 0),
+        brakeLeft: brakes.left, brakeRight: brakes.right,
+        trim: (buttons.trimUp ?? 0) - (buttons.trimDown ?? 0),
+        accel: (buttons.throttleUp ?? 0) - (buttons.throttleDown ?? 0),
+    });
+    const lever = (name, value, apply) => {
+        if (value === undefined) return;
+        const was = padLevers[name];
+        padLevers[name] = value;
+        if (was !== undefined && Math.abs(value - was) > 0.004) apply(value);
+    };
+    lever(aircraftType, axes[PAD_THROTTLE[aircraftType]], (v) => { controls.throttle = v; });
+    if (aircraftType === 'c172') lever('mixture', axes.mixture, (v) => systems.setMixture(v));
+    const crashed = controls.isCrashed();
+    if (!crashed && aircraftType !== 'r44') {
+        if (edges.pressed.has('flapsDown')) controls.setFlapLevel(controls.getFlapLevel() + 1);
+        if (edges.pressed.has('flapsUp')) controls.setFlapLevel(controls.getFlapLevel() - 1);
+    }
+    if (edges.pressed.has('view')) toggleView();
+    if (aircraftType === 'f15' && edges.pressed.has('fire')) { padFiring = true; pullTrigger(true); }
+    if (padFiring && edges.released.has('fire')) { padFiring = false; pullTrigger(false); }
+    // Regard libre : comme la souris (la tête en cabine, l'orbite en vue extérieure)
+    const { x, y } = state.look;
+    if (x || y) {
+        headTarget = null;
+        const n = Math.hypot(x, y), rate = LOOK_RATE * Math.min(delta, 0.1) / n;
+        if (chaseView) {
+            orbit.yaw -= x * rate;
+            orbit.pitch = THREE.MathUtils.clamp(orbit.pitch - y * rate, -0.35, 1.45);
+        } else {
+            head.yaw = THREE.MathUtils.clamp(head.yaw - x * rate, -2.6, 2.6);
+            head.pitch = THREE.MathUtils.clamp(head.pitch + y * rate, -1.0, 1.1);
+        }
+    }
+}
+// Autre appareil : ses leviers seront repris au prochain geste
+document.addEventListener('aircraft-change', () => { for (const key of Object.keys(padLevers)) delete padLevers[key]; });
+
 function updatePerf(cpuTime) {
     perf.frames++;
     perf.cpu += cpuTime;
@@ -5141,6 +5223,8 @@ window.__sim = {
         simTimeScale = gameTimeScale.value = Math.max(1, Math.min(32, Number(scale) || 1));
     },
     setInput(input) { controls.setTouchInput(input); },
+    // Périphériques branchés (Gamepad API) : liste, dernière lecture combinée, profils
+    gamepads, gamepadProfiles, openDevices: () => openDevices(),
     setFlapLevel(level) { controls.setFlapLevel(level); },
 };
 
@@ -5354,6 +5438,7 @@ const tabletApi = {
         setWeather(names[(names.indexOf(weatherName) + step + names.length) % names.length]);
     },
     openSettings: () => openSettings(),
+    openDevices: () => openDevices(),
 };
 const tabletPanels = isTablet() ? new TabletPanels(document.getElementById('tablette-ui'), tabletRegistry(tabletApi), {
     // Panneaux posés à droite de la rose des caps (HUD) et du panneau du moniteur (Initiation), en haut à gauche
@@ -6487,6 +6572,7 @@ function drawFrame(time) {
     const frameStart = performance.now();
     freezeFrameStart(frameStart);
     const delta = clock.getDelta();
+    try { updateGamepads(delta); } catch (error) { recordError('périphériques', error); }
     // Mode test, temps accéléré : pas supplémentaires avant l'image (la part de l'image elle-même : 0,1 s au plus)
     if (simTimeScale > 1) {
         let extra = Math.min(delta, 0.25) * simTimeScale - Math.min(delta, 0.1);

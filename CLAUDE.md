@@ -110,8 +110,8 @@ Appareils et physique (`js/`) :
   JSBSim c172p). Choisi par le réglage « Modèle de vol (Cessna) » (`flightModel`, réaliste par défaut depuis le 21/11/2026, simplifié au choix), au départ
   (`syncPlaneModel` dans simulator.js), jamais sur la carte Mer. `InputRamp.js` : montée progressive des commandes
   clavier et tactiles du modèle réaliste (réglage `controlRamp`). `HeliModel.js` : hélicoptère R44
-  (élément de pale, patins), même interface. `PlaneControls.js` : clavier et tactile -> commandes du modèle, valeurs
-  des instruments. `Random.js` : tirage à graine (mulberry32).
+  (élément de pale, patins), même interface. `PlaneControls.js` : clavier, tactile et axes des périphériques
+  (`setAxisInput`, sans montée progressive) -> commandes du modèle, valeurs des instruments. `Random.js` : tirage à graine (mulberry32).
 - Systèmes : `Systems.js` (C172 : électricité, moteur, carburant, dépression, feux), `JetSystems.js` (F-15 : JFS,
   réacteurs, postcombustion), `R44Systems.js` (R44 : embrayage, régulateur). `Damage.js`, `Shield.js`, `Weapons.js`,
   `WeaponHud.js`, `F15Stores.js`, `F15Warnings.js` : combat (F-15, multijoueur).
@@ -130,6 +130,10 @@ Appareils et physique (`js/`) :
   (contrôleur à règles, bilingue), `RadioVoices.js` + `VoiceWorker.js` (voix Piper dans un worker, modèles téléchargés),
   `Radio.js` (voix entre joueurs), `MapView.js` (carte vue de dessus), `FlightHud.js` (infos de vol en vue extérieure).
 - Multijoueur : `Multiplayer.js` (relais MQTT publics, `offline` en mode test), `RemotePlayers.js`, `Chat.js`.
+- Périphériques (Gamepad API : manches, yokes, palonniers, manettes) : `GamepadMapping.js` (pur : fonctions,
+  préréglages Saitek / Thrustmaster / Xbox reconnus par l'identifiant, traitement des axes, profils localStorage
+  `esme-peripheriques`, export / import JSON), `Gamepads.js` (lecture par image dans `drawFrame`, branchement à chaud),
+  `DevicesWindow.js` (fenêtre Commandes > Périphériques). `window.__sim.gamepads` en mode test.
 - Interface : `Settings.js` (qualité, aides au pilotage ; `persist`), `TouchControls.js`, `TabletRegistry.js`,
   `TabletPanels.js`, `Draggable.js`, `Device.js`, `Loading.js` (écran de chargement, suivi des chargements),
   `Initiation.js` (leçon guidée), `WeightBalance.js` (masse et centrage, `computeLoad` pur), `DataLoader.js`,
@@ -139,7 +143,8 @@ Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion s
 tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu), `atmosphere.test.js`, `propulsion.test.js`,
 `perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
-`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `helpers/modes.js` (modèle linéaire, identification),
+`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `gamepads.test.js` (périphériques), `helpers/modes.js` (modèle linéaire, identification),
 
 `helpers/c172-perf.js` (procédures de mesure), `*.test.js` (node --test), `e2e/server.js` (serveur local, CDN remplacé
-par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `e2e/realiste.spec.js` (modèle réaliste : initiation, vol libre), `playwright.config.js`, `eslint.config.js`.
+par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `e2e/realiste.spec.js` (modèle réaliste : initiation, vol libre), `e2e/peripheriques.spec.js` (yoke et palonnier
+simulés : fenêtre Périphériques, décollage), `playwright.config.js`, `eslint.config.js`.
