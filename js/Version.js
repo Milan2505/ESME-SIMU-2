@@ -1,3 +1,3 @@
 // Généré par tools/version.sh avant chaque commit : ne pas modifier à la main
-export const VERSION = 438;
-export const VERSION_DATE = '2026-11-20';
+export const VERSION = 439;
+export const VERSION_DATE = '2026-11-21';

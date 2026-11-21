@@ -107,7 +107,7 @@ Appareils et physique (`js/`) :
   pas fixe (Ct, Cp selon le paramètre d'avancement J), régime par équilibre des couples, moulinet moteur coupé.
   `RigidBodyModel.js` : modèle « réaliste » du Cessna (hérite de FlightModel, même interface) : corps rigide à 6 axes par
   forces et moments, train ressort-amortisseur, décrochage et vrille ; données sous GPL-2.0 dans `data/C172pAero.js` (UIUC,
-  JSBSim c172p). Choisi par le réglage « Modèle de vol (Cessna) » (`flightModel`, simplifié par défaut), au départ
+  JSBSim c172p). Choisi par le réglage « Modèle de vol (Cessna) » (`flightModel`, réaliste par défaut depuis le 21/11/2026, simplifié au choix), au départ
   (`syncPlaneModel` dans simulator.js), jamais sur la carte Mer. `InputRamp.js` : montée progressive des commandes
   clavier et tactiles du modèle réaliste (réglage `controlRamp`). `HeliModel.js` : hélicoptère R44
   (élément de pale, patins), même interface. `PlaneControls.js` : clavier et tactile -> commandes du modèle, valeurs

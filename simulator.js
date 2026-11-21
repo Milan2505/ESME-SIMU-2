@@ -336,7 +336,7 @@ const planeModel = controls.model;
 const heliModel = new HeliModel(aircraft);
 heliModel.engine = heliSystems;
 // Cessna, modèle de vol « réaliste » (6 axes par forces et moments, RigidBodyModel.js) : au choix dans les Paramètres
-// (simplifié par défaut). Pas sur la carte Mer : la catapulte et les brins pilotent des champs internes du modèle
+// (réaliste par défaut, simplifié au choix). Pas sur la carte Mer : la catapulte et les brins pilotent des champs internes du modèle
 // simplifié (feuille de route, lot 1, reste à faire)
 const realisticModel = new RigidBodyModel(aircraft);
 if (TEST_MODE) {   // (mode test : rafales et aile qui tombe reproductibles, voir Random.js)

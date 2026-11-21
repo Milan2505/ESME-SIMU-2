@@ -2,7 +2,7 @@
 // mémorisés dans le navigateur (localStorage) d'une visite à l'autre.
 
 const STORAGE_KEY = 'esme-fs-reglages';
-const VERSION = 2;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte »)
+const VERSION = 3;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte ») ; 3 : modèle de vol réaliste par défaut
 
 // Chaque réglage : libellé, explication courte et choix possibles [valeur, libellé]
 const OPTIONS = {
@@ -31,8 +31,8 @@ const OPTIONS = {
     perf:       { label: 'Afficher la fluidité', hint: 'Images par seconde et résolution, en haut à gauche de l\'écran (touche P)',
                   choices: [[false, 'Non'], [true, 'Oui']] },
     // Modèle de vol du Cessna (feuille de route, lot 1) : simplifié par défaut, le temps de comparer en vol
-    flightModel:     { group: 'Pilotage', label: 'Modèle de vol (Cessna)', hint: "Simplifié : le modèle d'origine, très stable. Réaliste : avion à 6 axes par forces et moments (oscillations amorties, lacet inverse aux ailerons, décrochage avec aile qui tombe, vrais effets du moteur). Pris en compte au prochain départ ; la carte Mer garde le simplifié",
-                       choices: [['simplifie', 'Simplifié'], ['realiste', 'Réaliste']] },
+    flightModel:     { group: 'Pilotage', label: 'Modèle de vol (Cessna)', hint: "Réaliste (par défaut) : avion à 6 axes par forces et moments (oscillations amorties, lacet inverse aux ailerons, décrochage avec aile qui tombe, vrais effets du moteur). Simplifié : le modèle d'origine, très stable. Pris en compte au prochain départ ; la carte Mer garde le simplifié",
+                       choices: [['realiste', 'Réaliste'], ['simplifie', 'Simplifié']] },
     controlRamp:     { group: 'Pilotage', label: 'Douceur des commandes (clavier, tactile)', hint: "Modèle réaliste : une touche braque la gouverne progressivement, comme une main qui tire de plus en plus sur le manche. Vive : profondeur à fond en 1 s ; normale : 2 s ; douce : 3 s",
                        choices: [[0.5, 'Vive'], [1, 'Normale'], [1.5, 'Douce']] },
     // Aides au pilotage : désactivées par défaut (pilotage réaliste)
@@ -54,7 +54,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { flightModel: 'simplifie', controlRamp: 1, hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 1, hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages
@@ -156,6 +156,9 @@ class Settings extends EventTarget {
             // Sauvegarde d'avant la version 2 : style du décor non repris (« Classique » était le défaut des préréglages
             // Bas et Moyen, « Mixte » n'existe plus) -> décor réaliste ; les anciens assets se choisissent exprès
             if (key === 'decorStyle' && (saved.version ?? 1) < 2) continue;
+            // Sauvegarde d'avant la version 3 : le modèle simplifié était le défaut (enregistré avec les autres réglages, pas
+            // forcément choisi) -> modèle réaliste ; le simplifié se choisit exprès
+            if (key === 'flightModel' && (saved.version ?? 1) < 3) continue;
             const value = saved.values[key];
             if (option.choices.some(([choice]) => choice === value)) this.values[key] = value;
         }

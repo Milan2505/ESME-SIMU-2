@@ -146,7 +146,7 @@ se redresse plus seule depuis 45° », sans source ; le point 4 du constat, « n
 sourcé non plus.)
 
 **État (18/11/2026)** : modèle réaliste livré (`js/RigidBodyModel.js`, données `js/data/C172pAero.js`), au choix dans
-Paramètres > Pilotage > « Modèle de vol (Cessna) », simplifié par défaut. Performances du POH 172P vertes sur les deux
+Paramètres > Pilotage > « Modèle de vol (Cessna) », réaliste par défaut depuis le 21/11/2026 (simplifié au choix). Performances du POH 172P vertes sur les deux
 modèles ; qualités de vol comparées au modèle linéaire UIUC (`tests/flying-qualities.test.js`) ; joueur au clavier avec
 montée progressive des commandes (`js/InputRamp.js`, `tests/keyboard-pilot.test.js`).
 

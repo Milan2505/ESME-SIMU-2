@@ -5,16 +5,16 @@ import { test, expect } from '@playwright/test';
 import { waitSimSeconds } from './sim-time.js';
 
 const SCENARIOS = [
-    { carte: 'campagne', avion: 'c172' },
+    { carte: 'campagne', avion: 'c172' },                          // modèle réaliste (défaut)
     { carte: 'campagne', avion: 'f15' },
     { carte: 'campagne', avion: 'r44' },
-    { carte: 'ville', avion: 'c172' },
+    { carte: 'ville', avion: 'c172', modele: 'simplifie' },        // modèle simplifié, choisi au menu Paramètres
     { carte: 'mer', avion: 'f15' },
 ];
 const LONG = 240_000;   // ms : écran de chargement (shaders compilés par le processeur) et modèles lourds (F-15, R44)
 
-for (const { carte, avion } of SCENARIOS) {
-    test(`${carte} · ${avion} : menu sans erreur, vol libre, 10 s de vol, capture`, async ({ page }, testInfo) => {
+for (const { carte, avion, modele } of SCENARIOS) {
+    test(`${carte} · ${avion}${modele ? ` (${modele})` : ''} : menu sans erreur, vol libre, 10 s de vol, capture`, async ({ page }, testInfo) => {
         const errors = [];
         page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
         page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
@@ -32,6 +32,12 @@ for (const { carte, avion } of SCENARIOS) {
         expect(await sim(() => window.__sim.test)).toBe(true);
         expect(await sim(() => window.__sim.map)).toBe(carte);
         expect(errors, 'erreurs console au menu principal').toEqual([]);
+        // Modèle de vol du Cessna : réaliste par défaut ; le simplifié se choisit dans Paramètres > Pilotage
+        if (modele) {
+            await page.click('#mp-parametres');
+            await page.selectOption('#reglages-dialog select[name="flightModel"]', JSON.stringify(modele));
+            await page.click('#reglages-fermer');
+        }
 
         // Vol libre : carte, aérodrome, hangar (avion), premier départ de la liste (piste ou catapulte, prêt à décoller)
         await page.click('#mp-vol-libre');
@@ -53,6 +59,7 @@ for (const { carte, avion } of SCENARIOS) {
         await sim(() => window.__sim.controls.addEventListener('crash', (e) => { window.__crashReason = `${e.reason} (vitesse ${window.__sim.state.speed.toFixed(1)} m/s, hauteur ${window.__sim.state.altitude.toFixed(1)} m)`; }));
         const start = await sim(() => window.__sim.state);
         expect(start.aircraft).toBe(avion);
+        if (avion === 'c172') expect(start.flightModel, 'modèle de vol du Cessna').toBe(modele ?? 'realiste');
         expect(start.crashed).toBe(false);
         expect(start.engineRunning, 'départ sur la piste : moteur tournant').toBe(true);
 
