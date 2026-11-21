@@ -908,7 +908,7 @@ function drawLabels(layout) {
     t('INST LT', L.panelLights.x, 936, 6.2);
     t('OFF', L.panelLights.x - 20, 990, 5.6);
     t('BRT', L.panelLights.x + 20, 990, 5.6);
-    t('GA', L.ga.x, 905, 6.2);
+    t('CARB\nHEAT\nPULL ON', L.carbHeat.x, 912, 6.2);
     t('THROTTLE\nPUSH\nOPEN', L.throttle.x, 912, 6.2);
     t('MIXTURE\nPULL\nLEAN', L.mixture.x, 912, 6.2);
     // Volets : échelle UP / 10° / 20° / FULL

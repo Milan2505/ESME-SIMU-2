@@ -823,6 +823,12 @@ class Initiation {
         advise('taxi', c.onGround && c.groundKt > 18 && c.s && c.s.zone !== 'runway', t('Vous roulez trop vite. Au roulage, pas plus de 10 nœuds : réduisez les gaz, freinez avec B.',
             'You are taxiing too fast. No more than 10 knots: reduce power, brake with B.'));
         advise('fast', c.airborne && c.speedKt > 125, t('Trop vite pour le tour de piste : réduisez les gaz.', 'Too fast for the circuit: reduce power.'));
+        // Réchauffe carburateur (POH 172P p. 4-10, Balked Landing : plein gaz, « Carburetor Heat -- COLD », volets 20° ;
+        // p. 4-9 et 4-20 : réchauffe tirée avant toute réduction importante)
+        advise('carbHeatFull', c.airborne && c.sys.switches.carbHeat && c.throttle > 0.9, t('Plein gaz : repoussez la réchauffe carburateur, touche ², pour avoir toute la puissance.',
+            'Full power: push the carburettor heat in, ² key, for full power.'));
+        advise('carbHeatIdle', c.airborne && !c.sys.switches.carbHeat && c.throttle < 0.25 && c.aal > 200, t('Gaz réduits : tirez la réchauffe carburateur, touche ². À bas régime, le carburateur givre facilement.',
+            'Power reduced: pull the carburettor heat, ² key. At low power the carburettor ices easily.'));
         advise('low', c.airborne && c.aal < 300 && !c.s?.final && c.along !== undefined && c.along < 0, t('Vous êtes trop bas : remettez de la puissance et remontez vers 1000 pieds.',
             'You are too low: add power and climb back to 1000 feet.'));
     }
@@ -977,6 +983,14 @@ function buildSteps(level, lang = 'fr') {
             say: T("Avant d'appeler, on écoute l'ATIS : le bulletin météo enregistré. Dans le panneau radio, cliquez sur Écouter l'ATIS. Retenez sa lettre : vous la donnerez au contrôleur.",
                 'Before calling, we listen to the ATIS: the recorded weather broadcast. In the radio panel, click the ATIS button. Remember its letter: you will give it to the controller.') });
     }
+    // Calage altimétrique (lot 3) : QNH de l'ATIS dans la fenêtre de Kollsman ; l'altimètre lit alors l'altitude du terrain
+    add(P, { title: T('Calage altimétrique', 'Altimeter setting'), target: 'baro', frame: true,
+        act: (c) => { c.avionics.baro = c.atc.qnh; },
+        done: (c) => Math.abs(c.avionics.baro - c.atc.qnh) <= 1,
+        say: (c) => T(`L'ATIS a donné le QNH : ${c.atc.qnh} hectopascals. Affichez-le dans la petite fenêtre de l'altimètre : molette sur le bouton en bas à gauche de l'altimètre, Maj pour aller de 10 en 10. L'altimètre indique alors l'altitude du terrain.`,
+            `The ATIS gave the QNH: ${c.atc.qnh} hectopascals. Set it in the altimeter's small window: mouse wheel on the knob at the bottom left of the altimeter, Shift for steps of 10. The altimeter then reads the airfield elevation.`),
+        why: T("L'altimètre mesure la pression de l'air, qui change avec la météo. Calé sur le QNH du jour, il donne l'altitude au-dessus de la mer ; une erreur d'un hectopascal, c'est environ 30 pieds de faux.",
+            "The altimeter measures air pressure, which changes with the weather. Set to the day's QNH, it reads altitude above the sea; one hectopascal wrong is about 30 feet of error.") });
     radio(P, { title: T('Demander la mise en route', 'Request start-up'), ids: ['startupFirst', 'startup'], until: (c) => c.atc.state !== 'idle',
         why: T("On ne démarre pas sans l'accord du contrôleur au sol.", "We don't start the engine without the ground controller's approval."),
         say1: T("J'appelle le contrôleur Sol pour demander la mise en route. Écoutez l'échange : indicatif, position, information ATIS reçue, puis la demande.",
@@ -1066,11 +1080,37 @@ function buildSteps(level, lang = 'fr') {
             'Magneto check. Keep your eye on the tachometer. Turn the key one notch left, to L, by clicking its left side: the RPM should drop, by 150 RPM at most. Let it settle, then one more notch, to R: same again, and no more than 50 RPM difference from L. Finally go back to BOTH: the RPM comes back up. Click the right side of the key to turn it back.'),
         why: T("Chaque cylindre a deux bougies, chacune allumée par sa propre magnéto. Sur une seule magnéto, une seule étincelle par cylindre : le mélange brûle moins vite, le moteur perd un peu de puissance, d'où une petite chute. Chute trop forte ou moteur qui tousse : bougie encrassée ou magnéto défaillante, on ne part pas. Aucune chute du tout : la magnéto ne se coupe plus, elle pourrait démarrer le moteur toute seule si on tourne l'hélice à la main.",
             "Each cylinder has two spark plugs, each fired by its own magneto. On a single magneto there is only one spark per cylinder: the mixture burns more slowly, the engine loses a little power, hence a small drop. Too big a drop or a rough engine: fouled plug or faulty magneto, we don't go. No drop at all: the magneto no longer switches off, and it could start the engine by itself if someone turns the propeller by hand.") });
+    // Essai de la réchauffe carburateur (POH 172P p. 4-7, Before Takeoff : « Carburetor Heat -- CHECK (for RPM drop) ») :
+    // tirée quelques secondes, chute mesurée (sans glace ~100 tr/min ; chute puis remontée : il y avait de la glace)
+    const carb = { base: 0, drop: 0, low: 0, ice: false };
+    add(P, { title: T('Essai de la réchauffe', 'Carburettor heat check'), target: ['inst:tach', 'switch:carbHeat'], frame: true,
+        act: (c, t) => {
+            Object.assign(carb, { base: c.rpm, drop: 100, ice: false });
+            Object.assign(t._state.flags, { on: true, t: 5 });
+            if (c.sys.switches.carbHeat) c.sys.toggle('carbHeat');
+        },
+        done: (c, f, dt) => {
+            const on = c.sys.switches.carbHeat;
+            if (!on && !f.on) { carb.base = c.rpm; carb.drop = 0; carb.low = c.rpm; }
+            if (on) {
+                f.on = true;
+                f.t = (f.t ?? 0) + dt;
+                carb.low = Math.min(carb.low || c.rpm, c.rpm);
+                carb.drop = Math.max(carb.drop, carb.base - c.rpm);
+                if (c.rpm > carb.low + 40) carb.ice = true;   // le régime remonte réchauffe tirée : la glace a fondu
+            }
+            return f.on && f.t > 4 && !on;
+        },
+        say: T("Essai de la réchauffe carburateur. Gardez l'œil sur le compte-tours. Tirez la tirette CARB HEAT, à gauche de la manette des gaz, d'un clic ou touche ² : le régime doit baisser d'une centaine de tours. Attendez cinq secondes, puis repoussez-la : le régime revient.",
+            'Carburettor heat check. Keep your eye on the tachometer. Pull the CARB HEAT knob, left of the throttle, with a click or the ² key: the RPM should drop by about a hundred. Wait five seconds, then push it back in: the RPM comes back.'),
+        why: T("L'air réchauffé autour de l'échappement est moins dense : le moteur perd un peu de puissance, d'où la chute. Pas de chute : la réchauffe ne marche pas. Chute puis remontée : il y avait de la glace dans le carburateur, l'air chaud l'a fondue.",
+            'Air warmed around the exhaust is less dense: the engine loses a little power, hence the drop. No drop: the heat is not working. A drop then a rise: there was ice in the carburettor and the warm air melted it.') });
     add(P, { title: T('Gaz réduits', 'Throttle idle'), target: 'throttle', done: (c) => c.throttle < 0.12,
         say: () => {
-            const l = Math.round(mag.l / 10) * 10, r = Math.round(mag.r / 10) * 10, gap = Math.abs(l - r);
-            return T(`Chute de ${l} tours sur L, ${r} sur R, ${gap} d'écart : moins de 150 et moins de 50, les deux magnétos sont bonnes. Réduisez les gaz : touche Ctrl ou bas de la manette.`,
-                `A drop of ${l} RPM on L, ${r} on R, ${gap} apart: under 150 and under 50, both magnetos are good. Throttle back to idle: Ctrl key or the bottom of the knob.`);
+            const l = Math.round(mag.l / 10) * 10, r = Math.round(mag.r / 10) * 10, gap = Math.abs(l - r), h = Math.round(carb.drop / 10) * 10;
+            const ice = carb.ice ? T(' : il y avait un peu de glace, elle a fondu', ': there was a little ice, it melted') : '';
+            return T(`Chute de ${l} tours sur L, ${r} sur R, ${gap} d'écart : moins de 150 et moins de 50, les deux magnétos sont bonnes. Réchauffe : ${h} tours de chute${ice}. Réduisez les gaz : touche Ctrl ou bas de la manette.`,
+                `A drop of ${l} RPM on L, ${r} on R, ${gap} apart: under 150 and under 50, both magnetos are good. Carburettor heat: a drop of ${h} RPM${ice}. Throttle back to idle: Ctrl key or the bottom of the knob.`);
         } });
     add(P, { title: T('Trim au repère décollage', 'Trim to take-off'), target: 'trimWheel',
         done: (c) => Math.abs(c.controls.getTrim() - c.controls.getTakeoffTrim()) < 1.5,
@@ -1162,17 +1202,20 @@ function buildSteps(level, lang = 'fr') {
         done: (c, f, dt) => (f.t = (f.t ?? 0) + (Math.abs(c.controls.getInputs().pitch) < 0.05 && Math.abs(c.aal - 1000) < 250 ? dt : 0)) > 4,
         say: T("Retrimez pour le palier : W ou X jusqu'à ce que l'avion reste à 1000 pieds manche lâché. Le variomètre doit rester sur zéro.",
             'Re-trim for level flight: W or X until the aeroplane stays at 1000 feet hands off. The vertical speed should stay at zero.') });
-    add(P, { title: T('Vent arrière : phare, pompe, volets', 'Downwind: light, pump, flaps'), camera: 'none', auto: 30,
-        parts: [['switch:land', (c) => c.sys.switches.land], ['switch:fuelPump', (c) => c.sys.switches.fuelPump], ['mixture', (c) => c.sys.mixture >= 0.95], ['flaps:lever', (c) => c.flaps >= 1]],
-        done: (c) => c.sys.switches.land && c.sys.switches.fuelPump && c.sys.mixture >= 0.95 && c.flaps >= 1,
-        say: T("Vérifications vent arrière : allumez le phare d'atterrissage et la pompe électrique, mixture plein riche, puis sortez un cran de volets, 10 degrés : touche G.",
-            'Downwind checks: switch on the landing light and the fuel pump, mixture full rich, then set one stage of flap, 10 degrees: G key.'),
-        why: T("On prépare l'atterrissage : phare pour être vu, pompe de secours près du sol, premier cran de volets pour ralentir avant l'approche.",
-            'We prepare for landing: light to be seen, backup pump close to the ground, first stage of flap to slow down before the approach.') });
+    // (réchauffe tirée avant de réduire : POH 172P p. 4-9, Before Landing, « Carburetor Heat -- ON (apply full heat before
+    // reducing power) », et p. 4-20)
+    add(P, { title: T('Vent arrière : phare, pompe, réchauffe, volets', 'Downwind: light, pump, carb heat, flaps'), camera: 'none', auto: 30,
+        parts: [['switch:land', (c) => c.sys.switches.land], ['switch:fuelPump', (c) => c.sys.switches.fuelPump], ['mixture', (c) => c.sys.mixture >= 0.95],
+            ['switch:carbHeat', (c) => c.sys.switches.carbHeat], ['flaps:lever', (c) => c.flaps >= 1]],
+        done: (c) => c.sys.switches.land && c.sys.switches.fuelPump && c.sys.mixture >= 0.95 && c.sys.switches.carbHeat && c.flaps >= 1,
+        say: T("Vérifications vent arrière : allumez le phare d'atterrissage et la pompe électrique, mixture plein riche, tirez la réchauffe carburateur, touche ², puis sortez un cran de volets, 10 degrés : touche G.",
+            'Downwind checks: switch on the landing light and the fuel pump, mixture full rich, pull the carburettor heat, ² key, then set one stage of flap, 10 degrees: G key.'),
+        why: T("On prépare l'atterrissage : phare pour être vu, pompe de secours près du sol, réchauffe tirée avant de réduire (moteur presque au ralenti, le carburateur givre le plus facilement), premier cran de volets pour ralentir avant l'approche.",
+            'We prepare for landing: light to be seen, backup pump close to the ground, carburettor heat on before reducing power (at low power the carburettor ices most easily), first stage of flap to slow down before the approach.') });
     add(P, { title: T('Travers du seuil : réduire', 'Abeam the threshold: reduce'), camera: 'none', urgent: true, target: 'throttle', auto: 20,
         wait: (c) => c.along < 50 && c.lateral > 250, waiting: T('Continuez en vent arrière, à 1000 pieds.', 'Continue downwind at 1000 feet.'),
-        done: (c) => c.throttle < 0.4,
-        say: T('Nous passons le bout de la piste : réduisez les gaz vers 1500 tours pour commencer la descente. Laissez la vitesse descendre vers 70 nœuds, puis trimez pour la garder : touche X.',
+        done: (c) => c.throttle < 0.4 && c.sys.switches.carbHeat,
+        say: T('Nous passons le bout de la piste : réchauffe tirée, réduisez les gaz vers 1500 tours pour commencer la descente. Laissez la vitesse descendre vers 70 nœuds, puis trimez pour la garder : touche X.',
             'We are passing the end of the runway: reduce power to about 1500 RPM to start the descent. Let the speed come back to 70 knots, then trim to hold it: X key.') });
     add(P, { title: T('Virage en étape de base', 'Base turn'), camera: 'none', urgent: true, target: 'inst:dg', auto: 35,
         wait: (c) => c.along < TURN_AT.base + c.lead && c.lateral > 250, waiting: T('Continuez en descente douce, 70 nœuds.', 'Continue a gentle descent at 70 knots.'),
@@ -1219,9 +1262,10 @@ function buildSteps(level, lang = 'fr') {
     radio(P, { title: T('Piste dégagée', 'Runway vacated'), ids: ['vacated'], until: (c) => ['toGround', 'taxiIn'].includes(c.atc.state) || c.atc.freq === 'ground',
         say1: T("J'annonce à la Tour que la piste est dégagée. Elle va nous renvoyer vers le Sol.", "I'm telling the Tower we have vacated the runway. It will send us to Ground."),
         say2: T('Annoncez à la Tour que la piste est dégagée, puis passez sur la fréquence du Sol.', 'Report runway vacated to the Tower, then change to the Ground frequency.') });
-    add(P, { title: T('Volets, phares', 'Flaps and lights'), parts: [['flaps:lever', (c) => c.flaps === 0], ['switch:land', (c) => !c.sys.switches.land], ['switch:strobe', (c) => !c.sys.switches.strobe]],
-        done: (c) => c.flaps === 0 && !c.sys.switches.land && !c.sys.switches.strobe,
-        say: T("Rentrez les volets, touche T, et éteignez le phare d'atterrissage et les strobes.", 'Retract the flaps, T key, and switch off the landing light and the strobes.') });
+    // (POH 172P p. 4-10, After Landing : volets rentrés, « Carburetor Heat -- COLD »)
+    add(P, { title: T('Volets, phares', 'Flaps and lights'), parts: [['flaps:lever', (c) => c.flaps === 0], ['switch:carbHeat', (c) => !c.sys.switches.carbHeat], ['switch:land', (c) => !c.sys.switches.land], ['switch:strobe', (c) => !c.sys.switches.strobe]],
+        done: (c) => c.flaps === 0 && !c.sys.switches.carbHeat && !c.sys.switches.land && !c.sys.switches.strobe,
+        say: T("Rentrez les volets, touche T, repoussez la réchauffe carburateur, touche ², et éteignez le phare d'atterrissage et les strobes.", 'Retract the flaps, T key, push the carburettor heat back in, ² key, and switch off the landing light and the strobes.') });
     radio(P, { title: T('Retour au parking', 'Taxi to parking'), ids: ['groundIn'], until: (c) => c.atc.state === 'taxiIn',
         say1: T('Je demande au Sol le roulage vers le parking.', "I'm asking Ground for taxi to the parking."),
         say2: T('Appelez le Sol pour rouler vers le parking.', 'Call Ground for taxi to the parking.') });

@@ -7,7 +7,11 @@ import { Vector3 } from 'three';
 // cycle tirés d'une graine. En multijoueur, la graine vient du code de la partie et le temps de l'horloge réelle : tous
 // les joueurs d'une même partie ont le même vent. Pendant une leçon d'initiation, la dérive lente est suspendue (setHold) :
 // la piste en service reste celle de l'ATIS du début à la fin.
+// QNH (lot 3, décision du 21/11/2026) : tiré avec la même graine, entre 995 et 1030 hPa (plage resserrée selon la météo :
+// qnhRange des METARS d'ATC.js) ; figé pour la partie. Météo réelle (metar.real, voir Metar.js) : vent, rafales et QNH
+// du METAR tels quels, sans le tirage de la partie.
 const KT = 0.514444;   // nœud -> m/s
+export const QNH_RANGE = [995, 1030];   // hPa
 
 class Wind {
     constructor() {
@@ -21,6 +25,7 @@ class Wind {
         this.vector = new Vector3();  // vitesse de l'air (repère monde, m/s) : vers où souffle le vent
         this.metarKnots = 0;     // force et rafales de la météo choisie (kt), avant le tirage de la partie
         this.metarGust = 0;
+        this.qnh = 1013;         // QNH de la partie (hPa)
         this.local = null;       // météo de ce joueur ; shared : celle du créateur de la partie (multijoueur), prioritaire
         this.shared = null;
         this.setSeed(Math.floor(Math.random() * 2 ** 32));
@@ -57,20 +62,27 @@ class Wind {
         this.seedDirection = rnd() * 360;
         this.seedStrength = 0.5 + rnd() * 1.1;
         this.seedPhase = rnd() * 7200;
+        this.seedPressure = rnd();   // (4e tirage, après ceux du vent : le vent d'une graine ne change pas)
         this._driftOffset = 0;   // s : retard de la dérive, accumulé pendant les suspensions (voir setHold)
         this._heldAt = null;
         this._apply();
     }
 
     _apply() {
-        const { wind = 360, knots = 0, variation = 0, gust = 0 } = this.shared ?? this.local ?? {};
+        const metar = this.shared ?? this.local ?? {};
+        const { wind = 360, knots = 0, variation = 0, gust = 0 } = metar;
         this.metarBase = wind;
         this.metarKnots = knots;
         this.metarGust = gust;
         this.variation = variation;
         // (au plus 25 kt, rafales à 35 kt : au-delà, un Cessna ne vole plus)
-        this.knots = Math.min(25, Math.round(this.metarKnots * this.seedStrength));
-        this.gust = this.metarGust ? Math.min(35, Math.max(this.knots + 5, Math.round(this.metarGust * this.seedStrength))) : 0;
+        const strength = metar.real ? 1 : this.seedStrength;
+        this.knots = Math.min(25, Math.round(this.metarKnots * strength));
+        this.gust = this.metarGust ? Math.min(35, Math.max(this.knots + 5, Math.round(this.metarGust * strength))) : 0;
+        // QNH : celui du METAR réel, sinon tiré dans la plage de la météo (bornée à 995-1030)
+        const [lo, hi] = metar.qnhRange ?? QNH_RANGE;
+        const low = Math.max(QNH_RANGE[0], lo), high = Math.min(QNH_RANGE[1], hi);
+        this.qnh = Number.isFinite(metar.qnh) ? metar.qnh : Math.round(low + this.seedPressure * (high - low));
         this.update();
     }
 

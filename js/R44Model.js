@@ -471,7 +471,7 @@ class R44Cockpit {
             'sim/multiplay/generic/float[13]': this._doors[2], 'sim/multiplay/generic/float[14]': this._doors[3],
             // Instruments de vol (state : cockpitState du simulateur, en m, m/s, degrés ; roulis : + = à gauche)
             'instrumentation/airspeed-indicator/indicated-speed-kt': state.onGround ? 0 : (state.speed ?? 0) / 0.5144,
-            'instrumentation/altimeter/indicated-altitude-ft': (state.altitude ?? 0) / FT,
+            'instrumentation/altimeter/indicated-altitude-ft': (state.altimeter ?? state.altitude ?? 0) / FT,
             'instrumentation/vertical-speed-indicator/indicated-speed-fpm': (state.verticalSpeed ?? 0) / FT * 60,
             'orientation/pitch-deg': state.pitchDeg ?? 0,
             'orientation/roll-deg': -MathUtils.radToDeg(state.roll ?? 0),

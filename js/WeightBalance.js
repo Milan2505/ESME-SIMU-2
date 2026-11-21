@@ -1,3 +1,4 @@
+import { isaTemperature, pressureAltitude, densityAltitude } from './Atmosphere.js';
 // Masse et centrage du Cessna 172P (manuel de vol, POH 172P édition 1985 D1251-13, et fiche FAA TCDS 3A12 rév. 69, converties en kg et en
 // mètres en arrière de la référence, la face avant de la cloison pare-feu) : chargement (pilote, passagers, bagages,
 // carburant gauche / droite), calcul de la masse et du centrage, graphique du domaine de centrage (catégories normale et
@@ -82,8 +83,11 @@ function fuelPlan(load) {
 // Distances (m) de décollage et d'atterrissage à une masse (kg), corrigées du terrain, du vent, de la surface, de la
 // pente et du coefficient de sécurité. Altitude : ~+9 % par 1 000 ft d'altitude-pression ; température : ~+0,75 % par
 // °C au-dessus de 20 °C (pente des tableaux du manuel) ; vent : -10 % par 9 kt de face, +10 % par 2 kt arrière
+// Altitude-pression et altitude-densité (ft) : atmosphère type au QNH et à la température du terrain (Atmosphere.js)
 function performance(perf, takeoffKg, landingKg) {
-    const pressureAlt = perf.elevation + (1013 - perf.qnh) * 27;
+    const elevation = perf.elevation * FT, deltaT = perf.temperature + 273.15 - isaTemperature(elevation);
+    const pressureAlt = pressureAltitude(elevation, perf.qnh, deltaT) / FT;
+    const densityAlt = densityAltitude(elevation, perf.qnh, deltaT) / FT;
     const terrain = 1.09 ** (pressureAlt / 1000) * Math.max(0.7, 1 + 0.0075 * (perf.temperature - 20));
     const wind = perf.wind >= 0 ? Math.max(0.5, 1 - 0.1 * perf.wind / 9) : 1 + 0.1 * -perf.wind / 2;
     const surface = SURFACES[perf.surface] ?? SURFACES.dur;
@@ -109,7 +113,7 @@ function performance(perf, takeoffKg, landingKg) {
     const landRoll = LANDING[1] * k * terrain * wind * surface.landing / slope;
     const flare = (LANDING[2] - LANDING[1]) * k * terrain * wind;
     const landing = { roll: landRoll * FT * perf.margin, obstacle: (landRoll + flare) * FT * perf.margin };
-    return { takeoff, landing, pressureAlt };
+    return { takeoff, landing, pressureAlt, densityAlt };
 }
 const STORAGE_KEY = 'masse-centrage';
 
@@ -153,8 +157,10 @@ function check(load) {
 class WeightBalance {
     // dialog : la fenêtre ; onApply(load, result) : appelé à la fermeture
     // runwayLength : longueur de la piste de l'aérodrome (m), valeur par défaut de « Piste disponible »
-    constructor(dialog, onApply, { runwayLength = DEFAULT_PERF.runway } = {}) {
+    // weather() : { elevation (ft), qnh (hPa), temperature (°C) } de la météo du jeu, reprise à chaque ouverture
+    constructor(dialog, onApply, { runwayLength = DEFAULT_PERF.runway, weather = null } = {}) {
         this.runwayLength = runwayLength;
+        this.weather = weather;
         this.dialog = dialog;
         this.onApply = onApply;
         this.load = { ...DEFAULT_LOAD };
@@ -197,6 +203,7 @@ class WeightBalance {
             input.addEventListener('change', () => this._render());   // champ quitté : valeur ramenée dans ses bornes
         }
         dialog.querySelector('#mc-piste-esme').addEventListener('click', () => { this.load.perf.runway = this.runwayLength; this._render(); });
+        dialog.querySelector('#mc-meteo-jeu')?.addEventListener('click', () => { this._gameWeather(); this._render(); });
         dialog.querySelector('#mc-reserve-nuit').addEventListener('click', () => { this.load.plan.finalReserve = 45; this._render(); });
         // « Carburant à bord = carburant nécessaire » : les réservoirs suivent le bilan (curseurs de carburant bloqués)
         this.autoFuelBox = dialog.querySelector('#mc-auto-carbu');
@@ -234,7 +241,15 @@ class WeightBalance {
         this._render();
     }
 
+    // Terrain, QNH et température de la météo du jeu
+    _gameWeather() {
+        const w = this.weather?.();
+        if (!w) return;
+        Object.assign(this.load.perf, { elevation: Math.round(w.elevation), qnh: Math.round(w.qnh), temperature: Math.round(w.temperature) });
+    }
+
     open() {
+        this._gameWeather();
         this.dialog.showModal();
         this._render();
     }
@@ -384,7 +399,7 @@ class WeightBalance {
         set('#mc-deco-15', m(perf.takeoff.obstacle), perf.takeoff.obstacle > l.perf.runway);
         set('#mc-atte-roul', m(perf.landing.roll), perf.landing.roll > l.perf.runway);
         set('#mc-atte-15', m(perf.landing.obstacle), perf.landing.obstacle > l.perf.runway);
-        set('#mc-masses', `décollage ${Math.round(r.takeoff.mass)} kg · atterrissage ${Math.round(r.landing.mass)} kg · altitude-pression ${Math.round(perf.pressureAlt)} ft`);
+        set('#mc-masses', `décollage ${Math.round(r.takeoff.mass)} kg · atterrissage ${Math.round(r.landing.mass)} kg · altitude-pression ${Math.round(perf.pressureAlt / 10) * 10} ft · altitude-densité ${Math.round(perf.densityAlt / 10) * 10} ft`);
         const fits = Math.max(perf.takeoff.obstacle, perf.landing.obstacle) <= l.perf.runway;
         const verdict = d.querySelector('#mc-piste');
         verdict.classList.toggle('erreur', !fits);

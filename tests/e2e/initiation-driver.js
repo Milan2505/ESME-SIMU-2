@@ -280,6 +280,13 @@ export async function installInitiationDriver({ fastUntil = -1 } = {}) {
             return;
         }
         D.mode = 'hold';
+        // Essai de la réchauffe : tirette tirée de 0,3 à 5,5 s (la leçon mesure la chute de régime), puis repoussée
+        if (step.title === 'Essai de la réchauffe') {
+            const t = init._time - D.stepStart, on = sys().switches.carbHeat;
+            if (t > 0.3 && t < 5.5 && !on) sys().toggle('carbHeat');
+            else if (t > 5.5 && on) sys().toggle('carbHeat');
+            return;
+        }
         if (step.title === 'Essai des magnétos') {
             // Clé tournée cran par cran : L (1,5 s), R (1,5 s), BOTH ; la leçon mesure les chutes
             const t = init._time - D.stepStart, m = sys().magnetos;

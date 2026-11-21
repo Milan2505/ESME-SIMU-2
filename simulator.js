@@ -31,7 +31,9 @@ import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
 import { ATC, METARS } from './js/ATC.js';
-import { isaTemperature } from './js/Atmosphere.js';
+import { isaTemperature, altimeterReading } from './js/Atmosphere.js';
+import { shearFactor, thermalAt } from './js/Turbulence.js';
+import { parseMetar, metarToWeather, pickMetar, METAR_URL } from './js/Metar.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
@@ -192,6 +194,11 @@ const WEATHERS = {
                   // rayleigh bas : ciel bien bleu (avec ce shader, plus de diffusion Rayleigh blanchit le ciel) ; brume bleutée assortie
                   atmosphere: { elevation: 40, azimuth: 150, turbidity: 1.8, rayleigh: 1, fog: 0x86acd8 },
                   clouds: { coverage: 0.45, light: 0xffffff, dark: 0x8f9bb0 } },
+    // Journée chaude (35 °C, lot 3) : air moins dense, décollages plus longs ; ciel clair et brume de chaleur
+    chaud:      { label: 'Chaud (35 °C)', sky: 0x6fb3dd, fogNear: 400, fogFar: 2000, hemi: 1.3, sun: 2.3, turbulence: 0,
+                  night: 0, wind: 0.3,
+                  atmosphere: { elevation: 55, azimuth: 180, turbidity: 3, rayleigh: 1, fog: 0x9db8d6 },
+                  clouds: { coverage: 0.1, light: 0xffffff, dark: 0x9aa6ba } },
     // Ciel couvert : ciel gris uniforme (pas de ciel bleu), soleil voilé, tous les nuages aux dessous gris, un peu de vent
     nuageux:    { label: 'Nuageux',    sky: 0x9ba5ae, fogNear: 220, fogFar: 1500, hemi: 1.15, sun: 0.7, turbulence: 0.35,
                   night: 0, wind: 0.55,
@@ -208,7 +215,10 @@ const WEATHERS = {
                   night: 0.5, wind: 1, rain: 1, lightning: true,
                   clouds: { coverage: 1, light: 0x7f8c8d, dark: 0x2c3e50, opacity: 1, brightness: 1.2 },
                   overcast: { base: 240, top: 330, coverage: 0.95, scale: 700 } },
+    // Météo réelle : METAR de LFMA (Aix-les-Milles), sinon de LFML (Marseille-Provence), chargé au clic (loadRealWeather)
+    reel:       { label: 'Météo réelle (LFMA)' },
 };
+const WEATHER_BASE = structuredClone(WEATHERS.jour);   // ambiance de départ d'une météo réelle (jour, ciel retouché)
 
 const view = document.getElementById('ecran');
 const camera = new THREE.PerspectiveCamera(CAM_FOV, view.clientWidth / view.clientHeight, CAM_NEAR, CAM_FAR);
@@ -862,7 +872,12 @@ for (const s of [cessnaSystems, jetSystems, heliSystems]) {
     s.addEventListener('startfail', ({ detail }) => { if (s === systems) showRadioMessage(detail); });
 }
 cessnaSystems.addEventListener('start', () => { if (systems === cessnaSystems) engineSound.playStart(chaseView ? 1 : 0.45); });
-cessnaSystems.addEventListener('stop', () => { if (systems === cessnaSystems && !controls.isCrashed()) engineSound.playStop(chaseView ? 1 : 0.45); });
+cessnaSystems.addEventListener('stop', () => {
+    if (systems !== cessnaSystems || controls.isCrashed()) return;
+    engineSound.playStop(chaseView ? 1 : 0.45);
+    // Arrêt par givrage du carburateur (CarbIcing.js) : POH p. 3-4, réchauffe ON ; la glace fond, puis redémarrer
+    if (cessnaSystems.stopReason === 'givrage') showViewLabel('Moteur arrêté : carburateur givré. Tirez la réchauffe (²), puis redémarrez');
+});
 jetSystems.addEventListener('start', ({ detail }) => { if (systems === jetSystems) showViewLabel(`Réacteur ${detail.side ? 'droit' : 'gauche'} allumé`); });
 heliSystems.addEventListener('start', () => {
     if (systems !== heliSystems) return;
@@ -1266,7 +1281,7 @@ const CESSNA_VIEWS = {
     4: { label: 'Interrupteurs et avionique', eye: [-0.25, -0.12, -0.3], target: [-0.25, -0.46, -0.75], fov: 45, close: true },
     5: { label: 'Volets, aération, boîte à gants', eye: [0.2, -0.1, -0.3], target: [0.27, -0.45, -0.75], fov: 50, close: true },
     6: { label: 'Radios (NAV/COM, DME, transpondeur)', eye: [0.0, -0.05, -0.3], target: [0.09, -0.27, -0.75], fov: 45, close: true },
-    7: { label: 'Gaz, mixture, éclairage', eye: [-0.05, -0.12, -0.3], target: [0.02, -0.46, -0.75], fov: 45, close: true },
+    7: { label: 'Réchauffe carbu, gaz, mixture, éclairage', eye: [-0.05, -0.12, -0.3], target: [0.02, -0.46, -0.75], fov: 45, close: true },
     8: { label: 'Pupitre (trim, robinet)', eye: [-0.1, -0.2, -0.25], target: [0, -0.657, -0.744], fov: 50, close: true },
     9: { label: 'Sélecteur de réservoir', eye: [-0.05, -0.3, -0.3], target: [0, -0.76, -0.64], fov: 50, close: true },
     0: { label: 'Côté gauche', yaw: 1.0, pitch: 0.25, fov: 75 },
@@ -1817,8 +1832,49 @@ if (!SEA) track('decor', 'Données du décor (data/*.csv)', buildWorld).catch(()
 airport.addFloodlights();
 rebuildObstacles();
 
+// METAR d'une météo : préréglage d'ATC.js, ou celui de la météo réelle (Metar.js, voir loadRealWeather)
+let realMetar = null;
+function weatherMetar(name) {
+    return name === 'reel' ? realMetar : METARS[name];
+}
+// Météo réelle (lot 3) : METAR brut -> ambiance et bulletin (Metar.js) ; source : VATSIM (CORS ouvert, sans clé ; LFMA
+// n'émet pas de METAR, LFML sert de repli). Une seule requête par clic, 6 s au plus ; en cas d'échec, la météo reste
+// celle d'avant. Mode test : jamais de réseau (window.__sim.setMetar donne un METAR)
+function applyRealMetar(text) {
+    const parsed = parseMetar(text);
+    if (!parsed) return false;
+    const { weather: w, metar } = metarToWeather(parsed, WEATHER_BASE, { overcastScale: WEATHERS.nuageux.overcast.scale });
+    for (const key of Object.keys(WEATHERS.reel)) delete WEATHERS.reel[key];
+    Object.assign(WEATHERS.reel, w);
+    realMetar = metar;
+    for (const button of document.querySelectorAll('[data-meteo="reel"]')) {
+        button.textContent = w.label;
+        button.title = metar.raw;
+    }
+    setWeather('reel');
+    return true;
+}
+let realWeatherLoading = false;
+async function loadRealWeather() {
+    if (realWeatherLoading) return;
+    if (TEST_MODE) { showViewLabel('Météo réelle : pas de réseau en mode test'); return; }
+    realWeatherLoading = true;
+    showViewLabel('Météo réelle : lecture du METAR…');
+    try {
+        const response = await fetch(METAR_URL, { signal: AbortSignal.timeout(6000), cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = pickMetar(await response.json());
+        if (!text || !applyRealMetar(text)) throw new Error('aucun METAR lisible');
+        showViewLabel(`Météo réelle : ${text}`);
+    } catch (error) {
+        showViewLabel(`Météo réelle indisponible (${error.message}) : météo inchangée`);
+    } finally {
+        realWeatherLoading = false;
+    }
+}
 // Panneau Météo
 function setWeather(name) {
+    if (name === 'reel' && !realMetar) { loadRealWeather(); return; }
     const w = weather = WEATHERS[name];
     weatherName = name;
     scene.background = new THREE.Color(w.sky); // caché par le ciel atmosphérique s'il est actif
@@ -1831,11 +1887,13 @@ function setWeather(name) {
     controls.turbulence = w.turbulence;
     // Température du METAR de cette météo (ATC.js) : écart à l'atmosphère type au niveau du terrain, pour la densité de
     // l'air des modèles de vol (Atmosphere.js : portance, traînée, puissance du moteur)
-    const metar = METARS[name];
+    const metar = weatherMetar(name);
     const groundLevel = terrain.heightAt(aircraft.position.x, aircraft.position.z);
     planeModel.temperatureOffset = realisticModel.temperatureOffset = heliModel.temperatureOffset = metar ? metar.temp + 273.15 - isaTemperature(groundLevel) : 0;
+    // Température et point de rosée au carburateur du Cessna (givrage, Systems.js)
+    cessnaSystems.setWeather(metar?.temp ?? 15, metar?.dew ?? 5);
     clouds.setWeather(w.clouds);
-    atc.setWeather(name, w);
+    atc.setWeather(name, w, metar);
     cloudLayer.setWeather(w.overcast ?? null, w.clouds);
     nightSky.setVisibility(w.stars ?? 0, w.sky);
     storm.setWeather({ rain: w.rain ?? 0, lightning: w.lightning ?? false, clouds: w.overcast ?? null });
@@ -2658,6 +2716,9 @@ const multiLien = document.getElementById('multi-lien');
 function newWind(seed) {
     if (TEST_MODE) windClock = 0;
     wind.setSeed(seed);
+    // Turbulence et thermiques de la même graine : les mêmes pour tous les joueurs d'une partie
+    airSeed = seed;
+    for (const model of [planeModel, realisticModel, heliModel]) model.gusts.setSeed(seed);
     atc.resetRunwayInUse();
 }
 const codeSeed = (code) => [...code].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
@@ -2832,6 +2893,8 @@ function applySpawnState() {
     spawnFade = 0;
     atc.reset(currentSpawn);
     avionics.reset(Boolean(currentSpawn.cold));
+    // Avion prêt à partir : altimètre déjà calé au QNH du jour ; éteint au parking : calage d'origine (1013), à régler
+    if (!currentSpawn.cold) avionics.baro = Math.round(wind.qnh);
     gloveboxOpen = false;
     avionics.com1.active = parseFrequency(airport.aerodrome.frequencies[atc.freq]);
     // Radios réglées sur l'aérodrome de départ : COM 2 sur son Info, NAV 1 et 2 sur son VOR, ILS en attente sur la NAV 1
@@ -3829,7 +3892,7 @@ function isTypingTarget(target) {
 window.addEventListener('keydown', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement) || target === view || isTypingTarget(target) || target.isContentEditable) return;
-    if (!/^(Key|Digit)|^(Space|ControlLeft|ShiftLeft|Arrow)/.test(event.code) || event.altKey || event.metaKey) return;
+    if (!/^(Key|Digit)|^(Space|ControlLeft|ShiftLeft|Arrow|Backquote)/.test(event.code) || event.altKey || event.metaKey) return;
     if (!target.matches('button, select, input, [tabindex]') || target.closest('dialog[open]')) return;
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden) return;   // écrans sans pilotage : clavier libre
     if (event.code === 'Space' || target instanceof HTMLSelectElement || target instanceof HTMLInputElement) event.preventDefault();
@@ -4391,7 +4454,9 @@ updateOnlineList();
 // choisi remplit les réservoirs (et sert à chaque remise au départ) ; masse et centrage suivent ensuite le carburant
 // restant, à chaque image : l'avion s'allège et son centrage avance en vol
 const CG_REFERENCE = 1.0;   // m : centrage pour lequel le modèle de vol est réglé (cgOffset = 0)
-const weightBalance = new WeightBalance(document.getElementById('masse-dialog'), (load) => applyLoad(load), { runwayLength: airport.runwayLength });
+const weightBalance = new WeightBalance(document.getElementById('masse-dialog'), (load) => applyLoad(load), { runwayLength: airport.runwayLength,
+    // Météo du jeu : terrain sous l'avion, QNH de la partie, température du METAR
+    weather: () => ({ elevation: terrain.heightAt(aircraft.position.x, aircraft.position.z) / 0.3048, qnh: wind.qnh, temperature: atc.metar?.temp ?? 15 }) });
 let currentLoad = { ...weightBalance.load };
 function applyLoad(load) {
     currentLoad = { ...load };
@@ -4421,6 +4486,12 @@ const flightHud = new FlightHud(document.getElementById('hud'));
 // Téléphone en portrait : jauges dimensionnées sur la largeur de l'écran (chaque rangée tient dans sa moitié : voir _row)
 if (isPhone()) flightHud.designWidth = 760;
 flightHud.avoid = document.getElementById('moniteur');
+// Altimètre (m) : pression statique au QNH du jour et à la température de la météo, lue avec le calage de la fenêtre de
+// Kollsman (Atmosphere.altimeterReading : calage faux de 1 hPa = ~27 ft d'erreur)
+function altimeterIndicated() {
+    return altimeterReading(controls.getAltitude() - WHEEL_HEIGHT, wind.qnh, avionics.baro, controls.model.temperatureOffset ?? 0);
+}
+
 function updateHud(delta) {
     const visible = chaseView && !choosingSpawn && !controls.isCrashed() && settings.values.hud !== false;
     simulatorElement.classList.toggle('sans-hud', !visible);   // panneaux ILS : remis en bas sans les infos de vol
@@ -4430,9 +4501,11 @@ function updateHud(delta) {
         speed: controls.getIndicatedSpeed(),
         tas: controls.getSpeed(),
         altitude: controls.getAltitude() - WHEEL_HEIGHT,
+        altimeter: altimeterIndicated(),
         verticalSpeed: controls.getVerticalSpeed(),
         heading: controls.getHeading(),
         rpm: systems.rpm,
+        carbHeat: aircraftType === 'c172' && systems.switches.carbHeat,
         n2: aircraftType === 'f15' ? jetSystems.engines.map((e) => e.n2) : undefined,
         ab: aircraftType === 'f15' ? jetSystems.afterburner : 0,
         throttle: controls.getThrottle(),   // (F-15 : case « GAZ % » du cadran des réacteurs)
@@ -4456,6 +4529,7 @@ function cockpitState() {
     return {
         speed: controls.getIndicatedSpeed(),
         altitude: controls.getAltitude() - WHEEL_HEIGHT,
+        altimeter: altimeterIndicated(),
         verticalSpeed: controls.getVerticalSpeed(),
         heading: controls.getHeading(),
         roll: controls.getRoll(),
@@ -5048,6 +5122,7 @@ function updateGamepads(delta) {
         if (edges.pressed.has('flapsDown')) controls.setFlapLevel(controls.getFlapLevel() + 1);
         if (edges.pressed.has('flapsUp')) controls.setFlapLevel(controls.getFlapLevel() - 1);
     }
+    if (edges.pressed.has('carbHeat')) toggleCarbHeat();
     if (edges.pressed.has('view')) toggleView();
     if (aircraftType === 'f15' && edges.pressed.has('fire')) { padFiring = true; pullTrigger(true); }
     if (padFiring && edges.released.has('fire')) { padFiring = false; pullTrigger(false); }
@@ -5207,6 +5282,8 @@ window.__sim = {
             flaps: model.flaps, trim: model.trim, position: { x: p.x, y: p.y, z: p.z },
             engineRunning: Boolean(systems.running), rpm: systems.rpm ?? 0,
             rotorPercent: model.heli ? model.rotorPercent : null, loopErrors: loopErrors.length,
+            qnh: wind.qnh, baro: avionics.baro, altimeter: altimeterIndicated(), temperature: atc.metar.temp, dewPoint: atc.metar.dew,
+            carbHeat: Boolean(systems.switches?.carbHeat), carbIce: systems.carbIce?.ice ?? 0, stopReason: systems.stopReason ?? null,
         };
     },
     controls, wind, airport, settings, atc, avionics,
@@ -5226,6 +5303,10 @@ window.__sim = {
     // Périphériques branchés (Gamepad API) : liste, dernière lecture combinée, profils
     gamepads, gamepadProfiles, openDevices: () => openDevices(),
     setFlapLevel(level) { controls.setFlapLevel(level); },
+    // Thermiques (coupées en mode test) ; météo par son nom (préréglage, ou 'reel' après loadRealWeather)
+    setThermals(on) { thermalsEnabled = Boolean(on); },
+    setWeather(name) { if (WEATHERS[name]) setWeather(name); },
+    setMetar(text) { return applyRealMetar(text); },
 };
 
 // --- Filet de sécurité contre le jeu figé pour de bon -----------------------------------------------------------------
@@ -5281,6 +5362,17 @@ window.addEventListener('keydown', (event) => {
 });
 window.addEventListener('keyup', (event) => {
     if (event.code in mixtureKeys) mixtureKeys[event.code] = 0;
+});
+// Réchauffe carburateur (Cessna) : tirette CARB HEAT à gauche de la manette des gaz, touche ² (Backquote) ou périphérique
+// (CarbIcing.js : air chaud moins dense, chute de ~100 tr/min ; fond la glace du carburateur)
+function toggleCarbHeat() {
+    if (aircraftType !== 'c172' || choosingSpawn || controls.isCrashed()) return;
+    systems.toggle('carbHeat');
+    sounds.click(0.5);
+    showViewLabel(systems.switches.carbHeat ? 'Réchauffe carburateur : tirée (CARB HEAT)' : 'Réchauffe carburateur : repoussée');
+}
+window.addEventListener('keydown', (event) => {
+    if (event.code === 'Backquote' && !event.repeat && !isTypingTarget(event.target)) toggleCarbHeat();
 });
 window.addEventListener('blur', () => { mixtureKeys.KeyU = mixtureKeys.KeyY = 0; panelLightsKey = 0; });
 // R44 au clavier (en plus des commandes du cockpit, à la souris) : Y / U ferment / ouvrent la poignée des gaz (voir
@@ -6529,6 +6621,18 @@ renderer.setAnimationLoop((time) => {
         try { graphics.render(); } catch { /* rien de plus à faire pour cette image */ }
     }
 });
+// Masse d'air autour de l'appareil (lot 3) : vent de la météo avec son cisaillement (vent annoncé à 10 m, plus fort
+// au-dessus : Turbulence.shearFactor) et thermiques de jour, par beau temps, au-dessus de la terre (Turbulence.thermalAt).
+// Mode test : pas de thermiques, sauf window.__sim.setThermals(true) (les essais réglés volent en air calme)
+let airSeed = 1, thermalsEnabled = !TEST_MODE;
+function updateAirMass() {
+    const p = aircraft.position;
+    const height = Math.max(0, p.y - terrain.heightAt(p.x, p.z));
+    controls.model.wind.copy(wind.vector).multiplyScalar(shearFactor(height));
+    const sunny = weather.night === 0 && weather.sun >= 1.5 && !weather.overcast && !weather.rain;
+    controls.model.thermal = thermalsEnabled && sunny && !choosingSpawn && controls.getSurface() !== 'water'
+        ? thermalAt(p.x, p.z, height, wind.now(), { seed: airSeed, strength: weather.sun >= 2.2 ? 1.2 : 1 }) : 0;
+}
 // Mode test : temps accéléré (window.__sim.setTimeScale). Le temps de jeu avance de simTimeScale fois le temps réel : avant
 // chaque image, des pas supplémentaires de 0,1 s au plus (le plus grand pas du jeu, voir PlaneControls) font avancer le
 // vent, le modèle de vol, les systèmes, la radio et la leçon ; l'image n'est dessinée qu'une fois. Les attentes en temps
@@ -6537,7 +6641,7 @@ let simTimeScale = 1;
 function simulateStep(delta) {
     if (!choosingSpawn) windClock += delta;
     wind.update();
-    controls.model.wind.copy(wind.vector);
+    updateAirMass();
     if (!choosingSpawn) controls.update( delta );
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
@@ -6548,6 +6652,7 @@ function simulateStep(delta) {
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
     controls.model.enginePower = systems.power;
     controls.model.mixture = systems.mixture ?? 1;
+    controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
     controls.model.flapsPowered = systems.flapsPowered;
     if (aircraftType === 'f15') updateJet(delta);
     if (aircraftType === 'r44') updateHeli(delta);
@@ -6585,7 +6690,7 @@ function drawFrame(time) {
 
     if (TEST_MODE && !choosingSpawn) windClock += Math.min(delta, 0.1);   // (même pas que la physique)
     wind.update();
-    controls.model.wind.copy(wind.vector);
+    updateAirMass();
     if (!choosingSpawn) controls.update( delta );
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
@@ -6640,6 +6745,7 @@ function drawFrame(time) {
     if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
     controls.model.enginePower = systems.power;
     controls.model.mixture = systems.mixture ?? 1;
+    controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
     controls.model.flapsPowered = systems.flapsPowered;
     const jet = aircraftType === 'f15', heli = aircraftType === 'r44', cessna = aircraftType === 'c172';
     if (jet) updateJet(delta);
@@ -6650,7 +6756,7 @@ function drawFrame(time) {
     // En cabine : plus faible et étouffé (passe-bas)
     engineSound.setCabin(!chaseView);
     const engineVolume = controls.isCrashed() || choosingSpawn ? 0 : (chaseView ? 1 : 0.45) * spawnFade * spawnFade;
-    engineSound.update(cessna ? systems.rpm : 0, cessna ? engineVolume : 0, { running: cessna && systems.running, cranking: cessna && systems.cranking });
+    engineSound.update(cessna ? systems.rpm : 0, cessna ? engineVolume : 0, { running: cessna && systems.running, cranking: cessna && systems.cranking, roughness: cessna ? systems.roughness : 0 });
     jetSound.setCabin(!chaseView);
     jetSound.update({
         engines: jetSystems.engines, jfs: jet && jetSystems.jfsRunning, jfsLevel: jetSystems.jfs, speed: controls.getSpeed(),

@@ -2,6 +2,8 @@
 // électricité (batterie, alternateur, avionique), moteur (magnétos, démarreur, mixture, alimentation en carburant),
 // réservoirs, dépression (instruments gyroscopiques), feux. Le modèle de vol en reçoit la puissance du moteur et
 // l'alimentation des volets ; la cabine, les instruments et les feux lisent l'état d'ici.
+// Givrage du carburateur et réchauffe (tirette CARB HEAT, switches.carbHeat) : voir CarbIcing.js.
+import { CarbIce, carbHeatDensity } from './CarbIcing.js';
 
 const GALLON = 3.785;                  // litres (affichage en gallons US, comme dans l'avion)
 const TANK_CAPACITY = 20;              // gallons utilisables par aile : réservoirs standard du 172P, 21,5 gal dont 1,5 inutilisable
@@ -66,7 +68,13 @@ class Systems extends EventTarget {
             masterBat: true, masterAlt: true, avionics: true, avionics2: true,
             fuelPump: false, beacon: true, land: false, taxi: false, nav: true, strobe: true, pitotHeat: false,
             elt: false, altStatic: false, cabinAir1: false, cabinHeat: false,
+            carbHeat: false,             // réchauffe carburateur (tirette tirée = true ; POH : repoussée au sol, au décollage)
         };
+        this.carbIce ??= new CarbIce();
+        this.carbIce.reset();
+        this.outsideTemp ??= 15;        // °C et point de rosée de la météo (setWeather) : givrage du carburateur
+        this.dewPoint ??= 5;
+        this.stopReason = null;
         this.breakers = Object.fromEntries([...BREAKERS, ...AVIONICS_BREAKERS].map((b) => [b.id, true]));   // true = enclenché
         this.magnetos = 3;              // index dans MAGNETOS (BOTH)
         this.fuelSelector = 1;          // BOTH
@@ -120,6 +128,23 @@ class Systems extends EventTarget {
     turnFuelSelector(step) {
         this.fuelSelector = Math.max(0, Math.min(2, this.fuelSelector + step));
         this._changed();
+    }
+
+    // Météo au carburateur : température et point de rosée (°C)
+    setWeather(temp, dew) {
+        this.outsideTemp = temp;
+        this.dewPoint = dew;
+    }
+
+    // Densité de l'air admis par rapport à l'air extérieur (réchauffe tirée : air chaud), lue par le modèle de vol
+    get intakeDensity() {
+        return this.switches.carbHeat ? carbHeatDensity(this.outsideTemp) : 1;
+    }
+
+    // Moteur qui tourne mal (0 -> 1) : glace, fonte, alimentation faible ; pour le son (EngineSound)
+    get roughness() {
+        if (!this.running) return 0;
+        return Math.max(this.carbIce.roughness, this._fuelFeedWeak ? 0.5 : 0);
     }
 
     setMixture(value) {
@@ -254,7 +279,7 @@ class Systems extends EventTarget {
     get power() {
         if (!this.running) return 0;
         const feed = this._fuelFeedWeak ? 0.75 + 0.2 * Math.sin(this._time * 9) * Math.sin(this._time * 2.3) : 1;
-        return (this.singleMagneto ? 0.93 : 1) * feed;
+        return (this.singleMagneto ? 0.93 : 1) * feed * this.carbIce.power;
     }
 
     // Carburant restant (0 -> 1), pour la jauge du HUD (comme JetSystems.fuelFraction)
@@ -295,8 +320,9 @@ class Systems extends EventTarget {
             this._cranked += delta;
             const canStart = this.switches.masterBat && this.battery > 0.05 && this.fuelAvailable && this.mixture > 0.25;
             const needed = this.prime >= PRIME_TIME ? START_TIME : START_TIME_UNPRIMED;
-            if (!this.running && canStart && this._cranked > needed) {
+            if (!this.running && canStart && this._cranked > needed && this.carbIce.ice < 0.9) {
                 this.running = true;
+                this.stopReason = null;
                 this._starve = 0;
                 this._cranked = 0;
                 this.prime = 0;
@@ -309,9 +335,13 @@ class Systems extends EventTarget {
             }
         }
         else this._cranked = Math.max(0, this._cranked - delta * 0.2);   // le démarreur "oublie" en quelques secondes
-        // Arrêts : magnétos coupées, étouffoir, panne sèche
+        if (!this.running) this.carbIce.update(delta, { temp: this.outsideTemp, dew: this.dewPoint, throttle, heat: this.switches.carbHeat, running: false });
+        // Arrêts : magnétos coupées, étouffoir, panne sèche, givrage
         if (this.running) {
+            // Givrage : la glace se forme selon la météo et la puissance, fond réchauffe tirée ; venturi bouché : arrêt
+            this.carbIce.update(delta, { temp: this.outsideTemp, dew: this.dewPoint, throttle, heat: this.switches.carbHeat, running: true });
             if (this.magnetos === 0 || this.mixture < 0.08) this._stop();
+            else if (this.carbIce.choked) this._stop('givrage');
             else if (!this.fuelAvailable) {
                 this._starve += delta;
                 if (this._starve > FUEL_STARVE_TIME) this._stop();
@@ -359,10 +389,13 @@ class Systems extends EventTarget {
         if (this.fuelShutoff) return 'Pas de carburant : robinet coupé (pupitre, bouton rouge à pousser)';
         if (!this.fuelAvailable) return 'Pas de carburant : réservoir choisi vide (sélecteur au plancher)';
         if (this.mixture <= 0.25) return 'Mixture tirée : poussez la manette rouge';
+        if (this.carbIce.ice >= 0.9) return 'Carburateur givré : tirez la réchauffe (CARB HEAT) et attendez que la glace fonde';
         return 'Le moteur tousse sans partir : insistez au démarreur (ou amorcez 2-3 s avec la pompe)';
     }
 
-    _stop() {
+    // reason : 'givrage' (carburateur bouché par la glace), sinon null
+    _stop(reason = null) {
+        this.stopReason = reason;
         this.running = false;
         this.dispatchEvent(new Event('stop'));
     }

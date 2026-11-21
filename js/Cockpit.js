@@ -959,6 +959,7 @@ class Cockpit {
             ...state,
             speedKt: state.speed * KT,
             altitudeFt: state.altitude * FT,
+            altimeterFt: (state.altimeter ?? state.altitude) * FT,   // lecture de l'altimètre (pression statique, calage)
             vsFpm: s.vs * FT * 60,
             rpm: s.rpm,
             gyro: this._gyro,

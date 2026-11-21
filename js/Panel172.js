@@ -69,7 +69,10 @@ const LAYOUT = {
     avionics: { x: 895, y: 926 },
     altStatic: { x: 1129, y: 899 },
     panelLights: { x: 1030, y: 966 },
-    ga: { x: 1275, y: 933 },
+    // Tirette de réchauffe carburateur, à gauche de la manette des gaz (172P : CARB HEAT, gaz, mixture ; POH fig. 7-2,
+    // non relu). Elle prend la place de l'inscription « GA » (bouton de remise de gaz du pilote automatique KAP 140,
+    // absent du 172P de base)
+    carbHeat: { x: 1238, y: 967 },
     throttle: { x: 1338, y: 967 },
     mixture: { x: 1449, y: 967 },
     flaps: { scaleX: 1636, slotX: 1690, top: 875, step: 30 },
@@ -901,7 +904,7 @@ class Panel172 {
         p.aiRoll.rotation.z = -s.gyro.roll;
         this._aiPitch(p.aiCard, p.ai.rd, -Math.max(-25, Math.min(25, s.gyro.pitch)) * (p.ai.rd / 30));
         p.aiPlane.position.y = av.aiOffset * 0.001;
-        const ft = s.altitudeFt + (av.baro - 1013) * 27.3;
+        const ft = s.altimeterFt;   // (pression statique et calage : simulator.js, altimeterIndicated)
         z(p.altLong, (ft / 1000) * Math.PI * 2);
         z(p.altShort, (ft / 10000) * Math.PI * 2);
         z(p.alt10k, (ft / 100000) * Math.PI * 2);

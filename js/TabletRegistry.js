@@ -76,6 +76,7 @@ function tabletRegistry(sim) {
                         { id: 'selecteur', label: 'SÉLECTEUR CARB.', type: 'value', value: () => sim.FUEL_SELECTOR[sim.systems.fuelSelector], step: (s) => sim.useControl({ id: 'fuelSelector' }, s) },
                         { id: 'robinet', label: 'ROBINET CARB.', type: 'toggle', action: cockpit('fuelShutoff'), value: () => !sim.systems.fuelShutoff, states: ['FERMÉ', 'OUVERT'] },
                         sw('pitotHeat', 'RÉCHAUF. PITOT'),
+                        sw('carbHeat', 'RÉCHAUF. CARBU'),
                     ],
                 },
                 {

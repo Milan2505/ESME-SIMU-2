@@ -1,8 +1,14 @@
 // Atmosphère type OACI (ISA) et vitesses air, pour tous les appareils (FlightModel.js, HeliModel.js) :
+// - l'altitude du jeu est l'altitude vraie au-dessus du niveau de la mer (m) ;
 // - isa(altitude, deltaT) : température, pression, masse volumique et vitesse du son à une altitude (m), avec l'écart de
-//   température de la météo (K) par rapport à l'atmosphère type. La pression reste celle de l'atmosphère type à cette
-//   altitude (l'altitude du jeu vaut altitude-pression : l'altimètre lit juste à 1013 hPa) ; la température change la
-//   masse volumique, donc la portance, la traînée et la puissance du moteur (altitude-densité) ;
+//   température de la météo (K) par rapport à l'atmosphère type. La pression y reste celle de l'atmosphère type à cette
+//   altitude (QNH 1013,25 hPa) ; la température change la masse volumique, donc la portance, la traînée et la puissance
+//   du moteur (altitude-densité) ;
+// - altimètre : staticPressure(altitude, qnh, deltaT) donne la pression statique au-dehors pour le QNH du jour ;
+//   l'altimètre lit cette pression et la convertit en altitude par la formule de l'atmosphère type, à partir de son
+//   calage (fenêtre de Kollsman) : altimeterReading(altitude, qnh, calage, deltaT). Calé au QNH, il lit l'altitude vraie
+//   (à l'erreur de température près) ; calé à 1013,25 hPa, il lit l'altitude-pression (pressureAltitude) ;
+//   densityAltitude : altitude ISA de même masse volumique ;
 // - vitesses : TAS (vitesse vraie, celle du modèle), CAS (vitesse corrigée : ce que mesurerait un tube de Pitot parfait,
 //   formule compressible, donc juste aussi pour le F-15), IAS (vitesse indiquée : CAS plus l'erreur de position de la prise
 //   statique de l'avion, table du manuel de vol par cran de volets). Unités SI ; les tables du manuel sont en nœuds.
@@ -19,6 +25,8 @@ const TROPOPAUSE = 11000;     // m
 const T11 = T0 - LAPSE * TROPOPAUSE;                     // 216,65 K
 const P11 = P0 * ( T11 / T0 ) ** ( G0 / ( LAPSE * R ) );  // 22 632 Pa
 const KT = 0.514444;          // m/s par nœud
+const P_STD = 1013.25;        // hPa : calage standard (QNE)
+const EXPONENT = G0 / ( LAPSE * R );                      // 5,2559 : exposant de la formule barométrique
 
 // État de l'atmosphère à une altitude (m, bornée de -1 000 à 20 000 m) ; deltaT : écart à l'ISA (K), 0 par défaut
 function isa( altitude, deltaT = 0 ) {
@@ -39,6 +47,40 @@ function isa( altitude, deltaT = 0 ) {
 // Température ISA (K) à une altitude : sert à convertir une température de METAR (°C au sol) en écart à l'ISA
 function isaTemperature( altitude ) {
 	return isa( altitude ).temperature;
+}
+
+// Pression statique (Pa) à l'altitude vraie (m au-dessus de la mer) pour un QNH (hPa) et une colonne d'air ISA + deltaT
+// (K) : formule barométrique de la troposphère, p = QNH × (1 - L·h / (T0 + ΔT))^(g / (L·R)). Au niveau de la mer, vaut
+// le QNH ; l'air chaud (ΔT > 0) décroît moins vite : pression plus forte en altitude, l'altimètre lit trop bas
+function staticPressure( altitude, qnh = P_STD, deltaT = 0 ) {
+	const h = altitude || 0;
+	return qnh * 100 * Math.max( 1e-6, 1 - LAPSE * h / ( T0 + deltaT ) ) ** EXPONENT;
+}
+
+// Altitude indiquée (m) par un altimètre calé sur setting (hPa) qui lit la pression statique p (Pa) : formule de
+// l'atmosphère type, h = T0 / L × (1 - (p / calage)^(L·R / g))
+function pressureToAltitude( pressure, setting = P_STD ) {
+	return T0 / LAPSE * ( 1 - ( pressure / ( setting * 100 ) ) ** ( 1 / EXPONENT ) );
+}
+
+// Lecture de l'altimètre (m) à l'altitude vraie (m), QNH du jour (hPa), calage affiché (hPa), écart à l'ISA (K)
+function altimeterReading( altitude, qnh, setting, deltaT = 0 ) {
+	return pressureToAltitude( staticPressure( altitude, qnh, deltaT ), setting );
+}
+
+// Altitude-pression (m) : lecture de l'altimètre calé à 1013,25 hPa
+function pressureAltitude( altitude, qnh, deltaT = 0 ) {
+	return altimeterReading( altitude, qnh, P_STD, deltaT );
+}
+
+// Altitude-densité (m) : altitude de l'atmosphère type de même masse volumique que l'air à l'altitude vraie (m), pour le
+// QNH (hPa) et l'écart à l'ISA (K) du jour. Troposphère : ρ/ρ0 = (T/T0)^(g/(L·R) - 1)
+function densityAltitude( altitude, qnh, deltaT = 0 ) {
+	const h = altitude || 0;
+	const temperature = Math.max( 150, T0 + deltaT - LAPSE * h );
+	// rapport des masses volumiques calculé par p/T (RHO0 = 1,225 est arrondi : 0 m d'écart exact en atmosphère type)
+	const sigma = staticPressure( h, qnh, deltaT ) / P0 * T0 / temperature;
+	return T0 / LAPSE * ( 1 - sigma ** ( 1 / ( EXPONENT - 1 ) ) );
 }
 
 // Nombre de Mach d'une vitesse vraie (m/s)
@@ -98,4 +140,5 @@ function interpolate( xs, ys, x ) {
 	return ys[ i - 1 ] + ( ys[ i ] - ys[ i - 1 ] ) * t;
 }
 
-export { isa, isaTemperature, mach, tasToCas, casToTas, iasFromCas, casFromIas, T0, P0, RHO0, A0 };
+export { isa, isaTemperature, mach, tasToCas, casToTas, iasFromCas, casFromIas, staticPressure, pressureToAltitude,
+	altimeterReading, pressureAltitude, densityAltitude, T0, P0, RHO0, A0, P_STD };

@@ -107,7 +107,7 @@ class FlightHud {
         const flaps = d.flapMax > 0 ? d.flaps / d.flapMax : 0;
         const left = [
             [62, 210, (x, y, w, h) => this._speedTape(x, y, w, h, d.speed * KT, d.tas * KT), 'AIRSPEED'],
-            [90, 110, (x, y, w, h) => (d.n2 === undefined ? this._rpm(x, y, w, h, d.rpm) : this._n2(x, y, w, h, d.n2, d.ab, d.throttle)), 'ENGINE'],
+            [90, 110, (x, y, w, h) => (d.n2 === undefined ? this._rpm(x, y, w, h, d.rpm, d.carbHeat) : this._n2(x, y, w, h, d.n2, d.ab, d.throttle)), 'ENGINE'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'FUEL', d.fuel, `${Math.round(d.fuel * 100)}%`,
                 [[0, 0.15, COLORS.red], [0.15, 0.3, COLORS.yellow], [0.3, 1, COLORS.green]]), 'FUEL'],
             [44, 110, (x, y, w, h) => this._bar(x, y, w, h, 'AOA', aoa, `${Math.round(d.alpha)}°`,
@@ -124,7 +124,7 @@ class FlightHud {
         ];
         const right = [
             ...surfaces,
-            [76, 210, (x, y, w, h) => this._altitudeTape(x, y, w, h, d.altitude * FT + (d.baro - 1013) * 27.3, d.baro), 'ALTITUDE'],
+            [76, 210, (x, y, w, h) => this._altitudeTape(x, y, w, h, (d.altimeter ?? d.altitude) * FT, d.baro), 'ALTITUDE'],
             [54, 210, (x, y, w, h) => this._vsTape(x, y, w, h, d.verticalSpeed * FT * 60), 'VS'],
         ];
         const half = (W - 2 * m - HUD_CENTER_GAP) / 2;
@@ -351,8 +351,8 @@ class FlightHud {
         const tapeY = top + 4, tapeH = h - (tapeY - y) - 22;
         const { mid } = this._tape(x + 8, tapeY, w - 8, tapeH, ft, 300, 20, 100, (v) => String(v), 'left');
         this._valueBox(x + 10, mid - 12, w - 14, 24, String(Math.round(ft / 10) * 10), COLORS.text, 15);
-        const inHg = baro * 0.02953;
-        this._text(`${inHg.toFixed(2)}IN`, x + w / 2, y + h - 11, 10, COLORS.accent, 'center', 'bold', w - 4);
+        // Calage en hPa, comme la fenêtre de Kollsman de la cabine
+        this._text(`${Math.round(baro)} HPA`, x + w / 2, y + h - 11, 10, COLORS.accent, 'center', 'bold', w - 4);
     }
 
     _vsTape(x, y, w, h, fpm) {
@@ -384,7 +384,8 @@ class FlightHud {
     }
 
     // Compte-tours : cadran, arc vert / rouge, aiguille ; valeur dessous
-    _rpm(x, y, w, h, rpm) {
+    // carbHeat : réchauffe carburateur tirée (Cessna), annoncée sous « RPM »
+    _rpm(x, y, w, h, rpm, carbHeat = false) {
         const top = this._box(x, y, w, h, 'ENGINE #1');
         const { ctx } = this;
         const cx = x + w / 2, cy = top + 46, r = 32;
@@ -411,6 +412,7 @@ class FlightHud {
         ctx.lineTo(cx + Math.cos(a) * (r - 4), cy + Math.sin(a) * (r - 4));
         ctx.stroke();
         this._text('RPM', cx, cy + 14, 9, COLORS.dim, 'center', 'bold');
+        if (carbHeat) this._text('CARB HEAT', cx, cy + 26, 9, COLORS.yellow, 'center', 'bold', w - 6);
         this._valueBox(x + 8, y + h - 24, w - 16, 20, String(Math.round(rpm)), rpm > RPM_RED ? COLORS.red : COLORS.text, 14);
     }
 

@@ -234,6 +234,7 @@ class Controls3D {
         pull('switch:altStatic', at(L.altStatic), 0.0085, new MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.4 }), new MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.5 }));
         pull('switch:cabinAir1', at(L.cabinAir), 0.014, knurl, blackPlastic);
         pull('switch:cabinHeat', at(L.cabinHeat), 0.014, knurl, blackPlastic);
+        pull('switch:carbHeat', at(L.carbHeat), 0.013, knurl, blackPlastic);   // réchauffe carburateur (CarbIcing.js)
         pull('fuelShutoff', pedestalPoint(pedestalLayout.fuelShutoff.x, pedestalLayout.fuelShutoff.y), 0.012, new MeshStandardMaterial({ color: 0xc62d1f, metalness: 0.4, roughness: 0.4 }));
 
         // Levier des volets : palette blanche qui coulisse dans la fente ; index de la position réelle
@@ -380,7 +381,7 @@ class Controls3D {
         }
         for (const t of TOGGLES) ease(P[`toggle:${t.id}`].rotation, 'x', s.switches[t.id] ? -0.55 : 0.55);
         ease(P.panelLights.rotation, 'z', -deg(-135 + 270 * s.panelLights));
-        for (const id of ['altStatic', 'cabinAir1', 'cabinHeat']) ease(P[`switch:${id}`].position, 'z', s.switches[id] ? 0.018 : 0);
+        for (const id of ['altStatic', 'cabinAir1', 'cabinHeat', 'carbHeat']) ease(P[`switch:${id}`].position, 'z', s.switches[id] ? 0.018 : 0);
         ease(P.fuelShutoff.position, 'z', s.fuelShutoff ? 0.022 : 0);
         ease(P.flapHandle.position, 'y', this._flapSpan / 2 - (state.flapLevel / 3) * this._flapSpan);
         this._flapIndex.position.y = this._flapSpan / 2 - state.flaps * this._flapSpan;

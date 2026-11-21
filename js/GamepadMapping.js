@@ -28,6 +28,7 @@ export const FUNCTIONS = [
 	{ id: 'trimDown', label: 'Trim à piquer', kind: 'button', aircraft: PLANES },
 	{ id: 'flapsDown', label: 'Volets : sortir un cran', kind: 'button', aircraft: PLANES },
 	{ id: 'flapsUp', label: 'Volets : rentrer un cran', kind: 'button', aircraft: PLANES },
+	{ id: 'carbHeat', label: 'Réchauffe carburateur', hint: 'tirer / repousser', kind: 'button', aircraft: [ 'c172' ] },
 	{ id: 'fire', label: 'Tir (arme choisie)', kind: 'button', aircraft: [ 'f15' ] },
 	{ id: 'view', label: 'Vue cabine / extérieure', kind: 'button', aircraft: ALL },
 	{ id: 'look', label: 'Regard libre', hint: 'chapeau chinois', kind: 'hat', aircraft: ALL },

@@ -8,6 +8,7 @@ import {
 import { CESSNA_172 } from './Cessna172.js';
 import { isa, tasToCas, iasFromCas, RHO0 } from './Atmosphere.js';
 import { PistonPropeller } from './Propulsion.js';
+import { Turbulence } from './Turbulence.js';
 
 // Modèle de vol : portance (calculée sur chaque demi-aile), traînée, poussée et poids selon l'incidence et la vitesse,
 // avec effet de sol et décrochage ; au sol, roulage sur les roues jusqu'à ce que l'aile porte l'avion.
@@ -32,7 +33,7 @@ const _front = new Vector3( 0, 0, - 1 );
 const _xAxis = new Vector3( 1, 0, 0 );
 const _zAxis = new Vector3( 0, 0, 1 );
 const _tmpQuaternion = new Quaternion();
-const _gustTarget = new Vector3();
+const _gustAxis = new Vector3();
 const _normal = new Vector3();
 const _forward = new Vector3();
 const _back = new Vector3();
@@ -92,6 +93,7 @@ class FlightModel extends EventDispatcher {
 		this.throttle = 0.3;             // 0 -> 1
 		this.mixture = 1;                // levier de mixture (1 = plein riche), moteur à hélice, voir Systems.js
 		this.enginePower = 1;            // santé du moteur (0 = arrêté, 0,93 une seule magnéto…), voir Systems.js
+		this.intakeDensity = 1;          // air admis / air extérieur (réchauffe carburateur tirée : < 1), voir Systems.js
 		this.jetThrust = 0;              // réacteurs (aircraft.jet) : poussée au niveau de la mer (N), voir JetSystems.js
 		this.thrust = 0;                 // poussée de l'hélice à ce pas (N), voir _propulsion
 		// Dégâts au combat (voir Damage.js) : poussée restante, portance de chaque demi-aile (gauche, droite), traînée
@@ -127,8 +129,10 @@ class FlightModel extends EventDispatcher {
 		this.calibratedSpeed = 0;        // vitesse corrigée (CAS) : pression dynamique vraie, sans l'erreur de position
 		this.mach = 0;                   // nombre de Mach (traînée d'onde, HUD du F-15)
 		this._gustRoll = 0;
-		this._gustRollTarget = 0;
-		this._gustTimer = 0;
+		// Turbulence de Dryden (Turbulence.js, lot 3) : tirage à graine propre (jamais random : l'aile qui tombe garde sa
+		// suite de tirages) ; thermal : vitesse verticale des thermiques (m/s), posée par simulator.js
+		this.gusts = new Turbulence( 1 );
+		this.thermal = 0;
 		this._liftoffAlpha = 0;          // incidence à l'envol...
 		this._liftoffBlend = 0;          // ... dont l'avion se détache progressivement (1 -> 0) pour rejoindre celle du trim
 		this._liftoffEase = 1;           // transition de l'envol (0 -> 1), voir LIFTOFF_EASE_TIME
@@ -250,7 +254,7 @@ class FlightModel extends EventDispatcher {
 	// Moteur à hélice (Propulsion.js) : régime et poussée à ce pas, pour la vitesse de l'air le long de l'axe (m/s)
 	_propulsion( dt, axialSpeed ) {
 		if ( ! this.propulsion ) return;
-		this.propulsion.update( dt, { throttle: this.throttle, mixture: this.mixture, health: this.enginePower, axialSpeed, density: this.airDensity() } );
+		this.propulsion.update( dt, { throttle: this.throttle, mixture: this.mixture, health: this.enginePower, axialSpeed, density: this.airDensity(), intakeDensity: this.intakeDensity } );
 		this.thrust = this.propulsion.thrust * this.damage.thrust;
 	}
 
@@ -328,22 +332,25 @@ class FlightModel extends EventDispatcher {
 
 	// --- Aérodynamique ---
 
-	// Rafales (tempête) : vent qui change toutes les 1 à 2,5 s, atteint en douceur, et secousses en roulis
+	// Turbulence (sévérité this.turbulence, 0 -> 1) : modèle de Dryden (MIL-F-8785C, Turbulence.js), intensité et échelles
+	// selon la hauteur, dans le repère du vent moyen (u le long du vent, ou de la trajectoire par vent calme ; v en
+	// travers ; w vertical), plus les thermiques ; p : secousses en roulis. Rien au sol (la piste reste calme)
 	_updateGusts( delta ) {
-		if ( this.turbulence <= 0 || this.onGround ) {
+		if ( ( this.turbulence <= 0 && ! this.thermal ) || this.onGround ) {
 			this._wind.set( 0, 0, 0 );
 			this._gustRoll = 0;
+			this.gusts.reset();
 			return;
 		}
-		this._gustTimer -= delta;
-		if ( this._gustTimer <= 0 ) {
-			_gustTarget.set( this.random() - 0.5, ( this.random() - 0.5 ) * 0.5, this.random() - 0.5 ).multiplyScalar( 10 * this.turbulence );
-			this._gustRollTarget = ( this.random() - 0.5 ) * 0.6 * this.turbulence;
-			this._gustTimer = 1 + this.random() * 1.5;
-		}
-		const k = 1 - Math.exp( - delta * 1.5 );
-		this._wind.lerp( _gustTarget, k );
-		this._gustRoll += ( this._gustRollTarget - this._gustRoll ) * k;
+		const p = this.object.position;
+		const height = Math.max( 0, p.y - this.groundHeight( p.x, p.z ) - this.minAltitude );
+		const g = this.gusts.step( delta, { height, airspeed: this.airspeed, severity: this.turbulence, span: this.aircraft.wingspan ?? 11 } );
+		_gustAxis.set( this.wind.x, 0, this.wind.z );
+		if ( _gustAxis.lengthSq() < 1 ) _gustAxis.set( this.velocity.x, 0, this.velocity.z );
+		if ( _gustAxis.lengthSq() < 1e-6 ) _gustAxis.set( 0, 0, - 1 );
+		_gustAxis.normalize();
+		this._wind.set( _gustAxis.x * g.u - _gustAxis.z * g.v, g.w + this.thermal, _gustAxis.z * g.u + _gustAxis.x * g.v );
+		this._gustRoll = g.p;
 	}
 
 	// Coefficient de portance selon l'incidence (rad) ; au-delà de l'incidence de décrochage, il s'effondre

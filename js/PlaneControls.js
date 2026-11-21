@@ -109,6 +109,7 @@ class PlaneControls extends Controls {
 		model.minAltitude = old.minAltitude;
 		model.obstacles = old.obstacles;
 		model.turbulence = old.turbulence;
+		model.thermal = old.thermal ?? 0;
 		model.wind.copy( old.wind );
 		this.model = model;
 	}

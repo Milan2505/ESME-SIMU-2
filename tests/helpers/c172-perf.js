@@ -14,10 +14,12 @@ const once = (key, compute) => { key = `${process.env.TEST_MODEL ?? 'simplifie'}
 
 // Décollage court du manuel : volets 10°, plein gaz, rotation à Vr, 50 ft passés à la vitesse de meilleur angle (KIAS)
 // Modèle simplifié : manche tiré à 0,6 dès Vr (procédure validée à l'étape 1a) ; modèle réaliste : rotation à l'assiette
-// (rotationPilot), une traction fixe y fait monter le nez à plus de 30°/s. Axe de piste tenu au palonnier (headingHold)
-export function takeoff({ rotateKt = 51, climbKt = 56, model: kind = process.env.TEST_MODEL ?? 'simplifie' } = {}) {
-    return once(`takeoff-${rotateKt}-${climbKt}-${kind}`, () => {
+// (rotationPilot), une traction fixe y fait monter le nez à plus de 30°/s. Axe de piste tenu au palonnier (headingHold).
+// deltaT : écart à l'atmosphère type (K ; +20 = 35 °C au niveau de la mer)
+export function takeoff({ rotateKt = 51, climbKt = 56, model: kind = process.env.TEST_MODEL ?? 'simplifie', deltaT = 0 } = {}) {
+    return once(`takeoff-${rotateKt}-${climbKt}-${kind}-${deltaT}`, () => {
         const f = makeAircraft({ model: kind }), { model, object } = f;
+        model.temperatureOffset = deltaT;
         const axis = headingHold(f, 0), rotate = kind === 'realiste' ? rotationPilot(f, { rotateKt }) : () => { model.controls.pitch = model.indicatedSpeed >= rotateKt * KT ? 0.6 : 0; };
         const startY = object.position.y;
         model.setFlapLevel(1);

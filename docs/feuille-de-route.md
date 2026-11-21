@@ -238,6 +238,33 @@ Tests : altimètre juste à ±20 ft avec le bon calage, faux de 30 ft par hPa d'
 longues par temps chaud.
 ```
 
+**État (21/11/2026)** : livré, sauf l'atmosphère ISA et la température, déjà faites à l'étape 1a.
+- QNH tiré avec la graine du vent (`Wind.js`, 4e tirage : le vent d'une graine ne change pas), de 995 à 1030 hPa, dans une
+  plage par météo (`qnhRange` des METARS d'`ATC.js`) ; annoncé par l'ATIS et la tour. Altimètre du C172, du R44 et du HUD :
+  pression statique au QNH et à la température du jour, lue avec le calage (`Atmosphere.altimeterReading`) ; avion prêt
+  à partir déjà calé, avion éteint au parking à caler (nouvelle étape « Calage altimétrique » de l'initiation). Masse et
+  centrage : altitude-pression et altitude-densité depuis la météo du jeu. Nouvelle météo « Chaud (35 °C) ».
+- Météo réelle : METAR par `https://metar.vatsim.net` (CORS ouvert, sans clé ; vérifié le 21/11/2026). Ni aviationweather.gov
+  ni tgftp (NOAA) n'envoient d'en-tête CORS, CheckWX et AVWX demandent une clé. **LFMA n'émet pas de METAR** (rien sur
+  7 jours) : LFML (Marseille-Provence, ~25 km) sert de repli. Parseur et conversion dans `js/Metar.js`.
+- Givrage carburateur (`js/CarbIcing.js`, `Systems.js`) : abaque CAA SSL 14, risque maximal à puissance réduite, régime qui
+  baisse puis ratés et arrêt ; réchauffe (tirette CARB HEAT à gauche des gaz, touche ², périphériques, tablette, HUD) :
+  air chaud moins dense (~100 tr/min de chute à l'essai, POH p. 7-15), fonte en ~20 s avec ratés ; son du moteur qui suit.
+  Initiation : essai de la réchauffe au point fixe, tirée en vent arrière avant de réduire, repoussée après l'atterrissage,
+  conseils en remise de gaz.
+- Turbulence de Dryden (`js/Turbulence.js`, MIL-F-8785C) à la place des rafales aléatoires, tirage à graine propre ;
+  cisaillement au-dessus de 10 m, thermiques de jour par beau temps (coupées en mode test : `__sim.setThermals`).
+Tests : `altimeter.test.js`, `meteo.test.js`, `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `e2e/meteo.spec.js`.
+
+**Reste à faire du lot 3** :
+- Valeurs non relues dans une source primaire, choisies pour le jeu et marquées dans le code : vitesses de formation et de
+  fonte de la glace, perte de puissance par la glace, échauffement de l'air de la réchauffe (calé sur la chute du POH),
+  correspondance zones de l'abaque / sévérité ; position de la tirette (POH fig. 7-2 non lue) ; thermiques (ordre de
+  grandeur du vol à voile) ; au-dessus de 2 000 ft, Dryden prend σ constant au lieu de la table de la norme.
+- Météo réelle en multijoueur : seul le nom de la météo est partagé ; chaque joueur lit lui-même le METAR (le vent du
+  créateur n'est pas imposé pour la météo réelle).
+- Scan du POH D1251-13 à relire pour les pages citées (texte lu sur l'édition 1980 par OCR).
+
 ---
 
 ### Lot 4. Pilote automatique KAP 140 et instruments manquants

@@ -34,16 +34,17 @@ const STATIONS = {
     approach: { fr: 'Approche', en: 'Approach' },
     info:     { fr: 'Info', en: 'Information' },     // information de vol (SIV), sur toute la carte
 };
-// Vent et bulletin ATIS de chaque météo (variation : amplitude de la direction ; le QNH reste standard :
-// l'altimètre de l'avion n'a pas de calage)
+// Vent et bulletin ATIS de chaque météo (variation : amplitude de la direction). QNH : tiré avec la graine du vent dans
+// qnhRange (Wind.js, 995 à 1030 hPa : basses pressions par mauvais temps, hautes par temps calme et clair) ; l'altimètre
+// de l'avion lit la pression statique et suit son calage (Atmosphere.altimeterReading). Météo réelle : METAR (Metar.js)
 const METARS = {
-    jour:       { wind: 360, knots: 7, variation: 60, vis: ['10 km ou plus', '10 kilometres or more'], clouds: ['peu nombreux à 3000 pieds', 'few clouds 3000 feet'], temp: 18, dew: 9 },
-    nuageux:    { wind: 340, knots: 11, variation: 60, gust: 20, vis: ['8 km', '8 kilometres'], clouds: ['couvert à 1000 pieds', 'overcast 1000 feet'], temp: 12, dew: 9 },
-    nuit:       { wind: 10, knots: 4, variation: 60, vis: ['10 km ou plus', '10 kilometres or more'], clouds: ['ciel clair', 'sky clear'], temp: 9, dew: 4 },
-    brouillard: { wind: 360, knots: 2, variation: 0, vis: ['400 mètres, brouillard', '400 metres, fog'], clouds: ['ciel invisible', 'sky obscured'], temp: 7, dew: 7 },
-    tempete:    { wind: 350, knots: 20, variation: 80, gust: 32, vis: ['3000 mètres, orage avec forte pluie', '3000 metres, heavy thunderstorm with rain'], clouds: ['fragmentés à 800 pieds, cumulonimbus', 'broken 800 feet, cumulonimbus'], temp: 14, dew: 12 },
+    jour:       { wind: 360, knots: 7, variation: 60, vis: ['10 km ou plus', '10 kilometres or more'], clouds: ['peu nombreux à 3000 pieds', 'few clouds 3000 feet'], temp: 18, dew: 9, qnhRange: [1010, 1030] },
+    chaud:      { wind: 200, knots: 6, variation: 60, vis: ['10 km ou plus', '10 kilometres or more'], clouds: ['ciel clair', 'sky clear'], temp: 35, dew: 12, qnhRange: [1008, 1020] },
+    nuageux:    { wind: 340, knots: 11, variation: 60, gust: 20, vis: ['8 km', '8 kilometres'], clouds: ['couvert à 1000 pieds', 'overcast 1000 feet'], temp: 12, dew: 9, qnhRange: [1000, 1015] },
+    nuit:       { wind: 10, knots: 4, variation: 60, vis: ['10 km ou plus', '10 kilometres or more'], clouds: ['ciel clair', 'sky clear'], temp: 9, dew: 4, qnhRange: [1015, 1030] },
+    brouillard: { wind: 360, knots: 2, variation: 0, vis: ['400 mètres, brouillard', '400 metres, fog'], clouds: ['ciel invisible', 'sky obscured'], temp: 7, dew: 7, qnhRange: [1018, 1030] },
+    tempete:    { wind: 350, knots: 20, variation: 80, gust: 32, vis: ['3000 mètres, orage avec forte pluie', '3000 metres, heavy thunderstorm with rain'], clouds: ['fragmentés à 800 pieds, cumulonimbus', 'broken 800 feet, cumulonimbus'], temp: 14, dew: 12, qnhRange: [995, 1005] },
 };
-const QNH = '1013';
 const VFR_SQUAWK = '7000';
 // Intitulés des cases (interface en français), quelle que soit la langue des messages
 const LABELS = {
@@ -256,8 +257,8 @@ class ATC extends EventDispatcher {
 
     // Météo du panneau : vent (variable), visibilité, nuages ; une nouvelle lettre ATIS à chaque changement,
     // annoncée par le contrôleur en contact
-    setWeather(name, weather) {
-        const metar = METARS[name] ?? METARS.jour;
+    // metar : celui de la météo réelle (Metar.js), sinon le préréglage du nom
+    setWeather(name, weather, metar = METARS[name] ?? METARS.jour) {
         const changed = this._weatherName && this._weatherName !== name;
         this._weatherName = name;
         this.metar = { ...metar, night: (weather?.night ?? 0) >= 0.5 };
@@ -1643,8 +1644,14 @@ class ATC extends EventDispatcher {
         return this._t(() => tok(`piste ${rw.name}`, `piste ${this._digits(rw.name)}`), () => tok(`runway ${rw.name}`, `runway ${this._digits(rw.name)}`));
     }
 
+    // QNH du jour (hPa) : celui du vent de la partie (Wind.js)
+    get qnh() {
+        return Math.round(this.wind.qnh ?? 1013);
+    }
+
     _qnh() {
-        return tok(`QNH ${QNH}`, `Q N H ${this._digits(QNH)}`);
+        const q = String(this.qnh);
+        return tok(`QNH ${q}`, `Q N H ${this._digits(q)}`);
     }
 
     _twy() {

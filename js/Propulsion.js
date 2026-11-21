@@ -96,23 +96,26 @@ class PistonPropeller {
 	}
 
 	// Régime d'équilibre (tr/min) à admission, mixture et santé données, vitesse air et densité fixées (dichotomie)
-	_equilibriumRpm( admission, mixtureFactor, density, speed, health = 1 ) {
+	// intakeDensity : air admis plus chaud que l'air extérieur (réchauffe carburateur), rapport des densités
+	_equilibriumRpm( admission, mixtureFactor, density, speed, health = 1, intakeDensity = 1 ) {
 		let low = 100, high = 4000;
 		for ( let i = 0; i < 40; i ++ ) {
 			const mid = ( low + high ) / 2;
-			const excess = this._engineTorque( mid, admission, density / RHO0, mixtureFactor, health ) - this._propellerTorque( mid, speed, density );
+			const excess = this._engineTorque( mid, admission, density / RHO0 * intakeDensity, mixtureFactor, health ) - this._propellerTorque( mid, speed, density );
 			if ( excess > 0 ) low = mid; else high = mid;
 		}
 		return ( low + high ) / 2;
 	}
 
 	// Un pas de temps : manette (0 -> 1), levier de mixture (0 -> 1), santé (0 -> 1), vitesse de l'air le long de l'axe de
-	// l'hélice (m/s), masse volumique (kg/m³). Met à jour régime, poussée, couple et puissance
-	update( dt, { throttle, mixture = 1, health = 1, axialSpeed = 0, density = RHO0 } ) {
+	// l'hélice (m/s), masse volumique (kg/m³), densité de l'air admis par rapport à l'air extérieur (réchauffe carburateur :
+	// air chaud moins dense, moins de masse d'air et mélange plus riche, POH 172P p. 4-16 et 7-15). Met à jour régime,
+	// poussée, couple et puissance
+	update( dt, { throttle, mixture = 1, health = 1, axialSpeed = 0, density = RHO0, intakeDensity = 1 } ) {
 		const E = this.engine;
 		const target = E.idleAdmission + ( 1 - E.idleAdmission ) * Math.min( 1, Math.max( 0, throttle ) ) ** E.throttleCurve;
 		this._admission += ( target - this._admission ) * Math.min( 1, dt / E.throttleLag );
-		const sigma = density / RHO0;
+		const sigma = density / RHO0 * intakeDensity;   // (air admis : celui du carburateur)
 		this.torque = this._engineTorque( this.rpm, this._admission, sigma, PistonPropeller.mixtureFactor( mixture, sigma, E ), health );
 		const load = this._propellerTorque( this.rpm, axialSpeed, density );
 		const omega = Math.max( 0, this.rpm * 2 * Math.PI / 60 + ( this.torque - load ) / E.inertia * dt );

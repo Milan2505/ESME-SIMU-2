@@ -146,7 +146,10 @@ class EngineSound {
         const urls = [...LAYERS.map(({ name, url }) => [name, url]), ...Object.entries(ONE_SHOTS)];
         const entries = await Promise.all(urls.map(async ([name, url]) => [name, await loadBuffer(this._audio, url)]));
         this._buffers = Object.fromEntries(entries);
-        this._loops = createLoops(this._audio, this._buffers, this._master);
+        // Ratés (givrage du carburateur, fonte, alimentation faible) : gain intercalé, creux brefs (voir update)
+        this._rough = this._audio.createGain();
+        this._rough.connect(this._master);
+        this._loops = createLoops(this._audio, this._buffers, this._rough);
         // Démarreur : boucle à part, entendue seulement pendant que la clé est sur START
         this._crank = this._audio.createGain();
         this._crank.gain.value = 0;
@@ -210,8 +213,9 @@ class EngineSound {
     playStop(volume = 1) { this._play('cut', 0.8 * volume); }
 
     // rpm : régime moteur (hélice) ; volume : 0 -> 1 (plus faible en cabine qu'à l'extérieur, par ex.) ;
-    // running : moteur tournant (sinon : démarreur ou hélice entraînée par le vent) ; cranking : clé sur START
-    update(rpm, volume = 1, { running = true, cranking = false } = {}) {
+    // running : moteur tournant (sinon : démarreur ou hélice entraînée par le vent) ; cranking : clé sur START ;
+    // roughness : moteur qui tourne mal (0 -> 1, Systems.roughness) : ratés (creux brefs) et régime qui tremble
+    update(rpm, volume = 1, { running = true, cranking = false, roughness = 0 } = {}) {
         if (!this._loops) return;
         const now = this._audio.currentTime;
         // Moteur arrêté : les boucles s'éteignent avec le régime (hélice qui ralentit), pas de son de combustion.
@@ -222,6 +226,17 @@ class EngineSound {
         // Son coupé (choix du départ, crash) : pas de fondu, sinon un départ moteur éteint ferait entendre la fin de l'ancien
         const current = volume <= 0 ? target : this._combustion ?? target;
         this._combustion = current + (target - current) * (1 - Math.exp(-delta / (target < current ? 0.7 : 0.15)));
+        if (running && roughness > 0) {
+            // Raté : une explosion manquée, le son retombe ~0,1 s ; plus souvent quand le moteur tourne plus mal
+            if (now >= (this._nextMiss ?? 0) && Math.random() < roughness * 6 * delta) {
+                const depth = 0.15 + 0.4 * (1 - roughness), length = 0.06 + 0.1 * Math.random();
+                this._rough.gain.cancelScheduledValues(now);
+                this._rough.gain.setValueAtTime(depth, now);
+                this._rough.gain.linearRampToValueAtTime(1, now + length);
+                this._nextMiss = now + length;
+            }
+            rpm *= 1 + 0.05 * roughness * (Math.random() - 0.5);
+        }
         mixLayers(this._loops, rpm, volume * this._combustion, now);
         this._crank.gain.setTargetAtTime(cranking && !running ? 0.9 * Math.min(1, volume * 1.4) : 0, now, 0.03);
     }
