@@ -339,7 +339,7 @@ class Systems extends EventTarget {
         // Arrêts : magnétos coupées, étouffoir, panne sèche, givrage
         if (this.running) {
             // Givrage : la glace se forme selon la météo et la puissance, fond réchauffe tirée ; venturi bouché : arrêt
-            this.carbIce.update(delta, { temp: this.outsideTemp, dew: this.dewPoint, throttle, heat: this.switches.carbHeat, running: true });
+            this.carbIce.update(delta, { temp: this.outsideTemp, dew: this.dewPoint, throttle, heat: this.switches.carbHeat, running: true, scale: this.icingScale ?? 1 });
             if (this.magnetos === 0 || this.mixture < 0.08) this._stop();
             else if (this.carbIce.choked) this._stop('givrage');
             else if (!this.fuelAvailable) {

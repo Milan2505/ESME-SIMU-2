@@ -19,6 +19,10 @@ test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrag
     await page.goto('/?test=1&carte=campagne');
     await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
     await phase('menu');
+    // Effets de l'atmosphère « réaliste » (le défaut, doux, givre trois fois plus lentement)
+    await page.click('#mp-parametres');
+    await page.selectOption('#reglages-dialog select[name="atmosphere"]', JSON.stringify('realiste'));
+    await page.click('#reglages-fermer');
     await page.click('#mp-vol-libre');
     await page.click('#carte-liste button[data-carte="campagne"]');
     await page.click('#carte-continuer');

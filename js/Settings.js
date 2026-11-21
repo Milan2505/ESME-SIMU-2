@@ -35,6 +35,10 @@ const OPTIONS = {
                        choices: [['realiste', 'Réaliste'], ['simplifie', 'Simplifié']] },
     controlRamp:     { group: 'Pilotage', label: 'Douceur des commandes (clavier, tactile)', hint: "Modèle réaliste : une touche braque la gouverne progressivement, comme une main qui tire de plus en plus sur le manche. Vive : profondeur à fond en 1 s ; normale : 2 s ; douce : 3 s",
                        choices: [[0.5, 'Vive'], [1, 'Normale'], [1.5, 'Douce']] },
+    // Effets de l'atmosphère et du moteur ajoutés au lot 3 (turbulence de Dryden, thermiques, givrage du carburateur) :
+    // doux par défaut (demande du 21/11/2026 : l'avion était trop secoué)
+    atmosphere:      { group: 'Pilotage', label: "Effets de l'atmosphère", hint: "Turbulence (selon la météo), thermiques par beau temps, givrage du carburateur. Doux : moitié moins de turbulence et de thermiques, givrage trois fois plus lent ; réaliste : valeurs des normes et des abaques ; aucun : air calme, pas de givrage",
+                       choices: [['doux', 'Doux'], ['realiste', 'Réaliste'], ['aucun', 'Aucun']] },
     // Aides au pilotage : désactivées par défaut (pilotage réaliste)
     rotationAuto:    { group: 'Pilotage', label: 'Rotation automatique', hint: 'Au sol, le trim lève le nez tout seul au décollage',
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
@@ -54,7 +58,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 1, hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 1, atmosphere: 'doux', hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages

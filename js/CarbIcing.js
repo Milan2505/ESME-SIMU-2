@@ -80,8 +80,9 @@ export class CarbIce {
 		this.melting = false;
 		this._t = 0;
 	}
-	// dt (s) ; temp, dew (°C) ; throttle (0 -> 1) ; heat : réchauffe tirée ; running : moteur en marche
-	update( dt, { temp, dew, throttle, heat, running } ) {
+	// dt (s) ; temp, dew (°C) ; throttle (0 -> 1) ; heat : réchauffe tirée ; running : moteur en marche ; scale : vitesse de
+	// formation (réglage « Effets de l'atmosphère » : 1 réaliste, 1/3 doux, 0 aucun)
+	update( dt, { temp, dew, throttle, heat, running, scale = 1 } ) {
 		this._t += dt;
 		this.melting = false;
 		// Moteur arrêté : la glace reste ; réchauffe tirée, la chaleur restante de l'échappement peut la fondre (CAA SSL 14
@@ -95,7 +96,7 @@ export class CarbIce {
 			this.melting = this.ice > 0;
 			this.ice = Math.max( 0, this.ice - dt / MELT_TIME );
 		} else {
-			const rate = formationRate( icingSeverity( temp, dew, throttle ) );
+			const rate = formationRate( icingSeverity( temp, dew, throttle ) ) * scale;
 			// Hors abaque : la glace s'en va doucement (air plus chaud que la plage critique)
 			this.ice = rate > 0 ? Math.min( 1, this.ice + rate * dt ) : Math.max( 0, this.ice - dt / 300 );
 		}

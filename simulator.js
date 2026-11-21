@@ -297,6 +297,9 @@ let cockpit = cessnaCockpit;           // cabine de l'avion piloté
 try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false); } catch { /* stockage indisponible */ }
 const crashEffect = new CrashEffect();
 let weather = null;
+// Réglage « Effets de l'atmosphère » : facteurs de la turbulence, des thermiques et de la vitesse de givrage
+const ATMOSPHERE_EFFECTS = { doux: { turbulence: 0.5, thermals: 0.5, icing: 1 / 3 }, realiste: { turbulence: 1, thermals: 1, icing: 1 }, aucun: { turbulence: 0, thermals: 0, icing: 0 } };
+let atmosphereEffects = ATMOSPHERE_EFFECTS.doux;
 let weatherName = 'jour';   // nom de la météo choisie (envoyé aux autres joueurs : celle du créateur donne le vent)
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
 const sunLight = new THREE.DirectionalLight(COLOR_LIGHT);
@@ -1890,7 +1893,7 @@ function setWeather(name) {
     sunLight.intensity = w.sun;
     sunLight.color.set(w.sunColor ?? COLOR_LIGHT);
     setDaylight(1 - 0.92 * w.night);   // lumière renvoyée sur l'avion et dans la cabine : presque rien la nuit
-    controls.turbulence = w.turbulence;
+    controls.turbulence = w.turbulence * atmosphereEffects.turbulence;
     // Température du METAR de cette météo (ATC.js) : écart à l'atmosphère type au niveau du terrain, pour la densité de
     // l'air des modèles de vol (Atmosphere.js : portance, traînée, puissance du moteur)
     const metar = weatherMetar(name);
@@ -2267,7 +2270,7 @@ function updateFog() {
     // du dessus de la nappe (même réglé sans nappe affichée : les nuages restent là pour la physique)
     const aircraftAbove = cloudLayer.heightAboveTop(aircraft.position);
     const aboveLayer = aircraftAbove === null ? 0 : THREE.MathUtils.smoothstep(aircraftAbove, -ABOVE_CLOUDS_BLEND, ABOVE_CLOUDS_BLEND);
-    controls.turbulence = weather.turbulence * (1 - aboveLayer);
+    controls.turbulence = weather.turbulence * (1 - aboveLayer) * atmosphereEffects.turbulence;
     const density = Math.max(clouds.densityAt(camera.position), cloudLayer.densityAt(camera.position));
     // Au-dessus de la couche nuageuse : ciel bleu, vue dégagée et plein soleil, dès la sortie du dessus réel de la nappe
     // (bosses et creux compris : avant, l'altitude moyenne du sommet laissait l'avion sous un ciel d'orage, hors du
@@ -5110,6 +5113,9 @@ function applySettings(values) {
     // Modèle de vol du Cessna : tout de suite au menu, au hangar et au choix du départ ; sinon au prochain départ
     if (inMenu || inHangar || choosingSpawn) syncPlaneModel();
     controls.inputRamp.setScale(values.controlRamp ?? 1);
+    atmosphereEffects = ATMOSPHERE_EFFECTS[values.atmosphere] ?? ATMOSPHERE_EFFECTS.doux;
+    cessnaSystems.icingScale = atmosphereEffects.icing;
+    if (weather) controls.turbulence = weather.turbulence * atmosphereEffects.turbulence;
     heliModel.assists.heliStability = values.heliStability ?? true;   // (R44 : son propre modèle de vol)
 }
 
@@ -6729,7 +6735,7 @@ function updateAirMass() {
     controls.model.wind.copy(wind.vector).multiplyScalar(shearFactor(height));
     const sunny = weather.night === 0 && weather.sun >= 1.5 && !weather.overcast && !weather.rain;
     controls.model.thermal = thermalsEnabled && sunny && !choosingSpawn && controls.getSurface() !== 'water'
-        ? thermalAt(p.x, p.z, height, wind.now(), { seed: airSeed, strength: weather.sun >= 2.2 ? 1.2 : 1 }) : 0;
+        ? thermalAt(p.x, p.z, height, wind.now(), { seed: airSeed, strength: (weather.sun >= 2.2 ? 1.2 : 1) * atmosphereEffects.thermals }) : 0;
 }
 // Mode test : temps accéléré (window.__sim.setTimeScale). Le temps de jeu avance de simTimeScale fois le temps réel : avant
 // chaque image, des pas supplémentaires de 0,1 s au plus (le plus grand pas du jeu, voir PlaneControls) font avancer le
