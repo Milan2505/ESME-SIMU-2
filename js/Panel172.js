@@ -23,13 +23,14 @@ import { BREAKERS, AVIONICS_BREAKERS, TOGGLES } from './Systems.js';
 import { releaseAfterUpload } from './CanvasMemory.js';
 import { XPDR_MODES, DAVTRON_TOP, DAVTRON_BOTTOM, formatCom, formatNav } from './Avionics.js';
 import {
-    ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
-    asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawLabels, drawDisplays
+    ATLAS_SIZE, CELLS, SPRITES, ATLAS_RADIUS, PLATES, PLATE_SIZE, PLATE_HEIGHT, PLATE_SCALE, KAP_KEYS_X, KR87_KEYS_X, FACE,
+    LABELS, DISPLAY, DISPLAY_SIZE, asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawLabels, drawDisplays
 } from './InstrumentArt.js';
 
 // Tableau de bord du Cessna 172 en 3D, d'après le schéma de référence (Cessna 172, Cockpit Revolution) :
 // tôle grise découpée et sous-panneau noir, casquette, instruments ronds en retrait derrière leur vitre (cadrans,
-// roses et aiguilles en relief), pile radio (audio, deux NAV/COM, DME, transpondeur), compas magnétique,
+// roses et aiguilles en relief), pile radio (audio, deux NAV/COM, pilote automatique KAP 140, DME, transpondeur, ADF
+// KR 87), compas magnétique,
 // boutons et interrupteurs. Les positions sont celles du schéma, en px de l'image (2394 x 1765) : 2 030 px par mètre.
 
 const KNOB_NOTCH = Math.PI / 10;   // un cran de bouton rotatif : 18°
@@ -83,7 +84,9 @@ const LAYOUT = {
     hobbs: { x: 2062, y: 333 },
     stallLed: { x: 705, y: 250 },
     annunciator: { x0: 1000, y0: 213, x1: 1162, y1: 247 },
-    stack: { x0: 1378, y0: 300, x1: 1678, y1: 757 },
+    // Pile radio : audio, NAV/COM 1 et 2, KAP 140, DME, transpondeur, ADF KR 87 (sous le transpondeur, au-dessus du
+    // sous-panneau noir qui commence à y 848)
+    stack: { x0: 1378, y0: 300, x1: 1678, y1: 824 },
     yokes: [{ x: 930, y: 700 }, { x: 1767, y: 700 }],
     brake: { x: 716, y: 1046 },
 };
@@ -299,8 +302,8 @@ class Panel172 {
         labels.colorSpace = SRGBColorSpace;
         labels.anisotropy = 8;
         const displayCanvas = document.createElement('canvas');
-        displayCanvas.width = 1024;
-        displayCanvas.height = 512;
+        displayCanvas.width = DISPLAY_SIZE.width;
+        displayCanvas.height = DISPLAY_SIZE.height;
         this._displayCtx = displayCanvas.getContext('2d');
         this.displayTexture = new CanvasTexture(displayCanvas);
         this.displayTexture.colorSpace = SRGBColorSpace;
@@ -559,7 +562,7 @@ class Panel172 {
         // Altimètre : calage (fenêtre) et trois aiguilles
         i = this._case('alt');
         this._disc(i, 'alt');
-        const kollsman = new Mesh(mapUV(new PlaneGeometry(i.rd * 0.36, i.rd * 0.19), DISPLAY.kollsman, 1024, 512), this._display);
+        const kollsman = new Mesh(mapUV(new PlaneGeometry(i.rd * 0.36, i.rd * 0.19), DISPLAY.kollsman, DISPLAY_SIZE.width, DISPLAY_SIZE.height), this._display);
         kollsman.position.set(i.rd * 0.56, 0, i.z + 0.0003);
         i.root.add(kollsman);
         p.alt10k = this._sprite(i, 'alt10k', 3);
@@ -615,7 +618,7 @@ class Panel172 {
 
         i = this._case('tach');
         this._disc(i, 'tach');
-        const hours = new Mesh(mapUV(new PlaneGeometry(i.rd * 0.72, i.rd * 0.19), DISPLAY.tachHours, 1024, 512), this._display);
+        const hours = new Mesh(mapUV(new PlaneGeometry(i.rd * 0.72, i.rd * 0.19), DISPLAY.tachHours, DISPLAY_SIZE.width, DISPLAY_SIZE.height), this._display);
         hours.position.set(0, -i.rd * 0.44, i.z + 0.0003);
         i.root.add(hours);
         p.tachNeedle = this._sprite(i, 'tachNeedle', 4);
@@ -640,7 +643,7 @@ class Panel172 {
         i = this._case('davtron');
         this._disc(i, 'davtron');
         for (const [key, y] of [['davtronTop', 0.33], ['davtronBottom', -0.15]]) {
-            const lcd = new Mesh(mapUV(new PlaneGeometry(i.rd * 1.3, i.rd * 0.36), DISPLAY[key], 1024, 512), this._display);
+            const lcd = new Mesh(mapUV(new PlaneGeometry(i.rd * 1.3, i.rd * 0.36), DISPLAY[key], DISPLAY_SIZE.width, DISPLAY_SIZE.height), this._display);
             lcd.position.set(0, i.rd * y, i.z + 0.0003);
             i.root.add(lcd);
         }
@@ -661,9 +664,10 @@ class Panel172 {
             { plate: 'audio', y0: 302, y1: 365 },
             { plate: 'navcom', id: 'navcom1', y0: 368, y1: 462 },
             { plate: 'navcom', id: 'navcom2', y0: 465, y1: 558 },
-            { plate: null, y0: 560, y1: 622 },
+            { plate: 'kap140', y0: 560, y1: 622 },
             { plate: 'dme', y0: 625, y1: 683 },
             { plate: 'xpdr', y0: 686, y1: 755 },
+            { plate: 'kr87', y0: 758, y1: 822 },
         ];
         const darkBox = new MeshStandardMaterial({ color: 0x141416, roughness: 0.6 });
         for (const u of units) {
@@ -674,14 +678,14 @@ class Panel172 {
             this.group.add(box);
             if (!u.plate) continue;
             const plate = PLATES[u.plate];
-            const front = new Mesh(mapUV(new PlaneGeometry(w, h), { x: 0, y: plate.y * PLATE_SCALE, w: PLATE_SIZE, h: plate.h * PLATE_SCALE }, PLATE_SIZE), this.materials.plates);
+            const front = new Mesh(mapUV(new PlaneGeometry(w, h), { x: 0, y: plate.y * PLATE_SCALE, w: PLATE_SIZE, h: plate.h * PLATE_SCALE }, PLATE_SIZE, PLATE_HEIGHT), this.materials.plates);
             front.position.set(center.x, center.y, FACE_Z + 0.0031);
             this.group.add(front);
             u.local = (ux, uy, dz = 0) => at(st.x0 + ux, u.y0 + uy, 0.0031 + dz);
         }
         // Afficheur : plan de l'afficheur posé sur la façade (local : px de la façade)
         const display = (u, region, x0, y0, x1, y1) => {
-            const mesh = new Mesh(mapUV(new PlaneGeometry(m(x1 - x0), m(y1 - y0)), region, 1024, 512), this._display);
+            const mesh = new Mesh(mapUV(new PlaneGeometry(m(x1 - x0), m(y1 - y0)), region, DISPLAY_SIZE.width, DISPLAY_SIZE.height), this._display);
             mesh.position.copy(u.local((x0 + x1) / 2, (y0 + y1) / 2, 0.0004));
             this.group.add(mesh);
             return mesh;
@@ -732,7 +736,7 @@ class Panel172 {
             else this.group.add(root);
             return root;
         };
-        const [audio, nc1, nc2, , dme, xpdr] = units;
+        const [audio, nc1, nc2, kap, dme, xpdr, kr87] = units;
 
         // Boîte audio : haut-parleurs (rangée du haut, cliquable), casque (décor), sélecteur du micro
         p.audioButtons = {};
@@ -741,6 +745,31 @@ class Panel172 {
             button(audio, null, 77 + k * 18, 46, 12, 11);
         });
         p.mic = small(audio, 'audio:mic', 268, 28, 9);
+        // Voyants des marqueurs (OACI Annexe 10 vol. I §3.1.7) : O bleu (extérieur), M ambre (intermédiaire), A blanc
+        // (intérieur / balise de voies aériennes), de haut en bas ; verres teintés éteints, allumés par s.markers
+        p.markers = {};
+        [['o', 0x0c1a4a, 0x3b6cff], ['m', 0x4a3300, 0xffb000], ['a', 0x5a5a5c, 0xffffff]].forEach(([id, color, emissive], i) => {
+            const lamp = new Mesh(new BoxGeometry(m(8), m(10), 0.002), new MeshStandardMaterial({ color, emissive, emissiveIntensity: 0, roughness: 0.3 }));
+            lamp.position.copy(audio.local(18, 20 + i * 13, 0.001));
+            this.group.add(lamp);
+            this.dynamic.push(lamp);
+            p.markers[id] = lamp;
+        });
+
+        // Pilote automatique KAP 140 : afficheur, touches (noires, inscriptions dessous), ARM et BARO à droite de
+        // l'afficheur, double bouton de présélection d'altitude (molette)
+        display(kap, DISPLAY.kap140, 13, 10, 223, 33);
+        ['ap', 'hdg', 'nav', 'apr', 'rev', 'alt', 'dn', 'up'].forEach((id, i) => button(kap, `kap:${id}`, KAP_KEYS_X[i], 50, 17, 9, this._knobBlack));
+        button(kap, 'kap:arm', 238, 21, 16, 8, this._knobBlack);
+        button(kap, 'kap:baro', 238, 43, 16, 8, this._knobBlack);
+        dual(kap, 'kap:sel', 274, 40);
+
+        // ADF KR 87 : afficheur, marche / volume (décor : alimenté par l'avionique), touches ADF (ADF / ANT) et FRQ
+        // (échange active / attente), les autres en décor, double bouton de fréquence (molette)
+        display(kr87, DISPLAY.kr87, 13, 10, 223, 33);
+        small(kr87, null, 26, 51, 6.5);
+        ['adf', null, 'frq', null, null].forEach((id, i) => button(kr87, id && `kr87:${id}`, KR87_KEYS_X[i], 51, 17, 9, this._knobBlack));
+        dual(kr87, 'kr87', 274, 40);
 
         // NAV/COM 1 et 2 : afficheur, bouton marche / volume, permutation, double bouton
         for (const [u, n] of [[nc1, 1], [nc2, 2]]) {
@@ -800,11 +829,11 @@ class Panel172 {
         const box = new Mesh(new BoxGeometry(m(a.x1 - a.x0 + 8), m(a.y1 - a.y0 + 8), 0.006), this._black);
         box.position.copy(at((a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2, 0.003));
         this.group.add(box);
-        const screen = new Mesh(mapUV(new PlaneGeometry(m(a.x1 - a.x0), m(a.y1 - a.y0)), DISPLAY.annunciator, 1024, 512), this._display);
+        const screen = new Mesh(mapUV(new PlaneGeometry(m(a.x1 - a.x0), m(a.y1 - a.y0)), DISPLAY.annunciator, DISPLAY_SIZE.width, DISPLAY_SIZE.height), this._display);
         screen.position.copy(at((a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2, 0.0062));
         this.group.add(screen);
         const h = LAYOUT.hobbs;
-        const hobbs = new Mesh(mapUV(new PlaneGeometry(m(46), m(14)), DISPLAY.hobbs, 1024, 512), this._display);
+        const hobbs = new Mesh(mapUV(new PlaneGeometry(m(46), m(14)), DISPLAY.hobbs, DISPLAY_SIZE.width, DISPLAY_SIZE.height), this._display);
         hobbs.position.copy(at(h.x, h.y, 0.0005));
         this.group.add(hobbs);
         // Alarme de décrochage : petite LED rouge en haut à gauche de l'anémomètre, clignote un peu avant le décrochage
@@ -957,6 +986,8 @@ class Panel172 {
         const replying = s.xpdrPowered && (av.xpdr.mode === 'ON' || av.xpdr.mode === 'ALT') && (performance.now() % 2300 < 90 || performance.now() < av.xpdr.identUntil)
             || s.xpdrPowered && av.xpdr.mode === 'TST';
         p.reply.material.emissiveIntensity = replying ? 2 : 0;
+        // Marqueurs : allumés (et éteints au rythme du code morse) par simulator.js
+        for (const [id, lamp] of Object.entries(p.markers)) lamp.material.emissiveIntensity = s.markers?.[id] ? 2.5 : 0;
         p.stallLed.material.emissiveIntensity = s.stallWarning && Math.sin(performance.now() / 50) > 0 ? 3 : 0;
         p.glovebox.rotation.x += ((s.gloveboxOpen ? 1.25 : 0) - p.glovebox.rotation.x) * k;
 
@@ -996,6 +1027,18 @@ class Panel172 {
             }
         }
         const w = sys.warnings, ann = sys.annunciatorsPowered;
+        // KAP 140 (s.kap : état du pilote automatique, null ou absent : éteint) ; phase du clignotement (AP, PT) seulement
+        // quand quelque chose clignote, pour ne pas redessiner sans raison
+        const kap140 = (k) => {
+            if (!k?.powered) return null;
+            const flashing = k.ap === 'flash' || k.trim === 'fail';
+            return {
+                pft: k.pft ?? null, allSegments: Boolean(k.allSegments), ap: k.ap ?? 'off', lateral: k.lateral ?? null,
+                lateralArm: k.lateralArm ?? null, vertical: k.vertical ?? null, altArm: Boolean(k.altArm), gsArm: Boolean(k.gsArm),
+                trim: k.trim ?? null, alert: Boolean(k.alert), readout: k.readout ? { kind: k.readout.kind, value: k.readout.value } : null,
+                failP: Boolean(k.failP), failR: Boolean(k.failR), blink: flashing && performance.now() % 500 < 250,
+            };
+        };
         const now = new Date();
         const davtron = (top) => {
             if (!sys.busPowered) return null;
@@ -1022,8 +1065,10 @@ class Panel172 {
             xpdr: { code: av.xpdr.code },
             annunciator: {
                 lowFuelL: ann && w.lowFuelL, lowFuelR: ann && w.lowFuelR, oilPress: ann && w.oilPress,
-                vacL: ann && w.vacL, vacR: ann && w.vacR, volts: ann && w.volts, pitchTrim: false,
+                vacL: ann && w.vacL, vacR: ann && w.vacR, volts: ann && w.volts, pitchTrim: Boolean(ann && s.kap?.trim === 'fail'),
             },
+            kap140: kap140(s.kap),
+            kr87: s.adfRadio?.powered ? { mode: s.adfRadio.mode, active: s.adfRadio.active, standby: s.adfRadio.standby } : null,
             davtronTop: davtron(true), davtronBottom: davtron(false),
             tachHours: sys.tachHours.toFixed(1).replace('.', '').padStart(5, '0'),
             hobbs: sys.hobbs.toFixed(1).replace('.', '').padStart(6, '0'),

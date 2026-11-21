@@ -1,6 +1,6 @@
 // Dessins du tableau de bord du Cessna 172 (Panel172.js en fait des pièces 3D) :
 // - atlas des instruments : cadrans fixes, roses mobiles, aiguilles et drapeaux, dessinés une seule fois ;
-// - façades des radios (boîte audio, NAV/COM, DME, transpondeur) ;
+// - façades des radios (boîte audio, NAV/COM, pilote automatique KAP 140, DME, transpondeur, ADF KR 87) ;
 // - face du tableau (inscriptions, plaques, vis) ;
 // - afficheurs (fréquences, DME, transpondeur, horloge, compteurs, calage altimétrique, alarmes), redessinés
 //   seulement quand ce qu'ils affichent change.
@@ -648,16 +648,23 @@ function drawAtlas() {
     return canvas;
 }
 
-// --- Façades des radios (2048 x 2048 ; 6,83 px par px de la référence : petites inscriptions lisibles) ----------
+// --- Façades des radios (2048 x 2816 ; 6,83 px par px de la référence : petites inscriptions lisibles) ----------
+// Façades de 300 px de large (celle de la pile radio), empilées ; PLATE_HEIGHT : hauteur du canvas
 const PLATE_SIZE = 2048;
 const PLATE_SCALE = PLATE_SIZE / 300;
 const PLATES = {
     audio: { y: 0, h: 63 }, navcom: { y: 63, h: 94 }, dme: { y: 157, h: 58 }, xpdr: { y: 215, h: 69 },
+    kap140: { y: 284, h: 62 }, kr87: { y: 346, h: 64 },
 };
+const PLATE_HEIGHT = 2816;   // 412 px de la référence (410 utilisés)
+// Touches du KAP 140 (AP HDG NAV APR REV ALT DN UP) et du KR 87 (ADF BFO FRQ FLT/ET SET/RST) : x sur la façade
+const KAP_KEYS_X = [22, 43, 64, 85, 106, 127, 152, 173];
+const KR87_KEYS_X = [62, 84, 106, 128, 150];
 
 function drawPlates() {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = PLATE_SIZE;
+    canvas.width = PLATE_SIZE;
+    canvas.height = PLATE_HEIGHT;
     const ctx = canvas.getContext('2d');
     const plate = (key, color, draw) => {
         const p = PLATES[key];
@@ -686,11 +693,9 @@ function drawPlates() {
         t('KMA 26', 294, h - 5, 3.6, '#333', 'right');
         ctx.fillStyle = '#2b2b2e';
         ctx.fillRect(10, 12, 24, 44);
-        for (const [i, c] of [[0, '#3b6cff'], [1, '#e8b100'], [2, '#e8e8e8']]) {
-            ctx.fillStyle = c;
-            ctx.fillRect(14, 15 + i * 13, 8, 10);
-        }
-        t('A\nO\nM', 28, 33, 4, '#e8e8e8');
+        // Voyants des marqueurs (pièces 3D allumables, voir Panel172) : O bleu, M ambre, A blanc, de haut en bas ;
+        // la lettre à droite de chaque voyant (centres : x 18, y 20 + 13 i)
+        ['O', 'M', 'A'].forEach((letter, i) => t(letter, 28, 20 + i * 13, 4, '#e8e8e8'));
         t('MKR', 22, 9, 3.5, '#333');
         t('SPEAKER', 140, 8, 3.6, '#333');
         t('PHONE', 140, h - 5, 3.6, '#333');
@@ -747,6 +752,29 @@ function drawPlates() {
         t('R', 84, 14, 3.8);
         t('KT 76A', 6, h - 9, 3.6, '#f2f2f2', 'left');
         t('BENDIX/KING', 6, h - 3, 3.4, '#f2f2f2', 'left');
+    });
+    // Pilote automatique KAP 140 (deux axes, présélection d'altitude) : afficheur en haut, rangée de touches AP HDG NAV
+    // APR REV ALT DN UP, ARM et BARO à droite de l'afficheur, double bouton de présélection d'altitude (KAP 140 Pilot's
+    // Guide 006-18034-0000 rév. 3 ; positions des touches d'après photos, non relu). Positions : voir Panel172 ;
+    // inscriptions au-dessus des touches (vues d'en haut, les touches en relief cachent ce qui est dessous)
+    plate('kap140', '#18181a', () => {
+        t('BENDIX/KING', 5, 5, 3.6, '#f2f2f2', 'left');
+        t('KAP 140', 295, 5, 3.6, '#f2f2f2', 'right');
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(12, 9, 212, 25);
+        ['AP', 'HDG', 'NAV', 'APR', 'REV', 'ALT', 'DN', 'UP'].forEach((n, i) => t(n, KAP_KEYS_X[i], 40, 3.6));
+        t('ARM', 238, 13, 3.4);
+        t('BARO', 238, 35, 3.4);
+    });
+    // Récepteur ADF KR 87 : afficheur (fréquence active à gauche, attente à droite), touches ADF BFO FRQ FLT/ET SET/RST,
+    // marche / volume à gauche, double bouton de fréquence à droite (KR 87 Pilot's Guide p. 27-30)
+    plate('kr87', '#18181a', () => {
+        t('BENDIX/KING', 5, 5, 3.6, '#f2f2f2', 'left');
+        t('KR 87 TSO', 295, 5, 3.6, '#f2f2f2', 'right');
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(12, 9, 212, 25);
+        ['ADF', 'BFO', 'FRQ', 'FLT/ET', 'SET/RST'].forEach((n, i) => t(n, KR87_KEYS_X[i], 41, 3.2));
+        t('ON', 26, 40, 3.4);
     });
     return canvas;
 }
@@ -837,8 +865,9 @@ function drawFace(layout) {
     t('Honeywell', 2062, 320, 5, '#ddd');
     t('HOURS', 2062, 347, 4.2, '#ddd');
     // Ombre du passage de la pile radio
+    const st = layout.stack;
     ctx.fillStyle = '#0d0d0e';
-    ctx.fillRect(1374, 296, 308, 465);
+    ctx.fillRect(st.x0 - 4, st.y0 - 4, st.x1 - st.x0 + 8, st.y1 - st.y0 + 8);
 
     // --- Sous-panneau noir -----------------------------------------------------------------------------------
     ctx.fillStyle = '#1c1c1e';
@@ -927,8 +956,11 @@ function drawLabels(layout) {
 
 
 // --- Afficheurs ------------------------------------------------------------------------------------------------
-// Zones du canvas des afficheurs (1024 x 512) ; leur proportion est celle de la fenêtre en 3D
+// Zones du canvas des afficheurs (DISPLAY_SIZE : 1024 x 1024) ; leur proportion est celle de la fenêtre en 3D
+const DISPLAY_SIZE = { width: 1024, height: 1024 };
 const DISPLAY = {
+    kap140: { x: 0, y: 512, w: 1000, h: 110 },
+    kr87: { x: 0, y: 626, w: 1000, h: 110 },
     navcom1: { x: 0, y: 0, w: 1000, h: 102 },
     navcom2: { x: 0, y: 104, w: 1000, h: 102 },
     dme: { x: 0, y: 208, w: 690, h: 81 },
@@ -992,6 +1024,70 @@ function seg7(ctx, str, x, y, h, color, align = 'left') {
 }
 
 const LED = '#ff6a1a', LED_DIM = '#ff8c3a';
+
+// Afficheur du KAP 140 (cristaux liquides rétroéclairés : inscriptions claires sur fond sombre, non relu). Disposition
+// du Pilot's Guide 006-18034-0000 rév. 3 : zone du roulis à gauche (ROL HDG NAV APR REV, mode armé et ARM dessous),
+// AP au centre avec PT et la flèche du trim dessous, zone du tangage (VS ALT GS, ALT / GS ARM dessous), à droite la
+// valeur sur 5 chiffres, son unité (FPM FT HPA INHG) et ALERT ; R et P encadrés : panne du roulis, du tangage.
+// s : voir Panel172._displayState (null : éteint) ; s.blink : phase des clignotements (AP, PT)
+const KAP_LCD = '#d9e3d4';
+function drawKap140(ctx, r, s) {
+    ctx.fillStyle = '#070807';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (!s) return;
+    const all = s.allSegments;
+    const label = (str, x, y, size, lit = true, align = 'center') => {
+        if (str && (lit || all)) text(ctx, str, r.x + x, r.y + y, size, KAP_LCD, align);
+    };
+    const boxed = (str, x) => {
+        label(str, x, 58, 50);
+        ctx.strokeStyle = KAP_LCD;
+        ctx.lineWidth = 4;
+        ctx.strokeRect(r.x + x - 26, r.y + 28, 52, 60);
+    };
+    const arrow = (x, up) => {
+        const y = r.y + 88, k = 11;
+        ctx.fillStyle = KAP_LCD;
+        ctx.beginPath();
+        ctx.moveTo(r.x + x - k, y + (up ? k : -k) * 0.8);
+        ctx.lineTo(r.x + x + k, y + (up ? k : -k) * 0.8);
+        ctx.lineTo(r.x + x, y + (up ? -k : k));
+        ctx.closePath();
+        ctx.fill();
+    };
+    if (s.pft !== null && s.pft !== undefined && !all) {
+        // Test au démarrage : PFT et son numéro d'étape
+        label('PFT', 100, 55, 48);
+        seg7(ctx, String(s.pft), r.x + 880, r.y + 18, r.h * 0.6, KAP_LCD, 'right');
+        return;
+    }
+    // Roulis
+    label(all ? 'HDG' : s.lateral, 100, 38, 46);
+    label(all ? 'NAV' : s.lateralArm, 80, 88, 28);
+    label('ARM', 165, 88, 24, Boolean(s.lateralArm));
+    if (s.failR || all) boxed('R', 252);
+    // AP, trim
+    label('AP', 345, 38, 46, s.ap === 'on' || (s.ap === 'flash' && s.blink));
+    const pt = s.trim === 'fail' ? s.blink : Boolean(s.trim);
+    label('PT', 330, 88, 28, pt);
+    if (all || (pt && s.trim === 'up')) arrow(372, true);
+    if (all || (pt && s.trim === 'down')) arrow(398, false);
+    // Tangage
+    label(all ? 'ALT' : s.vertical, 500, 38, 46);
+    label('ALT', 460, 88, 28, s.altArm);
+    label('GS', 520, 88, 28, s.gsArm);
+    label('ARM', 580, 88, 24, s.altArm || s.gsArm);
+    if (s.failP || all) boxed('P', 628);
+    // Valeur, unité, alerte d'altitude
+    const v = s.readout;
+    if (all) seg7(ctx, '88888', r.x + 880, r.y + 18, r.h * 0.6, KAP_LCD, 'right');
+    else if (v) {
+        const str = v.kind === 'INHG' ? v.value.toFixed(2) : String(Math.round(v.value));
+        seg7(ctx, str.slice(-6), r.x + 880, r.y + 18, r.h * 0.6, KAP_LCD, 'right');
+    }
+    label(all ? 'FPM' : v?.kind, 942, 80, 26);
+    label('ALERT', 942, 30, 22, s.alert);
+}
 
 // state : chaînes et valeurs prêtes à afficher (voir Panel172._displayState)
 function drawDisplays(ctx, d) {
@@ -1074,6 +1170,20 @@ function drawDisplays(ctx, d) {
     };
     counter(D.tachHours, d.tachHours);
     counter(D.hobbs, d.hobbs);
+    drawKap140(ctx, D.kap140, d.kap140);
+    {
+        // ADF KR 87 : fréquence active à gauche (ADF ou ANT devant), FRQ et fréquence d'attente à droite
+        // (KR 87 Pilot's Guide p. 27-30)
+        const r = D.kr87, s = d.kr87;
+        fill(r, '#060606');
+        if (s) {
+            const h = r.h * 0.6, y = r.y + r.h * 0.2;
+            text(ctx, s.mode, r.x + 60, r.y + r.h * 0.5, r.h * 0.3, LED);
+            seg7(ctx, String(Math.round(s.active)), r.x + 430, y, h, LED, 'right');
+            text(ctx, 'FRQ', r.x + 540, r.y + r.h * 0.5, r.h * 0.3, LED);
+            seg7(ctx, String(Math.round(s.standby)), r.x + 900, y, h, LED_DIM, 'right');
+        }
+    }
     {
         const r = D.kollsman;
         fill(r, '#0a0a0a');
@@ -1082,6 +1192,7 @@ function drawDisplays(ctx, d) {
 }
 
 export {
-    ATLAS_SIZE, CELLS, SPRITES, R as ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SIZE, PLATE_SCALE, FACE, LABELS, DISPLAY,
+    ATLAS_SIZE, CELLS, SPRITES, R as ATLAS_RADIUS, AI_PX_PER_R, PLATES, PLATE_SIZE, PLATE_HEIGHT, PLATE_SCALE, KAP_KEYS_X,
+    KR87_KEYS_X, FACE, LABELS, DISPLAY, DISPLAY_SIZE,
     asiAngle, vsiAngle, tachAngle, halfAngle, drawAtlas, drawPlates, drawFace, drawLabels, drawDisplays,
 };

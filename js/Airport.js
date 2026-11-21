@@ -35,6 +35,7 @@ import { flareTexture } from './LightFlare.js';
 import { mergeStatic } from './MergeStatic.js';
 import { releaseAfterUpload } from './CanvasMemory.js';
 import { loadTexture, track } from './Loading.js';
+import { MARKERS } from './ILS.js';
 
 // Petit aérodrome : une piste nord-sud, un taxiway, un parking, une tour, un terminal et deux hangars.
 // Tout est modélisé ici, sauf la tour et l'aérogare (modèles FlightGear, voir BUILDINGS) ; le relief est aplani
@@ -441,6 +442,14 @@ const loadBuilding = (name) => {
     return buildingModels.get(url);
 };
 
+// Balises NDB (ADF), OACI Annexe 10 vol. I § 3.4 (190 à 1750 kHz, indicatif morse) : ndb, la balise de l'aérodrome
+// (repère de l'aérodrome, à l'écart de la piste) ; locators, un radiophare d'alignement (L) à la radioborne extérieure de
+// chaque ILS (§ 3.4.7.1), par nom de piste. Portées : 25 NM pour la balise de terrain, 15 NM pour les locators (couverture
+// nominale de 10 à 25 NM des locators, § 3.4.4 ; non relu pour ALM)
+const NDB_RANGE = 46000;
+const LOCATOR_RANGE = 28000;
+const NDB_LOCAL = { x: 150, z: -260 };   // (à l'ouest de la piste, en face du parking)
+
 // Identité de chaque aérodrome. Tous ont le même plan (piste de 1000 m, bretelle, parking, deux hangars, tour,
 // terminal, VOR) : il est dessiné dans le repère de l'aérodrome (piste nord-sud, voir les constantes ci-dessus), puis
 // placé (position) et tourné (rotation autour de la verticale, en quarts de tour : les boîtes de collision restent
@@ -450,6 +459,8 @@ const AIRPORTS = {
         id: 'esme', label: 'ESME', position: { x: 0, z: 0 }, rotation: 0,
         aerodrome: AERODROME, speech: { fr: 'Esmé', en: 'Ezmay' },
         vor: { ident: VOR_STATION.ident, frequency: VOR_STATION.frequency }, ils: '110.30',
+        // (fictifs : indicatifs et fréquences choisis libres, distincts des NDB réels de la région : ALM 413, MAR 383, OB 395)
+        ndb: { ident: 'EM', khz: 344 }, locators: { 36: { ident: 'EN', khz: 318 }, 18: { ident: 'ES', khz: 328 } },
         hangars: ['ESME AÉRO-CLUB', 'HANGAR 2'],
         parked: [['origine', 'F-GKTA'], ['vert', 'F-HBLU'], ['orange', 'F-GMOZ']],
         lakes: [{ x: -150, z: -1100, radius: 210 }, { x: 680, z: 980, radius: 170 }],
@@ -462,6 +473,8 @@ const AIRPORTS = {
         aerodrome: { icao: 'LFMA', name: 'Aix en Provence', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
         speech: { fr: 'Aix-en-Provence', en: 'Aix en Provence' },
         vor: { ident: 'MTV', frequency: '115.20' }, ils: '109.70',
+        // NDB réel d'Aix-les-Milles (ALM 413 kHz, sur le terrain : SkyVector 2026) ; locators fictifs
+        ndb: { ident: 'ALM', khz: 413 }, locators: { '09': { ident: 'AW', khz: 338 }, 27: { ident: 'AE', khz: 352 } },
         hangars: ['AÉRO-CLUB AIX', 'HANGAR 2'],
         parked: [['bleu', 'F-GDVM'], ['jaune', 'F-HMTV'], ['violet', 'F-GJPA']],
         lakes: [{ x: -300, z: -620, radius: 190 }, { x: 640, z: 800, radius: 230 }],
@@ -547,8 +560,19 @@ class Airport {
         // Balise VOR (antenne à 6,5 m de haut)
         this.vor = { ...config.vor, ...world(VOR_STATION.x, VOR_STATION.z), y: 6.5 };
         this.ilsFrequency = config.ils;
-        // Balise NDB (ADF) : au milieu de la piste
-        this.ndb = vector(RUNWAY.x, 0, RUNWAY.z);
+        // Balises NDB (ADF) : { ident, khz, position (Vector3, monde), range (m), kind: 'ndb' | 'locator', runway? } ;
+        // ndb : position de la balise du terrain (ancien accesseur, gardé)
+        this.ndbs = [];
+        if (config.ndb) {
+            this.ndbs.push({ ...config.ndb, kind: 'ndb', range: NDB_RANGE, position: vector(NDB_LOCAL.x, 0, NDB_LOCAL.z) });
+        }
+        for (const runway of this.runways) {
+            const locator = config.locators?.[runway.name];
+            if (!locator) continue;
+            const position = runway.threshold.clone().addScaledVector(runway.direction, -MARKERS.OM.distance);
+            this.ndbs.push({ ...locator, kind: 'locator', runway: runway.name, range: LOCATOR_RANGE, position });
+        }
+        this.ndb = this.ndbs[0]?.position ?? vector(RUNWAY.x, 0, RUNWAY.z);
         this._hangars = [];          // portes animées et éclairage intérieur, voir updateHangars
         // Centre de chaque hangar (portes côté parking) ; spot : avion présenté au milieu, nez vers les portes
         this.hangars = HANGARS.map((h, i) => ({
@@ -1423,6 +1447,18 @@ class AirportNetwork extends EventTarget {
     get mapShapes() { return this.list.flatMap((a) => a.mapShapes); }
     get lakes() { return this.list.flatMap((a) => a.lakes); }
     get ndb() { return this.current.ndb; }
+    // Toutes les balises NDB (balises de terrain et locators) ; ndbByKhz : la balise sur cette fréquence (kHz entiers),
+    // la plus proche de (x, z) si plusieurs, ou null
+    get ndbs() { return this.list.flatMap((a) => a.ndbs ?? []); }
+    ndbByKhz(khz, x = 0, z = 0) {
+        let best = null, bestDistance = Infinity;
+        for (const ndb of this.ndbs) {
+            if (ndb.khz !== khz) continue;
+            const d = Math.hypot(x - ndb.position.x, z - ndb.position.z);
+            if (d < bestDistance) [best, bestDistance] = [ndb, d];
+        }
+        return best;
+    }
 
     // Aérodrome choisi (départs, tour, ILS) ; ses plafonniers seuls sont de vraies lumières
     setCurrent(airport) {

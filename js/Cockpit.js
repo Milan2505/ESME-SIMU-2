@@ -437,8 +437,7 @@ class Cockpit {
             }
             // Manche gauche : bouton rouge (déconnexion du pilote automatique) et interrupteur de trim électrique
             if (index === 0) {
-                const red = new Mesh(new CylinderGeometry(0.004, 0.004, 0.006, 12), new MeshStandardMaterial({ color: 0xd8241b, roughness: 0.4 }));
-                red.position.set(-0.155 * k, 0.178 * k, 0.012);
+                const red = this._apDisconnect(new Vector3(-0.155 * k, 0.178 * k, 0.012), false);
                 const rocker = new Mesh(new BoxGeometry(0.01, 0.016, 0.008), new MeshStandardMaterial({ color: 0xbfc1c4, metalness: 0.6, roughness: 0.35 }));
                 rocker.position.set(-0.17 * k, 0.155 * k, 0.025);
                 rocker.rotation.z = 0.42;
@@ -446,8 +445,8 @@ class Cockpit {
             }
             // Clic sur un manche : on le cache (pour voir le bas du tableau), clic sur son passage : il revient
             column.userData.control = 'yokes';
-            column.traverse((child) => { if (child.isMesh) this._yokeClickables.push(child); });
             column.add(shaft, wheel);
+            column.traverse((child) => { if (child.isMesh) this._yokeClickables.push(child); });
             this.group.add(column);
             return { column, wheel, z: PANEL_FACE_Z };
         });
@@ -739,6 +738,17 @@ class Cockpit {
         this._windshield.rotation.set(0, 0, 0);
     }
 
+    // Bouton rouge de déconnexion du pilote automatique (commande 'kap:disc', gagne sur 'yokes' dans controlAt : il est
+    // porté par le bouton lui-même, plus près que la colonne) ; facing : axe du bouton vers le pilote (sinon vertical,
+    // comme sur le volant dessiné)
+    _apDisconnect(position, facing) {
+        const red = new Mesh(new CylinderGeometry(0.0045, 0.0045, 0.006, 16), new MeshStandardMaterial({ color: 0xd8241b, roughness: 0.4 }));
+        red.position.copy(position);
+        if (facing) red.rotation.x = Math.PI / 2;
+        red.userData.control = 'kap:disc';
+        return red;
+    }
+
     // Volants modélisés (FlightGear) à la place des volants dessinés : même axe, même bout de colonne
     async _loadYokes() {
         const gltf = await new GLTFLoader().loadAsync(YOKE_URL);
@@ -754,6 +764,10 @@ class Cockpit {
             model.position.set(0, 0, 0);
             yoke.wheel.add(model);
         });
+        // Bouton rouge A/P DISC (KAP 140 Pilot's Guide : déconnexion du pilote automatique et du trim) : sur le haut de
+        // la corne gauche du manche gauche, face au pilote (corne du modèle : x -0,11 à -0,08 m, y 0,071 à 0,081 m, face
+        // avant z 0,042 m)
+        this._yokes[0].wheel.add(this._apDisconnect(new Vector3(-0.095, 0.076, 0.044), true));
         this._yokeClickables = [];
         for (const yoke of this._yokes) yoke.column.traverse((child) => { if (child.isMesh) this._yokeClickables.push(child); });
         this._applyYokes();

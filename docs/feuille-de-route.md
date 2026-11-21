@@ -285,6 +285,30 @@ Mets à jour le manuel (manuel.html) et l'initiation : une leçon « tenir un ca
 Tests : capture du KAP 140 allumé ; tenue d'altitude à ±50 ft et de cap à ±3° pendant 3 min en air calme.
 ```
 
+**État (21/11/2026)** : livré.
+- KAP 140 deux axes (`js/KAP140.js`, pur) : ROL, HDG, NAV, APR (et GS), REV, VS, ALT, présélection et ALT ARM, UP / DN,
+  alerteur, test au démarrage (PFT), trim automatique (PT), déconnexions (A/P DISC du manche, bouton AP, trim manuel,
+  disjoncteur AUTO PILOT ou barre avionique) avec alarme de 2 s et AP qui clignote. Il agit par des servos sur les
+  commandes du modèle réaliste (`PlaneControls.setAutopilotOutput`), pas sur l'attitude ; inopérant sur le modèle
+  simplifié. Façade dans la pile radio (tranche libre sous les NAV/COM), bouton rouge du manche cliquable, touche ù,
+  fonction de périphérique, catégorie PILOTE AUTO sur tablette.
+- Sources : KAP 140 Pilot's Guide 006-18034-0000 rév. 3 et supplément S15 du POH 172R. **Cessna n'a pas de supplément
+  KAP 140 pour le 172P** (montage par STC, manuel non trouvé) : le 172R tient lieu de référence, c'est écrit dans le code.
+- NDB et ADF : récepteur KR 87 sous le transpondeur, balises ALM 413 kHz (réelle, Aix-les-Milles), EM 344 (fictive, ESME),
+  locators fictifs aux radiobornes extérieures ; aiguille, indicatif morse (touche ADF). Radiobornes OM (7,2 km) et MM
+  (1 050 m), OACI annexe 10 : voyants bleu et ambre clignotant au rythme du code, sons 400 / 1 300 Hz (touche MKR).
+- Leçon d'initiation « Pilote automatique » (départ en vol) : cap, altitude, virage, montée vers une altitude choisie,
+  déconnexion. Tests : `autopilot.test.js` (tenue ±50 ft / ±3° pendant 3 min, virage au taux standard, capture
+  d'altitude, NAV, déconnexions), `adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `e2e/pilote-auto.spec.js`
+  (leçon complète, capture du KAP 140 allumé).
+
+**Reste à faire du lot 4** :
+- Valeurs non relues (aucune dans les sources) : limite d'inclinaison (taux standard), plage de VS, gains et vitesses
+  des servos, pas des boutons de présélection, tonalités des alarmes, durée du PFT ; disposition des touches d'après photos.
+- Indicateur de dépression : aucune panne de pompe à vide simulée (seul l'arrêt du moteur coupe la dépression) ; le
+  voltmètre réagit déjà aux pannes d'alternateur. Effets de nuit et d'orage sur l'ADF non simulés.
+- Réchauffe carburateur en remise de gaz : le moniteur dit de la repousser dès le plein gaz (vérifié en vol le 21/11/2026).
+
 ---
 
 ### Lot 5. Rejeu et débriefing de vol

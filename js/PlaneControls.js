@@ -18,6 +18,7 @@ const _KT = 0.514444;               // m/s par nœud
 const _MAX_DELTA = 0.1;            // évite les sauts après un onglet en arrière-plan
 const _CONTROL_SMOOTHING = 0.5;    // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
 const _TRIM_RATE = MathUtils.degToRad( 8 ); // vitesse du tab de trim, touche enfoncée (d'une butée à l'autre en ~9 s)
+const _AP_TRIM = 0.25;             // servo de trim du pilote automatique : quart de la vitesse du trim électrique (non relu)
 const _up = new Vector3( 0, 1, 0 );
 
 // Touches gérées (event.code = position physique, Z/Q/S/D en AZERTY)
@@ -61,6 +62,9 @@ class PlaneControls extends Controls {
 		// Périphériques (manche, yoke, palonnier, manette : Gamepads.js) : axes appliqués directement, sans montée
 		// progressive ; null = aucun. Voir setAxisInput
 		this._pad = null;
+		// Pilote automatique (KAP140.js) : sortie des servos de tangage et de roulis, ajoutée à la main du pilote (embrayages
+		// à friction : l'effort du pilote s'y ajoute, il ne déconnecte pas), et servo de trim ; null = désengagé
+		this._ap = null;
 		this.inputRamp = new InputRamp();                // modèle réaliste : montée progressive des commandes (InputRamp.js)
 		this._lastQuaternion = new Quaternion();
 		this._lastPosition = new Vector3();
@@ -185,6 +189,11 @@ class PlaneControls extends Controls {
 			MathUtils.clamp( this._smoothed.x + ( pad?.pitch ?? 0 ), - 1, 1 ),
 			MathUtils.clamp( this._smoothed.y + ( pad?.yaw ?? 0 ), - 1, 1 ),
 			MathUtils.clamp( this._smoothed.z + ( pad?.roll ?? 0 ), - 1, 1 ) );
+		const ap = this._ap;
+		if ( ap ) {
+			this._controls.x = MathUtils.clamp( this._controls.x + ( ap.pitch ?? 0 ), - 1, 1 );
+			this._controls.z = MathUtils.clamp( this._controls.z + ( ap.roll ?? 0 ), - 1, 1 );
+		}
 		// Freins : clavier, tactile, frein de parc sur les deux roues ; périphériques roue par roue (seul le modèle réaliste
 		// freine chaque roue à part : les autres reçoivent le plus fort des deux)
 		const brakeLeft = pad?.brakeLeft ?? 0, brakeRight = pad?.brakeRight ?? 0;
@@ -197,7 +206,7 @@ class PlaneControls extends Controls {
 			brakeLeft, brakeRight,
 		} );
 		model.throttle = Math.min( 1, Math.max( 0, model.throttle + ( this.accel + ( pad?.accel ?? 0 ) ) * this.throttleRate * delta ) );
-		const trim = MathUtils.clamp( this._moveState.trimUp - this._moveState.trimDown + this._touch.trim + ( pad?.trim ?? 0 ), - 1, 1 );
+		const trim = MathUtils.clamp( this._moveState.trimUp - this._moveState.trimDown + this._touch.trim + ( pad?.trim ?? 0 ) + ( ap?.trim ?? 0 ) * _AP_TRIM, - 1, 1 );
 		model.trim = MathUtils.clamp( model.trim + trim * _TRIM_RATE * delta,
 			model.aircraft.trimTabMin, model.aircraft.trimTabMax );
 
@@ -264,6 +273,15 @@ class PlaneControls extends Controls {
 	// prochain appel
 	setAxisInput( input ) {
 		this._pad = input;
+	}
+
+	// Pilote automatique : { pitch (+ = cabrer), roll (+ = à gauche), trim (-1, 0, 1) } ou null (désengagé)
+	setAutopilotOutput( output ) {
+		this._ap = output;
+	}
+	// Trim manuel actionné (touches, tactile, périphérique) : il désengage le pilote automatique (KAP 140, S15-5)
+	get manualTrim() {
+		return Boolean( this._moveState.trimUp || this._moveState.trimDown || this._touch.trim || this._pad?.trim );
 	}
 
 	// --- Valeurs pour les instruments, le son et l'affichage ---

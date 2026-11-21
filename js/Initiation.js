@@ -306,7 +306,9 @@ class Initiation {
 
     // --- Démarrage / arrêt ---------------------------------------------------------------------
     // lang : 'fr' ou 'en' (consignes, voix du moniteur et radio dans cette langue pendant la leçon)
+    // level : 1, 2 (tour de piste), ou 'ap' (leçon « tenir un cap et une altitude au pilote automatique », en vol)
     start(level, cameraGuide = true, lang = 'fr') {
+        this.lesson = level === 'ap' ? 'ap' : 'circuit';
         this.level = level === 2 ? 2 : 1;
         this.cameraGuide = cameraGuide;
         this.lang = lang === 'en' ? 'en' : 'fr';
@@ -317,13 +319,14 @@ class Initiation {
         // Niveau 1 : c'est le moniteur qui parle à la radio, l'élève ne dit rien : ses messages sont affichés à son nom
         this.atc.pilotLabel = this.level === 1 ? this._t('INSTRUCTEUR', 'INSTRUCTOR') : null;
         this._labels();
-        this.steps = buildSteps(this.level, this.lang);
+        this.steps = this.lesson === 'ap' ? buildAutopilotSteps(this.lang) : buildSteps(this.level, this.lang);
         this.index = -1;
         this._runway = null;   // piste du décollage, fixée à l'alignement : tout le tour de piste s'y rapporte
         this._owed = [];       // messages radio d'étapes passées sans avoir été faits (voir _owe)
         this.startedAt = performance.now();
         this.stats = { advice: 0 };
-        this.startCold();
+        if (this.lesson === 'ap') this.startAirborne();
+        else this.startCold();
         this.ui.panel.hidden = false;
         this._next();
         this.onChange?.();
@@ -573,7 +576,8 @@ class Initiation {
     _context() {
         const s = this.atc.s;
         const c = {
-            sys: this.systems, controls: this.controls, avionics: this.avionics, atc: this.atc, s, level: this.level,
+            sys: this.systems, controls: this.controls, avionics: this.avionics, atc: this.atc, s, level: this.level, kap: this.getKap?.(),
+            altitudeFt: this.altimeterFt?.() ?? 0, dg: this.dgHeading?.() ?? this.controls.getHeading(),
             onGround: this.controls.isOnGround(), speedKt: this.controls.getIndicatedSpeed() * KT,
             groundKt: this.controls.getSpeed() * KT,   // au sol : vitesse de roulage, sans le vent de face (lu à l'anémomètre)
             agl: s?.agl ?? 0, heading: this.controls.getHeading(), flaps: this.controls.getFlapLevel(),
@@ -1309,4 +1313,92 @@ function buildSteps(level, lang = 'fr') {
     return steps;
 }
 
-export { Initiation, buildSteps, CIRCUIT, TURN_AT };
+// Leçon « tenir un cap et une altitude au pilote automatique » (lot 4) : départ en vol à 3 000 ft au-dessus d'ESME, KAP 140
+// (KAP140.js ; Pilot's Guide 006-18034-0000, supplément S15 du 172R). Pas de radio. Le contexte c donne kap (le pilote
+// automatique), dg (cap du conservateur), altitudeFt (altimètre)
+function buildAutopilotSteps(lang = 'fr') {
+    const T = (fr, en) => (lang === 'en' ? en : fr);
+    const steps = [];
+    const PHASE = T('Pilote automatique', 'Autopilot');
+    const add = (step) => steps.push({ phase: PHASE, flight: false, praise: Boolean(step.done), ...step });
+    const wrap = (a) => ((a % 360) + 540) % 360 - 180;
+    const press = (button) => (c, t) => t.kapPress(button);
+    const plan = { heading: 0, altitude: 3000 };   // cap et altitude de la leçon (fixés en vol)
+    // Tenue mesurée : secondes passées dans les tolérances (±50 ft, ±3°)
+    const holding = (c) => Math.abs(c.altitudeFt - c.kap.altTarget) < 50 && Math.abs(wrap(c.dg - c.avionics.hdgBug)) < 3;
+
+    add({ title: T('Le pilote automatique', 'The autopilot'), next: true, camera: 'pilot',
+        say: T("Nous sommes en vol, à 3000 pieds au-dessus de l'aérodrome. Aujourd'hui, le pilote automatique : le Bendix King KAP 140, deux axes. Il tient les ailes, un cap ou une route, une vitesse verticale ou une altitude, en agissant sur les gouvernes comme vous le feriez, et il trime tout seul. Vous restez le commandant de bord : vous le surveillez, et vous savez le couper.",
+            "We are flying at 3000 feet above the airfield. Today: the autopilot, the Bendix King KAP 140 two-axis. It holds the wings, a heading or a course, a vertical speed or an altitude, by moving the controls as you would, and it trims by itself. You remain the pilot in command: you monitor it, and you know how to switch it off.") });
+    add({ title: T('Le KAP 140 sous tension', 'KAP 140 powered'), target: ['breaker:autopilot', 'kap:ap'], camera: 'none',
+        act: (c) => { if (!c.sys.breakers.autopilot) c.sys.toggle('autopilot'); },
+        done: (c) => c.kap.ready,
+        say: T("Le KAP 140 est dans la pile radio, sous les NAV/COM. Il est alimenté par la barre avionique et le disjoncteur AUTO PILOT, enfoncé. À la mise sous tension, il se teste : PFT, puis tous ses segments et une alarme. Pas d'engagement possible avant la fin du test.",
+            "The KAP 140 is in the radio stack, under the NAV/COMs. It is powered by the avionics bus and the AUTO PILOT circuit breaker, pushed in. When powered, it tests itself: PFT, then all its segments and an alarm. It cannot be engaged before the test is over.") });
+    add({ title: T('Curseur de cap', 'Heading bug'), target: 'hdgBug', camera: 'none',
+        enter: (c) => { plan.heading = Math.round(c.dg); },
+        act: (c) => { c.avionics.hdgBug = Math.round(c.dg); },
+        done: (c) => Math.abs(wrap(c.avionics.hdgBug - c.dg)) < 5,
+        say: T("Calez le curseur de cap, le repère orange du conservateur de cap, sur le cap actuel : molette sur le bouton HDG en bas à droite du conservateur.",
+            'Set the heading bug, the orange mark on the heading indicator, to the current heading: mouse wheel on the HDG knob at the bottom right of the heading indicator.') });
+    add({ title: T('Engager : AP', 'Engage: AP'), target: 'kap:ap', camera: 'none', act: press('ap'),
+        done: (c) => c.kap.engaged,
+        say: T("Appuyez sur AP. Le pilote automatique s'engage en ROL, ailes à plat, et en VS : il garde la vitesse verticale du moment. Gardez les mains près du manche.",
+            'Press AP. The autopilot engages in ROL, wings level, and in VS: it keeps the current vertical speed. Keep your hands near the yoke.'),
+        why: T("Le bouton rouge du manche, A/P DISC, le coupe à tout moment ; touche ù au clavier.", 'The red button on the yoke, A/P DISC, disconnects it at any time; ù key on the keyboard.') });
+    add({ title: T('Mode HDG', 'HDG mode'), target: 'kap:hdg', camera: 'none', act: press('hdg'),
+        done: (c) => c.kap.engaged && c.kap.lateral === 'HDG',
+        say: T('Appuyez sur HDG : il suit maintenant le curseur de cap.', 'Press HDG: it now follows the heading bug.') });
+    add({ title: T('Mode ALT', 'ALT mode'), target: 'kap:alt', camera: 'none', act: press('alt'),
+        done: (c) => c.kap.engaged && c.kap.vertical === 'ALT',
+        enter: (c) => { plan.altitude = Math.round(c.altitudeFt / 10) * 10; },
+        say: T("Appuyez sur ALT : il tient l'altitude du moment, lue à l'altimètre.", 'Press ALT: it holds the current altitude, read on the altimeter.') });
+    add({ title: T('Il tient cap et altitude', 'Holding heading and altitude'), camera: 'pilot',
+        done: (c, f, dt) => (f.t = holding(c) ? (f.t ?? 0) + dt : 0) > 30,
+        say: T("Lâchez le manche et observez pendant trente secondes : altitude à 50 pieds près, cap à 3 degrés près. Le manche bouge tout seul : ce sont les servos. Le trim aussi tourne de temps en temps : le servo de trim décharge la profondeur.",
+            'Let go of the yoke and watch for thirty seconds: altitude within 50 feet, heading within 3 degrees. The yoke moves by itself: those are the servos. The trim wheel turns now and then too: the trim servo unloads the elevator.') });
+    add({ title: T('Nouveau cap : 90° à droite', 'New heading: 90° right'), target: 'hdgBug', camera: 'none',
+        act: (c) => { c.avionics.hdgBug = (plan.heading + 90) % 360; },
+        done: (c) => Math.abs(wrap(c.avionics.hdgBug - (plan.heading + 90))) < 5,
+        say: () => T(`Tournez le curseur de 90 degrés vers la droite, au cap ${Math.round((plan.heading + 90) % 360) || 360}. Le pilote automatique vire au taux standard, trois degrés par seconde : un demi-tour de cadran en une minute.`,
+            `Turn the bug 90 degrees right, to heading ${Math.round((plan.heading + 90) % 360) || 360}. The autopilot turns at standard rate, three degrees per second: half the dial in one minute.`) });
+    add({ title: T('Virage au pilote automatique', 'Autopilot turn'), camera: 'pilot',
+        done: (c, f, dt) => (f.t = holding(c) ? (f.t ?? 0) + dt : 0) > 10,
+        say: T("Regardez-le virer : inclinaison d'une quinzaine de degrés, altitude tenue. Il redresse tout seul en arrivant sur le cap.",
+            'Watch it turn: about fifteen degrees of bank, altitude held. It rolls out by itself as it reaches the heading.') });
+    add({ title: T('Altitude choisie : 1000 ft plus haut', 'Selected altitude: 1000 ft higher'), target: 'kap:sel:outer', camera: 'none',
+        act: (c) => { c.kap.selected = plan.altitude + 1000; c.kap.altArm = true; },
+        done: (c) => Math.abs(c.kap.selected - (plan.altitude + 1000)) <= 100,
+        say: T("Affichez l'altitude choisie, 1000 pieds plus haut : grand bouton à droite du KAP 140, à la molette (1000 pieds par cran ; le petit : 100 pieds). ALT ARM s'allume : il capturera cette altitude.",
+            'Set the selected altitude 1000 feet higher: the large knob on the right of the KAP 140, with the mouse wheel (1000 feet per click; the small one: 100 feet). ALT ARM comes on: it will capture that altitude.') });
+    add({ title: T('Montée : plein gaz, VS 500', 'Climb: full power, VS 500'), target: ['throttle', 'kap:alt', 'kap:up'], camera: 'none',
+        act: (c) => { c.controls.throttle = 1; if (c.kap.vertical === 'ALT') c.kap.press('alt', { vs: 0 }); c.kap.vsTarget = 500; c.kap.altArm = true; },
+        done: (c) => c.throttle > 0.9 && c.kap.vertical === 'VS' && c.kap.vsTarget >= 400 && c.kap.altArm,
+        say: T("Mettez plein gaz : le KAP 140 ne touche pas aux gaz. Puis appuyez sur ALT pour repasser en VS, et sur UP cinq fois : 500 pieds par minute de montée (100 par appui ; le premier appui affiche la valeur).",
+            "Open the throttle fully: the KAP 140 doesn't touch the throttle. Then press ALT to go back to VS, and UP five times: 500 feet per minute climb (100 per press; the first press shows the value)."),
+        why: T("En montée, surveillez la vitesse : trop de vitesse verticale pour la puissance, et l'avion ralentit jusqu'au décrochage. Le pilote automatique ne s'en occupe pas.",
+            "In the climb, watch the airspeed: too much vertical speed for the power, and the aeroplane slows down to the stall. The autopilot doesn't care.") });
+    add({ title: T("Capture de l'altitude", 'Altitude capture'), camera: 'pilot',
+        done: (c, f, dt) => (f.t = c.kap.vertical === 'ALT' && Math.abs(c.altitudeFt - c.kap.selected) < 50 ? (f.t ?? 0) + dt : 0) > 5,
+        say: T("Il monte à 500 pieds par minute. À l'approche, ALT ARM s'éteint et ALT s'allume : il arrondit et se met en palier sur l'altitude choisie.",
+            'It climbs at 500 feet per minute. On the way in, ALT ARM goes out and ALT comes on: it levels off on the selected altitude.') });
+    add({ title: T('Puissance de croisière', 'Cruise power'), target: 'throttle', camera: 'none',
+        act: (c) => { c.controls.throttle = 0.7; },
+        done: (c) => c.throttle < 0.8,
+        say: T('En palier, réduisez vers 2300 tours, la puissance de croisière.', 'Level now: reduce to about 2300 RPM, cruise power.') });
+    add({ title: T('Déconnecter : A/P DISC', 'Disconnect: A/P DISC'), target: 'kap:disc', camera: 'none', act: press('disc'),
+        done: (c) => !c.kap.engaged,
+        say: T("Reprenez la main : tenez le manche, puis appuyez sur le bouton rouge A/P DISC du manche, touche ù. L'alarme sonne deux secondes et AP clignote : le pilote automatique est coupé, c'est vous qui pilotez.",
+            "Take over: hold the yoke, then press the red A/P DISC button on the yoke, ù key. The alarm sounds for two seconds and AP flashes: the autopilot is off, you are flying."),
+        why: T("Toujours le manche en main avant de couper : l'avion peut être un peu hors de trim.", 'Always hold the yoke before disconnecting: the aeroplane may be slightly out of trim.') });
+    add({ title: T('Bravo !', 'Well done!'), end: true, camera: 'pilot',
+        say: T("Bravo ! Vous savez engager le pilote automatique, lui donner un cap et une altitude, monter vers une altitude choisie et le couper. Rappelez-vous : il ne surveille ni la vitesse ni les gaz, c'est votre travail.",
+            "Well done! You can engage the autopilot, give it a heading and an altitude, climb to a selected altitude and disconnect it. Remember: it watches neither the airspeed nor the throttle, that's your job.") });
+    for (const step of steps) {
+        step.hasWait = Boolean(step.wait);
+        step.wait ??= () => true;
+    }
+    return steps;
+}
+
+export { Initiation, buildSteps, buildAutopilotSteps, CIRCUIT, TURN_AT };

@@ -144,7 +144,7 @@ const CARRIERS = {
         id: 'pa-bleu', label: 'PA BLEU', position: { x: 0, z: 0 }, rotation: 0, carrier: true, color: 0x2f7fd0, number: '01',
         aerodrome: { icao: 'PABL', name: 'Porte-avions bleu', taxiway: 'A', frequencies: { ground: '121.875', tower: '118.300', approach: '120.450', info: '124.550' } },
         speech: { fr: 'porte-avions bleu', en: 'blue carrier' },
-        vor: { ident: 'PAB', frequency: '113.50' }, ils: '110.30',
+        vor: { ident: 'PAB', frequency: '113.50' }, ils: '110.30', ndb: { ident: 'PB', khz: 344 },
         hangars: ['PONT ENVOL'], parked: [], lakes: [],
         description: 'Porte-avions de l\'équipe bleue, en pleine mer',
     },
@@ -152,7 +152,7 @@ const CARRIERS = {
         id: 'pa-rouge', label: 'PA ROUGE', position: { x: 5200, z: -4520 }, rotation: Math.PI, carrier: true, color: 0xd0473c, number: '02',
         aerodrome: { icao: 'PARG', name: 'Porte-avions rouge', taxiway: 'B', frequencies: { ground: '121.700', tower: '119.250', approach: '120.900', info: '123.500' } },
         speech: { fr: 'porte-avions rouge', en: 'red carrier' },
-        vor: { ident: 'PAR', frequency: '115.20' }, ils: '109.70',
+        vor: { ident: 'PAR', frequency: '115.20' }, ils: '109.70', ndb: { ident: 'PR', khz: 413 },
         hangars: ['PONT ENVOL'], parked: [], lakes: [],
         description: 'Porte-avions de l\'équipe rouge, en pleine mer',
     },
@@ -211,6 +211,8 @@ class Carrier extends Airport {
             stands: [{ name: 'P1', ...world(PARK.x, PARK.z), free: true }] };
         this.vor = { ...config.vor, ...world(30, 55), y: DECK + 40 };   // (sur le mât de l'îlot)
         this.ndb = vector(0, DECK, 0);
+        // Balise NDB (ADF) du navire (fictive : mêmes fréquences que les terrains de la carte Campagne, voir Airport.js)
+        this.ndbs = config.ndb ? [{ ...config.ndb, kind: 'ndb', range: 46000, position: this.ndb }] : [];
         this.hangars = [{ ...world(PARK.x, PARK.z), name: config.hangars[0],
             spot: { ...world(PARK.x, PARK.z), heading: Math.PI / 2 + rotation } }];
         // Carte (MapView) : le pont, en trois rectangles

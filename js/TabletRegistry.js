@@ -5,7 +5,7 @@
 //
 // Seules des fonctions qui existent déjà dans le simulateur sont branchées ici (barre de menus et ses menus, menu
 // Commandes, commandes de la cabine, raccourcis clavier) : elles arrivent par l'objet sim (voir simulator.js,
-// tabletApi). Pas d'autopilote dans le simulateur : pas de bouton AP.
+// tabletApi). Pilote automatique KAP 140 (Cessna) : catégorie PILOTE AUTO du bouton RADIO.
 //
 // Tuile : { id, label, type, ... }
 //   type 'button' : action()                      appui = action ; value() facultatif (texte affiché sous le nom)
@@ -123,6 +123,22 @@ function tabletRegistry(sim) {
                         { id: 'fenetre-radio', label: 'FENÊTRE RADIO', type: 'toggle', action: () => sim.toggleAtc(), value: () => sim.atcOpen(), states: ['FERMÉE', 'OUVERTE'] },
                         { id: 'frequence', label: 'FRÉQUENCE', type: 'value', value: () => sim.atcStation() },
                         { id: 'parler', label: 'PARLER (JOUEURS)', type: 'hold', press: () => sim.setTalking(true), release: () => sim.setTalking(false) },
+                    ],
+                },
+                {
+                    // KAP 140 : mêmes boutons que la façade (cockpit 'kap:…'), curseur de cap et présélection d'altitude
+                    id: 'pilote-auto', label: 'PILOTE AUTO', tiles: [
+                        { id: 'kap-ap', label: 'AP', type: 'toggle', action: cockpit('kap:ap'), value: () => sim.kap.engaged, states: ['OFF', 'ENGAGÉ'] },
+                        { id: 'kap-hdg', label: 'HDG', type: 'button', action: cockpit('kap:hdg'), value: () => sim.kap.lateral ?? '—' },
+                        { id: 'kap-nav', label: 'NAV', type: 'button', action: cockpit('kap:nav'), value: () => sim.kap.lateralArm ? `${sim.kap.lateralArm} ARM` : '' },
+                        { id: 'kap-apr', label: 'APR', type: 'button', action: cockpit('kap:apr') },
+                        { id: 'kap-rev', label: 'REV', type: 'button', action: cockpit('kap:rev') },
+                        { id: 'kap-alt', label: 'ALT', type: 'button', action: cockpit('kap:alt'), value: () => sim.kap.vertical ?? '—' },
+                        { id: 'kap-vs', label: 'VS (UP / DN)', type: 'value', value: () => `${sim.kap.vsTarget} ft/min`, step: (s) => sim.useControl({ id: s > 0 ? 'kap:up' : 'kap:dn' }, 1) },
+                        { id: 'kap-sel', label: 'ALTITUDE CHOISIE', type: 'value', value: () => `${sim.kap.selected} ft`, step: (s) => sim.useControl({ id: 'kap:sel:inner' }, s, true) },
+                        { id: 'kap-arm', label: 'ARM', type: 'toggle', action: cockpit('kap:arm'), value: () => sim.kap.altArm },
+                        { id: 'kap-cap', label: 'CURSEUR DE CAP', type: 'value', value: () => `${Math.round(sim.hdgBug())}°`, step: (s) => sim.useControl({ id: 'hdgBug' }, s * 5, true) },
+                        { id: 'kap-disc', label: 'A/P DISC', type: 'button', action: cockpit('kap:disc') },
                     ],
                 },
                 { id: 'en-ligne', label: 'EN LIGNE', element: () => sim.menuContent('online') },

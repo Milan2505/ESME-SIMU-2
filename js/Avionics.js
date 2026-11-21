@@ -12,6 +12,13 @@ const DAVTRON_TOP = ['E', 'F', 'C'];             // volts, °F, °C
 const DAVTRON_BOTTOM = ['UT', 'LT', 'FT', 'ET']; // heure UTC, heure locale, temps de vol, chronomètre
 const AUDIO_BUTTONS = ['com1', 'com2', 'nav1', 'nav2', 'dme', 'mkr', 'adf', 'spkr'];
 const DG_DRIFT = 0.004;                          // dérive du conservateur de cap (°/s : ~3,5° en 15 min)
+// ADF Bendix/King KR 87 (KR 87 Pilot's Guide p. 27-30) : fréquence active à gauche, en attente à droite (affichage FRQ),
+// de 200 à 1799 kHz par pas de 1 kHz. Bouton FRQ : échange ; bouton ADF enfoncé : mode ADF (aiguille vers la balise),
+// relâché : mode ANT (écoute seule, aiguille garée à 90°). Fréquences à la mise en route : NDB d'ESME (EM 344, fictif)
+// et d'Aix-les-Milles (ALM 413) : mêmes valeurs que les balises de AIRPORTS (Airport.js)
+const ADF = { min: 200, max: 1799 };
+const ADF_DEFAULT = { active: 344, standby: 413 };
+const ADF_MODES = ['ADF', 'ANT'];
 
 const formatCom = (khz) => (khz / 1000).toFixed(3);
 const formatNav = (khz) => (khz / 1000).toFixed(2);
@@ -27,6 +34,30 @@ function tune(khz, range, outer, step) {
     return Math.min(range.max, Math.max(range.min, mhz * 1000 + rest));
 }
 
+// KR 87 : le bouton extérieur change les centaines et les milliers (2 à 17, en boucle), l'intérieur les dizaines et les
+// unités (0 à 99, en boucle, sans retenue)
+function tuneAdf(khz, outer, step) {
+    let hundreds = Math.floor(khz / 100), rest = khz - hundreds * 100;
+    const low = Math.floor(ADF.min / 100), high = Math.floor(ADF.max / 100);
+    if (outer) hundreds = low + (((hundreds - low + step) % (high - low + 1)) + (high - low + 1)) % (high - low + 1);
+    else rest = ((rest + step) % 100 + 100) % 100;
+    return Math.min(ADF.max, Math.max(ADF.min, hundreds * 100 + rest));
+}
+
+// Relèvement relatif de la balise (degrés, 0 = droit devant, sens horaire), pour l'aiguille de l'ADF.
+// aircraftPos : { x, z } (Vector3 ou non) ; headingDeg : cap vrai de l'avion ; ndb : { position ({ x, z }), range (m) }
+// ou null (aucune balise sur la fréquence affichée) ; mode : 'ADF' ou 'ANT'. Mode ANT : aiguille garée à 90°.
+// null : pas de signal (pas de balise, ou hors de portée) : l'aiguille reste où elle est
+function adfBearing(aircraftPos, headingDeg, ndb, mode = 'ADF') {
+    if (mode === 'ANT') return 90;
+    if (!ndb) return null;
+    const p = ndb.position ?? ndb;
+    const dx = p.x - aircraftPos.x, dz = p.z - aircraftPos.z;
+    if (ndb.range !== undefined && Math.hypot(dx, dz) > ndb.range) return null;
+    const bearing = Math.atan2(dx, -dz) * 180 / Math.PI;   // nord = -z, est = +x
+    return wrap360(bearing - headingDeg);
+}
+
 class Avionics extends EventTarget {
     constructor() {
         super();
@@ -39,7 +70,8 @@ class Avionics extends EventTarget {
         this.com2 = { active: 124550, standby: 121500 };
         this.nav1 = { active: 113500, standby: 110300 };
         this.nav2 = { active: 113500, standby: 108000 };
-        this.units = { navcom1: true, navcom2: true, dme: true };    // boutons marche des appareils
+        this.adf = { ...ADF_DEFAULT, mode: 'ADF' };                  // KR 87 (kHz)
+        this.units = { navcom1: true, navcom2: true, dme: true, adf: true };    // boutons marche des appareils
         this.xpdr = { code: '7000', mode: cold ? 'SBY' : 'ALT', identUntil: 0 };
         this.dme = { mode: 'RMT' };
         this.audio = { mic: 'com1', com1: true, com2: false, nav1: false, nav2: false, dme: false, mkr: false, adf: false, spkr: true };
@@ -62,7 +94,8 @@ class Avionics extends EventTarget {
             navcom2: bus2 && b.navcom2 && this.units.navcom2,
             xpdr: bus1 && b.xpdr && this.xpdr.mode !== 'OFF',
             dme: bus2 && b.dme && this.units.dme,
-            adf: bus2 && b.adf,
+            adf: bus2 && b.adf && this.units.adf,
+            autopilot: bus1 && b.autopilot,   // KAP 140 : barre avionique 1, disjoncteur AUTO PILOT
         };
     }
 
@@ -101,7 +134,14 @@ class Avionics extends EventTarget {
         else if (unit === 'dg') this.dgOffset += step * (fine ? 10 : 1);
         else if (unit === 'ai') this.aiOffset = Math.max(-6, Math.min(6, this.aiOffset + step * 0.5));
         else if (unit === 'obs2') this.obs2 = wrap360(Math.round(this.obs2) + step * (fine ? 10 : 1));
-        else if (unit === 'adf') this.adfCard = wrap360(this.adfCard + step * (fine ? 10 : 1));
+        else if (unit === 'kr87') {
+            const adf = this.adf;
+            if (part === 'adf') adf.mode = adf.mode === 'ADF' ? 'ANT' : 'ADF';
+            else if (part === 'frq') [adf.active, adf.standby] = [adf.standby, adf.active];
+            else if (part === 'outer') adf.standby = tuneAdf(adf.standby, true, step);
+            else if (part === 'inner') adf.standby = tuneAdf(adf.standby, false, step * (fine ? 10 : 1));
+            else return false;
+        } else if (unit === 'adf') this.adfCard = wrap360(this.adfCard + step * (fine ? 10 : 1));
         else return false;
         this._changed();
         return true;
@@ -135,4 +175,5 @@ class Avionics extends EventTarget {
     }
 }
 
-export { Avionics, XPDR_MODES, DME_MODES, DAVTRON_TOP, DAVTRON_BOTTOM, AUDIO_BUTTONS, formatCom, formatNav, parseFrequency };
+export { Avionics, XPDR_MODES, DME_MODES, DAVTRON_TOP, DAVTRON_BOTTOM, AUDIO_BUTTONS, ADF_MODES, ADF_DEFAULT, formatCom, formatNav,
+    parseFrequency, adfBearing, tuneAdf };

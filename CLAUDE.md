@@ -129,7 +129,10 @@ Appareils et physique (`js/`) :
   `NightSky.js`, `Graphics.js` (rendu, résolution, post-traitement), `Billboards.js`, `CrashEffect.js`, `Wind.js`
   (vent et QNH à graine), `Turbulence.js` (pur : Dryden MIL-F-8785C, cisaillement, thermiques), `Metar.js` (pur :
   METAR -> météo du jeu ; météo réelle par VATSIM, LFMA puis LFML), `PlaneCollision.js`.
-- Navigation et radio : `ILS.js`, `VOR.js`, `Avionics.js` (radios du tableau, calage altimétrique), `ATC.js`
+- Navigation et radio : `ILS.js` (et radiobornes OM / MM, `markerAt`), `VOR.js`, `Avionics.js` (radios du tableau, calage
+  altimétrique, ADF KR 87, `adfBearing`), `NavAudio.js` (sons des radiobornes, morse des NDB, alarmes du pilote
+  automatique), `KAP140.js` (pilote automatique pur : modes, boucles, trim ; servos par `PlaneControls.setAutopilotOutput`),
+  `ATC.js`
   (contrôleur à règles, bilingue), `RadioVoices.js` + `VoiceWorker.js` (voix Piper dans un worker, modèles téléchargés),
   `Radio.js` (voix entre joueurs), `MapView.js` (carte vue de dessus), `FlightHud.js` (infos de vol en vue extérieure).
 - Multijoueur : `Multiplayer.js` (relais MQTT publics, `offline` en mode test), `RemotePlayers.js`, `Chat.js`.
@@ -146,9 +149,10 @@ Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion s
 tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu), `atmosphere.test.js`, `propulsion.test.js`,
 `perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
-`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `gamepads.test.js` (périphériques), `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
+`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
+`adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
 Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `helpers/modes.js` (modèle linéaire, identification),
 
 `helpers/c172-perf.js` (procédures de mesure), `*.test.js` (node --test), `e2e/server.js` (serveur local, CDN remplacé
 par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `e2e/realiste.spec.js` (modèle réaliste : initiation, vol libre), `e2e/peripheriques.spec.js` (yoke et palonnier
-simulés : fenêtre Périphériques, décollage), `e2e/meteo.spec.js` (QNH et altimètre, METAR, réchauffe et givrage), `playwright.config.js`, `eslint.config.js`.
+simulés : fenêtre Périphériques, décollage), `e2e/meteo.spec.js` (QNH et altimètre, METAR, réchauffe et givrage), `e2e/pilote-auto.spec.js` (leçon pilote automatique, capture du KAP 140), `playwright.config.js`, `eslint.config.js`.

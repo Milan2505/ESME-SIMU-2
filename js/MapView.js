@@ -21,7 +21,8 @@ function reliefColor(height, shade) {
 class MapView {
     // heightAt(x, z) : hauteur du sol ; worldSize : côté du terrain (m) ; shapes : pistes et parkings [{ minX, maxX, minZ, maxZ, kind }]
     // runways : [{ name, threshold }]
-    constructor(canvas, { heightAt, waterAt = () => false, worldSize, shapes = [], runways = [], navaids = [], zooms = ZOOMS }) {
+    // ndbs : balises NDB [{ ident, khz, position: { x, z }, kind: 'ndb' | 'locator' }]
+    constructor(canvas, { heightAt, waterAt = () => false, worldSize, shapes = [], runways = [], navaids = [], ndbs = [], zooms = ZOOMS }) {
         this.canvas = canvas;
         this.heightAt = heightAt;
         this.waterAt = waterAt;   // vrai sur un lac
@@ -29,6 +30,7 @@ class MapView {
         this.shapes = shapes;
         this.runways = runways;
         this.navaids = navaids;
+        this.ndbs = ndbs;
         this.zooms = zooms;       // balises (VOR) : { x, z, ident, frequency }
         this.zoom = 1;
         this._relief = null;
@@ -124,6 +126,33 @@ class MapView {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
             ctx.strokeText(`VOR ${nav.ident} ${nav.frequency}`, x + 10 * ratio, y);
             ctx.fillText(`VOR ${nav.ident} ${nav.frequency}`, x + 10 * ratio, y);
+        }
+
+        // Balises NDB : point central entouré de cercles pointillés (symbole des cartes aéronautiques), indicatif et
+        // fréquence ; locators plus petits
+        for (const ndb of this.ndbs) {
+            const p = ndb.position ?? ndb;
+            const x = toX(p.x), y = toY(p.z), small = ndb.kind === 'locator';
+            const size = (small ? 5 : 7) * ratio;
+            ctx.fillStyle = '#8a3b8f';
+            for (const [radius, count] of small ? [[size, 10]] : [[size * 0.6, 8], [size, 12]]) {
+                for (let i = 0; i < count; i++) {
+                    const a = i / count * Math.PI * 2;
+                    ctx.beginPath();
+                    ctx.arc(x + Math.cos(a) * radius, y + Math.sin(a) * radius, 0.9 * ratio, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.beginPath();
+            ctx.arc(x, y, 1.8 * ratio, 0, Math.PI * 2);
+            ctx.fill();
+            const label = `${small ? 'L' : 'NDB'} ${ndb.ident} ${ndb.khz}`;
+            ctx.font = `bold ${Math.round(10 * ratio)}px DejaVu Sans Mono, monospace`;
+            ctx.textAlign = 'left';
+            ctx.lineWidth = 3 * ratio;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.strokeText(label, x + size + 3 * ratio, y);
+            ctx.fillText(label, x + size + 3 * ratio, y);
         }
 
         // Autres joueurs, puis le joueur (dessus)

@@ -13,7 +13,42 @@ const GLIDE = MathUtils.degToRad(3);                // pente d'approche
 const LOC_FULL_SCALE = MathUtils.degToRad(2.5);     // déviation pour une aiguille en butée
 const GS_FULL_SCALE = MathUtils.degToRad(0.7);
 
+// Radiobornes (marqueurs) de l'ILS, OACI Annexe 10 vol. I § 3.1.7 : distance au seuil le long de l'axe (m), longueur
+// couverte sur l'alignement de descente et l'axe du localizer (m : OM 600 ± 200, MM 300 ± 100), tonalité (Hz).
+// Pas de radioborne intérieure (IM, catégorie II seulement) sur ces pistes : seuls OM et MM sont reçus.
+const MARKERS = {
+    OM: { distance: 7200, coverage: 600, tone: 400 },
+    MM: { distance: 1050, coverage: 300, tone: 1300 },
+};
+// Diagramme de l'antenne : faisceau en éventail vers le haut, d'autant plus large qu'on est haut. Le long de l'axe,
+// demi-largeur ≈ hauteur × tan 40° (au moins la moitié de la couverture OACI, réglée sur la pente de 3°) ; en travers de
+// l'axe, éventail trois fois plus large (non relu : ordre de grandeur des diagrammes publiés) ; rien au-dessus de
+// MARKER_CEILING
+const MARKER_CONE = Math.tan(MathUtils.degToRad(40));
+const MARKER_FAN = 3;
+const MARKER_CEILING = 3000;
+
 const _offset = new Vector3();
+const _marker = new Vector3();
+
+// Radioborne reçue à cette position ('OM', 'MM' ou null) : runways, une piste ou une liste de pistes ({ threshold,
+// direction, left }, comme celles d'Airport.js). Le récepteur de radiobornes ne dépend que de la position (pas de la
+// fréquence NAV ni de la portée du localizer)
+function markerAt(position, runways) {
+    for (const runway of Array.isArray(runways) ? runways : [runways]) {
+        const height = Math.max(0, position.y - runway.threshold.y);
+        if (height > MARKER_CEILING) continue;
+        for (const [type, marker] of Object.entries(MARKERS)) {
+            _marker.copy(runway.threshold).addScaledVector(runway.direction, -marker.distance);
+            _offset.subVectors(position, _marker);
+            const along = Math.abs(_offset.dot(runway.direction));
+            const across = Math.abs(_offset.dot(runway.left));
+            const half = Math.max(height * MARKER_CONE, marker.coverage / 2);
+            if (along <= half && across <= half * MARKER_FAN) return type;
+        }
+    }
+    return null;
+}
 
 class ILS {
     constructor(runways, runwayLength) {
@@ -62,6 +97,11 @@ class ILS {
         return this.state;
     }
 
+    // Radioborne reçue (toutes les pistes, quelle que soit la fréquence NAV) : 'OM', 'MM' ou null
+    marker(position) {
+        return markerAt(position, this.runways);
+    }
+
     toggle() {
         this.active = this.state.available && !this.active;
         return this.active;
@@ -84,4 +124,4 @@ class ILS {
     }
 }
 
-export { ILS };
+export { ILS, MARKERS, markerAt };

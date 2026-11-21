@@ -34,6 +34,9 @@ import { ATC, METARS } from './js/ATC.js';
 import { isaTemperature, altimeterReading } from './js/Atmosphere.js';
 import { shearFactor, thermalAt } from './js/Turbulence.js';
 import { parseMetar, metarToWeather, pickMetar, METAR_URL } from './js/Metar.js';
+import { KAP140 } from './js/KAP140.js';
+import { NavAudio } from './js/NavAudio.js';
+import { adfBearing } from './js/Avionics.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
@@ -375,6 +378,9 @@ function syncPlaneModel() {
 const jetFlight = { ...F15 };          // caractéristiques du F-15 pour le modèle de vol (masse : suit le carburant)
 // Radios du tableau (NAV/COM, transpondeur, DME, ADF...), lien avec le contrôle aérien (voir syncRadios)
 const avionics = new Avionics();
+// Pilote automatique KAP 140 et sons de navigation (radiobornes, indicatifs NDB, alarmes) : voir updateAutopilot, updateNavAudio
+const kap = new KAP140();
+const navAudio = new NavAudio();
 const radioSync = { freq: null, code: null };
 let gloveboxOpen = false;
 // Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
@@ -1280,7 +1286,7 @@ const CESSNA_VIEWS = {
     3: { label: 'Magnétos, master et disjoncteurs', eye: [-0.36, -0.12, -0.3], target: [-0.36, -0.43, -0.75], fov: 45, close: true },
     4: { label: 'Interrupteurs et avionique', eye: [-0.25, -0.12, -0.3], target: [-0.25, -0.46, -0.75], fov: 45, close: true },
     5: { label: 'Volets, aération, boîte à gants', eye: [0.2, -0.1, -0.3], target: [0.27, -0.45, -0.75], fov: 50, close: true },
-    6: { label: 'Radios (NAV/COM, DME, transpondeur)', eye: [0.0, -0.05, -0.3], target: [0.09, -0.27, -0.75], fov: 45, close: true },
+    6: { label: 'Radios, pilote automatique, ADF', eye: [0.0, -0.05, -0.3], target: [0.09, -0.27, -0.75], fov: 45, close: true },
     7: { label: 'Réchauffe carbu, gaz, mixture, éclairage', eye: [-0.05, -0.12, -0.3], target: [0.02, -0.46, -0.75], fov: 45, close: true },
     8: { label: 'Pupitre (trim, robinet)', eye: [-0.1, -0.2, -0.25], target: [0, -0.657, -0.744], fov: 50, close: true },
     9: { label: 'Sélecteur de réservoir', eye: [-0.05, -0.3, -0.3], target: [0, -0.76, -0.64], fov: 50, close: true },
@@ -2154,6 +2160,22 @@ for (const type of ['keydown', 'pointerdown', 'touchend', 'click']) window.addEv
 
 const _wingAxis = new THREE.Vector3();
 // Alarmes du Cessna (DÉCROCHAGE, BANK ANGLE, EGPWS) : le F-15 a les siennes (F15Warnings.js, voir updateF15Warnings)
+// Radiobornes (OM, MM : ILS.marker, OACI annexe 10) et indicatifs des NDB : sons de la boîte audio (touches MKR, ADF) et
+// voyants qui clignotent au rythme de leur code (NavAudio)
+const markerLamps = { o: false, m: false, a: false };
+function updateNavAudio(delta) {
+    const powered = avionics.powered(systems);
+    const cessna = aircraftType === 'c172' && !choosingSpawn && !inMenu && !inHangar;
+    const marker = cessna && powered.navcom1 ? ils.marker(aircraft.position) : null;
+    const ndb = cessna && powered.adf ? airport.ndbByKhz(avionics.adf.active, aircraft.position.x, aircraft.position.z) : null;
+    const heard = ndb && adfBearing(aircraft.position, 0, ndb, 'ADF') !== null ? ndb.ident : null;
+    navAudio.update(Math.min(delta, 0.1), { marker, mkrOn: avionics.audio.mkr, ndbIdent: heard, adfOn: avionics.audio.adf, volume: chaseView ? 0.6 : 1 });
+    const lit = navAudio.lamp(marker);
+    markerLamps.o = lit && marker === 'OM';
+    markerLamps.m = lit && marker === 'MM';
+    markerLamps.a = lit && marker === 'IM';
+}
+
 function updateStallWarning(delta) {
     const cessna = aircraftType === 'c172';
     alarme.classList.toggle('actif', cessna && controls.isStalled());
@@ -3892,7 +3914,7 @@ function isTypingTarget(target) {
 window.addEventListener('keydown', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement) || target === view || isTypingTarget(target) || target.isContentEditable) return;
-    if (!/^(Key|Digit)|^(Space|ControlLeft|ShiftLeft|Arrow|Backquote)/.test(event.code) || event.altKey || event.metaKey) return;
+    if (!/^(Key|Digit)|^(Space|ControlLeft|ShiftLeft|Arrow|Backquote|Quote)/.test(event.code) || event.altKey || event.metaKey) return;
     if (!target.matches('button, select, input, [tabindex]') || target.closest('dialog[open]')) return;
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden) return;   // écrans sans pilotage : clavier libre
     if (event.code === 'Space' || target instanceof HTMLSelectElement || target instanceof HTMLInputElement) event.preventDefault();
@@ -3950,6 +3972,7 @@ const mapView = new MapView(document.getElementById('carte-canvas'), {
     shapes: city ? [{ kind: 'city', label: 'VILLE', x: city.center.x, z: city.center.z, radius: city.radius }, ...airport.mapShapes]
         : airport.mapShapes,
     runways: airport.allRunways,
+    ndbs: airport.ndbs,
     navaids: airport.vors,
 });
 
@@ -4363,6 +4386,38 @@ var initiation = new Initiation({
         setCabinViewPreset(1);
         setMenuBar(true);
     },
+    // Leçon pilote automatique : en vol à 3 000 ft au-dessus d'ESME, cap de la piste en service, croisière ~100 kt, moteur
+    // en marche, avionique et KAP 140 sous tension (le test au démarrage se fait en vol)
+    startAirborne: () => {
+        multiplayer.leave();
+        newWind(TEST_MODE ? 1 : Math.floor(Math.random() * 2 ** 32));
+        atc.clearLog();
+        selectAirport(airport.main);
+        airportPanel.hidden = true;
+        const spawn = airport.spawns.find((sp) => !sp.cold && sp.runway) ?? airport.spawns.find((sp) => !sp.cold) ?? airport.spawns[0];
+        closeMainMenu();
+        leaveHangar();
+        if (choosingSpawn) closeSpawnDialog();
+        spawnAt(spawn);
+        const model = controls.model, forward = new THREE.Vector3(0, 0, -1).applyQuaternion(aircraft.quaternion);
+        aircraft.position.addScaledVector(forward, -4000);
+        aircraft.position.y = terrain.heightAt(aircraft.position.x, aircraft.position.z) + 3000 * 0.3048;
+        model.restart(false);
+        model.velocity.copy(forward).multiplyScalar(52);
+        model.airspeed = 52;
+        model.throttle = 0.7;
+        model.setFlapLevel(0);
+        model.flaps = 0;
+        model.trim = THREE.MathUtils.degToRad(14);
+        controls.saveState();
+        avionics.baro = Math.round(wind.qnh);
+        setCabinViewPreset(1);
+        setMenuBar(true);
+    },
+    getKap: () => kap,
+    kapPress: (button) => kap.press(button, autopilotSensors()),
+    altimeterFt: () => altimeterIndicated() / 0.3048,
+    dgHeading: () => autopilotSensors().heading,
     focusCabin,
     pilotView: () => setCabinViewPreset(1),
     openAtc: (open) => { if (atcPanel.hidden === open) toggleAtc(open); },
@@ -4385,7 +4440,7 @@ for (const button of initiationDialog.querySelectorAll('[data-niveau]')) {
         radioVoices.preload();
         const lang = initiationDialog.querySelector('[data-langue-lecon].actif')?.dataset.langueLecon ?? 'fr';
         try { localStorage.setItem('initiation-langue', lang); } catch { /* stockage indisponible */ }
-        const level = Number(button.dataset.niveau), cameraGuide = $('initiation-camera').checked;
+        const level = button.dataset.niveau === 'ap' ? 'ap' : Number(button.dataset.niveau), cameraGuide = $('initiation-camera').checked;
         if (aircraftType !== 'c172') setAircraftType('c172');   // la leçon se fait sur le Cessna
         enterGame(() => {
             initiation.start(level, cameraGuide, lang);
@@ -4549,6 +4604,10 @@ function cockpitState() {
         systems,
         avionics,
         ...navInstruments(),
+        // KAP 140, ADF KR 87, voyants des radiobornes (boîte audio)
+        kap: kap.display(),
+        adfRadio: { powered: avionics.powered(systems).adf, ...avionics.adf },
+        markers: markerLamps,
         oat: atc.metar.temp - 2 * Math.max(0, controls.getAltitude() - WHEEL_HEIGHT) / 0.3048 / 1000,
         transmitting: radioTransmit.pilot,
         receiving: radioTransmit.other,
@@ -4620,14 +4679,11 @@ function navInstruments() {
         const nm = nav1.distance / 1852;
         dme = { nm, kt: dmeTrack.kt, min: dmeTrack.kt > 30 ? nm / dmeTrack.kt * 60 : 999 };
     }
-    let adf = 90;   // aiguille au repos (pas de signal)
-    if (powered.adf) {
-        const ndb = nearestAirport().ndb;
-        const bearing = Math.atan2(ndb.x - aircraft.position.x, -(ndb.z - aircraft.position.z)) * 180 / Math.PI;
-        adf = ((bearing - controls.getHeading()) % 360 + 360) % 360;
-    }
+    // ADF : balise accordée sur le KR 87 (fréquence active), à portée ; mode ANT ou pas de signal : aiguille à 90°
+    const adfNdb = airport.ndbByKhz(avionics.adf.active, aircraft.position.x, aircraft.position.z);
+    const adf = (powered.adf ? adfBearing(aircraft.position, controls.getHeading(), adfNdb, avionics.adf.mode) : null) ?? 90;
     return {
-        nav1, nav2, dme, adf, obs1: vor.course,
+        nav1, nav2, dme, adf, obs1: vor.course, adfNdb,
         navcom1Powered: powered.navcom1, navcom2Powered: powered.navcom2, dmePowered: powered.dme, xpdrPowered: powered.xpdr,
     };
 }
@@ -4837,7 +4893,14 @@ function useControl(control, step, wheel = false, fine = false) {
     else if (id === 'glovebox') {
         if (wheel) return false;
         gloveboxOpen = !gloveboxOpen;
-    } else if (/^(com[12]|nav[12]|power|xpdr|dme|audio|davtron|baro|hdgBug|dg|ai|obs2|adf)(:|$)/.test(id)) {
+    } else if (id.startsWith('kap:')) {
+        // KAP 140 : boutons de la façade, double bouton de présélection (molette), A/P DISC du manche
+        const button = id.slice(4);
+        if (button.startsWith('sel:')) kap.turn(button.slice(4), step);
+        else if (wheel) return false;
+        else kap.press(button, autopilotSensors());
+    } else if (/^(com[12]|nav[12]|power|xpdr|dme|audio|davtron|baro|hdgBug|dg|ai|obs2|adf|kr87)(:|$)/.test(id)) {
+        if (wheel && /^kr87:(adf|frq)/.test(id)) return false;
         if (wheel && /swap|ident|power|audio|davtron|dme/.test(id)) return false;
         avionics.use(id, step, fine);
     }
@@ -4877,7 +4940,7 @@ function useControl(control, step, wheel = false, fine = false) {
 
 // Boutons rotatifs (fréquences, transpondeur, calage, cap, OBS, ADF, gyro, éclairages) : réglés à la molette seulement,
 // comme un vrai bouton qu'on tourne (Maj : plus vite) ; le clic ne les change plus
-const WHEEL_ONLY = /^((com|nav)[12]:(outer|inner)|xpdr:(mode|d\d)|baro|hdgBug|dg|ai|obs2?|adf|panelLights|domeLight)$/;
+const WHEEL_ONLY = /^((com|nav)[12]:(outer|inner)|xpdr:(mode|d\d)|baro|hdgBug|dg|ai|obs2?|adf|kr87:(outer|inner)|kap:sel:(outer|inner)|panelLights|domeLight)$/;
 // En cabine : clic (sans glisser) sur une commande : interrupteurs, boutons, sélecteurs ;
 // manettes (gaz, mixture) et molette de trim : moitié haute = pousser / piquer, moitié basse = tirer / cabrer
 view.addEventListener('click', (event) => {
@@ -5123,6 +5186,7 @@ function updateGamepads(delta) {
         if (edges.pressed.has('flapsUp')) controls.setFlapLevel(controls.getFlapLevel() - 1);
     }
     if (edges.pressed.has('carbHeat')) toggleCarbHeat();
+    if (edges.pressed.has('apDisc')) kap.press('disc', autopilotSensors());
     if (edges.pressed.has('view')) toggleView();
     if (aircraftType === 'f15' && edges.pressed.has('fire')) { padFiring = true; pullTrigger(true); }
     if (padFiring && edges.released.has('fire')) { padFiring = false; pullTrigger(false); }
@@ -5284,6 +5348,8 @@ window.__sim = {
             rotorPercent: model.heli ? model.rotorPercent : null, loopErrors: loopErrors.length,
             qnh: wind.qnh, baro: avionics.baro, altimeter: altimeterIndicated(), temperature: atc.metar.temp, dewPoint: atc.metar.dew,
             carbHeat: Boolean(systems.switches?.carbHeat), carbIce: systems.carbIce?.ice ?? 0, stopReason: systems.stopReason ?? null,
+            autopilot: { engaged: kap.engaged, ready: kap.ready, lateral: kap.lateral, lateralArm: kap.lateralArm, vertical: kap.vertical, altArm: kap.altArm, selected: kap.selected, altTarget: kap.altTarget, vsTarget: kap.vsTarget },
+            adf: avionics.adf ? { ...avionics.adf } : null,
         };
     },
     controls, wind, airport, settings, atc, avionics,
@@ -5303,6 +5369,7 @@ window.__sim = {
     // Périphériques branchés (Gamepad API) : liste, dernière lecture combinée, profils
     gamepads, gamepadProfiles, openDevices: () => openDevices(),
     setFlapLevel(level) { controls.setFlapLevel(level); },
+    kap, navAudio,
     // Thermiques (coupées en mode test) ; météo par son nom (préréglage, ou 'reel' après loadRealWeather)
     setThermals(on) { thermalsEnabled = Boolean(on); },
     setWeather(name) { if (WEATHERS[name]) setWeather(name); },
@@ -5373,6 +5440,8 @@ function toggleCarbHeat() {
 }
 window.addEventListener('keydown', (event) => {
     if (event.code === 'Backquote' && !event.repeat && !isTypingTarget(event.target)) toggleCarbHeat();
+    // A/P DISC (bouton rouge du manche) : touche ù (Quote)
+    if (event.code === 'Quote' && !event.repeat && !isTypingTarget(event.target)) kap.press('disc', autopilotSensors());
 });
 window.addEventListener('blur', () => { mixtureKeys.KeyU = mixtureKeys.KeyY = 0; panelLightsKey = 0; });
 // R44 au clavier (en plus des commandes du cockpit, à la souris) : Y / U ferment / ouvrent la poignée des gaz (voir
@@ -5531,6 +5600,7 @@ const tabletApi = {
     },
     openSettings: () => openSettings(),
     openDevices: () => openDevices(),
+    kap, hdgBug: () => avionics.hdgBug,
 };
 const tabletPanels = isTablet() ? new TabletPanels(document.getElementById('tablette-ui'), tabletRegistry(tabletApi), {
     // Panneaux posés à droite de la rose des caps (HUD) et du panneau du moniteur (Initiation), en haut à gauche
@@ -6621,6 +6691,34 @@ renderer.setAnimationLoop((time) => {
         try { graphics.render(); } catch { /* rien de plus à faire pour cette image */ }
     }
 });
+// Pilote automatique KAP 140 (KAP140.js, lot 4) : Cessna, modèle de vol réaliste, alimenté par la barre avionique 1 et
+// le disjoncteur AUTO PILOT. Capteurs : cap du conservateur (figé sans dépression, avec son écart), altimètre (calage),
+// vitesse verticale, inclinaison, récepteur NAV 1 ; sortie : servos de tangage, de roulis et de trim (PlaneControls)
+let dgHeadingRaw = 0;
+function autopilotSensors() {
+    if (systems.vacuum) dgHeadingRaw = controls.getHeading();
+    const powered = avionics.powered(systems);
+    const nav = navReceiver(avionics.nav1.active, powered.navcom1, vor, true);
+    nav.isIls = ilsByKhz.has(avionics.nav1.active);
+    nav.groundSpeed = Math.hypot(controls.model.velocity.x, controls.model.velocity.z);
+    const A = controls.model.aircraft;
+    return {
+        powered: aircraftType === 'c172' && controls.model.realistic && powered.autopilot && !choosingSpawn,
+        heading: ((dgHeadingRaw + avionics.dgOffset) % 360 + 360) % 360, bug: avionics.hdgBug,
+        altitude: altimeterIndicated() / 0.3048, vs: controls.getVerticalSpeed() / 0.3048 * 60,
+        bank: controls.model.bankAngle ?? 0, pitch: controls.model.pitchAttitude ?? 0,
+        ias: controls.model.indicatedSpeed, tas: controls.model.airspeed, onGround: controls.isOnGround(), nav,
+        baro: avionics.baro, manualTrim: controls.manualTrim,
+        trimFree: controls.model.trim > A.trimTabMin + 0.01 && controls.model.trim < A.trimTabMax - 0.01,
+    };
+}
+function updateAutopilot(delta) {
+    controls.setAutopilotOutput(kap.update(Math.min(delta, 0.1), autopilotSensors()));
+}
+kap.addEventListener('disconnect', () => navAudio.disconnect());
+kap.addEventListener('pft', () => navAudio.disconnect());   // fin du test au démarrage : alarme (p. 8)
+kap.addEventListener('alert', () => navAudio.altitudeAlert());
+
 // Masse d'air autour de l'appareil (lot 3) : vent de la météo avec son cisaillement (vent annoncé à 10 m, plus fort
 // au-dessus : Turbulence.shearFactor) et thermiques de jour, par beau temps, au-dessus de la terre (Turbulence.thermalAt).
 // Mode test : pas de thermiques, sauf window.__sim.setThermals(true) (les essais réglés volent en air calme)
@@ -6642,6 +6740,7 @@ function simulateStep(delta) {
     if (!choosingSpawn) windClock += delta;
     wind.update();
     updateAirMass();
+    updateAutopilot(delta);
     if (!choosingSpawn) controls.update( delta );
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
@@ -6691,6 +6790,7 @@ function drawFrame(time) {
     if (TEST_MODE && !choosingSpawn) windClock += Math.min(delta, 0.1);   // (même pas que la physique)
     wind.update();
     updateAirMass();
+    updateAutopilot(delta);
     if (!choosingSpawn) controls.update( delta );
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
@@ -6832,6 +6932,7 @@ function drawFrame(time) {
     if (heli || !chaseView || camera.position.distanceTo(aircraft.position) < 30) cockpit.update( delta, cockpitState() );
     updateFog();
     updateStallWarning(delta);
+    updateNavAudio(delta);
     lap('cabine, instruments');
 
     // Ombres : zone centrée sur l'avion (elle s'étend dans l'axe du soleil : l'ombre de l'avion au sol y reste, même en
