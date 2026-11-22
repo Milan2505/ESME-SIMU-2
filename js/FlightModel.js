@@ -86,6 +86,8 @@ class FlightModel extends EventDispatcher {
 			stallProtection: false,      // la profondeur seule ne fait pas décrocher
 			smoothLiftoff: false,        // après l'envol, manche relâché, le nez se rend progressivement
 			crosswindCorrection: false,  // vent de travers : après l'envol, le nez se met tout seul face au vent (pas de dérive)
+			engineCompensation: false,   // modèle réaliste : couple, souffle hélicoïdal et facteur P compensés (« pied droit
+			                             // automatique ») ; sinon l'avion part à gauche sans palonnier, comme le vrai
 		};
 
 		// Commandes du pilote

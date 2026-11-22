@@ -5163,6 +5163,7 @@ function applySettings(values) {
             stallProtection: values.stallProtection,
             smoothLiftoff: values.smoothLiftoff,
             crosswindCorrection: values.crosswind ?? false,
+            engineCompensation: values.engineCompensation ?? true,
         });
     }
     // Modèle de vol du Cessna : tout de suite au menu, au hangar et au choix du départ ; sinon au prochain départ

@@ -302,8 +302,10 @@ class RigidBodyModel extends FlightModel {
 		const daK = lerpTable( D.ClDaStall.map( ( [ x, free, stalled ] ) => [ x, free + ( stalled - free ) * stalledN ] ), alphaJ );
 		let Cl = D.Clb * beta * clbK + D.Clp * pHat + clr * rHat * clrK + D.Clda * da * daK + D.Cldr * dr;
 		Cl += ( wingLift[ 1 ] - wingLift[ 0 ] ) * clWing / 8;   // aile endommagée : elle porte moins
-		// Calage des ailes qui compense le couple de l'hélice en croisière (~120 ch à 2 400 tr/min, 110 kt)
-		Cl += D.ClRigging;
+		// Calage des ailes qui compense le couple de l'hélice en croisière (~120 ch à 2 400 tr/min, 110 kt) ; aide
+		// « compensation des effets moteur » : couple, souffle et facteur P annulés, le calage avec eux
+		const engineEffects = this.assists.engineCompensation ? 0 : 1;
+		Cl += D.ClRigging * engineEffects;
 		// Aile qui tombe au décrochage (côté tiré au hasard, voir FlightModel), plus forte avec la puissance
 		if ( this.stalled && this._stallBreak > 0 ) Cl -= this._wingDrop * 0.025 * ( 0.3 + 0.7 * power );
 		// Rafales en roulis : moment qui donnerait seul la vitesse de roulis de la rafale (turbulence)
@@ -323,9 +325,9 @@ class RigidBodyModel extends FlightModel {
 		let Cn = D.Cnb * beta + D.Cnp * pHat + D.Cnr * rHat + D.Cnda * da;
 		if ( alphaJ > D.stallJ ) Cn += lerpTable2( D.CnSpin.alphaJ, D.CnSpin.rows, r, alphaJ ) * b * half;
 		const rudderMoment = D.Cndr * dr * qbarTail * S * b;
-		const washMoment = D.Cnspw * qbarWash * S * b;
+		const washMoment = D.Cnspw * qbarWash * S * b * engineEffects;
 		// Facteur P : la pale descendante (à droite) attaque plus l'air avec l'incidence, la traction se décale à droite
-		const pFactor = A.propeller ? thrust * 0.25 * A.propeller.diameter / 2 * MathUtils.clamp( alpha, - 0.3, 0.3 ) : 0;
+		const pFactor = A.propeller ? thrust * 0.25 * A.propeller.diameter / 2 * MathUtils.clamp( alpha, - 0.3, 0.3 ) * engineEffects : 0;
 
 		// --- Forces (repère monde) ---
 		_force.set( 0, 0, 0 );
@@ -346,7 +348,7 @@ class RigidBodyModel extends FlightModel {
 		_force.addScaledVector( _forward, thrust );
 		this.loadFactor = _force.dot( _up ) / ( this.mass * GRAVITY );
 		// Couple de l'hélice (sens horaire vue de la cabine) : réaction, roulis à gauche
-		if ( this.propulsion ) _moment.z += Math.max( 0, this.propulsion.torque );
+		if ( this.propulsion ) _moment.z += Math.max( 0, this.propulsion.torque ) * engineEffects;
 
 		// --- Train ---
 		this._gearForces( dt, _force, _moment, yaw );
