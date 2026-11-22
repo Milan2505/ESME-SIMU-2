@@ -1,5 +1,6 @@
 // Hook git commit-msg (.githooks/commit-msg.js) : format « type(zone): résumé » de CLAUDE.md, section Git. Le validateur
-// seul, puis le hook appelé par un vrai git commit dans un dépôt temporaire (core.hooksPath vers .githooks, comme le
+// seul, la mise au format des messages qui n'y sont pas (depuis le 22/11/2026 : corrigés, plus refusés), puis le hook
+// appelé par un vrai git commit dans un dépôt temporaire (core.hooksPath vers .githooks, comme le
 // script npm « prepare »), et le script « prepare » hors d'un dépôt git.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkMessage, commentCharOf } from '../.githooks/commit-msg.js';
+import { checkMessage, commentCharOf, fixMessage } from '../.githooks/commit-msg.js';
 
 const HOOKS = fileURLToPath(new URL('../.githooks', import.meta.url));   // (indépendant du dossier courant)
 const ok = (message, c) => assert.deepEqual(checkMessage(message, c), [], `refusé à tort : ${JSON.stringify(message)}`);
@@ -61,7 +62,23 @@ test('caractère de commentaire réglable (core.commentChar, « auto ») : ligne
     refused(raw, '#');
 });
 
-test('hook branché sur git (core.hooksPath = .githooks) : un vrai commit hors format est refusé, au format il passe', () => {
+test("message hors format mis au format : type d'après les mots, zone d'après les fichiers, détail gardé ; au format : inchangé", () => {
+    assert.equal(fixMessage('corrige le saut au roulage', ['js/RigidBodyModel.js']), 'fix(flight): corrige le saut au roulage\n');
+    assert.equal(fixMessage('Ajoute la leçon VOR.', ['js/lessons/vor.js', 'js/Initiation.js']), 'feat(lecons): Ajoute la leçon VOR\n');
+    assert.equal(fixMessage('save', ['index.html', 'simulator.js']), 'chore(divers): save\n');
+    assert.equal(fixMessage('fix: bouton\nligne collée', ['style.css']), 'fix(ui): bouton\n\nligne collée\n');
+    assert.equal(fixMessage('', ['tests/a.test.js', 'tests/b.test.js']), 'test(tests): mise à jour (2 fichiers)\n');
+    const long = fixMessage('x'.repeat(130), ['docs/a.md']);
+    assert.deepEqual(checkMessage(long), [], long);
+    assert.ok(long.includes('x'.repeat(130)), 'message entier gardé dans le détail');
+    assert.equal(fixMessage('fix(ui): déjà bon'), null);
+    assert.equal(fixMessage("Merge branch 'main'"), null);
+    for (const raw of ['Les cinq points sont faits.', '# commentaire\n', 'fix(UI): x', 'update(ui): y']) {
+        assert.deepEqual(checkMessage(fixMessage(raw, ['js/a.js'])), [], raw);
+    }
+});
+
+test('hook branché sur git (core.hooksPath = .githooks) : un vrai commit hors format est mis au format, au format il passe tel quel', () => {
     const repo = mkdtempSync(join(tmpdir(), 'esme-hook-'));
     try {
         const options = { cwd: repo, encoding: 'utf8', env: cleanEnv };
@@ -71,11 +88,14 @@ test('hook branché sur git (core.hooksPath = .githooks) : un vrai commit hors f
         writeFileSync(join(repo, 'a.txt'), 'a');
         execFileSync('git', ['add', 'a.txt'], options);
         const bad = git('commit', '-q', '-m', 'Les cinq points sont faits.');
-        assert.notEqual(bad.status, 0, 'commit hors format refusé');
-        assert.match(bad.stderr, /Commit refusé/);
+        assert.equal(bad.status, 0, `commit hors format accepté : ${bad.stderr}`);
+        assert.match(bad.stderr, /mis au format/);
+        assert.equal(git('log', '--format=%s').stdout.trim(), 'chore(divers): Les cinq points sont faits');
+        writeFileSync(join(repo, 'a.txt'), 'b');
+        execFileSync('git', ['add', 'a.txt'], options);
         const good = git('commit', '-q', '-m', 'chore(tooling): premier commit', '-m', 'Détail.');
         assert.equal(good.status, 0, `commit au format accepté : ${good.stderr}`);
-        assert.equal(git('log', '--format=%s').stdout.trim(), 'chore(tooling): premier commit');
+        assert.equal(git('log', '-1', '--format=%s').stdout.trim(), 'chore(tooling): premier commit');
     } finally {
         rmSync(repo, { recursive: true, force: true });
     }

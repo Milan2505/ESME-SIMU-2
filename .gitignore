@@ -3,6 +3,9 @@ node_modules/
 test-results/
 playwright-report/
 .playwright/
+# Essais et sondes temporaires (tests/_tmp*, tests/e2e/_tmp*) : jamais suivis, jamais commités
+tests/_tmp*
+tests/e2e/_tmp*
 
 # Sauvegardes automatiques de Blender (asset/blender/*.blend : fichiers sources ; *.blend1 : copie précédente)
 *.blend1

@@ -1,5 +1,6 @@
-// Hook git commit-msg (activé par « npm install » : script « prepare », core.hooksPath = .githooks) : refuse tout message
-// de commit hors du format de CLAUDE.md, section Git :
+// Hook git commit-msg (activé par « npm install » : script « prepare », core.hooksPath = .githooks) : met au format de
+// CLAUDE.md, section Git, tout message qui n'y est pas (22/11/2026 : les commits faits depuis VS Code étaient refusés ;
+// le message est désormais corrigé, jamais refusé) :
 //   type(zone): résumé        <- première ligne, 100 caractères au plus
 //                             <- ligne vide (s'il y a un détail)
 //   détail…
@@ -7,8 +8,10 @@
 // Seules exceptions : les messages que git écrit lui-même : fusion (« Merge branch … », git pull), annulation
 // (« Revert "…" », « Reapply "…" ») ; et les commits de correction pour rebase --autosquash (« fixup! », « squash! »,
 // « amend! » suivis d'un message au format).
-// Utilisable seul : node .githooks/commit-msg.js <fichier du message> (code de sortie 1 et explication si refusé).
-import { readFileSync } from 'node:fs';
+// Message hors format : type deviné d'après les mots du message (corrige -> fix, ajoute -> feat…), zone d'après les
+// fichiers du commit (tests, docs, flight, ui…), le message d'origine en résumé (et en détail s'il est long).
+// Utilisable seul : node .githooks/commit-msg.js <fichier du message> (message corrigé dans le fichier).
+import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -67,17 +70,55 @@ export function checkMessage(raw, commentChar = '#') {
     return problems;
 }
 
+// Zone d'après les fichiers du commit : la même pour tous, sinon « divers »
+const ZONES = [
+    [/^tests\//, 'tests'], [/^(docs\/|.*\.md$|manuel\.)/, 'docs'],
+    [/^(\.githooks|tools|\.vscode)\/|^(package(-lock)?\.json|eslint\.config\.js|playwright\.config\.js|\.git\w*)$/, 'tooling'],
+    [/^js\/(lessons\/|Initiation|InstructorPilot|LessonGrade)/, 'lecons'], [/^js\/(HeliModel|R44)/, 'heli'], [/^js\/(F15|Jet|Weapon|Damage|Shield)/, 'f15'],
+    [/^js\/(RigidBodyModel|FlightModel|Cessna172|InputRamp|PlaneControls|Propulsion|Atmosphere|data\/)/, 'flight'],
+    [/^js\/(Terrain|Scenery|Nature|City|Clouds|CloudLayer|Airport)/, 'scenery'], [/^js\/(.*Sound|AudioUnlock|NavAudio|StallWarning)/, 'audio'],
+    [/^(index\.html|style\.css|js\/(Settings|TouchControls|Tablet|Draggable|Debriefing|Charts|MapView|DevicesWindow))/, 'ui'],
+];
+export function zoneOf(files) {
+    const zones = new Set(files.map((f) => ZONES.find(([re]) => re.test(f))?.[1] ?? 'divers'));
+    return zones.size === 1 ? [...zones][0] : 'divers';
+}
+// Type d'après les mots du message, ou les fichiers (tous des tests, toute de la documentation)
+export function typeOf(text, files) {
+    if (/(corrig|répar|repar|bug|fix|erreur|problème|probleme|plantag|crash)/i.test(text)) return 'fix';
+    if (files.length && files.every((f) => /^tests\//.test(f))) return 'test';
+    if (files.length && files.every((f) => /^docs\/|\.md$|^manuel\./.test(f))) return 'docs';
+    if (/(ajout|ajoute|nouve|feat|lot \d|leçon|lecon)/i.test(text)) return 'feat';
+    return 'chore';
+}
+// Message corrigé (null : déjà au format, ou écrit par git) ; files : fichiers du commit
+export function fixMessage(raw, files = [], commentChar = '#') {
+    if (!checkMessage(raw, commentChar).length) return null;
+    const lines = cleanMessage(raw, commentChar);
+    const text = lines.join(' ').replace(/\s+/g, ' ').trim();
+    // Début déjà « type(zone): » ou « type: » mal écrit : repris sans ce préfixe
+    const first = (lines[0] ?? '').replace(/^[a-zA-Z]+(\([^)]*\))?\s*:\s*/, '').replace(/[.\s]+$/, '').trim();
+    const prefix = `${typeOf(text, files)}(${zoneOf(files)}): `;
+    let summary = first || `mise à jour (${files.length} fichier${files.length > 1 ? 's' : ''})`;
+    const long = summary.length > MAX_SUMMARY - prefix.length;
+    if (long) summary = `${summary.slice(0, MAX_SUMMARY - prefix.length - 1).trimEnd()}…`;
+    const body = lines.slice(1);
+    if (long) body.unshift(lines[0]);   // résumé coupé : le message entier dans le détail
+    while (body[0] === '') body.shift();
+    const message = [prefix + summary, ...(body.length ? ['', ...body] : [])].join('\n') + '\n';
+    return checkMessage(message).length ? 'chore(divers): mise à jour\n' : message;
+}
+
 // Appel par git : node commit-msg.js <fichier>
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const raw = readFileSync(process.argv[2], 'utf8');
     let setting = '#';
     try { setting = execFileSync('git', ['config', '--get', 'core.commentChar'], { encoding: 'utf8' }).trim() || '#'; } catch { /* non réglé */ }
-    const problems = checkMessage(raw, commentCharOf(raw, setting));
-    if (problems.length) {
-        console.error('Commit refusé : message hors du format de CLAUDE.md (section Git).');
-        for (const problem of problems) console.error(`  - ${problem}`);
-        console.error('Format : type(zone): résumé, une ligne vide, puis le détail. Exemple :');
-        console.error('  fix(carrier): brin d\'arrêt tient plein gaz');
-        process.exit(1);
+    let files = [];
+    try { files = execFileSync('git', ['diff', '--cached', '--name-only'], { encoding: 'utf8' }).split('\n').filter(Boolean); } catch { /* hors dépôt */ }
+    const fixed = fixMessage(raw, files, commentCharOf(raw, setting));
+    if (fixed) {
+        writeFileSync(process.argv[2], fixed);
+        console.error(`Message de commit mis au format de CLAUDE.md (section Git) : « ${fixed.split('\n')[0]} »`);
     }
 }
