@@ -134,7 +134,8 @@ function turnScenario(t, style, limits = {}) {
         hold();
         const h = attitude(f).heading;
         turned += wrap(h - previous); previous = h;
-        player.bankTo(turned > 340 ? 0 : -30);      // virage à droite (inclinaison négative), sortie 20° avant le cap
+        player.bankTo(turned > 350 ? 0 : -30);      // virage à droite (inclinaison négative), sortie 10° avant le cap
+        // (20° avant jusqu'au 22/11/2026 : sans les effets de l'hélice, la sortie est plus franche, le tour s'arrêtait à 349°)
         maxBank = Math.max(maxBank, -attitude(f).bank * RAD);
         minY = Math.min(minY, object.position.y); maxY = Math.max(maxY, object.position.y);
     }, () => turned > 360 && Math.abs(attitude(f).bank * RAD) < 3);

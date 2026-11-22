@@ -167,7 +167,7 @@ class RigidBodyModel extends FlightModel {
 
 	_commands( alpha, q, beta, r, qbar ) {
 		const A = this.aircraft, D = this.data, c = this.controls, damage = this.damage.control;
-		let pitch = c.pitch, yaw = c.yaw;
+		let pitch = c.pitch, yaw = c.yaw, roll = c.roll;
 		const handsOff = Math.abs( c.pitch ) < 0.05;
 		// Rotation automatique : au sol, manche au neutre, au-delà de la vitesse de rotation, le nez monte à l'assiette du trim
 		if ( this.assists.rotation && this.onGround && handsOff && this.indicatedSpeed > this.rotateSpeed ) {
@@ -184,20 +184,24 @@ class RigidBodyModel extends FlightModel {
 			pitch = Math.min( pitch, MathUtils.clamp( 0.15 + 8 * ( limit - alpha ) - 0.6 * q, - 1, 1 ) );
 		}
 		// Correction de dérive : après l'envol, la direction annule le dérapage : le nez se met face au vent et la
-		// trajectoire reste dans l'axe
+		// trajectoire reste dans l'axe ; manche lâché en roulis, les ailerons gardent les ailes à plat (le vent de travers
+		// incline l'avion à l'envol, et le virage qui suit ramenait le nez sous le vent)
 		if ( this.assists.crosswindCorrection && ! this.onGround && this._sinceLiftoff < AID_LIFTOFF_TIME * 2 ) {
 			const [ kBeta, kRate ] = this._aidGains ?? AID_CROSSWIND;
 			yaw = MathUtils.clamp( yaw - kBeta * beta + kRate * r, - 1, 1 );
+			if ( Math.abs( c.roll ) < 0.05 ) roll = MathUtils.clamp( roll - 2 * this.bankAngle - 0.6 * this._angularVelocity.z, - 1, 1 );
 		}
 		// Commandes en effort (commandes non assistées) : au-delà d'une pression dynamique, un même effort au manche braque de
 		// moins en moins la gouverne (le moment de charnière croît comme q) ; gains du fichier c172p (option « stick force
-		// per g ») : profondeur 15 psf / q, ailerons et direction 30 psf / q
-		const elevatorGain = Math.min( 1, D.forceElevator / Math.max( qbar, 1 ) );
+		// per g ») : profondeur à cabrer 15 psf / q, ailerons et direction 30 psf / q. Profondeur à piquer : manche à fond =
+		// gouverne à fond à toute vitesse depuis le 22/11/2026 (6° de braquage seulement à 100 kt : « beaucoup moins de
+		// débattement ») ; à cabrer, le gain reste : le passage de la vrille en spirale du POH (p. 4-18) en dépend
+		const elevatorGain = pitch > 0 ? Math.min( 1, D.forceElevator / Math.max( qbar, 1 ) ) : 1;
 		const lateralGain = Math.min( 1, D.forceLateral / Math.max( qbar, 1 ) );
 		pitch = MathUtils.clamp( pitch, - 1, 1 ) * damage * elevatorGain;
 		const stick = pitch >= 0 ? - pitch * D.elevatorUp : - pitch * D.elevatorDown;
 		this.surfaces.elevator = MathUtils.clamp( stick + this._trimElevator(), - D.elevatorUp, D.elevatorDown );
-		this.surfaces.aileron = - MathUtils.clamp( c.roll, - 1, 1 ) * D.aileronMax * damage * lateralGain;
+		this.surfaces.aileron = - MathUtils.clamp( roll, - 1, 1 ) * D.aileronMax * damage * lateralGain;
 		this.surfaces.rudder = MathUtils.clamp( yaw, - 1, 1 ) * D.rudderMax * damage * ( this.onGround ? 1 : lateralGain );
 		return { yaw };
 	}
@@ -241,7 +245,6 @@ class RigidBodyModel extends FlightModel {
 		const inducedVelocity = A.propeller && thrust > 0 ? 0.5 * ( - uAxial + Math.sqrt( uAxial * uAxial + 2 * thrust / ( rho * diskArea ) ) ) : 0;
 		const qbar = 0.5 * rho * V * V;
 		const qbarTail = 0.5 * rho * ( uAxial + inducedVelocity ) ** 2;   // empennage dans le souffle de l'hélice
-		const qbarWash = 0.5 * rho * inducedVelocity * inducedVelocity;
 		const power = A.propeller ? MathUtils.clamp( thrust / this._staticThrust(), 0, 1 ) : 0;
 
 		// Vitesses de rotation, conventions des dérivées : p roulis (+ à droite), q tangage, r lacet (+ nez à droite)
@@ -302,10 +305,8 @@ class RigidBodyModel extends FlightModel {
 		const daK = lerpTable( D.ClDaStall.map( ( [ x, free, stalled ] ) => [ x, free + ( stalled - free ) * stalledN ] ), alphaJ );
 		let Cl = D.Clb * beta * clbK + D.Clp * pHat + clr * rHat * clrK + D.Clda * da * daK + D.Cldr * dr;
 		Cl += ( wingLift[ 1 ] - wingLift[ 0 ] ) * clWing / 8;   // aile endommagée : elle porte moins
-		// Calage des ailes qui compense le couple de l'hélice en croisière (~120 ch à 2 400 tr/min, 110 kt) ; aide
-		// « compensation des effets moteur » : couple, souffle et facteur P annulés, le calage avec eux
-		const engineEffects = this.assists.engineCompensation ? 0 : 1;
-		Cl += D.ClRigging * engineEffects;
+		// (Couple de l'hélice, souffle hélicoïdal, facteur P et effet gyroscopique supprimés le 22/11/2026 : au clavier,
+		// sans palonnier, l'avion « ne faisait que virer à gauche ». Le souffle de l'hélice agit encore sur la profondeur)
 		// Aile qui tombe au décrochage (côté tiré au hasard, voir FlightModel), plus forte avec la puissance
 		if ( this.stalled && this._stallBreak > 0 ) Cl -= this._wingDrop * 0.025 * ( 0.3 + 0.7 * power );
 		// Rafales en roulis : moment qui donnerait seul la vitesse de roulis de la rafale (turbulence)
@@ -321,13 +322,10 @@ class RigidBodyModel extends FlightModel {
 			+ D.Cma * A.groundEffectPitch * this.groundEffect;
 		const elevatorMoment = D.Cmde * de * elevatorK * qbarTail * S * c;
 
-		// Lacet : dérivées, souffle hélicoïdal, vrille à plat
+		// Lacet : dérivées, vrille à plat
 		let Cn = D.Cnb * beta + D.Cnp * pHat + D.Cnr * rHat + D.Cnda * da;
 		if ( alphaJ > D.stallJ ) Cn += lerpTable2( D.CnSpin.alphaJ, D.CnSpin.rows, r, alphaJ ) * b * half;
 		const rudderMoment = D.Cndr * dr * qbarTail * S * b;
-		const washMoment = D.Cnspw * qbarWash * S * b * engineEffects;
-		// Facteur P : la pale descendante (à droite) attaque plus l'air avec l'incidence, la traction se décale à droite
-		const pFactor = A.propeller ? thrust * 0.25 * A.propeller.diameter / 2 * MathUtils.clamp( alpha, - 0.3, 0.3 ) * engineEffects : 0;
 
 		// --- Forces (repère monde) ---
 		_force.set( 0, 0, 0 );
@@ -344,11 +342,9 @@ class RigidBodyModel extends FlightModel {
 			_moment.z += - Cl * qbar * S * b;
 		}
 		_moment.x += elevatorMoment;
-		_moment.y += - rudderMoment - washMoment + pFactor;
+		_moment.y += - rudderMoment;
 		_force.addScaledVector( _forward, thrust );
 		this.loadFactor = _force.dot( _up ) / ( this.mass * GRAVITY );
-		// Couple de l'hélice (sens horaire vue de la cabine) : réaction, roulis à gauche
-		if ( this.propulsion ) _moment.z += Math.max( 0, this.propulsion.torque ) * engineEffects;
 
 		// --- Train ---
 		this._gearForces( dt, _force, _moment, yaw );
@@ -360,9 +356,7 @@ class RigidBodyModel extends FlightModel {
 		position.addScaledVector( this.velocity, dt );
 		const I = D.inertia, massScale = this.mass / this.aircraft.mass;
 		const Ix = I.pitch * massScale, Iy = I.yaw * massScale, Iz = I.roll * massScale;
-		// Moment cinétique de l'hélice, vers l'avant (sens horaire vu de la cabine) : effet gyroscopique
-		const spin = this.propulsion ? this.propulsion.rpm * Math.PI / 30 * D.propellerInertia : 0;
-		_h.set( Ix * w.x, Iy * w.y, Iz * w.z - spin );
+		_h.set( Ix * w.x, Iy * w.y, Iz * w.z );
 		_tmp2.crossVectors( w, _h );
 		w.x += ( _moment.x - _tmp2.x ) / Ix * dt;
 		w.y += ( _moment.y - _tmp2.y ) / Iy * dt;

@@ -2,7 +2,8 @@
 // mémorisés dans le navigateur (localStorage) d'une visite à l'autre.
 
 const STORAGE_KEY = 'esme-fs-reglages';
-const VERSION = 3;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte ») ; 3 : modèle de vol réaliste par défaut
+const VERSION = 4;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte ») ; 3 : modèle de vol réaliste par défaut ;
+                     // 4 : douceur des commandes « Très vive » par défaut
 
 // Chaque réglage : libellé, explication courte et choix possibles [valeur, libellé]
 const OPTIONS = {
@@ -35,10 +36,6 @@ const OPTIONS = {
                        choices: [['realiste', 'Réaliste'], ['simplifie', 'Simplifié']] },
     controlRamp:     { group: 'Pilotage', label: 'Douceur des commandes (clavier, tactile)', hint: "Modèle réaliste : une touche braque la gouverne progressivement, comme une main qui tire de plus en plus sur le manche (quatre fois plus lentement à basse vitesse, sous 60 kt). Très vive (par défaut) : profondeur à fond en 0,5 s ; vive : 1 s ; normale : 2 s ; douce : 3 s",
                        choices: [[0.25, 'Très vive'], [0.5, 'Vive'], [1, 'Normale'], [1.5, 'Douce']] },
-    // Effets de l'hélice du modèle réaliste (couple, souffle, facteur P) : compensés par défaut (22/11/2026 : l'avion
-    // « partait à gauche » sans palonnier, au clavier)
-    engineCompensation: { group: 'Pilotage', label: 'Compensation des effets moteur', hint: "Modèle réaliste : couple, souffle de l'hélice et facteur P compensés, comme si le pilote tenait le pied droit. Désactivée : l'avion part à gauche au décollage et en montée, comme le vrai, et se corrige au palonnier (A / E)",
-                       choices: [[true, 'Activée'], [false, 'Désactivée']] },
     // Effets de l'atmosphère et du moteur ajoutés au lot 3 (turbulence de Dryden, thermiques, givrage du carburateur) :
     // doux par défaut (demande du 21/11/2026 : l'avion était trop secoué)
     atmosphere:      { group: 'Pilotage', label: "Effets de l'atmosphère", hint: "Vent, turbulence (selon la météo), thermiques par beau temps, givrage du carburateur. Doux : vent jamais plus fort que la météo annoncée, rafales et sautes de direction moitié moindres, vent à peine plus fort en altitude, moitié moins de turbulence et de thermiques, givrage trois fois plus lent ; réaliste : valeurs des normes et des abaques ; aucun : vent régulier, air calme, pas de givrage",
@@ -62,7 +59,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 0.25, engineCompensation: true, atmosphere: 'doux', hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 0.25, atmosphere: 'doux', hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages
@@ -167,6 +164,9 @@ class Settings extends EventTarget {
             // Sauvegarde d'avant la version 3 : le modèle simplifié était le défaut (enregistré avec les autres réglages, pas
             // forcément choisi) -> modèle réaliste ; le simplifié se choisit exprès
             if (key === 'flightModel' && (saved.version ?? 1) < 3) continue;
+            // Sauvegarde d'avant la version 4 (22/11/2026) : douceur des commandes enregistrée avec les autres réglages
+            // (« Normale » était le défaut) -> « Très vive », le nouveau défaut ; les autres se choisissent exprès
+            if (key === 'controlRamp' && (saved.version ?? 1) < 4) continue;
             const value = saved.values[key];
             if (option.choices.some(([choice]) => choice === value)) this.values[key] = value;
         }

@@ -23,6 +23,16 @@ test('sauvegarde d\'avant la version 3 (simplifié, ancien défaut) : réaliste 
     assert.equal(settings.values.hud, false);
 });
 
+test('sauvegarde d\'avant la version 4 (douceur « Normale », ancien défaut) : « Très vive » ; choisie depuis : gardée', () => {
+    storage({ version: 3, preset: 'haut', values: { controlRamp: 1, hud: false } });
+    let settings = new Settings();
+    assert.equal(settings.values.controlRamp, 0.25);
+    assert.equal(settings.values.hud, false);
+    storage({ version: 4, preset: 'haut', values: { controlRamp: 1 } });
+    settings = new Settings();
+    assert.equal(settings.values.controlRamp, 1);
+});
+
 test('simplifié choisi depuis la version 3 : gardé', () => {
     storage({ version: 3, preset: 'haut', values: { flightModel: 'simplifie' } });
     assert.equal(new Settings().values.flightModel, 'simplifie');

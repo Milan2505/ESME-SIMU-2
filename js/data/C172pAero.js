@@ -34,17 +34,14 @@ const C172P_AERO = {
 		pitch: 1285 * SLUGFT2 + 125,
 		yaw: 1906 * SLUGFT2 + 345,
 	},
-	// Hélice : moment cinétique pour l'effet gyroscopique (hélice bipale de 75 in, ~14 kg, plus vilebrequin) ; elle tourne
-	// dans le sens des aiguilles d'une montre vue de la cabine
-	propellerInertia: 1.6,
-
 	// Débattements des gouvernes [UIUC] : profondeur 28° vers le haut, 23° vers le bas ; ailerons +20 / -15° (moyenne
 	// 17,5°) ; direction ±16°
 	elevatorUp: deg( 28 ),
 	elevatorDown: deg( 23 ),
 	aileronMax: deg( 17.5 ),
 	rudderMax: deg( 16 ),
-	// Commandes en effort [C172P, option « stick-force-per-g »] : gain = min(1, seuil / q), q en Pa (15 et 30 psf)
+	// Commandes en effort [C172P, option « stick-force-per-g »] : gain = min(1, seuil / q), q en Pa (15 et 30 psf ; la
+	// profondeur à piquer n'en a plus depuis le 22/11/2026, voir RigidBodyModel)
 	forceElevator: 15 * 47.880,
 	forceLateral: 30 * 47.880,
 
@@ -57,12 +54,6 @@ const C172P_AERO = {
 	// Volets [C172P] : moment piqueur (ΔCm à 10, 20, 30°) ; traînée en dérapage (CD par radian de |β|)
 	Cmdf: [ [ 0, 0 ], [ 10, - 0.008 ], [ 20, - 0.016 ], [ 30, - 0.024 ] ],
 	CDb: 0.15,
-	// Calage des ailes contre le couple de l'hélice (estimation du jeu, pas une donnée des sources) : roulis à droite qui
-	// équilibre le couple de croisière, ~356 N·m (120 ch à 2 400 tr/min) à 110 kt (q ≈ 1 950 Pa) : 356 / (1 950 × S × b)
-	ClRigging: 356 / ( 1950 * 174 * FT * FT * 35.8 * FT ),
-	// Souffle hélicoïdal sur la dérive [C172P] : Cn = -0,05 × 0,25 (réglage du fichier) en pression dynamique du souffle,
-	// nez à gauche avec la puissance
-	Cnspw: - 0.05 * 0.25,
 
 	// Décrochage et vrille [C172P] : tables indexées sur l'incidence de l'aile αJ (JSBSim : décrochage à 0,279 rad,
 	// aile décrochée à 0,297 ; voir RigidBodyModel : alignée sur l'incidence de décrochage de notre aile)

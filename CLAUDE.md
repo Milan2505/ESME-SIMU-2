@@ -154,7 +154,7 @@ Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion s
 tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu), `atmosphere.test.js`, `propulsion.test.js`,
 `perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
-`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
+`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `straight-flight.test.js` (avion droit manche lâché : effets de l'hélice supprimés), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
 `adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `flight-recorder.test.js`, `replay.test.js`, `flight-review.test.js`, `charts.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
 Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `helpers/modes.js` (modèle linéaire, identification),
 
