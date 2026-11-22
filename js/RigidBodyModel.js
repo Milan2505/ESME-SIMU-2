@@ -225,8 +225,13 @@ class RigidBodyModel extends FlightModel {
 		const speed = _air.length();
 		const V = Math.max( speed, 0.1 );
 		const u = _air.dot( _forward );
-		const alpha = speed > 1 ? Math.atan2( - _air.dot( _up ), u ) : 0;
-		const beta = speed > 1 ? Math.asin( MathUtils.clamp( _air.dot( _right ) / V, - 1, 1 ) ) : 0;
+		// Incidence et dérapage pris en compte progressivement, à mesure que l'air arrive par l'avant (u de 1 à 6 m/s) :
+		// au sol par vent arrière, quand l'avion rattrape le vent, l'air relatif passait de l'arrière à l'avant et
+		// l'incidence sautait de ~180° en un pas : moment de tangage et dérivée de l'incidence d'un coup, l'avion « sautait »
+		// après quelques mètres (22/11/2026 : jusqu'à 27°/s de tangage par 12 kt de vent arrière). En vol, u > 6 m/s : inchangé
+		const flow = MathUtils.smoothstep( u, 1, 6 );
+		const alpha = speed > 1 ? Math.atan2( - _air.dot( _up ), u ) * flow : 0;
+		const beta = speed > 1 ? Math.asin( MathUtils.clamp( _air.dot( _right ) / V, - 1, 1 ) ) * MathUtils.smoothstep( speed, 1, 3 ) : 0;
 		this.alpha = alpha;
 		this.beta = beta;
 		if ( this._alphaPrev !== null ) this._alphaDot += ( ( alpha - this._alphaPrev ) / dt - this._alphaDot ) * Math.min( 1, dt * 20 );
