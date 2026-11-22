@@ -1,0 +1,8 @@
+type(zone): résumé
+
+# Format obligatoire (CLAUDE.md, section Git ; vérifié par .githooks/commit-msg) :
+#   1re ligne : type(zone): résumé   (100 caractères au plus)
+#   types : feat, fix, perf, refactor, test, docs, chore
+#   zones : flight, heli, f15, carrier, atc, ui, audio, multi, scenery, terrain, tests, tooling…
+#   puis une ligne vide et le détail (ce qui change, pourquoi, tests qui le couvrent)
+# Exemple : fix(carrier): brin d'arrêt tient plein gaz

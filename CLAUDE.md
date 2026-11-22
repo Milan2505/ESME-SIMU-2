@@ -71,7 +71,7 @@ boutons du menu ; `tests/e2e/server.js` sert `index.html` avec three et mqtt pri
   `scenery`, `terrain`, `tests`, `tooling`… **Jamais la réponse du chat comme message de commit.**
 - Hook `commit-msg` versionné (`.githooks/`, activé par `npm install` : script `prepare`, `core.hooksPath`) : il refuse
   tout message hors de ce format (sauf les messages écrits par git : fusion, annulation, `fixup!`/`squash!`/`amend!` d'un
-  message au format). Testé par `tests/commit-msg.test.js`. Avec `core.hooksPath`, git ne lit plus `.git/hooks` : un hook
+  message au format). Testé par `tests/commit-msg.test.js`. `npm install` règle aussi `commit.template` = `.gitmessage` (VS Code pré-remplit le message au format) ; `.vscode/settings.json` limite la première ligne à 100 caractères et donne le format au bouton de génération du message. Avec `core.hooksPath`, git ne lit plus `.git/hooks` : un hook
   local s'ajoute dans `.githooks/`.
 - Ne pas committer `node_modules/`, `test-results/`, `playwright-report/`, `*.blend1` (voir `.gitignore`).
 

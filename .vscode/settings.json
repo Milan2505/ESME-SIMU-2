@@ -1,4 +1,11 @@
 {
+    // Messages de commit au format de CLAUDE.md (section Git), refusés sinon par le hook .githooks/commit-msg :
+    // première ligne limitée à 100 caractères, et le bouton « générer le message » (Copilot) suit le format
+    "git.inputValidation": true,
+    "git.inputValidationSubjectLength": 100,
+    "github.copilot.chat.commitMessageGeneration.instructions": [
+        { "text": "Écris le message en français. Première ligne obligatoire : type(zone): résumé, 100 caractères au plus, type parmi feat, fix, perf, refactor, test, docs, chore ; zone en minuscules (flight, heli, f15, carrier, atc, ui, audio, multi, scenery, terrain, tests, tooling, docs…). Puis une ligne vide et le détail : ce qui change, pourquoi, tests qui le couvrent. Exemple : fix(carrier): brin d'arrêt tient plein gaz" }
+    ],
     // Le code est commenté en français : vérification orthographique anglais + français
     "cSpell.language": "en,fr",
     "cSpell.words": [
