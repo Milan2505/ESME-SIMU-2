@@ -11,12 +11,13 @@ export const FIELDS = [
     'x', 'y', 'z',               // m
     'qx', 'qy', 'qz', 'qw',      // orientation (quaternion)
     'ias', 'tas', 'gs',          // kt : indiquée, vraie, sol
-    'alt', 'agl', 'vs',          // ft (altimètre), ft au-dessus du sol, ft/min
+    'alt', 'agl', 'aal', 'vs',   // ft (altimètre), ft au-dessus du sol, ft au-dessus du seuil de la piste la plus proche, ft/min
     'hdg', 'bank', 'pitch', 'alpha', 'load',   // ° (inclinaison + = à droite), facteur de charge (g)
     'pitchIn', 'rollIn', 'yawIn', 'brake',     // commandes du pilote (-1 -> 1 ; brake 0 -> 1)
     'throttle', 'rpm', 'flaps', 'trim',        // 0 -> 1, tr/min (F-15 : N2 %, R44 : % rotor), ° de volets, ° de trim
     'gear', 'ground', 'stall',                 // 0 / 1
-    'loc', 'gsDev',                            // écarts ILS (pleine échelle ±1 ; vide sans ILS)
+    'loc', 'gsDev',                            // écarts ILS (pleine échelle ±1 ; vide sans ILS réglé sur la NAV 1)
+    'speedbrake', 'rotor',                     // F-15 : aérofrein (0 -> 1) ; R44 : régime rotor (%)
     'phase',                                   // texte : sol, roulage, envol, vol, approche, crash…
 ];
 const TEXT = new Set([ 'phase' ]);

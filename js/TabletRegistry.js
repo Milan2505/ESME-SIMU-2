@@ -36,6 +36,7 @@ function tabletRegistry(sim) {
                         { id: 'aerodrome', label: 'CHANGER D’AÉRODROME', type: 'button', action: () => sim.click('retour-aerodrome') },
                         { id: 'multijoueur', label: 'MULTIJOUEUR (ÉQUIPE)', type: 'button', action: () => sim.click('online-multi') },
                         { id: 'frein-parking', label: 'FREIN DE PARKING', type: 'toggle', action: cockpit('brake'), value: () => controls.parkingBrake, states: ['DESSERRÉ', 'SERRÉ'] },
+                        { id: 'vols', label: 'MES VOLS / DÉBRIEFING', type: 'button', action: () => sim.click('vols') },
                         { id: 'quitter', label: 'QUITTER LA PARTIE', type: 'button', action: () => sim.click('quitter-partie'), danger: true },
                     ],
                 },

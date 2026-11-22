@@ -90,18 +90,18 @@ test('périphériques simulés : fenêtre Périphériques, puis décollage du C1
     await page.waitForFunction(() => window.__sim.state.throttle > 0.99, null, { timeout: 30_000 });
     await page.waitForFunction(() => { const s = window.__sim.state; return s.crashed || s.indicatedSpeed > 55 * 0.5144; }, null, { timeout: 180_000 });
     // Manche tiré au yoke : la gouverne suit tout de suite (entrée directe, sans montée progressive)
-    const pull = (0.25 - 0.05) / 0.95;   // zone morte du préréglage
-    await sim(() => window.__pads.set(0, { 1: 0.25 }));
+    const pull = (0.2 - 0.05) / 0.95;   // zone morte du préréglage
+    await sim(() => window.__pads.set(0, { 1: 0.2 }));
     await page.waitForFunction((p) => Math.abs(window.__sim.model.controls.pitch - p) < 1e-6, pull, { timeout: 10_000 });
     // (main passée au pilote de test à 3 m de haut : sous charge, les images sont lentes et il ne doit pas reposer l'avion)
     await page.waitForFunction((y0) => { const s = window.__sim.state; return s.crashed || (!s.onGround && s.altitude - y0 > 3); }, start.altitude, { timeout: 120_000 });
     // En l'air : temps réel (le périphérique n'est lu qu'une fois par image) et un pilote simple, au yoke seulement (axes
-    // simulés) : ailes à plat, montée vers 65 kt indiqués, vitesse verticale amortie (phugoïde), sans jamais piquer sous 15 m
+    // simulés) : ailes à plat, montée vers 65 kt indiqués, vitesse verticale amortie (phugoïde), rend la main pour garder la vitesse (pas de chandelle après l'envol), jamais en descendant sous 15 m
     await sim(() => window.__sim.setTimeScale(1));
     await sim((ground) => {
         window.__pilot = setInterval(() => {
             const st = window.__sim.state, clamp = (v, m) => Math.max(-m, Math.min(m, v));
-            window.__pads.set(0, { 0: clamp(st.roll * 2, 0.5), 1: Math.max(st.altitude - ground > 15 ? -0.3 : 0.02, Math.min(0.3, 0.1 + (st.indicatedSpeed / 0.5144 - 65) * 0.02 - (st.verticalSpeed - 3) * 0.04)) });
+            window.__pads.set(0, { 0: clamp(st.roll * 2, 0.5), 1: Math.max(st.altitude - ground < 15 && st.verticalSpeed < 0.5 ? 0.05 : -0.3, Math.min(0.3, 0.1 + (st.indicatedSpeed / 0.5144 - 65) * 0.02 - (st.verticalSpeed - 3) * 0.04)) });
         }, 50);
     }, start.altitude);
     const airborne = await sim(() => window.__sim.state);

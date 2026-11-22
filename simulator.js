@@ -37,6 +37,11 @@ import { parseMetar, metarToWeather, pickMetar, METAR_URL } from './js/Metar.js'
 import { KAP140 } from './js/KAP140.js';
 import { NavAudio } from './js/NavAudio.js';
 import { adfBearing } from './js/Avionics.js';
+import { FlightRecorder } from './js/FlightRecorder.js';
+import { FlightStore } from './js/FlightStore.js';
+import { Replay } from './js/Replay.js';
+import { review as reviewFlight } from './js/FlightReview.js';
+import { Debriefing } from './js/Debriefing.js';
 import { Wind } from './js/Wind.js';
 import { RadioVoices } from './js/RadioVoices.js';
 import { Initiation } from './js/Initiation.js';
@@ -390,6 +395,12 @@ const avionics = new Avionics();
 // Pilote automatique KAP 140 et sons de navigation (radiobornes, indicatifs NDB, alarmes) : voir updateAutopilot, updateNavAudio
 const kap = new KAP140();
 const navAudio = new NavAudio();
+// Carnet de vols (lot 5) : enregistrement à 10 échantillons par seconde de temps de jeu (FlightRecorder.js), 20 derniers
+// vols dans IndexedDB (FlightStore.js ; en mode test, carnet en mémoire), rejeu 3D (Replay.js) ; voir « Carnet de vols »
+const recorder = new FlightRecorder();
+const flightStore = new FlightStore(TEST_MODE ? null : undefined);
+let flightClock = 0;          // s de temps de jeu depuis le début du vol enregistré
+let replay = null;            // rejeu en cours : { player (Replay), camera, from, flight, id }
 const radioSync = { freq: null, code: null };
 let gloveboxOpen = false;
 // Décor instancié, par type d'objet : { meshes, total, obstacles } (voir buildWorld)
@@ -1459,7 +1470,7 @@ view.addEventListener('pointermove', (event) => {
         return;
     }
     if (dx || dy) headTarget = null;   // la souris reprend la main sur une vue préréglée
-    if (choosingSpawn && !inHangar && !inMenu) {
+    if ((choosingSpawn && !inHangar && !inMenu) || replay?.camera === 'libre') {
         const goal = spawnCam.goal;
         if (event.buttons & 2) {
             // Bouton droit : déplace le point visé, dans le plan du sol (vitesse selon la distance)
@@ -1517,8 +1528,8 @@ view.addEventListener('wheel', (event) => {
 }, { passive: false });
 // Zoom : zoom > 0 éloigne (molette vers soi, doigts rapprochés), en part de la distance ou du champ de vision
 function applyZoom(zoom) {
-    if (choosingSpawn && !inHangar && !inMenu) {
-        spawnCam.goal.distance = THREE.MathUtils.clamp(spawnCam.goal.distance * (1 + zoom * 1.5), 40, 1100);
+    if ((choosingSpawn && !inHangar && !inMenu) || replay?.camera === 'libre') {
+        spawnCam.goal.distance = THREE.MathUtils.clamp(spawnCam.goal.distance * (1 + zoom * 1.5), replay ? 8 : 40, 1100);
         markSpawnView(null);
         return;
     }
@@ -1589,6 +1600,25 @@ function markSpawnView(name) {
 }
 
 function updateCamera(delta, snap = false) {
+    if (replay?.camera === 'libre') {
+        // Rejeu, caméra libre : orbite autour de l'avion rejoué (souris : tourner, molette : distance, comme au choix du départ)
+        const k = snap ? 1 : 1 - Math.exp(-4 * delta);
+        const c = spawnCam, goal = spawnCam.goal;
+        goal.target.copy(aircraft.position);
+        c.target.lerp(goal.target, Math.max(k, 0.5));
+        c.yaw += (goal.yaw - c.yaw) * k;
+        c.pitch += (goal.pitch - c.pitch) * k;
+        c.distance += (goal.distance - c.distance) * k;
+        camera.position.set(Math.sin(c.yaw) * Math.cos(c.pitch), Math.sin(c.pitch), Math.cos(c.yaw) * Math.cos(c.pitch))
+            .multiplyScalar(c.distance).add(c.target);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(c.target);
+        if (camera.fov !== CAM_FOV) {
+            camera.fov = CAM_FOV;
+            camera.updateProjectionMatrix();
+        }
+        return;
+    }
     if (inHangar) {
         // Hangar : la caméra tourne lentement autour de l'avion, à hauteur d'homme (cercle de 11 m, dans les murs)
         // (F-15, 19,5 m de long : cercle de 13 m, plus haut, champ plus large)
@@ -2215,6 +2245,7 @@ const crashReason = document.getElementById('crash-raison');
 let crashTimer = 0;
 
 controls.addEventListener('touchdown', ({ impact }) => {
+    if (!replay) recorder.event(flightClock, 'touchdown', 'Toucher', { x: aircraft.position.x, z: aircraft.position.z, impact, throttle: controls.getThrottle() });
     carrierTouchdown();
     shake = Math.max(shake, Math.min(0.5, impact * 0.08));
     // Bref "couic" des roues qui se mettent à tourner : extrait court du son de dérapage (7 s en boucle à l'origine),
@@ -2223,7 +2254,16 @@ controls.addEventListener('touchdown', ({ impact }) => {
     if (controls.getSpeed() > 8) sounds.play('screech', { volume: 0.25 + 0.75 * hard, offset: 0.3, duration: 0.25 + 0.35 * hard });
 });
 let crashCount = 0;   // envoyé aux autres joueurs : chaque nouveau crash fait exploser notre avion chez eux
+controls.addEventListener('liftoff', () => {
+    if (replay) return;
+    recorder.event(flightClock, 'liftoff', 'Envol');
+    flightLiftedOff = true;
+});
 controls.addEventListener('crash', ({ reason }) => {
+    if (!replay) {
+        recorder.event(flightClock, 'crash', reason);
+        endFlight('crash');
+    }
     crashCount++;
     crashReason.textContent = `${reason} — retour au point de départ…`;
     crashBanner.classList.add('actif');
@@ -2249,8 +2289,9 @@ controls.addEventListener('crash', ({ reason }) => {
         shake = 1.2;
     }
     clearTimeout(crashTimer);
-    crashTimer = setTimeout(() => controls.reset(), CRASH_RESET_DELAY);
+    crashTimer = setTimeout(() => { if (!replay) controls.reset(); }, CRASH_RESET_DELAY);
 });
+controls.addEventListener('reset', () => { if (!replay) endFlight('nouveau départ'); });
 
 // Brouillard de la météo, épaissi quand l'avion traverse un nuage ("jour blanc"), éclairé par les éclairs
 const cloudFogColor = new THREE.Color();
@@ -2993,6 +3034,7 @@ function spawnAt(spawn) {
 }
 
 function openSpawnDialog() {
+    endFlight('changement de départ');
     spawnList.replaceChildren(...airport.spawns.map((spawn, i) => {
         const button = document.createElement('button');
         button.dataset.spawn = spawn.id;
@@ -3149,6 +3191,7 @@ for (const cell of menuBarCells) menuBarObserver.observe(cell, { childList: true
 window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.repeat) return;
     if (event.target?.id === 'tchat-saisie') return;   // Échap ferme le champ du tchat (voir Chat.js)
+    if (replay && !document.querySelector('dialog[open]')) { stopReplay(); return; }
     if (inMenu || inHangar || !spawnDialog.hidden || !airportPanel.hidden || document.querySelector('dialog[open]')) return;
     if (menus.some((menu) => menu.contains(menuContent.get(menu)) && !menuContent.get(menu).hidden)) return;   // Échap referme d'abord le menu
     const visible = !simulatorElement.classList.contains('barre');
@@ -3183,6 +3226,7 @@ document.getElementById('depart').addEventListener('click', (event) => {
 // hangar (changer d'avion, de livrée) ou au choix de l'aérodrome. Avant, une fois en vol, seul le départ se changeait :
 // pour prendre un autre avion, il fallait repasser par le menu principal (et quitter la partie multijoueur)
 function leaveFlightScreens() {
+    endFlight('retour au hangar ou à l\'aérodrome', { propose: false });
     if (initiation?.active) initiation.stop();   // (la leçon se fait sur le Cessna, au départ prévu)
     closeMenus();
     setMenuBar(false);
@@ -3362,6 +3406,7 @@ document.getElementById('hangar-partir').addEventListener('click', () => {
 // survolé lentement. Vol libre et Multijoueur mènent au hangar, puis au choix du départ ; Initiation part directement
 const mainMenu = document.getElementById('menu-principal');
 function openMainMenu() {
+    endFlight('retour au menu', { propose: false });
     if (initiation?.active) initiation.stop();
     // Le menu ne garde rien du vol : fenêtre radio fermée, contrôleurs remis à zéro (émission coupée), journal vidé
     atc.reset();
@@ -4431,7 +4476,11 @@ var initiation = new Initiation({
     pilotView: () => setCabinViewPreset(1),
     openAtc: (open) => { if (atcPanel.hidden === open) toggleAtc(open); },
     // Pendant la leçon : vent sans dérive lente, la piste en service reste celle de l'ATIS (Tour, anneaux, moniteur)
-    onChange: () => { wind.setHold(initiation.active); updateModes(); },
+    onChange: () => {
+        wind.setHold(initiation.active);
+        updateModes();
+        if (!initiation.active) endFlight('fin de la leçon', { summary: initiation.index >= (initiation.steps?.length ?? Infinity) ? initiation.summary?.() ?? '' : '' });
+    },
 });
 const initiationDialog = $('initiation-dialog');
 function openInitiation() {
@@ -5345,6 +5394,7 @@ window.__sim = {
         if (!airportPanel.hidden) return 'aerodrome';
         if (inHangar) return 'hangar';
         if (choosingSpawn) return 'depart';
+        if (replay) return 'rejeu';
         return controls.isCrashed() ? 'crash' : 'vol';
     },
     // État du modèle de vol (unités SI : m, m/s, rad ; cap en degrés), lisible d'un coup
@@ -5383,6 +5433,12 @@ window.__sim = {
     gamepads, gamepadProfiles, openDevices: () => openDevices(),
     setFlapLevel(level) { controls.setFlapLevel(level); },
     kap, navAudio,
+    // Carnet de vols et rejeu (lot 5)
+    recorder, flightStore, get flightTime() { return flightClock; }, endFlight: (reason, options) => endFlight(reason, options),
+    get lastFlight() { return lastFlight; },
+    startReplay: (flight, t) => startReplay(flight, t), stopReplay: () => stopReplay(),
+    get debriefing() { return debriefing; }, openFlights: () => debriefing.openList(),
+    get replay() { return replay ? { t: replay.player.t, duration: replay.player.duration, speed: replay.player.speed, paused: replay.player.paused, camera: replay.camera } : null; },
     // Thermiques (coupées en mode test) ; météo par son nom (préréglage, ou 'reel' après loadRealWeather)
     setThermals(on) { thermalsEnabled = Boolean(on); },
     setWeather(name) { if (WEATHERS[name]) setWeather(name); },
@@ -6755,13 +6811,14 @@ function simulateStep(delta) {
     updateAirMass();
     updateAutopilot(delta);
     if (!choosingSpawn) controls.update( delta );
+    recordSample(delta);
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
     if (SEA && !choosingSpawn) updateCarrier( delta );
     try { initiation.update( delta ); }
     catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
     updateAtc( delta );
-    if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
+    if (!controls.isCrashed() && !choosingSpawn && !replay) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
     controls.model.enginePower = systems.power;
     controls.model.mixture = systems.mixture ?? 1;
     controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
@@ -6791,7 +6848,7 @@ function drawFrame(time) {
     const delta = clock.getDelta();
     try { updateGamepads(delta); } catch (error) { recordError('périphériques', error); }
     // Mode test, temps accéléré : pas supplémentaires avant l'image (la part de l'image elle-même : 0,1 s au plus)
-    if (simTimeScale > 1) {
+    if (simTimeScale > 1 && !replay) {
         let extra = Math.min(delta, 0.25) * simTimeScale - Math.min(delta, 0.1);
         while (extra > 1e-4) {
             const step = Math.min(extra, 0.1);
@@ -6800,14 +6857,20 @@ function drawFrame(time) {
         }
     }
 
-    if (TEST_MODE && !choosingSpawn) windClock += Math.min(delta, 0.1);   // (même pas que la physique)
-    wind.update();
-    updateAirMass();
-    updateAutopilot(delta);
-    if (!choosingSpawn) controls.update( delta );
-    checkPlaneCollisions();
-    if (!choosingSpawn) updateWaterSink( delta );
-    if (SEA && !choosingSpawn) updateCarrier( delta );
+    if (replay) {
+        // Rejeu : physique figée, l'échantillon enregistré est posé sur l'avion (voir replayFrame)
+        try { replayFrame(delta); } catch (error) { recordError('rejeu', error); }
+    } else {
+        if (TEST_MODE && !choosingSpawn) windClock += Math.min(delta, 0.1);   // (même pas que la physique)
+        wind.update();
+        updateAirMass();
+        updateAutopilot(delta);
+        if (!choosingSpawn) controls.update( delta );
+        recordSample(delta);
+        checkPlaneCollisions();
+        if (!choosingSpawn) updateWaterSink( delta );
+        if (SEA && !choosingSpawn) updateCarrier( delta );
+    }
     aircraft.updateMatrixWorld();
     if (delta > 0) aircraftVelocity.subVectors(aircraft.position, lastAircraftPosition).divideScalar(delta);
     lastAircraftPosition.copy(aircraft.position);
@@ -6829,7 +6892,7 @@ function drawFrame(time) {
     try { initiation.update( lessonDelta ); }
     catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
     updateSpawnMarkers();
-    updateAtc( lessonDelta );
+    if (!replay) updateAtc( lessonDelta );
     updateCamera( delta );
     lap('caméra, ATC, initiation');
     // Molette de trim (touches W / X, ou à la souris) : un cran entendu tous les 0,6°
@@ -6855,14 +6918,14 @@ function drawFrame(time) {
         }
     }
     // (C172 : le régime vient du modèle de vol, équilibre moteur / hélice ; le levier de mixture lui est transmis)
-    if (!controls.isCrashed() && !choosingSpawn) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
+    if (!controls.isCrashed() && !choosingSpawn && !replay) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
     controls.model.enginePower = systems.power;
     controls.model.mixture = systems.mixture ?? 1;
     controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
     controls.model.flapsPowered = systems.flapsPowered;
     const jet = aircraftType === 'f15', heli = aircraftType === 'r44', cessna = aircraftType === 'c172';
-    if (jet) updateJet(delta);
-    if (heli) updateHeli(delta);
+    if (jet && !replay) updateJet(delta);
+    if (heli && !replay) updateHeli(delta);
     // Au départ (choix du spawn, touche R), le moteur qui tourne déjà monte en ~1 s au lieu d'arriver d'un coup :
     // ses graves, relevés, faisaient un "boum" comme un coup de tonnerre
     spawnFade = choosingSpawn ? 0 : Math.min(1, spawnFade + delta / 1.2);
@@ -6885,7 +6948,7 @@ function drawFrame(time) {
     // rien ne partait tant que le joueur n'avait pas choisi son départ, et personne ne pouvait rejoindre sa partie
     // (« Aucune partie avec le code… » alors que le code était bon)
     guard('réseau', () => multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
-        crashed: controls.isCrashed() || choosingSpawn, crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
+        crashed: controls.isCrashed() || choosingSpawn || Boolean(replay), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
         jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
         // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
         combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed(),
@@ -6954,8 +7017,8 @@ function drawFrame(time) {
     graphics.update( shadowCenter, !chaseView, decorShadowCenter );
     graphics.setAlarm( aircraftType === 'c172' && controls.isStalled() ? 0.5 + 0.3 * Math.sin(clock.elapsedTime * 10) : 0 );
     updateF15Warnings( delta );
-    touchControls.update(!inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
-    tabletPanels?.update(delta, !inMenu && !inHangar && !choosingSpawn && !simulatorElement.classList.contains('photo'));
+    touchControls.update(!inMenu && !inHangar && !choosingSpawn && !replay && !simulatorElement.classList.contains('photo'));
+    tabletPanels?.update(delta, !inMenu && !inHangar && !choosingSpawn && !replay && !simulatorElement.classList.contains('photo'));
     flightHud.bottomInset = touchControls.inset;   // jauges du HUD au-dessus des commandes tactiles
     // Bouton et panneau ILS (bas gauche) : au-dessus des jauges, qui montent elles-mêmes au-dessus du manche tactile
     if (tabletPanels) {
@@ -6996,3 +7059,285 @@ function drawFrame(time) {
 // Démarrage réussi (voir index.html : écran d'erreur et nouvel essai si le simulateur ne démarre pas)
 window.esmeStarted = true;
 try { sessionStorage.removeItem('esme-relance'); } catch { /* stockage indisponible */ }
+
+// --- Carnet de vols : enregistrement, fin du vol, rejeu (lot 5) ------------------------------------------------------
+const REC_KT = 0.514444, REC_FT = 0.3048, REC_DEG = 180 / Math.PI;
+let flightLiftedOff = false, parkedTime = 0, lastAtcEntry = null, lastFlight = null;
+
+// Seuil de la piste la plus proche : hauteur au-dessus de l'aérodrome (ft), comme Initiation (c.aal)
+function nearestThresholdGround(p) {
+    let best = null, d2 = Infinity;
+    for (const rw of airport.allRunways ?? []) {
+        const d = (rw.threshold.x - p.x) ** 2 + (rw.threshold.z - p.z) ** 2;
+        if (d < d2) { d2 = d; best = rw; }
+    }
+    return best ? terrain.heightAt(best.threshold.x, best.threshold.z) : terrain.heightAt(p.x, p.z);
+}
+
+// Échantillon du vol en cours (unités du pilote, voir FlightRecorder.FIELDS)
+function flightSample() {
+    const m = controls.model, p = aircraft.position, q = aircraft.quaternion, inputs = controls.getInputs();
+    const levels = m.aircraft.flapLevels ?? [0], flapMax = levels[levels.length - 1] || 0;
+    const ilsOn = ilsByKhz.has(avionics.nav1.active) && ils.state.available;
+    const rpm = aircraftType === 'f15' ? jetSystems.engines.reduce((a, e) => a + (e.n2 ?? 0), 0) / Math.max(1, jetSystems.engines.length)
+        : aircraftType === 'r44' ? heliModel.rotorPercent ?? 0 : systems.rpm;
+    const onGround = controls.isOnGround();
+    return {
+        x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w,
+        ias: m.indicatedSpeed / REC_KT, tas: m.airspeed / REC_KT, gs: Math.hypot(m.velocity.x, m.velocity.z) / REC_KT,
+        alt: altimeterIndicated() / REC_FT, agl: (p.y - WHEEL_HEIGHT - terrain.heightAt(p.x, p.z)) / REC_FT,
+        aal: (p.y - WHEEL_HEIGHT - nearestThresholdGround(p)) / REC_FT, vs: controls.getVerticalSpeed() / REC_FT * 60,
+        hdg: controls.getHeading(), bank: -controls.getRoll() * REC_DEG, pitch: Math.atan(controls.getPitchRate()) * REC_DEG,
+        alpha: onGround ? 0 : (m.alpha ?? 0) * REC_DEG, load: m.loadFactor ?? 1,
+        pitchIn: inputs.pitch, rollIn: inputs.roll, yawIn: inputs.yaw, brake: inputs.brake,
+        throttle: controls.getThrottle(), rpm, flaps: controls.getFlaps() * flapMax, trim: controls.getTrim(),
+        gear: m.gearDown === false ? 0 : 1, ground: onGround ? 1 : 0, stall: controls.isStalled() ? 1 : 0,
+        loc: ilsOn ? ils.state.localizer : null, gsDev: ilsOn ? ils.state.glideslope : null,
+        speedbrake: m.speedbrake ?? 0, rotor: aircraftType === 'r44' ? heliModel.rotorPercent ?? null : null,
+        phase: controls.isCrashed() ? 'crash' : onGround ? (controls.getSpeed() > 2 ? 'roulage' : 'sol') : 'vol',
+    };
+}
+
+// Un pas de physique : temps de vol, échantillon (10 par seconde), messages ATC, arrêt au parking
+function recordSample(delta) {
+    if (replay || inMenu || inHangar || choosingSpawn || loadingScreen.active) return;
+    if (!recorder.recording) {
+        recorder.start({ aircraft: aircraftType, map: MAP, airport: airport.current?.aerodrome?.icao ?? airport.current?.aerodrome?.name ?? '',
+            spawn: currentSpawn?.name ?? currentSpawn?.id ?? '', cold: Boolean(currentSpawn?.cold), flightModel: controls.model.realistic ? 'realiste' : 'simplifie',
+            lesson: initiation?.active ? String(initiation.lesson ?? initiation.level ?? '') : '', weather: weatherName });
+        flightClock = 0;
+        flightLiftedOff = false;
+        parkedTime = 0;
+        lastAtcEntry = atc.log[atc.log.length - 1] ?? null;
+    }
+    const dt = Math.min(Math.max(delta, 0), 0.1);
+    flightClock += dt;
+    if (controls.isCrashed()) return;
+    recorder.record(flightClock, flightSample());
+    // Messages radio apparus depuis le dernier échantillon
+    const log = atc.log;
+    let i = log.length;
+    while (i > 0 && log[i - 1] !== lastAtcEntry) i--;
+    if (lastAtcEntry && i === 0 && log[0] !== lastAtcEntry) i = Math.max(0, log.length - 1);
+    for (const entry of log.slice(i)) recorder.event(flightClock, 'atc', `${entry.from === 'pilot' ? 'Pilote' : entry.station ?? entry.from} : ${entry.text}`);
+    lastAtcEntry = log[log.length - 1] ?? lastAtcEntry;
+    // Arrêté au sol, moteur coupé, après un vol : fin du vol (puis un nouveau vol commence s'il repart)
+    const stopped = flightLiftedOff && controls.isOnGround() && controls.getSpeed() < 0.5 && !systems.running;
+    parkedTime = stopped ? parkedTime + dt : 0;
+    if (parkedTime > 3) endFlight('arrêt au parking');
+}
+
+// Fin du vol enregistré : rangé dans le carnet (s'il dure au moins 20 s) ; débriefing proposé s'il y a eu un envol
+function endFlight(reason, { propose = true, summary = '' } = {}) {
+    if (!recorder.recording) return null;
+    recorder.event(flightClock, 'info', `Fin du vol : ${reason}`);
+    const liftedOff = flightLiftedOff;
+    const flight = recorder.stop({ minSeconds: 20, endReason: reason, ...(summary ? { summary } : {}) });
+    flightLiftedOff = false;
+    parkedTime = 0;
+    if (!flight) return null;
+    const saved = flightStore.save(flight).then((id) => {
+        lastFlight = { id, flight };
+        return id;
+    }).catch((error) => { console.warn('Carnet de vols :', error); return null; });
+    if (propose && liftedOff) showEndOfFlight(flight, saved);
+    return saved;
+}
+
+// Carte « vol enregistré » (fin du vol) : débriefing, rejeu, plus tard
+const endCard = document.getElementById('fin-vol');
+let endCardFlight = null;
+function showEndOfFlight(flight, saved) {
+    if (!endCard) return;
+    endCardFlight = { flight, saved };
+    const minutes = Math.floor(flight.meta.duration / 60), seconds = Math.round(flight.meta.duration % 60);
+    const text = endCard.querySelector('#fin-vol-duree');
+    if (text) text.textContent = `${minutes} min ${String(seconds).padStart(2, '0')} s`;
+    endCard.hidden = false;
+}
+document.getElementById('fin-vol-fermer')?.addEventListener('click', () => { endCard.hidden = true; });
+document.getElementById('fin-vol-rejeu')?.addEventListener('click', async () => {
+    endCard.hidden = true;
+    if (endCardFlight) startReplay(endCardFlight.flight, 0, await endCardFlight.saved);
+});
+document.getElementById('fin-vol-debrief')?.addEventListener('click', async () => {
+    endCard.hidden = true;
+    if (endCardFlight) openDebriefing(await endCardFlight.saved ?? endCardFlight.flight);
+});
+
+// --- Rejeu 3D ---
+const replayBar = document.getElementById('rejeu');
+async function startReplay(flight, t = 0, id = null) {
+    if (!flight?.samples?.length) return false;
+    if (flight.meta?.map && flight.meta.map !== MAP) {
+        showViewLabel(`Ce vol a eu lieu sur la carte « ${flight.meta.map} » : choisissez cette carte pour le rejouer (le débriefing reste disponible)`);
+        return false;
+    }
+    document.querySelector('dialog[open]')?.close();
+    const fromMenu = inMenu;
+    const begin = async () => {
+        endFlight('rejeu', { propose: false });
+        if (initiation?.active) initiation.stop();
+        if (['c172', 'f15', 'r44'].includes(flight.meta?.aircraft) && flight.meta.aircraft !== aircraftType) await setAircraftType(flight.meta.aircraft);
+        if (inMenu) closeMainMenu();
+        if (inHangar) leaveHangar();
+        if (choosingSpawn) closeSpawnDialog();
+        endCard && (endCard.hidden = true);
+        clearTimeout(crashTimer);
+        crashBanner.classList.remove('actif');
+        if (kap.engaged) kap.disconnect('rejeu');
+        controls.setAutopilotOutput(null);
+        controls.setAxisInput(null);
+        controls.model.restart(false);
+        controls.enabled = false;
+        aircraft.visible = true;
+        replay = { player: new Replay(flight, t), camera: chaseView ? 'exterieure' : 'cabine', from: fromMenu ? 'menu' : 'vol', flight, id, chaseBefore: chaseView };
+        simulatorElement.classList.add('rejeu');
+        setMenuBar(false);
+        if (replayBar) replayBar.hidden = false;
+        updateReplayBar(true);
+        updateCamera(0, true);
+    };
+    if (fromMenu) await enterGame(begin);
+    else await begin();
+    return true;
+}
+
+function stopReplay() {
+    if (!replay) return;
+    const { from, chaseBefore } = replay;
+    replay = null;
+    simulatorElement.classList.remove('rejeu');
+    if (replayBar) replayBar.hidden = true;
+    controls.enabled = true;
+    if (chaseView !== chaseBefore) toggleView();
+    if (from === 'menu') openMainMenu();
+    else spawnAt(currentSpawn);
+}
+
+// Pose d'un échantillon : avion, vitesses, commandes, régime (instruments, HUD, gouvernes et son les lisent)
+function applySample(s) {
+    aircraft.position.set(s.x, s.y, s.z);
+    aircraft.quaternion.set(s.qx, s.qy, s.qz, s.qw);
+    aircraft.updateMatrixWorld();
+    const m = controls.model;
+    m.airspeed = (s.tas ?? 0) * REC_KT;
+    m.indicatedSpeed = m.calibratedSpeed = (s.ias ?? 0) * REC_KT;
+    m.throttle = s.throttle ?? 0;
+    m.trim = (s.trim ?? 0) / REC_DEG;
+    m.alpha = (s.alpha ?? 0) / REC_DEG;
+    m.onGround = Boolean(s.ground);
+    m.stalled = Boolean(s.stall);
+    const levels = m.aircraft.flapLevels ?? [0], flapMax = levels[levels.length - 1] || 1;
+    m.flaps = (s.flaps ?? 0) / flapMax;
+    m.flapLevel = levels.reduce((best, deg, i) => (Math.abs(deg - (s.flaps ?? 0)) < Math.abs(levels[best] - (s.flaps ?? 0)) ? i : best), 0);
+    if ('speedbrake' in m && s.speedbrake !== null) m.speedbrake = s.speedbrake;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(aircraft.quaternion).setY(0);
+    if (forward.lengthSq() > 1e-6) forward.normalize();
+    m.velocity.copy(forward).multiplyScalar((s.gs ?? 0) * REC_KT).setY((s.vs ?? 0) * REC_FT / 60);
+    controls._controls.set(s.pitchIn ?? 0, s.yawIn ?? 0, s.rollIn ?? 0);
+    controls._roll = -(s.bank ?? 0) / REC_DEG;
+    controls._heading = s.hdg ?? 0;
+    controls._pitch_rate = Math.tan((s.pitch ?? 0) / REC_DEG);
+    controls._verticalSpeed = (s.vs ?? 0) * REC_FT / 60;
+    if (aircraftType === 'c172') {
+        systems.rpm = s.rpm ?? 0;
+        systems.running = (s.rpm ?? 0) > 300;
+    }
+}
+
+function replayFrame(delta) {
+    const sample = replay.player.advance(Math.min(delta, 0.25));
+    if (sample) applySample(sample);
+    for (const event of replay.player.passedEvents()) {
+        if (event.kind === 'atc' || event.kind === 'crash' || event.kind === 'touchdown') showViewLabel(event.kind === 'touchdown' ? `Toucher : ${Math.round((event.impact ?? 0) / REC_FT * 60)} ft/min` : event.text);
+    }
+    updateReplayBar();
+}
+
+// Barre du rejeu : lecture / pause, vitesses, curseur, temps, caméras
+const replayTime = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+let replaySeeking = false;
+function updateReplayBar(force = false) {
+    if (!replay || !replayBar) return;
+    const p = replay.player;
+    const cursor = document.getElementById('rejeu-curseur');
+    if (cursor) {
+        if (force || cursor.max !== String(p.duration)) cursor.max = String(p.duration);
+        if (!replaySeeking) cursor.value = String(p.t);
+    }
+    const time = document.getElementById('rejeu-temps');
+    if (time) time.textContent = `${replayTime(p.t)} / ${replayTime(p.duration)}`;
+    const play = document.getElementById('rejeu-lecture');
+    if (play) {
+        const label = p.paused ? '▶' : '⏸';
+        if (play.textContent !== label) play.textContent = label;
+        play.title = p.paused ? 'Lecture (Espace)' : 'Pause (Espace)';
+    }
+    for (const button of replayBar.querySelectorAll('[data-x]')) button.classList.toggle('actif', Number(button.dataset.x) === p.speed);
+    for (const button of replayBar.querySelectorAll('[data-cam]')) button.classList.toggle('actif', button.dataset.cam === replay.camera);
+}
+function setReplayCamera(name) {
+    if (!replay) return;
+    replay.camera = name;
+    if (name === 'cabine' && chaseView) toggleView();
+    if (name === 'exterieure' && !chaseView) toggleView();
+    if (name === 'libre') {
+        spawnCam.goal.target.copy(aircraft.position);
+        spawnCam.target.copy(aircraft.position);
+        spawnCam.goal.distance = spawnCam.distance = 40;
+        spawnCam.goal.pitch = spawnCam.pitch = 0.35;
+    }
+    updateCamera(0, true);
+    updateReplayBar();
+}
+if (replayBar) {
+    document.getElementById('rejeu-lecture')?.addEventListener('click', (event) => { replay?.player.toggle(); event.currentTarget.blur(); updateReplayBar(); });
+    for (const button of replayBar.querySelectorAll('[data-x]')) button.addEventListener('click', () => { replay?.player.setSpeed(Number(button.dataset.x)); button.blur(); updateReplayBar(); });
+    for (const button of replayBar.querySelectorAll('[data-cam]')) button.addEventListener('click', () => { setReplayCamera(button.dataset.cam); button.blur(); });
+    const cursor = document.getElementById('rejeu-curseur');
+    cursor?.addEventListener('input', () => { replaySeeking = true; replay?.player.seek(Number(cursor.value)); });
+    cursor?.addEventListener('change', () => { replaySeeking = false; cursor.blur(); });
+    document.getElementById('rejeu-quitter')?.addEventListener('click', () => stopReplay());
+    document.getElementById('rejeu-debrief')?.addEventListener('click', () => {
+        if (!replay) return;
+        replay.player.pause();
+        updateReplayBar();
+        openDebriefing(replay.id ?? replay.flight, replay.player.t);
+    });
+}
+// Clavier pendant le rejeu : Espace lecture / pause, flèches ±10 s
+window.addEventListener('keydown', (event) => {
+    if (!replay || isTypingTarget(event.target) || document.querySelector('dialog[open]')) return;
+    if (event.code === 'Space') { replay.player.toggle(); event.preventDefault(); }
+    else if (event.code === 'ArrowLeft') replay.player.seek(replay.player.t - 10);
+    else if (event.code === 'ArrowRight') replay.player.seek(replay.player.t + 10);
+    else return;
+    updateReplayBar();
+});
+
+// Débriefing (fenêtre Debriefing.js) : carnet, trajectoire, courbes, écarts (FlightReview.js : pistes de la carte en cours,
+// seulement si le vol y a eu lieu), rejeu depuis un instant
+const debriefing = new Debriefing(document.getElementById('debriefing-dialog'), {
+    store: flightStore,
+    createMap: (canvas) => {
+        const map = new MapView(canvas, {
+            heightAt: (x, z) => terrain.heightAt(x, z),
+            waterAt: (x, z) => { const lake = terrain.lakeAt(x, z); return Boolean(lake) && terrain.groundAt(x, z, lake) < lake.level; },
+            worldSize: 16000,
+            shapes: city ? [{ kind: 'city', label: 'VILLE', x: city.center.x, z: city.center.z, radius: city.radius }, ...airport.mapShapes] : airport.mapShapes,
+            runways: airport.allRunways, navaids: airport.vors, ndbs: airport.ndbs,
+        });
+        map.shareRelief(mapView);
+        return map;
+    },
+    review: (flight) => reviewFlight(flight, { runways: !flight.meta?.map || flight.meta.map === MAP ? airport.allRunways : [] }),
+    canReplay: (flight) => (flight.meta?.map && flight.meta.map !== MAP ? `Ce vol a eu lieu sur la carte « ${flight.meta.map} » : ouvrez cette carte pour le rejouer en 3D (le débriefing reste disponible ici).` : null),
+    onReplay: (flight, id, t) => startReplay(flight, t, id),
+});
+function openDebriefing(target, t = 0) {
+    closeMenus();
+    return debriefing.openFlight(target, { t });
+}
+document.getElementById('vols')?.addEventListener('click', (event) => { event.currentTarget.blur(); closeMenus(); debriefing.openList(); });
+document.getElementById('mp-vols')?.addEventListener('click', () => debriefing.openList());

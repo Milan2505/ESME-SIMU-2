@@ -57,6 +57,7 @@ chaque essai), qualité « Bas » sans toucher aux réglages
 enregistrés (`Settings.persist = false`). `window.__sim` : `phase` (chargement, menu, carte, aerodrome, hangar, depart,
 vol, crash), `state` (vitesse, altitude, cap, moteur…), `controls`, `model`, `setThrottle`, `setInput`, `setFlapLevel`,
 `errors`, `setMetar(texte)` (météo réelle sans réseau), `setWeather(nom)`, `setThermals(on)` (thermiques, coupées en mode test),
+`recorder`, `flightStore`, `endFlight`, `lastFlight`, `startReplay` / `stopReplay` / `replay` (carnet de vols),
 `setTimeScale(n)` (temps accéléré, 1 à 32, mode test seulement : pas supplémentaires de 0,1 s au plus avant
 chaque image, `simulateStep` ; attentes de la radio divisées d'autant, `js/TimeScale.js`). `window.esmeDebug` existe aussi, en tout mode. Les tests e2e (`tests/e2e/vol.spec.js`) passent par les vrais
 boutons du menu ; `tests/e2e/server.js` sert `index.html` avec three et mqtt pris dans `node_modules` (versions
@@ -140,6 +141,10 @@ Appareils et physique (`js/`) :
   préréglages Saitek / Thrustmaster / Xbox reconnus par l'identifiant, traitement des axes, profils localStorage
   `esme-peripheriques`, export / import JSON), `Gamepads.js` (lecture par image dans `drawFrame`, branchement à chaud),
   `DevicesWindow.js` (fenêtre Commandes > Périphériques). `window.__sim.gamepads` en mode test.
+- Carnet de vols (lot 5) : `FlightRecorder.js` (pur : 10 échantillons/s, événements, interpolation, CSV),
+  `FlightStore.js` (20 derniers vols dans IndexedDB ; mémoire en mode test), `Replay.js` (pur : lecture, ×1 à ×8),
+  `FlightReview.js` (pur : écarts relevés, seuils sourcés), `Charts.js` (courbes canvas), `Debriefing.js` (fenêtre Mes
+  vols / débriefing) ; enregistrement, fin du vol et rejeu 3D dans simulator.js (« Carnet de vols », fin du fichier).
 - Interface : `Settings.js` (qualité, aides au pilotage ; `persist`), `TouchControls.js`, `TabletRegistry.js`,
   `TabletPanels.js`, `Draggable.js`, `Device.js`, `Loading.js` (écran de chargement, suivi des chargements),
   `Initiation.js` (leçon guidée), `WeightBalance.js` (masse et centrage, `computeLoad` pur), `DataLoader.js`,
@@ -150,9 +155,9 @@ tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu)
 `perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
 `keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
-`adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
+`adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `flight-recorder.test.js`, `replay.test.js`, `flight-review.test.js`, `charts.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
 Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `helpers/modes.js` (modèle linéaire, identification),
 
 `helpers/c172-perf.js` (procédures de mesure), `*.test.js` (node --test), `e2e/server.js` (serveur local, CDN remplacé
 par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `e2e/realiste.spec.js` (modèle réaliste : initiation, vol libre), `e2e/peripheriques.spec.js` (yoke et palonnier
-simulés : fenêtre Périphériques, décollage), `e2e/meteo.spec.js` (QNH et altimètre, METAR, réchauffe et givrage), `e2e/pilote-auto.spec.js` (leçon pilote automatique, capture du KAP 140), `playwright.config.js`, `eslint.config.js`.
+simulés : fenêtre Périphériques, décollage), `e2e/meteo.spec.js` (QNH et altimètre, METAR, réchauffe et givrage), `e2e/pilote-auto.spec.js` (leçon pilote automatique, capture du KAP 140), `e2e/carnet.spec.js` (vol enregistré, débriefing, CSV, rejeu 3D), `playwright.config.js`, `eslint.config.js`.

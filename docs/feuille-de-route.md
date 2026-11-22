@@ -328,6 +328,20 @@ de vol, messages ATC). À la fin du vol ou sur demande :
 Stockage local (IndexedDB), les 20 derniers vols. Aucun envoi réseau.
 ```
 
+**État (22/11/2026)** : livré. Enregistrement à 10 échantillons/s de temps de jeu (`FlightRecorder.js`), du premier pas en
+vol jusqu'au crash, à l'arrêt au parking moteur coupé, à la fin de leçon, au changement de départ ou au retour au menu ;
+carnet des 20 derniers vols dans IndexedDB (`FlightStore.js`). Carte « Vol enregistré » en fin de vol (s'il y a eu un
+envol), Mes vols au menu principal, dans Commandes et sur tablette. Débriefing (`Debriefing.js`) : trajectoire sur MapView,
+profil vertical, courbes (`Charts.js`), écarts relevés (`FlightReview.js`, seuils de la feuille de route et sources citées).
+Rejeu 3D (`Replay.js`) : physique figée, échantillon posé sur l'avion (instruments, HUD, gouvernes, son), pause, ×1 à ×8,
+caméras libre, cabine et extérieure. Export et import CSV. Tests : `flight-recorder`, `replay`, `flight-review`, `charts`,
+`e2e/carnet.spec.js`.
+**Reste à faire** : seuils non relus dans une source primaire (tolérance d'approche +10 / −5 kt de l'ACS FAA, toucher
+ferme / dur à 300 / 600 ft/min, ±60 m et 5 m au point d'aboutissement, écarts ILS 0,2 / 0,5, VFE et facteurs de charge) ;
+« Finale » reconnue par la descente sous 500 ft (une ondulation en montée peut y passer) ; rejeu du F-15 et du R44 :
+pose, commandes et HUD rejoués, mais réacteurs et rotor gardent leur état d'avant le rejeu ; vol d'une autre carte :
+débriefing seulement.
+
 ---
 
 ### Lot 6. Initiation : leçons supplémentaires

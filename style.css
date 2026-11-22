@@ -5151,3 +5151,264 @@ html.telephone .tb-etat {
 #carte-apercu[hidden] {
   display: none;
 }
+
+/* Mes vols et débriefing (lot 5, Debriefing.js) : même thème bleu nuit que les Périphériques, plus large */
+#debriefing-dialog {
+  box-sizing: border-box;
+  width: min(1200px, 96vw);
+  max-width: none;
+  max-height: 92vh;
+  padding: 24px 28px 18px;
+  overflow: auto;
+  color: #e8eef4;
+  font-family: Noto Sans, sans-serif;
+  font-size: 14px;
+  background: rgba(10, 22, 38, 0.97);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+#debriefing-dialog::backdrop {
+  background: rgba(4, 10, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+#debriefing-dialog h3 {
+  margin: 0 0 6px;
+  font-family: Andale Mono, DejaVu Sans Mono, monospace;
+  font-size: 24px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff;
+}
+#debriefing-dialog .reglages-intro {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #9fb2c4;
+}
+#debriefing-dialog section { padding: 0; }   /* (pas la marge des sections du site) */
+#debriefing-dialog section[hidden] { display: none; }
+#debriefing-dialog .debrief-groupe {
+  margin: 14px 0 6px;
+  padding-bottom: 6px;
+  font-size: 12px;
+  font-weight: normal;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.4);
+}
+#debriefing-dialog .debrief-vide { font-size: 13px; color: #8a9db0; }
+/* Boutons du pied : ceux de l'autre volet sont cachés */
+#debriefing-dialog[data-volet="liste"] [data-volet="vol"],
+#debriefing-dialog[data-volet="vol"] [data-volet="liste"] {
+  display: none;
+}
+#debriefing-dialog .multi-ligne { justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+#debriefing-dialog button {
+  padding: 6px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  background: linear-gradient(90deg, #1d6fb8, #1a4f86);
+  border: 1px solid #3d8fd6;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#debriefing-dialog button:hover { background: linear-gradient(90deg, #2580d1, #1d5c9c); }
+#debriefing-dialog button.debrief-secondaire {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+#debriefing-dialog button.debrief-secondaire:hover { background: rgba(143, 211, 255, 0.18); border-color: #8fd3ff; }
+#debriefing-dialog button.debrief-danger:hover,
+#debriefing-dialog button.debrief-danger.confirmer { background: #b03030; border-color: #ff5a4a; }
+#debrief-message { min-height: 1.2em; margin: 10px 0 0; font-size: 13px; color: #8fd3ff; }
+#debrief-message.erreur { color: #ffb070; }
+
+/* Liste des vols */
+.debrief-table { width: 100%; border: none; border-collapse: collapse; letter-spacing: normal; font-size: 13px; }
+.debrief-table th {
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: normal;
+  letter-spacing: 1.5px;
+  text-align: left;
+  text-transform: uppercase;
+  color: #8fd3ff;
+  border-bottom: 1px solid rgba(143, 211, 255, 0.4);
+}
+.debrief-table td { padding: 7px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); vertical-align: middle; }
+.debrief-table tbody tr:hover { background: rgba(143, 211, 255, 0.06); }
+.debrief-table td.debrief-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+#debriefing-dialog .debrief-actions button { padding: 4px 10px; font-size: 12px; }
+.debrief-etats { display: inline-flex; gap: 4px; margin-left: 8px; }
+.debrief-badge {
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #cfe3f5;
+  border: 1px solid rgba(143, 211, 255, 0.4);
+  border-radius: 3px;
+}
+.debrief-badge.crash { color: #fff; background: #b03030; border-color: #ff5a4a; }
+
+/* Débriefing d'un vol : en-tête, carte et écarts à gauche, courbes à droite */
+#debrief-entete {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: 4px 0 12px;
+}
+#debrief-entete div { min-width: 0; }
+#debrief-entete dt { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8a9db0; }
+#debrief-entete dd { margin: 0; font-weight: bold; color: #fff; overflow-wrap: anywhere; }
+#debrief-entete div.crash dd { color: #ff5a4a; }
+.debrief-grille {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 16px;
+  align-items: start;
+}
+.debrief-carte-bloc { position: relative; min-width: 0; }
+#debrief-carte {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 60vh;
+  background: #16304d;
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 4px;
+  cursor: crosshair;
+}
+.debrief-zoom { position: absolute; top: 48px; right: 8px; display: flex; flex-direction: column; gap: 4px; }
+#debriefing-dialog .debrief-zoom button { width: 30px; height: 30px; padding: 0; font-size: 18px; line-height: 1; }
+.debrief-curseur { margin: 6px 0 0; font-family: DejaVu Sans Mono, monospace; font-size: 12px; color: #cfe3f5; }
+.debrief-courbes { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.debrief-courbe {
+  display: block;
+  width: 100%;
+  height: 120px;
+  background: rgba(22, 48, 77, 0.55);
+  border: 1px solid rgba(143, 211, 255, 0.2);
+  border-radius: 4px;
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+.debrief-courbe-haute { height: 170px; }
+#debrief-ecarts { display: flex; flex-direction: column; gap: 4px; }
+#debriefing-dialog button.debrief-ecart {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 10px;
+  font-weight: normal;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 4px solid var(--couleur, #8fd3ff);
+}
+#debriefing-dialog button.debrief-ecart:hover,
+#debriefing-dialog button.debrief-ecart.actif { background: rgba(143, 211, 255, 0.14); }
+.debrief-ecart-temps { font-family: DejaVu Sans Mono, monospace; font-size: 12px; color: #9fb2c4; }
+.debrief-ecart-niveau { font-size: 11px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; color: var(--couleur, #8fd3ff); }
+@media (max-width: 800px) {
+  #debriefing-dialog { padding: 18px 14px 14px; }
+  .debrief-grille { grid-template-columns: 1fr; }
+  .debrief-table thead { display: none; }
+  .debrief-table tr { display: grid; grid-template-columns: 1fr 1fr; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+  .debrief-table td { padding: 2px 4px; border: none; }
+  .debrief-table td:first-child, .debrief-table td.debrief-actions { grid-column: 1 / -1; }
+  .debrief-table td.debrief-actions { justify-content: flex-start; }
+}
+
+/* Fin de vol : carte non modale sous le bandeau CRASH, le jeu continue derrière */
+#simulator > #fin-vol {
+  grid-column: 1 / -1;
+  grid-row: -2;
+  align-self: start;
+  justify-self: center;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 16px;
+  max-width: calc(100% - 32px);
+  margin-top: calc(150px + env(safe-area-inset-top, 0px));
+  padding: 10px 16px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(10, 22, 38, 0.88);
+  border: 2px solid #3d8fd6;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+#simulator > #fin-vol[hidden] { display: none; }
+.fin-vol-boutons { display: flex; flex-wrap: wrap; gap: 8px; }
+#fin-vol button {
+  padding: 6px 14px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #114E69;
+  background: #fff;
+  border: 1px solid #114E69;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#fin-vol button:hover { background: #C3E6F5; }
+#fin-vol button.fin-vol-secondaire { color: #cfe3f5; background: transparent; border-color: rgba(255, 255, 255, 0.35); }
+
+/* Barre du rejeu : en bas de l'écran de vol, au-dessus de la vue (le HUD reste) */
+#simulator > #rejeu {
+  grid-column: 1 / -1;
+  grid-row: -2;
+  align-self: end;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
+  padding: 8px 10px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+  background: rgba(10, 22, 38, 0.82);
+  border: 1px solid rgba(143, 211, 255, 0.35);
+  border-radius: 8px;
+}
+#simulator > #rejeu[hidden] { display: none; }
+.rejeu-titre { padding: 0 4px; letter-spacing: 2px; color: #8fd3ff; }
+.rejeu-groupe { display: inline-flex; }
+#rejeu button {
+  padding: 6px 12px;
+  font-family: DejaVu Sans Mono, monospace;
+  font-size: 13px;
+  font-weight: bold;
+  color: #114E69;
+  background: #fff;
+  border: 1px solid #114E69;
+  border-radius: 0;
+  cursor: pointer;
+}
+#rejeu > button { border-radius: 4px; }
+.rejeu-groupe button + button { border-left: none; }
+.rejeu-groupe button:first-child { border-radius: 4px 0 0 4px; }
+.rejeu-groupe button:last-child { border-radius: 0 4px 4px 0; }
+#rejeu button:hover { background: #C3E6F5; }
+#rejeu button.actif { color: #C3E6F5; background: #114E69; }
+#rejeu #rejeu-quitter { color: #fff; background: #b03030; border-color: #b03030; }
+#rejeu #rejeu-quitter:hover { background: #c83c3c; }
+#rejeu-curseur { flex: 1 1 200px; min-width: 140px; accent-color: #3d8fd6; }
+#rejeu-temps { min-width: 11ch; text-align: center; }
+/* Rejeu : ni commandes tactiles, ni moniteur, ni barre de menus ni panneaux de la tablette ; le HUD reste */
+#simulator.rejeu > :is(#tactile, #moniteur, #astuce-echap, #tablette-ui, #fin-vol, #commandes, #météo, #carte-case,
+  #atc-case, #online, #profil, #paramètre, #masse-bouton, #mode-photo, #barre-plein-ecran, #quitter-partie, #photo-sortie),
+#simulator.rejeu::before {
+  display: none !important;
+}

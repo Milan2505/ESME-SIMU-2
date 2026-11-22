@@ -18,6 +18,40 @@ function reliefColor(height, shade) {
     return [r * k, g * k, b * k];
 }
 
+// Couleur de la trajectoire selon l'altitude ramenée à [0, 1] : bleu (bas), vert, jaune, rouge (haut)
+function altitudeColor(f) {
+    const k = Math.max(0, Math.min(1, Number.isFinite(f) ? f : 0));
+    return `hsl(${Math.round(210 * (1 - k))}, 85%, 55%)`;
+}
+
+// Points de la trajectoire espacés de `interval` secondes au moins (premier et dernier gardés), positions finies seulement
+function trackPoints(samples, interval = 1) {
+    const out = [];
+    let last = null;
+    for (const s of samples ?? []) {
+        if (!Number.isFinite(s.x) || !Number.isFinite(s.z)) continue;
+        if (!last || s.t - last.t >= interval) { out.push(s); last = s; }
+    }
+    const end = [...(samples ?? [])].reverse().find((s) => Number.isFinite(s.x) && Number.isFinite(s.z));
+    if (end && out[out.length - 1] !== end) out.push(end);
+    return out;
+}
+
+// Position et cap (degrés) à l'instant t, interpolés entre deux échantillons (cap par le plus court chemin) ; t ramené
+// à la durée du vol ; null sans échantillon
+function trackPoseAt(samples, t) {
+    const n = samples?.length ?? 0;
+    if (!n) return null;
+    if (t <= samples[0].t) return { x: samples[0].x, z: samples[0].z, hdg: samples[0].hdg ?? 0 };
+    if (t >= samples[n - 1].t) return { x: samples[n - 1].x, z: samples[n - 1].z, hdg: samples[n - 1].hdg ?? 0 };
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (samples[mid].t <= t) lo = mid; else hi = mid; }
+    const a = samples[lo], b = samples[hi];
+    const k = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
+    const turn = ((((b.hdg ?? 0) - (a.hdg ?? 0)) % 360) + 540) % 360 - 180;
+    return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, hdg: (((a.hdg ?? 0) + turn * k) % 360 + 360) % 360 };
+}
+
 class MapView {
     // heightAt(x, z) : hauteur du sol ; worldSize : côté du terrain (m) ; shapes : pistes et parkings [{ minX, maxX, minZ, maxZ, kind }]
     // runways : [{ name, threshold }]
@@ -50,22 +84,83 @@ class MapView {
         this.draw(own, others);
     }
 
-    draw(own, others) {
+    // Relief d'une autre carte (même terrain) réutilisé au lieu d'être recalculé (230 400 appels à heightAt) : la
+    // carte du débriefing partage celle du jeu ; calculé une seule fois, par la première des deux qui dessine
+    shareRelief(other) {
+        if (other && other !== this) this._reliefSource = other;
+        return this;
+    }
+
+    // Cadrage continu sur un rectangle du terrain (m), marge relative de chaque côté ; remplace le cadrage sur
+    // l'avion et les zooms discrets jusqu'à clearFit()
+    fit(minX, maxX, minZ, maxZ, margin = 0.1) {
+        this._fit = { minX: Math.min(minX, maxX), maxX: Math.max(minX, maxX), minZ: Math.min(minZ, maxZ), maxZ: Math.max(minZ, maxZ), margin };
+        this._timer = 0;
+        return this;
+    }
+
+    // Cadrage sur une trajectoire enregistrée (échantillons { x, z } de js/FlightRecorder.js)
+    fitTrack(samples, margin = 0.1) {
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const s of samples ?? []) {
+            if (!Number.isFinite(s.x) || !Number.isFinite(s.z)) continue;
+            minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x);
+            minZ = Math.min(minZ, s.z); maxZ = Math.max(maxZ, s.z);
+        }
+        if (minX > maxX) return this.clearFit();
+        return this.fit(minX, maxX, minZ, maxZ, margin);
+    }
+
+    clearFit() {
+        this._fit = null;
+        this._timer = 0;
+        return this;
+    }
+
+    // Fenêtre montrée pour un canvas de width × height pixels : centre (m) et largeur (m). Sans fit : centrée sur
+    // l'avion du joueur, largeur du zoom choisi ; avec fit : rectangle entier visible, 1 km de large au moins. Toujours
+    // dans le terrain quand la largeur le permet.
+    viewWindow(width, height, own) {
+        const half = this.worldSize / 2;
+        let span, x, z;
+        if (this._fit) {
+            const f = this._fit;
+            const aspect = width / height;
+            const w = (f.maxX - f.minX) * (1 + 2 * f.margin), h = (f.maxZ - f.minZ) * (1 + 2 * f.margin);
+            span = Math.min(this.worldSize, Math.max(1000, w, h * aspect));
+            x = (f.minX + f.maxX) / 2;
+            z = (f.minZ + f.maxZ) / 2;
+        } else {
+            span = this.zooms[Math.min(this.zoom, this.zooms.length - 1)];
+            x = own.position.x;
+            z = own.position.z;
+        }
+        const view = span / 2;
+        const viewZ = this._fit ? Math.min(half, span * height / width / 2) : view;
+        return {
+            cx: Math.max(-half + view, Math.min(half - view, x)),
+            cz: Math.max(-half + viewZ, Math.min(half - viewZ, z)),
+            span,
+        };
+    }
+
+    draw(own = { hidden: true, position: { x: 0, z: 0 } }, others = []) {
         const canvas = this.canvas;
         const ratio = window.devicePixelRatio || 1;
         const width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
         if (!width || !height) return;
         if (canvas.width !== width || canvas.height !== height) Object.assign(canvas, { width, height });
         const ctx = canvas.getContext('2d');
-        this._relief ??= this._buildRelief();
+        const source = this._reliefSource;
+        this._relief ??= source ? (source._relief ??= source._buildRelief()) : this._buildRelief();
 
-        // Fenêtre montrée : centrée sur l'avion du joueur, sans sortir du terrain
+        // Fenêtre montrée : centrée sur l'avion du joueur (ou cadrée par fit), sans sortir du terrain
         const half = this.worldSize / 2;
-        const span = this.zooms[Math.min(this.zoom, this.zooms.length - 1)];
+        const { cx, cz, span } = this.viewWindow(width, height, own);
         const view = span / 2;
-        const cx = Math.max(-half + view, Math.min(half - view, own.position.x));
-        const cz = Math.max(-half + view, Math.min(half - view, own.position.z));
         const scale = width / span;   // pixels par mètre
+        this._scale = scale;
+        this._ratio = ratio;
         const toX = (x) => (x - cx) * scale + width / 2;
         const toY = (z) => (z - cz) * scale + height / 2;
         this.project = (x, z) => [toX(x), toY(z)];   // pour dessiner par-dessus la carte
@@ -195,6 +290,92 @@ class MapView {
         ctx.restore();
     }
 
+    // Trajectoire enregistrée (échantillons de js/FlightRecorder.js : t, x, z, alt (ft), hdg), à dessiner juste après
+    // draw() : trait coloré selon l'altitude (légende min / max en haut à gauche), un point par seconde environ ;
+    // repères [{ x, z, label, color }] ; avion à l'instant cursorT (s), position et cap interpolés
+    drawTrack(samples, { cursorT = null, markers = [], color = '#ffd23c' } = {}) {
+        if (!this.project || !samples?.length) return;
+        const ctx = this.canvas.getContext('2d');
+        const ratio = this._ratio ?? 1;
+        const points = trackPoints(samples, 1);
+        let lo = Infinity, hi = -Infinity;
+        for (const p of points) if (Number.isFinite(p.alt)) { lo = Math.min(lo, p.alt); hi = Math.max(hi, p.alt); }
+        if (!(lo <= hi)) lo = hi = 0;
+        const range = Math.max(1, hi - lo);
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        // Liseré sombre sous tout le trait, puis segments colorés
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = 5 * ratio;
+        ctx.beginPath();
+        points.forEach((p, i) => {
+            const [x, y] = this.project(p.x, p.z);
+            if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        });
+        ctx.stroke();
+        ctx.lineWidth = 3 * ratio;
+        for (let i = 1; i < points.length; i++) {
+            const a = points[i - 1], b = points[i];
+            const [x0, y0] = this.project(a.x, a.z), [x1, y1] = this.project(b.x, b.z);
+            ctx.strokeStyle = altitudeColor((((a.alt + b.alt) / 2) - lo) / range);
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
+            ctx.stroke();
+        }
+
+        // Repères : rond blanc cerclé de leur couleur, libellé
+        ctx.font = `bold ${Math.round(11 * ratio)}px DejaVu Sans Mono, monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        for (const marker of markers) {
+            if (!Number.isFinite(marker.x) || !Number.isFinite(marker.z)) continue;
+            const [x, y] = this.project(marker.x, marker.z);
+            ctx.beginPath();
+            ctx.arc(x, y, 5 * ratio, 0, Math.PI * 2);
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            ctx.lineWidth = 2.5 * ratio;
+            ctx.strokeStyle = marker.color ?? '#e8443a';
+            ctx.stroke();
+            if (!marker.label) continue;
+            ctx.lineWidth = 3 * ratio;
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.strokeText(marker.label, x + 9 * ratio, y);
+            ctx.fillStyle = marker.color ?? 'white';
+            ctx.fillText(marker.label, x + 9 * ratio, y);
+        }
+
+        // Légende des altitudes : dégradé et bornes (ft)
+        const lx = 12 * ratio, ly = 12 * ratio, lw = 110 * ratio, lh = 8 * ratio;
+        const gradient = ctx.createLinearGradient(lx, 0, lx + lw, 0);
+        for (let k = 0; k <= 4; k++) gradient.addColorStop(k / 4, altitudeColor(k / 4));
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(lx - 4 * ratio, ly - 4 * ratio, lw + 8 * ratio, lh + 22 * ratio);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(lx, ly, lw, lh);
+        ctx.font = `bold ${Math.round(10 * ratio)}px DejaVu Sans Mono, monospace`;
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'white';
+        const ft = (v) => `${(Math.round(v / 10) * 10).toLocaleString('fr-FR')} ft`;
+        ctx.textAlign = 'left';
+        ctx.fillText(ft(lo), lx, ly + lh + 3 * ratio);
+        ctx.textAlign = 'right';
+        ctx.fillText(ft(hi), lx + lw, ly + lh + 3 * ratio);
+        ctx.restore();
+
+        // Avion à l'instant du curseur
+        if (cursorT !== null && cursorT !== undefined) {
+            const at = trackPoseAt(samples, cursorT);
+            if (at) {
+                const [x, y] = this.project(at.x, at.z);
+                this._plane(ctx, x, y, at.hdg, color, 10 * ratio, true);
+            }
+        }
+    }
+
     // Silhouette d'avion vue de dessus, nez vers le cap
     _plane(ctx, x, y, heading, color, size, self = false) {
         ctx.save();
@@ -279,4 +460,4 @@ class MapView {
     }
 }
 
-export { MapView };
+export { MapView, altitudeColor, trackPoints, trackPoseAt };

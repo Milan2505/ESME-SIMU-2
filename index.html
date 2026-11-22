@@ -166,6 +166,7 @@
 				<button id="retour-aerodrome" title="Retour au choix de l'aérodrome">Changer d'aérodrome</button>
 				<button id="nav-panneaux" title="Afficher ou masquer les indicateurs VOR et ILS en vue extérieure (touche O : VOR seul)">VOR / ILS : masqués</button>
 				<button id="peripheriques" title="Manche, yoke, palonnier, manette des gaz, manette Xbox : assigner les axes et les boutons">Périphériques…</button>
+				<button id="vols" title="Rejeu et débriefing des derniers vols">Mes vols…</button>
 			</div>
 			<table class="aide">
 				<tr><th colspan="2">Pilotage (clavier AZERTY)</th></tr>
@@ -336,6 +337,35 @@
 		</div>
 	</div>
 	<div id="crash"><strong>CRASH</strong><span id="crash-raison"></span></div>
+	<!-- Fin de vol (lot 5) : vol enregistré, débriefing proposé sans bloquer l'écran (Debriefing.js, simulator.js) -->
+	<div id="fin-vol" hidden role="status">
+		<span><strong>Vol enregistré</strong> · <span id="fin-vol-duree"></span></span>
+		<div class="fin-vol-boutons">
+			<button id="fin-vol-debrief" type="button">Débriefing</button>
+			<button id="fin-vol-rejeu" type="button">Rejouer</button>
+			<button id="fin-vol-fermer" type="button" class="fin-vol-secondaire">Plus tard</button>
+		</div>
+	</div>
+	<!-- Rejeu 3D d'un vol enregistré (lot 5) : lecture, vitesse, position, caméras -->
+	<div id="rejeu" hidden>
+		<span class="rejeu-titre">REJEU</span>
+		<button id="rejeu-lecture" type="button" title="Lecture / pause (Espace)">⏸ Pause</button>
+		<span class="rejeu-groupe" role="group" aria-label="Vitesse du rejeu">
+			<button type="button" data-x="1" class="actif">×1</button>
+			<button type="button" data-x="2">×2</button>
+			<button type="button" data-x="4">×4</button>
+			<button type="button" data-x="8">×8</button>
+		</span>
+		<input id="rejeu-curseur" type="range" min="0" max="0" step="0.1" value="0" aria-label="Position dans le vol">
+		<output id="rejeu-temps">0:00 / 0:00</output>
+		<span class="rejeu-groupe" role="group" aria-label="Caméra du rejeu">
+			<button type="button" data-cam="libre">Libre</button>
+			<button type="button" data-cam="cabine">Cabine</button>
+			<button type="button" data-cam="exterieure" class="actif">Extérieure</button>
+		</span>
+		<button id="rejeu-debrief" type="button" title="Courbes et écarts à ce moment du vol">Débriefing</button>
+		<button id="rejeu-quitter" type="button" title="Quitter le rejeu">Quitter</button>
+	</div>
 	<div id="contexte-perdu" hidden>
 		<strong>Affichage 3D interrompu par la carte graphique</strong>
 		<span>Fermez les autres onglets 3D ou lourds, puis rechargez la page.</span>
@@ -353,6 +383,7 @@
 				<button id="mp-multi" class="mp-bouton"><strong>Multijoueur</strong><small id="mp-multi-detail">Partie privée entre amis</small></button>
 				<button id="mp-initiation" class="mp-bouton"><strong>Initiation</strong><small>Apprendre à piloter avec un moniteur</small></button>
 				<button id="mp-masse" class="mp-bouton"><strong>Masse et centrage</strong><small>Pilote, passagers, bagages et carburant</small></button>
+				<button id="mp-vols" class="mp-bouton"><strong>Mes vols</strong><small>Rejeu et débriefing des 20 derniers vols</small></button>
 				<button id="mp-parametres" class="mp-bouton"><strong>Paramètres</strong><small>Graphismes et aides au pilotage</small></button>
 				<button id="mp-peripheriques" class="mp-bouton"><strong>Périphériques</strong><small>Manche, yoke, palonnier, manette</small></button>
 				<a class="mp-bouton" href="manuel.html"><strong>Manuel</strong><small>Commandes et procédures</small></a>
@@ -683,6 +714,50 @@
 			<button id="periph-importer" class="periph-secondaire" title="Reprendre des profils exportés (JSON)">Importer</button>
 			<input id="periph-fichier" type="file" accept=".json,application/json" hidden>
 			<button id="periph-fermer">Fermer</button>
+		</div>
+	</dialog>
+
+	<!-- Mes vols : carnet des 20 derniers vols, débriefing (courbes, trajectoire, écarts) et accès au rejeu (Debriefing.js) -->
+	<dialog id="debriefing-dialog">
+		<section id="debrief-volet-liste">
+			<h3>Mes vols</h3>
+			<p class="reglages-intro">Les 20 derniers vols, gardés sur cet appareil seulement. Débriefing : trajectoire, courbes et écarts relevés automatiquement. Rejouer : revoir le vol en 3D. Un vol exporté en CSV s'ouvre dans un tableur ou s'importe sur un autre ordinateur.</p>
+			<div id="debrief-liste"></div>
+		</section>
+		<section id="debrief-volet-vol" hidden>
+			<h3>Débriefing</h3>
+			<dl id="debrief-entete"></dl>
+			<div class="debrief-grille">
+				<div class="debrief-carte-bloc">
+					<canvas id="debrief-carte" aria-label="Trajectoire du vol vue de dessus"></canvas>
+					<div class="debrief-zoom">
+						<button id="debrief-zoom-plus" type="button" title="Zoom avant">+</button>
+						<button id="debrief-zoom-moins" type="button" title="Zoom arrière">−</button>
+						<button id="debrief-zoom-tout" type="button" title="Tout le vol">⤢</button>
+					</div>
+					<p id="debrief-curseur-temps" class="debrief-curseur"></p>
+					<h4 class="debrief-groupe">Écarts relevés</h4>
+					<div id="debrief-ecarts"></div>
+				</div>
+				<div class="debrief-courbes">
+					<canvas id="debrief-profil" class="debrief-courbe debrief-courbe-haute"></canvas>
+					<canvas id="debrief-ias" class="debrief-courbe"></canvas>
+					<canvas id="debrief-alt" class="debrief-courbe"></canvas>
+					<canvas id="debrief-vario" class="debrief-courbe"></canvas>
+					<canvas id="debrief-inclinaison" class="debrief-courbe"></canvas>
+					<canvas id="debrief-incidence" class="debrief-courbe"></canvas>
+				</div>
+			</div>
+		</section>
+		<p id="debrief-message" role="status"></p>
+		<div class="multi-ligne debrief-pied">
+			<button id="debrief-importer" class="debrief-secondaire" data-volet="liste" title="Reprendre un vol exporté (CSV)">Importer CSV…</button>
+			<input id="debrief-fichier" type="file" accept=".csv,text/csv" hidden>
+			<button id="debrief-fermer" data-volet="liste">Fermer</button>
+			<button id="debrief-rejouer" data-volet="vol" title="Revoir le vol en 3D à partir du curseur">Rejouer depuis ce point</button>
+			<button id="debrief-exporter" class="debrief-secondaire" data-volet="vol" title="Enregistrer ce vol dans un fichier CSV">Exporter CSV</button>
+			<button id="debrief-retour" class="debrief-secondaire" data-volet="vol">Retour à la liste</button>
+			<button id="debrief-fermer-vol" data-volet="vol">Fermer</button>
 		</div>
 	</dialog>
 
