@@ -298,7 +298,13 @@ try { if (localStorage.getItem('manches') === '0') cockpit.setYokesVisible(false
 const crashEffect = new CrashEffect();
 let weather = null;
 // Réglage « Effets de l'atmosphère » : facteurs de la turbulence, des thermiques et de la vitesse de givrage
-const ATMOSPHERE_EFFECTS = { doux: { turbulence: 0.5, thermals: 0.5, icing: 1 / 3 }, realiste: { turbulence: 1, thermals: 1, icing: 1 }, aucun: { turbulence: 0, thermals: 0, icing: 0 } };
+// et du vent (demande du 22/11/2026 : vent trop violent) : force tirée pour la partie plafonnée à celle de la météo
+// annoncée (strengthCap), rafales et sautes de direction réduites, cisaillement en altitude plafonné (shearCap)
+const ATMOSPHERE_EFFECTS = {
+    doux: { turbulence: 0.5, thermals: 0.5, icing: 1 / 3, strengthCap: 1, gusts: 0.5, variation: 0.5, shearCap: 1.15 },
+    realiste: { turbulence: 1, thermals: 1, icing: 1, strengthCap: Infinity, gusts: 1, variation: 1, shearCap: 1.5 },
+    aucun: { turbulence: 0, thermals: 0, icing: 0, strengthCap: 1, gusts: 0, variation: 0.3, shearCap: 1 },
+};
 let atmosphereEffects = ATMOSPHERE_EFFECTS.doux;
 let weatherName = 'jour';   // nom de la météo choisie (envoyé aux autres joueurs : celle du créateur donne le vent)
 const hemiLight = new THREE.HemisphereLight(COLOR_LIGHT, COLOR_GROUND_BOUNCE);
@@ -5115,6 +5121,7 @@ function applySettings(values) {
     controls.inputRamp.setScale(values.controlRamp ?? 1);
     atmosphereEffects = ATMOSPHERE_EFFECTS[values.atmosphere] ?? ATMOSPHERE_EFFECTS.doux;
     cessnaSystems.icingScale = atmosphereEffects.icing;
+    wind.setEffects({ strengthCap: atmosphereEffects.strengthCap, gusts: atmosphereEffects.gusts, variation: atmosphereEffects.variation });
     if (weather) controls.turbulence = weather.turbulence * atmosphereEffects.turbulence;
     heliModel.assists.heliStability = values.heliStability ?? true;   // (R44 : son propre modèle de vol)
 }
@@ -6732,7 +6739,7 @@ let airSeed = 1, thermalsEnabled = !TEST_MODE;
 function updateAirMass() {
     const p = aircraft.position;
     const height = Math.max(0, p.y - terrain.heightAt(p.x, p.z));
-    controls.model.wind.copy(wind.vector).multiplyScalar(shearFactor(height));
+    controls.model.wind.copy(wind.vector).multiplyScalar(shearFactor(height, { cap: atmosphereEffects.shearCap }));
     const sunny = weather.night === 0 && weather.sun >= 1.5 && !weather.overcast && !weather.rain;
     controls.model.thermal = thermalsEnabled && sunny && !choosingSpawn && controls.getSurface() !== 'water'
         ? thermalAt(p.x, p.z, height, wind.now(), { seed: airSeed, strength: (weather.sun >= 2.2 ? 1.2 : 1) * atmosphereEffects.thermals }) : 0;

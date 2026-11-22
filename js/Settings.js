@@ -37,7 +37,7 @@ const OPTIONS = {
                        choices: [[0.5, 'Vive'], [1, 'Normale'], [1.5, 'Douce']] },
     // Effets de l'atmosphère et du moteur ajoutés au lot 3 (turbulence de Dryden, thermiques, givrage du carburateur) :
     // doux par défaut (demande du 21/11/2026 : l'avion était trop secoué)
-    atmosphere:      { group: 'Pilotage', label: "Effets de l'atmosphère", hint: "Turbulence (selon la météo), thermiques par beau temps, givrage du carburateur. Doux : moitié moins de turbulence et de thermiques, givrage trois fois plus lent ; réaliste : valeurs des normes et des abaques ; aucun : air calme, pas de givrage",
+    atmosphere:      { group: 'Pilotage', label: "Effets de l'atmosphère", hint: "Vent, turbulence (selon la météo), thermiques par beau temps, givrage du carburateur. Doux : vent jamais plus fort que la météo annoncée, rafales et sautes de direction moitié moindres, vent à peine plus fort en altitude, moitié moins de turbulence et de thermiques, givrage trois fois plus lent ; réaliste : valeurs des normes et des abaques ; aucun : vent régulier, air calme, pas de givrage",
                        choices: [['doux', 'Doux'], ['realiste', 'Réaliste'], ['aucun', 'Aucun']] },
     // Aides au pilotage : désactivées par défaut (pilotage réaliste)
     rotationAuto:    { group: 'Pilotage', label: 'Rotation automatique', hint: 'Au sol, le trim lève le nez tout seul au décollage',

@@ -84,3 +84,28 @@ test('turbulence : rafales en vol, calme au sol, tirage à part', async () => {
         assert.equal(draws, 0, `${kind} : aucun tirage dans model.random`);
     }
 });
+
+// Réglage « Effets de l'atmosphère » (22/11/2026, vent jugé trop violent) : en doux, force tirée plafonnée à celle de la
+// météo annoncée, rafales et sautes de direction moitié moindres ; réaliste : vent d'origine
+test('vent adouci : force plafonnée, rafales et sautes de direction réduites', () => {
+    const extremes = (effects) => {
+        const wind = new Wind();
+        let t = 0;
+        wind.now = () => t;
+        wind.setSeed(5);   // (graine à force tirée ×1,5 environ)
+        if (effects) wind.setEffects(effects);
+        wind.set(METARS.nuageux);
+        let max = 0, spread = 0;
+        for (t = 0; t < 600; t += 0.5) {
+            wind.update();
+            max = Math.max(max, wind.speed);
+            spread = Math.max(spread, Math.abs(((wind.direction - wind.base) % 360 + 540) % 360 - 180));
+        }
+        return { knots: wind.knots, max, spread };
+    };
+    const real = extremes(null), soft = extremes({ strengthCap: 1, gusts: 0.5, variation: 0.5 });
+    assert.ok(real.knots > METARS.nuageux.knots, `graine forte : ${real.knots} kt`);
+    assert.equal(soft.knots, METARS.nuageux.knots);
+    assert.ok(soft.max < real.max * 0.8, `rafales : ${soft.max.toFixed(1)} contre ${real.max.toFixed(1)} kt`);
+    assert.ok(soft.spread <= real.spread * 0.55, `sautes de direction : ${soft.spread.toFixed(0)} contre ${real.spread.toFixed(0)}°`);
+});

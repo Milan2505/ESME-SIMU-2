@@ -26,6 +26,11 @@ class Wind {
         this.metarKnots = 0;     // force et rafales de la météo choisie (kt), avant le tirage de la partie
         this.metarGust = 0;
         this.qnh = 1013;         // QNH de la partie (hPa)
+        // Réglage « Effets de l'atmosphère » (simulator.js) : force tirée plafonnée (fois celle de la météo), part des
+        // rafales et des sautes de direction ; 1 = valeurs d'origine
+        this.strengthCap = Infinity;
+        this.gustScale = 1;
+        this.variationScale = 1;
         this.local = null;       // météo de ce joueur ; shared : celle du créateur de la partie (multijoueur), prioritaire
         this.shared = null;
         this.setSeed(Math.floor(Math.random() * 2 ** 32));
@@ -68,6 +73,14 @@ class Wind {
         this._apply();
     }
 
+    // Réglage « Effets de l'atmosphère » : { strengthCap, gusts, variation }
+    setEffects({ strengthCap = Infinity, gusts = 1, variation = 1 } = {}) {
+        this.strengthCap = strengthCap;
+        this.gustScale = gusts;
+        this.variationScale = variation;
+        this._apply();
+    }
+
     _apply() {
         const metar = this.shared ?? this.local ?? {};
         const { wind = 360, knots = 0, variation = 0, gust = 0 } = metar;
@@ -76,7 +89,7 @@ class Wind {
         this.metarGust = gust;
         this.variation = variation;
         // (au plus 25 kt, rafales à 35 kt : au-delà, un Cessna ne vole plus)
-        const strength = metar.real ? 1 : this.seedStrength;
+        const strength = metar.real ? 1 : Math.min(this.seedStrength, this.strengthCap);
         this.knots = Math.min(25, Math.round(this.metarKnots * strength));
         this.gust = this.metarGust ? Math.min(35, Math.max(this.knots + 5, Math.round(this.metarGust * strength))) : 0;
         // QNH : celui du METAR réel, sinon tiré dans la plage de la météo (bornée à 995-1030)
@@ -117,8 +130,8 @@ class Wind {
         const turn = Math.sin(t * 0.031) * 0.6 + Math.sin(t * 0.077 + 1.3) * 0.3 + Math.sin(t * 0.19 + 4.1) * 0.1;
         const swell = Math.sin(t * 0.043 + 2) * 0.5 + Math.sin(t * 0.13 + 0.7) * 0.3 + Math.sin(t * 0.9 + 3) * 0.2;
         const burst = Math.max(0, Math.sin(t * 0.21) * Math.sin(t * 0.37 + 1));   // rafale : quelques secondes
-        this.direction = ((this.base + turn * this.variation / 2) % 360 + 360) % 360;
-        this.speed = Math.max(0, this.knots * (1 + 0.15 * swell) + (this.gust ? (this.gust - this.knots) * burst ** 2 : 0));
+        this.direction = ((this.base + turn * this.variation / 2 * this.variationScale) % 360 + 360) % 360;
+        this.speed = Math.max(0, this.knots * (1 + 0.15 * swell * this.gustScale) + (this.gust ? (this.gust - this.knots) * burst ** 2 * this.gustScale : 0));
         // Le vent vient de "direction" (0 = nord = -z, 90 = est = +x) et souffle à l'opposé
         const rad = this.direction * Math.PI / 180;
         this.vector.set(-Math.sin(rad), 0, Math.cos(rad)).multiplyScalar(this.speed * KT);
