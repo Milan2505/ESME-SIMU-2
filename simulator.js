@@ -31,7 +31,9 @@ import { ILS } from './js/ILS.js';
 import { Radio } from './js/Radio.js';
 import { MapView } from './js/MapView.js';
 import { ATC, METARS } from './js/ATC.js';
-import { isaTemperature, altimeterReading } from './js/Atmosphere.js';
+import { isaTemperature, altimeterReading, casToTas } from './js/Atmosphere.js';
+import { LESSONS } from './js/lessons/index.js';
+import { loadProgress } from './js/LessonGrade.js';
 import { shearFactor, thermalAt } from './js/Turbulence.js';
 import { parseMetar, metarToWeather, pickMetar, METAR_URL } from './js/Metar.js';
 import { KAP140 } from './js/KAP140.js';
@@ -375,8 +377,10 @@ if (TEST_MODE) {   // (mode test : rafales et aile qui tombe reproductibles, voi
     heliModel.random = seededRandom(2);
 }
 // Modèle de vol de l'avion de ce type (c172, f15) selon le réglage « Modèle de vol (Cessna) »
+// (leçons du registre, lot 6 : modèle réaliste pendant la leçon, quel que soit le réglage ; voir startLessonSetup)
+let lessonRealistic = false;
 function planeModelFor(type) {
-    return type === 'c172' && !SEA && settings.values.flightModel === 'realiste' ? realisticModel : planeModel;
+    return type === 'c172' && !SEA && (settings.values.flightModel === 'realiste' || lessonRealistic) ? realisticModel : planeModel;
 }
 // Réglage pris en compte au départ (spawnAt) et au changement d'appareil, jamais en vol : l'avion repart de zéro
 function syncPlaneModel() {
@@ -4420,7 +4424,7 @@ var initiation = new Initiation({
     ui: {
         panel: $('moniteur'), phase: $('moniteur-phase'), count: $('moniteur-compte'), progress: $('moniteur-progression'),
         title: $('moniteur-titre'), text: $('moniteur-texte'), why: $('moniteur-pourquoi'), hint: $('moniteur-souffle'),
-        advice: $('moniteur-conseil'), praise: $('moniteur-bravo'), next: $('moniteur-continuer'),
+        advice: $('moniteur-conseil'), praise: $('moniteur-bravo'), next: $('moniteur-continuer'), grade: $('moniteur-note'),
         buttons: { next: $('moniteur-continuer'), repeat: $('moniteur-repeter'), show: $('moniteur-montrer'), skipSpeech: $('moniteur-couper'), quit: $('moniteur-quitter') },
     },
     // Leçon en anglais : contrôleurs en anglais aussi (phraséologie OACI) ; langue d'avant rétablie à la fin
@@ -4468,6 +4472,18 @@ var initiation = new Initiation({
         setCabinViewPreset(1);
         setMenuBar(true);
     },
+    // Leçons du registre (lot 6, js/lessons/index.js) : départ, fin, panne moteur, radionavigation, écarts, élève aux commandes
+    startLesson: (setup) => startLessonSetup(setup),
+    endLesson: () => endLessonSetup(),
+    setEngineFailure: (on) => { lessonEngineFailed = Boolean(on); },
+    engineFailed: () => lessonEngineFailed,
+    navState: () => ({ vor: vor.state, obs: vor.course, nav1: navReceiver(avionics.nav1.active, avionics.powered(systems).navcom1, vor, true), ils: ils.state }),
+    reviewFlight: () => (recorder.recording ? reviewFlight(recorder.flight, { runways: airport.allRunways }) : []),
+    pilotInput: () => {
+        const r = controls._rotationVector, pad = controls._pad;
+        return r.lengthSq() > 0 || controls.accel !== 0 || Boolean(pad && Math.max(Math.abs(pad.pitch ?? 0), Math.abs(pad.roll ?? 0), Math.abs(pad.yaw ?? 0)) > 0.1);
+    },
+    persistProgress: !TEST_MODE,   // (mode test : progression gardée en mémoire seulement)
     getKap: () => kap,
     kapPress: (button) => kap.press(button, autopilotSensors()),
     altimeterFt: () => altimeterIndicated() / 0.3048,
@@ -4479,33 +4495,173 @@ var initiation = new Initiation({
     onChange: () => {
         wind.setHold(initiation.active);
         updateModes();
-        if (!initiation.active) endFlight('fin de la leçon', { summary: initiation.index >= (initiation.steps?.length ?? Infinity) ? initiation.summary?.() ?? '' : '' });
+        if (!initiation.active) {
+            // Leçon du registre notée : note, mention et critères rangés dans le vol (carnet, débriefing)
+            const g = initiation.def ? initiation.grade : null;
+            const meta = g ? { lesson: g.lesson, grade: g.score, mention: g.mention, passed: g.passed,
+                criteria: g.details.map((d) => ({ key: d.key, label: d.label, value: d.value, limit: d.limit, compare: d.compare, ok: d.ok, source: d.source })) } : {};
+            endFlight('fin de la leçon', { summary: g || initiation.index >= (initiation.steps?.length ?? Infinity) ? initiation.summary?.() ?? '' : '', meta });
+        }
     },
 });
+
+// --- Leçons du registre (lot 6) : départ par rapport à une piste d'ESME (voir js/lessons/index.js, format de setup) ------
+const LESSON_FT = 0.3048, LESSON_KT = 0.514444;
+let lessonSaved = null;            // chargement et vent d'avant la leçon, rendus à la fin
+let lessonEngineFailed = false;    // panne moteur de la leçon : moteur arrêté, démarreur sans effet
+// Chargement utilitaire (POH 172P p. 2-8 et fig. 6-5 : 2 100 lb au plus, banquette arrière et soute vides) : moniteur et
+// élève à l'avant, carburant réduit jusqu'à tenir dans le domaine utilitaire (WeightBalance.js, computeLoad().utility)
+function utilityLoad() {
+    for (let fuel = 70; fuel >= 20; fuel -= 5) {
+        const load = { ...currentLoad, pilot: 80, copilot: 80, rear: 0, baggage: 0, fuelLeft: fuel, fuelRight: fuel };
+        if (computeLoad(load).utility) return load;
+    }
+    return { ...currentLoad, pilot: 80, copilot: 80, rear: 0, baggage: 0, fuelLeft: 20, fuelRight: 20 };
+}
+function startLessonSetup(setup = {}) {
+    multiplayer.leave();
+    endFlight('leçon', { propose: false });
+    lessonSaved ??= { load: { ...currentLoad }, wind: wind.local };
+    lessonRealistic = true;
+    lessonEngineFailed = setup.engine === false;
+    newWind(TEST_MODE ? 1 : Math.floor(Math.random() * 2 ** 32));
+    if (setup.wind === 'calm') wind.set({ wind: 360, knots: 0, variation: 0, gust: 0, real: true });
+    atc.clearLog();
+    selectAirport(airport.main);
+    airportPanel.hidden = true;
+    closeMainMenu();
+    leaveHangar();
+    if (choosingSpawn) closeSpawnDialog();
+    const runways = atc.airport.runways;
+    const named = setup.runway && setup.runway !== 'active' ? runways.find((r) => r.name === String(setup.runway)) : null;
+    const rw = named ?? atc.departureRunway;
+    // Vent forcé par rapport à l'axe (+ = venant de la droite) : réglé une fois la piste fixée (elle reste celle de la leçon)
+    if (setup.wind && typeof setup.wind === 'object') {
+        const { fromRunway = 90, knots = 10, gust = 0 } = setup.wind;
+        wind.set({ wind: ((rw.heading + fromRunway) % 360 + 360) % 360, knots, gust, variation: 0, real: true });
+    }
+    if (setup.load === 'utility') {
+        lessonSaved.loadChanged = true;
+        applyLoad(utilityLoad());
+    }
+    const place = setup.place ?? 'air';
+    const spawn = place === 'stand' ? airport.spawns.find((sp) => sp.id === 'stand4') ?? airport.spawns.find((sp) => sp.cold)
+        : airport.spawns.find((sp) => sp.id === `rwy${rw.name}`) ?? airport.spawns.find((sp) => !sp.cold) ?? airport.spawns[0];
+    spawnAt(spawn);
+    if (place === 'air') {
+        // Position : le long de l'axe (along, m, > 0 vers le bout de piste), à gauche (lateral, m) ; ou finale (distanceNm,
+        // plan de 3° qui passe à 50 ft au seuil : OACI annexe 14, hauteur du repère ILS ~15 m), vent arrière (travers du seuil,
+        // 1 000 m côté circuit, 1 000 ft : voir CIRCUIT d'Initiation.js)
+        let along = setup.along ?? -10000, lateral = setup.lateral ?? 0, ft = setup.altitudeFt, heading = rw.heading;
+        if (setup.at === 'final') {
+            along = -(setup.distanceNm ?? 3) * 1852;
+            ft ??= 50 + Math.tan(3 * Math.PI / 180) * -along / LESSON_FT;
+        } else if (setup.at === 'downwind') {
+            along = setup.along ?? 0;
+            lateral = (rw.circuit === 'left' ? 1 : -1) * 1000;
+            ft ??= 1000;
+            heading = rw.heading + 180;
+        }
+        ft ??= 3000;
+        if (setup.heading === 'runway') heading = rw.heading;
+        else if (setup.heading === 'runway+180') heading = rw.heading + 180;
+        else if (typeof setup.heading === 'number') heading = setup.heading;
+        const x = rw.threshold.x + rw.direction.x * along + rw.left.x * lateral;
+        const z = rw.threshold.z + rw.direction.z * along + rw.left.z * lateral;
+        const field = terrain.heightAt(rw.threshold.x, rw.threshold.z);
+        aircraft.position.set(x, Math.max(field + ft * LESSON_FT, terrain.heightAt(x, z) + 150 * LESSON_FT) + WHEEL_HEIGHT, z);
+        aircraft.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -heading * Math.PI / 180);
+        const model = controls.model, forward = new THREE.Vector3(0, 0, -1).applyQuaternion(aircraft.quaternion);
+        const tas = casToTas((setup.speedKt ?? 95) * LESSON_KT, aircraft.position.y);
+        model.restart(false);
+        model.velocity.copy(forward).multiplyScalar(tas);
+        model.airspeed = tas;
+        model.throttle = setup.throttle ?? 0.68;
+        const levels = model.aircraft.flapLevels ?? [0], level = Math.max(0, Math.min(levels.length - 1, setup.flaps ?? 0));
+        model.setFlapLevel(level);
+        model.flaps = levels[levels.length - 1] ? levels[level] / levels[levels.length - 1] : 0;
+        model.trim = THREE.MathUtils.degToRad(setup.trimDeg ?? 14);
+        controls.saveState();
+    }
+    if (setup.nav1) avionics.nav1.active = parseFrequency(String(setup.nav1));
+    if (setup.obs !== undefined) vor.setCourse(setup.obs);
+    avionics.baro = Math.round(wind.qnh);
+    setCabinViewPreset(1);
+    setMenuBar(true);
+    return { runway: rw };
+}
+// Fin d'une leçon du registre : modèle de vol du réglage (au prochain départ), chargement et vent d'avant, moteur rendu
+function endLessonSetup() {
+    lessonRealistic = false;
+    lessonEngineFailed = false;
+    // Aide « protection décrochage » coupée par les leçons décrochages et vrille : rendue telle que dans les réglages,
+    // même si l'élève quitte la leçon avant sa fin
+    for (const model of [planeModel, realisticModel]) model.assists.stallProtection = Boolean(settings.values.stallProtection);
+    if (!lessonSaved) return;
+    if (lessonSaved.loadChanged) applyLoad(lessonSaved.load);
+    wind.set(lessonSaved.wind ?? {});
+    lessonSaved = null;
+}
+// Panneau d'initiation : les leçons du registre, leurs objectifs et la meilleure note (progression)
+function lessonProgress() {
+    return initiation?.progress ?? loadProgress();   // (mode test : la progression en mémoire d'Initiation)
+}
+function renderLessonList() {
+    const box = $('initiation-lecons');
+    if (!box) return;
+    const progress = lessonProgress();
+    box.replaceChildren(...LESSONS.map((lesson, i) => {
+        const button = document.createElement('button');
+        button.dataset.niveau = lesson.id;
+        const title = document.createElement('strong');
+        title.textContent = `${i + 1}. ${lesson.title?.fr ?? lesson.id}`;
+        const summary = document.createElement('span');
+        summary.textContent = lesson.summary?.fr ?? '';
+        const goals = document.createElement('ul');
+        for (const objective of lesson.objectives ?? []) {
+            const li = document.createElement('li');
+            li.textContent = objective.fr ?? objective;
+            goals.append(li);
+        }
+        const best = document.createElement('em');
+        const p = progress[lesson.id];
+        best.className = p?.passed ? 'lecon-reussie' : '';
+        best.textContent = p ? `Meilleure note : ${p.best}/100${p.passed ? ' · réussie' : ''} · ${p.attempts} essai${p.attempts > 1 ? 's' : ''}` : 'Pas encore faite';
+        button.append(title, summary, goals, best);
+        return button;
+    }));
+    box.hidden = LESSONS.length === 0;
+    for (const el of initiationDialog.querySelectorAll('.lecons-bloc')) el.hidden = LESSONS.length === 0;
+}
 const initiationDialog = $('initiation-dialog');
 function openInitiation() {
+    renderLessonList();
     initiationDialog.showModal();
 }
 $('initiation').addEventListener('click', openInitiation);
 $('initiation').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') openInitiation();
 });
-for (const button of initiationDialog.querySelectorAll('[data-niveau]')) {
-    button.addEventListener('click', () => {
+// (boutons des niveaux et des leçons du registre, ajoutés à l'ouverture : un seul écouteur sur la fenêtre)
+initiationDialog.addEventListener('click', (event) => {
+    const button = event.target.closest?.('[data-niveau]');
+    if (!button || !initiationDialog.contains(button)) return;
+    {   // (bloc d'origine : une leçon choisie)
         if (multiplayer.code && !confirm(`Quitter la partie ${multiplayer.code} pour l'initiation ?`)) return;
         initiationDialog.close();
         sounds.unlock();
         radioVoices.preload();
         const lang = initiationDialog.querySelector('[data-langue-lecon].actif')?.dataset.langueLecon ?? 'fr';
         try { localStorage.setItem('initiation-langue', lang); } catch { /* stockage indisponible */ }
-        const level = button.dataset.niveau === 'ap' ? 'ap' : Number(button.dataset.niveau), cameraGuide = $('initiation-camera').checked;
+        const id = button.dataset.niveau;
+        const level = id === 'ap' ? 'ap' : /^\d+$/.test(id) ? Number(id) : id, cameraGuide = $('initiation-camera').checked;
         if (aircraftType !== 'c172') setAircraftType('c172');   // la leçon se fait sur le Cessna
         enterGame(() => {
             initiation.start(level, cameraGuide, lang);
             view.focus();
         });
-    });
-}
+    }
+});
 $('initiation-annuler').addEventListener('click', () => initiationDialog.close());
 // Langue de la leçon : boutons Français / English (retenue d'une visite à l'autre)
 const lessonLanguages = [...initiationDialog.querySelectorAll('[data-langue-lecon]')];
@@ -5419,6 +5575,10 @@ window.__sim = {
     get model() { return controls.model; },
     get systems() { return systems; },
     get initiation() { return initiation; },
+    // Leçons du lot 6 : registre (js/lessons/index.js), progression (en mémoire en mode test), panne moteur de la leçon
+    lessons: LESSONS,
+    get progress() { return lessonProgress(); },
+    get engineFailed() { return lessonEngineFailed; },
     get errors() { return loopErrors; },
     // Commandes : gaz (0 -> 1 ; R44 : collectif), manche et palonnier (-1 -> 1, voir PlaneControls.setTouchInput), volets
     setThrottle(value) { controls.throttle = Math.min(1, Math.max(0, value)); },
@@ -5462,6 +5622,9 @@ function recoverFromFreeze(reason) {
             score: code ? multiplayer.score : null, erreurs: loopErrors.slice(-20), aCoups: freezeLog.slice(-20), tachesLongues: longTasks.slice(-20), messagesLents: multiplayer.slowMessages.slice(-20) }));
     } catch { /* stockage indisponible */ }
     console.warn('Jeu figé, rechargement automatique :', reason);
+    // Mode test : pas de rechargement (il ferait quitter le mode test : l'adresse rechargée n'a plus ?test=1) ; sous la
+    // charge des tests en parallèle (WebGL logiciel), une image peut tarder plus de FREEZE_STALL sans que le jeu soit figé
+    if (TEST_MODE) { recovering = false; lastLoopAt = performance.now(); return; }
     location.href = code ? `${location.pathname}?partie=${code}` : location.pathname;
 }
 setInterval(() => {
@@ -6782,7 +6945,21 @@ function autopilotSensors() {
     };
 }
 function updateAutopilot(delta) {
-    controls.setAutopilotOutput(kap.update(Math.min(delta, 0.1), autopilotSensors()));
+    const dt = Math.min(delta, 0.1);
+    const sensors = autopilotSensors();
+    const output = kap.update(dt, sensors);
+    // Leçons du lot 6 : le moniteur a les commandes (bouton Montrer, InstructorPilot.js) : sa sortie remplace celle du
+    // KAP 140 sur le même canal (cap vrai, pas celui du conservateur : les consignes des leçons sont en cap vrai)
+    let demo = null;
+    if (initiation?.demonstrating && dt > 0 && !choosingSpawn && !replay) {
+        demo = initiation.instructorOutput(dt, { ...sensors, heading: controls.getHeading(), side: controls.model.sideAcceleration ?? 0, throttle: controls.getThrottle() });
+    }
+    controls.setAutopilotOutput(demo ?? output);
+    // Panne moteur d'une leçon : le moteur s'arrête et ne repart pas (démarreur sans effet) jusqu'à la fin de la panne
+    if (lessonEngineFailed && aircraftType === 'c172') {
+        if (systems.running) systems._stop('panne');
+        systems._crank = 0;
+    }
 }
 kap.addEventListener('disconnect', () => navAudio.disconnect());
 kap.addEventListener('pft', () => navAudio.disconnect());   // fin du test au démarrage : alarme (p. 8)
@@ -6805,24 +6982,52 @@ function updateAirMass() {
 // vent, le modèle de vol, les systèmes, la radio et la leçon ; l'image n'est dessinée qu'une fois. Les attentes en temps
 // réel de la radio sont divisées par le même facteur (TimeScale.js). En jeu, simTimeScale vaut 1 : rien ne change
 let simTimeScale = 1;
-function simulateStep(delta) {
-    if (!choosingSpawn) windClock += delta;
+// Pas fixe de la simulation (PlaneControls, 1/120 s ; tests/frame-rate.test.js) : ce qui agit sur le vol avance au même
+// pas que la physique, quelle que soit la cadence d'images. Avant chaque pas : horloge du vent (mode test), vent, masse
+// d'air, pilote automatique ou moniteur ; après : systèmes (moteur, carburant, volets) transmis au modèle, masse,
+// échantillon de l'enregistreur (instants exacts, 10 par seconde)
+function systemsTick(dt) {
+    if (!controls.isCrashed() && !choosingSpawn && !replay) systems.update(dt, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
+    controls.model.enginePower = systems.power;
+    controls.model.mixture = systems.mixture ?? 1;
+    controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
+    controls.model.flapsPowered = systems.flapsPowered;
+}
+controls.beforeTick = (dt) => {
+    if (TEST_MODE) windClock += dt;
     wind.update();
     updateAirMass();
-    updateAutopilot(delta);
-    if (!choosingSpawn) controls.update( delta );
-    recordSample(delta);
+    updateAutopilot(dt);
+};
+controls.afterTick = (dt) => {
+    systemsTick(dt);
+    updateLoad();
+    recordSample(dt);
+};
+// Vol d'une image : la physique par pas fixes (crochets ci-dessus) ; sans physique (choix du départ, crash, rejeu),
+// vent, pilote automatique et horloge du vol avancent quand même, une fois pour l'image
+function flightFrame(delta) {
+    if (!replay && !choosingSpawn && controls.enabled !== false && !controls.isCrashed()) {
+        controls.update(delta);
+        return;
+    }
+    if (replay) { systemsTick(0); return; }   // (rejeu : physique figée, l'échantillon enregistré est posé, voir replayFrame)
+    const dt = Math.min(delta, 0.1);
+    if (TEST_MODE && !choosingSpawn) windClock += dt;
+    wind.update();
+    updateAirMass();
+    updateAutopilot(dt);
+    recordSample(dt);
+    systemsTick(dt);
+}
+function simulateStep(delta) {
+    flightFrame(delta);
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
     if (SEA && !choosingSpawn) updateCarrier( delta );
     try { initiation.update( delta ); }
     catch (error) { if (!initiationErrorShown) { initiationErrorShown = true; console.error('Initiation :', error); } }
     updateAtc( delta );
-    if (!controls.isCrashed() && !choosingSpawn && !replay) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
-    controls.model.enginePower = systems.power;
-    controls.model.mixture = systems.mixture ?? 1;
-    controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
-    controls.model.flapsPowered = systems.flapsPowered;
     if (aircraftType === 'f15') updateJet(delta);
     if (aircraftType === 'r44') updateHeli(delta);
     updateLoad();
@@ -6861,12 +7066,7 @@ function drawFrame(time) {
         // Rejeu : physique figée, l'échantillon enregistré est posé sur l'avion (voir replayFrame)
         try { replayFrame(delta); } catch (error) { recordError('rejeu', error); }
     } else {
-        if (TEST_MODE && !choosingSpawn) windClock += Math.min(delta, 0.1);   // (même pas que la physique)
-        wind.update();
-        updateAirMass();
-        updateAutopilot(delta);
-        if (!choosingSpawn) controls.update( delta );
-        recordSample(delta);
+        flightFrame(delta);   // (vent, pilote automatique, physique, systèmes, enregistreur : par pas fixes)
         checkPlaneCollisions();
         if (!choosingSpawn) updateWaterSink( delta );
         if (SEA && !choosingSpawn) updateCarrier( delta );
@@ -6917,12 +7117,8 @@ function drawFrame(time) {
             sounds.click(chaseView ? 0.15 : 0.3);
         }
     }
-    // (C172 : le régime vient du modèle de vol, équilibre moteur / hélice ; le levier de mixture lui est transmis)
-    if (!controls.isCrashed() && !choosingSpawn && !replay) systems.update(delta, controls.getThrottle(), controls.getSpeed(), aircraftType === 'c172' ? controls.model.rpm : null);
-    controls.model.enginePower = systems.power;
-    controls.model.mixture = systems.mixture ?? 1;
-    controls.model.intakeDensity = systems.intakeDensity ?? 1;   // (réchauffe carburateur : air chaud admis)
-    controls.model.flapsPowered = systems.flapsPowered;
+    // (C172 : le régime vient du modèle de vol, équilibre moteur / hélice ; le levier de mixture lui est transmis.
+    // Systèmes : à chaque pas fixe de la physique, voir controls.afterTick ; leviers pris en compte au pas suivant)
     const jet = aircraftType === 'f15', heli = aircraftType === 'r44', cessna = aircraftType === 'c172';
     if (jet && !replay) updateJet(delta);
     if (heli && !replay) updateHeli(delta);
@@ -7113,7 +7309,7 @@ function recordSample(delta) {
     const dt = Math.min(Math.max(delta, 0), 0.1);
     flightClock += dt;
     if (controls.isCrashed()) return;
-    recorder.record(flightClock, flightSample());
+    if (recorder.due(flightClock)) recorder.record(flightClock, flightSample());   // (10 par seconde : pas à chaque pas de 1/120 s)
     // Messages radio apparus depuis le dernier échantillon
     const log = atc.log;
     let i = log.length;
@@ -7121,18 +7317,20 @@ function recordSample(delta) {
     if (lastAtcEntry && i === 0 && log[0] !== lastAtcEntry) i = Math.max(0, log.length - 1);
     for (const entry of log.slice(i)) recorder.event(flightClock, 'atc', `${entry.from === 'pilot' ? 'Pilote' : entry.station ?? entry.from} : ${entry.text}`);
     lastAtcEntry = log[log.length - 1] ?? lastAtcEntry;
-    // Arrêté au sol, moteur coupé, après un vol : fin du vol (puis un nouveau vol commence s'il repart)
-    const stopped = flightLiftedOff && controls.isOnGround() && controls.getSpeed() < 0.5 && !systems.running;
+    // Arrêté au sol, moteur coupé, après un vol : fin du vol (puis un nouveau vol commence s'il repart). Pas pendant une
+    // leçon : c'est la fin de la leçon qui ferme le vol, avec sa note (atterrissage moteur coupé des leçons de panne)
+    const stopped = flightLiftedOff && !initiation?.active && controls.isOnGround() && controls.getSpeed() < 0.5 && !systems.running;
     parkedTime = stopped ? parkedTime + dt : 0;
     if (parkedTime > 3) endFlight('arrêt au parking');
 }
 
 // Fin du vol enregistré : rangé dans le carnet (s'il dure au moins 20 s) ; débriefing proposé s'il y a eu un envol
-function endFlight(reason, { propose = true, summary = '' } = {}) {
+// meta : champs ajoutés au vol (leçon notée du lot 6 : lesson, grade, mention, passed, criteria)
+function endFlight(reason, { propose = true, summary = '', meta = {} } = {}) {
     if (!recorder.recording) return null;
     recorder.event(flightClock, 'info', `Fin du vol : ${reason}`);
     const liftedOff = flightLiftedOff;
-    const flight = recorder.stop({ minSeconds: 20, endReason: reason, ...(summary ? { summary } : {}) });
+    const flight = recorder.stop({ minSeconds: 20, endReason: reason, ...meta, ...(summary ? { summary } : {}) });
     flightLiftedOff = false;
     parkedTime = 0;
     if (!flight) return null;
@@ -7332,6 +7530,8 @@ const debriefing = new Debriefing(document.getElementById('debriefing-dialog'), 
         return map;
     },
     review: (flight) => reviewFlight(flight, { runways: !flight.meta?.map || flight.meta.map === MAP ? airport.allRunways : [] }),
+    // Pistes pour repérer la finale par la géométrie (bande « Finale » des courbes) : seulement si le vol a eu lieu sur cette carte
+    runways: (flight) => (!flight.meta?.map || flight.meta.map === MAP ? airport.allRunways : []),
     canReplay: (flight) => (flight.meta?.map && flight.meta.map !== MAP ? `Ce vol a eu lieu sur la carte « ${flight.meta.map} » : ouvrez cette carte pour le rejouer en 3D (le débriefing reste disponible ici).` : null),
     onReplay: (flight, id, t) => startReplay(flight, t, id),
 });

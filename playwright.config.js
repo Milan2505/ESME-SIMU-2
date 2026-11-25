@@ -13,7 +13,10 @@ export default defineConfig({
     timeout: 300_000,            // par test : écran de chargement compris (shaders compilés par le processeur)
     expect: { timeout: 30_000 },
     fullyParallel: true,
-    workers: availableParallelism(),   // un simulateur par cœur (décision du 20/11/2026 : e2e en parallèle)
+    // Un simulateur par cœur physique (décision du 20/11/2026 : e2e en parallèle ; availableParallelism compte les cœurs
+    // logiques, deux par cœur physique). Un par cœur logique saturait le processeur depuis les leçons du lot 6 (19 tests) :
+    // WebGL logiciel à plusieurs fils par page, images de plus de 8 s, tests hors délai
+    workers: Math.max(1, Math.floor(availableParallelism() / 2)),
     retries: 0,
     reporter: [['list'], ['html', { open: 'never' }]],
     outputDir: 'test-results',

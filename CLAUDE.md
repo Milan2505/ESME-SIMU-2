@@ -15,8 +15,8 @@ Le site reste statique : `package.json` ne sert qu'aux vérifications, rien de `
 | `npm run lint` | ESLint, règles recommandées (`eslint.config.js`) sur tout le code (cache dans `node_modules/.cache`) | ~1 s |
 | `npm test` | tests Node (`tests/*.test.js`) : modèles de vol, atmosphère, moteur et hélice, comportements réglés en jeu (non-régression), ILS, VOR, vent, masse et centrage, import map, performances C172P | ~3 s |
 | `npm run check` | lint + tests Node : **à lancer après chaque modification** | ~5 s |
-| `npm run test:e2e` | Playwright (`tests/e2e/`, sauf l'initiation complète) : le vrai simulateur dans Chromium sans fenêtre, WebGL logiciel, sans réseau ; en parallèle, en temps accéléré | ~1,5 min |
-| `npm run check:full` | check + test:e2e | ~2 min |
+| `npm run test:e2e` | Playwright (`tests/e2e/`, sauf l'initiation complète) : le vrai simulateur dans Chromium sans fenêtre, WebGL logiciel, sans réseau ; en parallèle (un simulateur par cœur physique), en temps accéléré ; les leçons du lot 6 jouées en entier | ~5 min |
+| `npm run check:full` | check + test:e2e | ~5 min |
 | `npm run test:initiation` | Playwright : initiation complète sur le modèle réaliste, chaque étape validée par sa condition (`tests/e2e/initiation.spec.js`, pilote de test `initiation-driver.js`) ; quand lancer : voir les règles ci-dessous ; en temps accéléré ×8 | ~2 min |
 
 Règles :
@@ -24,9 +24,10 @@ Règles :
   seule fois, juste avant le commit ; `npm run test:initiation` seulement si la leçon ou le vol du Cessna ont changé
   (`js/Initiation.js`, `js/ATC.js`, `js/RigidBodyModel.js`, `js/FlightModel.js`, `js/data/C172pAero.js`, `js/Cessna172.js`,
   `js/Propulsion.js`, `js/Atmosphere.js`, `js/InputRamp.js`, `js/PlaneControls.js`), une seule fois avant le commit. Les
-  tests de bout en bout tournent en parallèle (un simulateur par cœur) et en temps accéléré (`window.__sim.setTimeScale`,
-  mode test seulement : même physique, pas de 0,1 s au plus ; radio et moniteur muets et accélérés) : ~1,5 min pour
-  `test:e2e`, ~2 min pour `test:initiation`.
+  tests de bout en bout tournent en parallèle (un simulateur par cœur physique : la moitié des cœurs logiques, un par
+  cœur logique saturait le processeur) et en temps accéléré (`window.__sim.setTimeScale`, mode test seulement : même
+  physique, pas de 0,1 s au plus ; radio et moniteur muets et accélérés) : ~5 min pour `test:e2e`, ~2 min pour
+  `test:initiation`. Pour une leçon du lot 6 seule : `npx playwright test tests/e2e/lecon-<id>.spec.js`.
 - Ne jamais annoncer une tâche finie sans `npm run check` vert, et dire quels tests couvrent la modification (tests
   existants qui l'exercent, ou tests ajoutés). Pas de test qui la couvre : le dire aussi.
 - `npm run check:full` est obligatoire quand la modification touche au rendu (Graphics, shaders, modèles 3D, cabines),
@@ -114,7 +115,10 @@ Appareils et physique (`js/`) :
   (`syncPlaneModel` dans simulator.js), jamais sur la carte Mer. `InputRamp.js` : montée progressive des commandes
   clavier et tactiles du modèle réaliste (réglage `controlRamp`). `HeliModel.js` : hélicoptère R44
   (élément de pale, patins), même interface. `PlaneControls.js` : clavier, tactile et axes des périphériques
-  (`setAxisInput`, sans montée progressive) -> commandes du modèle, valeurs des instruments. `Random.js` : tirage à graine (mulberry32).
+  (`setAxisInput`, sans montée progressive) -> commandes du modèle, valeurs des instruments ; tout au pas fixe de 1/120 s
+  (`update(delta)` rend le nombre de pas ; crochets `beforeTick` : vent, masse d'air, pilote automatique et moniteur ;
+  `afterTick` : systèmes, charge, enregistrement), d'où la même trajectoire à toute cadence d'images
+  (`tests/frame-rate.test.js`). `Random.js` : tirage à graine (mulberry32).
 - Systèmes : `Systems.js` (C172 : électricité, moteur, carburant, dépression, feux ; réchauffe et givrage du carburateur,
   `CarbIcing.js` pur : abaque CAA SSL 14, chute de régime du POH), `JetSystems.js` (F-15 : JFS,
   réacteurs, postcombustion), `R44Systems.js` (R44 : embrayage, régulateur). `Damage.js`, `Shield.js`, `Weapons.js`,
@@ -146,9 +150,19 @@ Appareils et physique (`js/`) :
   `FlightStore.js` (20 derniers vols dans IndexedDB ; mémoire en mode test), `Replay.js` (pur : lecture, ×1 à ×8),
   `FlightReview.js` (pur : écarts relevés, seuils sourcés), `Charts.js` (courbes canvas), `Debriefing.js` (fenêtre Mes
   vols / débriefing) ; enregistrement, fin du vol et rejeu 3D dans simulator.js (« Carnet de vols », fin du fichier).
+  `FlightReview.js` : seuils sourcés (ACS, FSF, 14 CFR ; « non relu » sinon), finale repérée par la géométrie
+  (`finalSegments`).
+- Leçons (lot 6) : registre `js/lessons/index.js` (format d'une leçon décrit en tête : `setup`, `criteria` sourcés,
+  `reviewKinds`, `build(lang, tools)` ; étapes au format de `buildSteps` plus `measure` et `demo`) ; leçons
+  `decrochages.js`, `virages45.js`, `panne-decollage.js`, `panne-campagne.js`, `vor.js`, `ils.js`, `vent-travers.js`,
+  `vrille.js` (pures, jouées aussi au banc Node). `LessonGrade.js` (pur : note, mention, progression localStorage
+  `esme-progression`), `InstructorPilot.js` (pur : le moniteur vole l'étape, bouton Montrer). Départ de la leçon :
+  `startLessonSetup` / `endLessonSetup` dans simulator.js (modèle réaliste imposé, vent, masse, NAV 1, panne moteur) ;
+  note rangée dans le vol (`meta.lesson`, `grade`, `criteria`). `window.__sim.lessons`, `progress`, `engineFailed`.
 - Interface : `Settings.js` (qualité, aides au pilotage ; `persist`), `TouchControls.js`, `TabletRegistry.js`,
   `TabletPanels.js`, `Draggable.js`, `Device.js`, `Loading.js` (écran de chargement, suivi des chargements),
-  `Initiation.js` (leçon guidée), `WeightBalance.js` (masse et centrage, `computeLoad` pur), `DataLoader.js`,
+  `Initiation.js` (moteur des leçons guidées : tour de piste niveaux 1 et 2, pilote automatique, et leçons du registre),
+  `WeightBalance.js` (masse et centrage, `computeLoad` pur), `DataLoader.js`,
   `Version.js` (généré).
 
 Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion seul, automatismes de test, vitesses
@@ -157,8 +171,11 @@ tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu)
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
 `keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `straight-flight.test.js` (avion droit manche lâché : effets de l'hélice supprimés), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
 `adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `flight-recorder.test.js`, `replay.test.js`, `flight-review.test.js`, `charts.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
-Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `helpers/modes.js` (modèle linéaire, identification),
+Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `frame-rate.test.js` (même vol à 60, 30 et 15 images/s),
+`lesson-grade.test.js`, `instructor-pilot.test.js`, `lessons-*.test.js` (chaque leçon du lot 6 jouée au banc réaliste),
+`helpers/modes.js` (modèle linéaire, identification),
 
 `helpers/c172-perf.js` (procédures de mesure), `*.test.js` (node --test), `e2e/server.js` (serveur local, CDN remplacé
 par node_modules), `e2e/vol.spec.js` (scénarios Playwright), `e2e/realiste.spec.js` (modèle réaliste : initiation, vol libre), `e2e/peripheriques.spec.js` (yoke et palonnier
-simulés : fenêtre Périphériques, décollage), `e2e/meteo.spec.js` (QNH et altimètre, METAR, réchauffe et givrage), `e2e/pilote-auto.spec.js` (leçon pilote automatique, capture du KAP 140), `e2e/carnet.spec.js` (vol enregistré, débriefing, CSV, rejeu 3D), `playwright.config.js`, `eslint.config.js`.
+simulés : fenêtre Périphériques, décollage), `e2e/meteo.spec.js` (QNH et altimètre, METAR, réchauffe et givrage), `e2e/pilote-auto.spec.js` (leçon pilote automatique, capture du KAP 140), `e2e/carnet.spec.js` (vol enregistré, débriefing, CSV, rejeu 3D), `e2e/lecon-*.spec.js` (chaque leçon du lot 6 jouée
+par le moniteur : étapes, note, progression), `playwright.config.js`, `eslint.config.js`.

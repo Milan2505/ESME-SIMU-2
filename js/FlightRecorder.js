@@ -39,6 +39,12 @@ export class FlightRecorder {
     }
 
     // Échantillon au temps t (s, temps de jeu) : gardé s'il tombe au pas d'échantillonnage (10 par seconde)
+    // Un échantillon serait-il pris à l'instant t ? (l'appelant évite de construire l'échantillon à chaque pas de physique)
+    due(t) {
+        const f = this.flight;
+        return Boolean(f) && t + 1e-9 >= this._next && f.samples.length < this.maxSamples;
+    }
+
     record(t, sample) {
         const f = this.flight;
         if (!f || t + 1e-9 < this._next || f.samples.length >= this.maxSamples) return false;

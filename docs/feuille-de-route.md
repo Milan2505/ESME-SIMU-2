@@ -336,11 +336,17 @@ profil vertical, courbes (`Charts.js`), écarts relevés (`FlightReview.js`, seu
 Rejeu 3D (`Replay.js`) : physique figée, échantillon posé sur l'avion (instruments, HUD, gouvernes, son), pause, ×1 à ×8,
 caméras libre, cabine et extérieure. Export et import CSV. Tests : `flight-recorder`, `replay`, `flight-review`, `charts`,
 `e2e/carnet.spec.js`.
-**Reste à faire** : seuils non relus dans une source primaire (tolérance d'approche +10 / −5 kt de l'ACS FAA, toucher
-ferme / dur à 300 / 600 ft/min, ±60 m et 5 m au point d'aboutissement, écarts ILS 0,2 / 0,5, VFE et facteurs de charge) ;
-« Finale » reconnue par la descente sous 500 ft (une ondulation en montée peut y passer) ; rejeu du F-15 et du R44 :
-pose, commandes et HUD rejoués, mais réacteurs et rotor gardent leur état d'avant le rejeu ; vol d'une autre carte :
-débriefing seulement.
+**Mis à jour au lot 6 (25/11/2026)** : seuils sourcés dans `FlightReview.js` (approche +10 / −5 kt : ACS PA.IV.B.S7 ;
+porte de 500 ft et 1 000 ft/min au plus : FSF ALAR BN 7.1 ; point d'aboutissement 0 à +122 m, +61 m en court : ACS
+PA.IV.B.S10 / F.S10 ; ILS ½ échelle (un point FSF) puis ¾ (ACS IR IR.VI.B.S12) ; décrochage sévère sous 1 500 ft : ACS
+PA.VII.B.S2 ; +3,8 / −1,52 g : 14 CFR 23.337 ; toucher dur 510 ft/min : ancien 23.473(d)) ; finale repérée par la
+géométrie (`finalSegments` : avant le seuil, dans un cône de 10° autour de l'axe, route à ±30°, en descente, sous
+1 000 ft et à 5 NM au plus) ; écarts ILS relevés en descente seulement (une remise de gaz n'en est plus un).
+**Reste à faire** : seuils encore « non relu » (toucher ferme 300 ft/min, axe 5 m au toucher, inclinaison > 30° sous
+500 ft, gaz au toucher, +3,0 g volets sortis, VFE 110 / 85 kt, réglages de détection de la finale) ; VNE à arbitrer
+(163 kt dans le jeu et le HUD, 158 kt dans la copie remise en page du POH 172P : 163 est la valeur des 172R/S) ; rejeu du
+F-15 et du R44 : pose, commandes et HUD rejoués, mais réacteurs et rotor gardent leur état d'avant le rejeu ; vol d'une
+autre carte : débriefing seulement.
 
 ---
 
@@ -358,6 +364,25 @@ tenue d'un radial) ; 5. Approche ILS ; 6. Atterrissage par vent de travers ; 7. 
 Chaque leçon : objectifs, critères chiffrés de réussite évalués automatiquement (avec le débriefing du lot 5 s'il
 existe), note finale, et progression enregistrée. Écris d'abord le scénario de chaque leçon et soumets-le-moi.
 ```
+
+**État (25/11/2026)** : livré, scénarios non soumis (à la demande). Huit leçons au registre `js/lessons/index.js` (la
+panne moteur en deux : au décollage, en campagne), jouées par le moteur d'`Initiation.js` en modèle réaliste, départ
+décrit par la leçon (`startLessonSetup` dans simulator.js : en vol, en finale, au seuil ; vent, masse utilitaire, NAV 1).
+Chaque leçon : objectifs, critères chiffrés mesurés en vol, chacun avec sa source (FAA-S-ACS-6C et 8C, EASA AMC1
+FCL.235, FSF ALAR BN 7.1, POH 172P ; le reste marqué « non relu »), note sur 100 et mention (`LessonGrade.js` : écarts du
+débriefing retenus par la leçon, −5 / −15 ; réussite au sens de l'ACS : toute tolérance dépassée = non réussi),
+progression (`esme-progression`, meilleure note et essais affichés dans la fenêtre d'initiation), note rangée dans le
+carnet de vols (`meta.lesson`, `grade`, `criteria`). Bouton Montrer : le moniteur vole l'étape (`InstructorPilot.js`),
+critères alors notés « démontré », hors note. Même trajectoire à 60, 30 et 15 images/s : physique, systèmes, vent,
+pilote automatique et enregistrement au pas fixe de 1/120 s (`PlaneControls`, `tests/frame-rate.test.js`). Tests :
+`lesson-grade`, `instructor-pilot`, `lessons-*` (leçons jouées au banc Node), `e2e/lecon-*.spec.js` (chaque leçon jouée
+par le moniteur dans le simulateur, note et progression).
+**Reste à faire** : le jeu ne juge pas un champ quelconque (panne en campagne : champ désigné, l'aérodrome) ; perte
+d'altitude aux décrochages non notée (pas de chiffre dans l'ACS) ; vrille notée sur le POH seulement (l'ACS PA.VII.D est
+une tâche de connaissances) ; gains des démonstrations réglés au banc (non relus) ; une étape avec `wait` déjà accomplie
+pendant l'attente est sautée (comportement du tour de piste, contourné dans les leçons) ; au-dessus de 120 images/s,
+certaines images n'ont pas de pas de physique (saccade possible à 144 Hz, interpolation de la pose rendue à faire) ;
+`updateJet`, `updateHeli`, `updateIls` et `Initiation.update` restent par image.
 
 ---
 

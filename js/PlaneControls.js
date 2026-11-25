@@ -16,6 +16,10 @@ const _resetEvent = { type: 'reset' };
 const _EPS = 0.000001;
 const _KT = 0.514444;               // m/s par nœud
 const _MAX_DELTA = 0.1;            // évite les sauts après un onglet en arrière-plan
+// Pas fixe de la simulation (s) : chaque image fait avancer un nombre entier de pas de 1/120 s (le reste est gardé pour
+// l'image suivante). Commandes, pilote automatique, rafales et physique avancent donc par les mêmes pas à 60, 30 ou
+// 15 images/s : même trajectoire (tests/frame-rate.test.js). 1/120 s : le pas de calcul des modèles d'avion (STEP)
+const TICK = 1 / 120;
 const _CONTROL_SMOOTHING = 0.5;    // temps (s) pour que les gouvernes suivent les touches : mouvements arrondis
 const _TRIM_RATE = MathUtils.degToRad( 8 ); // vitesse du tab de trim, touche enfoncée (d'une butée à l'autre en ~9 s)
 const _AP_TRIM = 0.25;             // servo de trim du pilote automatique : quart de la vitesse du trim électrique (non relu)
@@ -76,6 +80,11 @@ class PlaneControls extends Controls {
 		this._pitch_rate = 0;
 		this._heading = 0;
 		this._verticalSpeed = 0;
+		// Pas fixe (voir TICK) : fraction de pas en attente ; crochets appelés avant et après chaque pas, avec sa durée
+		// (simulator.js : vent, masse d'air, pilote automatique avant ; systèmes, enregistreur de vol après)
+		this._tickDebt = 0;
+		this.beforeTick = null;
+		this.afterTick = null;
 
 		// event listeners
 		this._onKeyDown = onKeyDown.bind( this );
@@ -160,19 +169,49 @@ class PlaneControls extends Controls {
 		this.dispatchEvent( _resetEvent );
 	}
 
+	// Fait avancer la simulation de delta secondes (une image) par pas fixes de TICK ; rend le nombre de pas faits (0 si
+	// l'image est plus courte que le pas restant : au-dessus de 120 images/s, certaines images n'en ont pas)
 	update( delta ) {
 
-		if ( this.enabled === false ) return;
+		if ( this.enabled === false ) return 0;
 
 		delta = Math.min( delta, _MAX_DELTA );
-		if ( delta <= 0 ) return;
+		if ( ! ( delta > 0 ) ) return 0;
 
 		const object = this.object;
-		const model = this.model;
-		if ( model.crashed ) {
+		if ( this.model.crashed ) {
 			this._verticalSpeed = 0;
-			return;
+			return 0;
 		}
+		// (1e-6 : 1/15 s vaut 8 pas à l'arrondi des flottants près ; le reste, positif ou négatif d'autant, est gardé)
+		this._tickDebt += delta / TICK;
+		let ticks = Math.floor( this._tickDebt + 1e-6 );
+		this._tickDebt -= ticks;
+		let done = 0;
+		while ( ticks -- > 0 && ! this.model.crashed ) {
+			this.beforeTick?.( TICK );
+			this._tick( TICK );
+			this.afterTick?.( TICK );
+			done ++;
+		}
+		if ( this.model.crashed ) this._verticalSpeed = 0;
+
+		if (
+			this._lastPosition.distanceToSquared( object.position ) > _EPS ||
+			8 * ( 1 - this._lastQuaternion.dot( object.quaternion ) ) > _EPS
+		) {
+			this.dispatchEvent( _changeEvent );
+			this._lastQuaternion.copy( object.quaternion );
+			this._lastPosition.copy( object.position );
+		}
+		return done;
+	}
+
+	// Un pas de durée fixe : main du pilote (rampe, lissage), périphériques, pilote automatique, gaz, trim, physique, puis
+	// valeurs des instruments (lues par le pilote automatique au pas suivant)
+	_tick( delta ) {
+		const object = this.object;
+		const model = this.model;
 		const previousY = object.position.y;
 
 		// Gouvernes : suivent les touches progressivement (une touche n'est qu'un "tout ou rien"). Modèle réaliste : montée
@@ -193,6 +232,8 @@ class PlaneControls extends Controls {
 		if ( ap ) {
 			this._controls.x = MathUtils.clamp( this._controls.x + ( ap.pitch ?? 0 ), - 1, 1 );
 			this._controls.z = MathUtils.clamp( this._controls.z + ( ap.roll ?? 0 ), - 1, 1 );
+			// (lacet : pilote du moniteur des leçons, InstructorPilot.js ; le KAP 140 n'en a pas)
+			this._controls.y = MathUtils.clamp( this._controls.y + ( ap.yaw ?? 0 ), - 1, 1 );
 		}
 		// Freins : clavier, tactile, frein de parc sur les deux roues ; périphériques roue par roue (seul le modèle réaliste
 		// freine chaque roue à part : les autres reçoivent le plus fort des deux)
@@ -221,15 +262,6 @@ class PlaneControls extends Controls {
 		this._roll = Math.atan2( cam_right.dot( _up ), cam_up.dot( _up ) );
 		this._heading = ( Math.atan2( front.x, - front.z ) * 180 / Math.PI + 360 ) % 360;
 		this._verticalSpeed = ( object.position.y - previousY ) / delta;
-
-		if (
-			this._lastPosition.distanceToSquared( object.position ) > _EPS ||
-			8 * ( 1 - this._lastQuaternion.dot( object.quaternion ) ) > _EPS
-		) {
-			this.dispatchEvent( _changeEvent );
-			this._lastQuaternion.copy( object.quaternion );
-			this._lastPosition.copy( object.position );
-		}
 	}
 
 	// private
@@ -275,7 +307,8 @@ class PlaneControls extends Controls {
 		this._pad = input;
 	}
 
-	// Pilote automatique : { pitch (+ = cabrer), roll (+ = à gauche), trim (-1, 0, 1) } ou null (désengagé)
+	// Pilote automatique : { pitch (+ = cabrer), roll (+ = à gauche), yaw (+ = à gauche, facultatif), trim (-1, 0, 1) } ou
+	// null (désengagé)
 	setAutopilotOutput( output ) {
 		this._ap = output;
 	}

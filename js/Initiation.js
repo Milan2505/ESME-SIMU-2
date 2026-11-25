@@ -17,6 +17,9 @@ import {
 } from 'three';
 import { PANEL_LAYOUT, panelPoint, panelLength } from './Panel172.js';
 import { isTablet } from './Device.js';
+import { lessonById } from './lessons/index.js';
+import { InstructorPilot } from './InstructorPilot.js';
+import { grade as gradeLesson, saveProgress } from './LessonGrade.js';
 
 // Mode Initiation : un moniteur accompagne l'élève de l'avion éteint au parking jusqu'à l'arrêt moteur après un tour de
 // piste. À chaque étape, il dit quoi faire et pourquoi (voix + texte), la commande ou l'instrument concerné clignote et
@@ -291,24 +294,38 @@ const _up = new Vector3(0, 1, 0);
 class Initiation {
     // deps : { systems, controls, avionics, atc, cockpit, airport, scene, aircraft, voices, ui, startCold, focusCabin,
     //          pilotView, isCabinView, openAtc, groundHeight, onChange }
+    // Leçons du registre (lot 6, js/lessons/index.js) : startLesson(setup) -> { runway }, endLesson(), setEngineFailure(on),
+    //          engineFailed(), navState() -> { vor, ils }, reviewFlight() -> écarts du vol en cours (FlightReview.review),
+    //          pilotInput() -> vrai si l'élève touche aux commandes, persistProgress (faux en mode test)
     constructor(deps) {
         Object.assign(this, deps);
         this.active = false;
         this.level = 1;
         this.cameraGuide = true;
+        this.def = null;                       // leçon du registre en cours (null : tour de piste ou pilote automatique)
+        this.instructor = new InstructorPilot();
+        this._demo = null;                     // le moniteur a les commandes : { index, auto, shown }
+        this.results = {};
+        this.grade = null;
         this.highlighter = new Highlighter(this.cockpit);
         this.guide = new GroundGuide(this.scene, this.groundHeight);
         this.path = new FlightPath(this.scene, this.groundHeight);
         this._time = 0;
+        this._startTime = 0;
+        this._settleFrames = 0;
         this._htmlTargets = [];
         this._advice = new Map();
     }
 
     // --- Démarrage / arrêt ---------------------------------------------------------------------
     // lang : 'fr' ou 'en' (consignes, voix du moniteur et radio dans cette langue pendant la leçon)
-    // level : 1, 2 (tour de piste), ou 'ap' (leçon « tenir un cap et une altitude au pilote automatique », en vol)
+    // level : 1, 2 (tour de piste), 'ap' (leçon « tenir un cap et une altitude au pilote automatique », en vol), ou
+    // l'identifiant d'une leçon du registre (js/lessons/index.js : 'virages45'…)
     start(level, cameraGuide = true, lang = 'fr') {
-        this.lesson = level === 'ap' ? 'ap' : 'circuit';
+        const def = typeof level === 'string' && level !== 'ap' ? lessonById(level) : null;
+        if (typeof level === 'string' && level !== 'ap' && !def) throw new Error(`Leçon inconnue : ${level}`);
+        this.def = def;
+        this.lesson = def ? def.id : level === 'ap' ? 'ap' : 'circuit';
         this.level = level === 2 ? 2 : 1;
         this.cameraGuide = cameraGuide;
         this.lang = lang === 'en' ? 'en' : 'fr';
@@ -319,13 +336,28 @@ class Initiation {
         // Niveau 1 : c'est le moniteur qui parle à la radio, l'élève ne dit rien : ses messages sont affichés à son nom
         this.atc.pilotLabel = this.level === 1 ? this._t('INSTRUCTEUR', 'INSTRUCTOR') : null;
         this._labels();
-        this.steps = this.lesson === 'ap' ? buildAutopilotSteps(this.lang) : buildSteps(this.level, this.lang);
+        this.results = {};
+        this.grade = null;
+        this.plan = {};
+        this._marks = {};
+        this._tracks = {};
+        this._demo = null;
+        this.instructor.reset();
+        this.tools = def ? this._tools() : null;
+        this._showGrade(null);
+        this.steps = def ? this._buildLesson(def) : this.lesson === 'ap' ? buildAutopilotSteps(this.lang) : buildSteps(this.level, this.lang);
         this.index = -1;
         this._runway = null;   // piste du décollage, fixée à l'alignement : tout le tour de piste s'y rapporte
         this._owed = [];       // messages radio d'étapes passées sans avoir été faits (voir _owe)
         this.startedAt = performance.now();
+        this._startTime = this._time;   // (horloge de la leçon au départ : mise en place, voir update)
+        this._settleFrames = 0;
         this.stats = { advice: 0 };
-        if (this.lesson === 'ap') this.startAirborne();
+        if (def) {
+            // Leçon du registre : départ décrit par la leçon (en vol, aligné, au parking), par rapport à une piste d'ESME
+            const info = this.startLesson?.(def.setup ?? {}) ?? {};
+            this._runway = info.runway ?? null;
+        } else if (this.lesson === 'ap') this.startAirborne();
         else this.startCold();
         this.ui.panel.hidden = false;
         this._next();
@@ -335,6 +367,12 @@ class Initiation {
     stop() {
         if (!this.active) return;
         this.active = false;
+        this._demo = null;
+        this.instructor.reset();
+        if (this.def) {
+            this.setEngineFailure?.(false);
+            this.endLesson?.();   // modèle de vol, chargement et vent d'avant la leçon rendus
+        }
         this.voices.stopInstructor();
         this.voices.student = false;   // hors leçon : voix de pilote habituelle
         this.atc.pilotLabel = null;     // hors leçon : c'est le joueur qui parle (« VOUS »)
@@ -376,8 +414,17 @@ class Initiation {
         if (this._state?.glanceUntil && this.cameraGuide) this.pilotView();   // coup d'œil en cours : on revient dehors
         this.index++;
         if (previous?.guide && !this.step?.guide) this.guide.clear();
+        // Le moniteur avait les commandes : il les garde pour l'étape suivante seulement quand il joue toute la leçon
+        // (_autoDo des tests, bouton Passer) et qu'elle a une démonstration ; sinon il les rend
+        if (this._demo) {
+            if (this._demo.auto && this.step?.demo) this._demo.index = this.index;
+            else this._stopDemo(this._demo.auto ? null : 'end');
+        }
         const step = this.step;
         if (!step) return this.stop();
+        // Bilan d'une leçon du registre : note calculée dès l'arrivée à l'étape (les mesures sont closes), sans attendre
+        // que le moniteur la dise (son enter la retrouve toute faite)
+        if (step.end && this.def) this._finishLesson();
         this._state = { entered: this._time, spoken: false, speaking: false, sent: 0, flags: {} };
         this.highlighter.set([]);
         this._setHtml([]);
@@ -509,7 +556,8 @@ class Initiation {
         this.voices.stopInstructor();
         this._state.speaking = false;
         this._state.skipped = true;   // niveau 2 : la radio de l'étape se fait comme au niveau 1 (voir update)
-        try { this._autoDo(step); } catch (error) { console.error(error); }
+        this._skipping = true;        // (démonstration du moniteur : critères notés « démontré »)
+        try { this._autoDo(step); } catch (error) { console.error(error); } finally { this._skipping = false; }
         if (step.flight) return this._next();
         // ATIS : coupé (ou, pas encore lancé, seulement écrit dans le journal radio) ; l'étape passe dès la fin
         if (step.atis) {
@@ -520,8 +568,11 @@ class Initiation {
     }
 
     // Action de l'étape faite à la place de l'élève : step.act, ou chaque commande à manœuvrer mise dans la bonne position
+    // Leçon du registre, étape avec démonstration (step.demo) : le moniteur prend les commandes et vole l'étape (et les
+    // suivantes qui en ont une) ; les tests de bout en bout jouent ainsi chaque leçon
     _autoDo(step) {
         const c = this._context();
+        if (step.demo && (!this._demo || this._demo.index !== this.index)) this._startDemo({ auto: true, shown: Boolean(this._skipping) });
         if (step.act) return step.act(c, this);
         const single = typeof step.target === 'string' && step.done ? [[step.target, (cc) => step.done(cc, this._state.flags, 0)]] : [];
         for (const [target, ok] of step.parts ?? single) this._satisfy(target, ok, step);
@@ -565,8 +616,14 @@ class Initiation {
         this.controls.parkingBrake = this.systems.brake = on;
     }
 
-    // Recentrer la caméra sur la commande à utiliser
+    // Bouton Montrer : étape avec démonstration (leçons du registre) -> le moniteur prend les commandes pour l'étape (de
+    // nouveau : il les rend) ; sinon, recentrer la caméra sur la commande à utiliser
     show() {
+        if (this.step?.demo && this._state?.spoken) {
+            if (this._demo && this._demo.index === this.index) this._stopDemo('end');
+            else this._startDemo({ auto: false, shown: true });
+            return;
+        }
         const where = this._where();
         if (where) this.focusCabin(where.center, where.radius);
         else this.pilotView();
@@ -586,6 +643,27 @@ class Initiation {
             atcOpen: !document.getElementById('atc').hidden,
         };
         c.lead = (c.speedKt / KT) * TURN_LEAD;   // m parcourus pendant la consigne de virage
+        // Leçons du lot 6 : attitude, vario, facteur de charge, route, radionavigation (NAV 1), panne moteur
+        const m = this.controls.model;
+        const v = m.velocity;
+        c.vs = this.controls.getVerticalSpeed() / 0.3048 * 60;                 // ft/min
+        c.bank = -c.roll * 180 / Math.PI;                                       // ° (+ = à droite)
+        c.pitch = (m.pitchAttitude ?? Math.atan(this.controls.getPitchRate())) * 180 / Math.PI;   // ° (+ = cabré)
+        c.load = m.loadFactor ?? 1;
+        c.alpha = (m.alpha ?? 0) * 180 / Math.PI;
+        c.stalled = Boolean(this.controls.isStalled?.());
+        // Vitesses angulaires (°/s, repère avion) : tangage (+ = cabrer), lacet (+ = nez à gauche), roulis (+ = vers la gauche)
+        const w = m._angularVelocity;
+        c.pitchRate = (w?.x ?? 0) * 180 / Math.PI;
+        c.yawRate = (w?.y ?? 0) * 180 / Math.PI;
+        c.rollRate = (w?.z ?? 0) * 180 / Math.PI;
+        c.track = v && Math.hypot(v.x, v.z) > 1 ? (Math.atan2(v.x, -v.z) * 180 / Math.PI + 360) % 360 : c.heading;   // route (°)
+        c.realistic = Boolean(m.realistic);
+        c.nav = this.navState?.() ?? null;                                     // { vor, ils } : voir simulator.js navState
+        c.engineFailed = Boolean(this.engineFailed?.());
+        c.time = this._time;
+        c.lesson = this.def;
+        c.plan = this.plan;
         const rw = this._runway ?? s?.active;
         c.aal = c.agl;
         if (rw) {
@@ -596,6 +674,12 @@ class Initiation {
             c.runway = rw;
             c.along = (p.x - rw.threshold.x) * rw.direction.x + (p.z - rw.threshold.z) * rw.direction.z;
             c.lateral = (p.x - rw.threshold.x) * rw.circuitSide.x + (p.z - rw.threshold.z) * rw.circuitSide.z;   // > 0 : côté du circuit
+            // Écarts par rapport à la piste : à gauche de l'axe prolongé (m, vu de l'avion qui atterrit), distance au seuil
+            // (NM, > 0 avant le seuil), cap et route par rapport à l'axe (°, + = à droite de l'axe)
+            c.left = (p.x - rw.threshold.x) * rw.left.x + (p.z - rw.threshold.z) * rw.left.z;
+            c.distanceNm = -c.along / 1852;
+            c.headingToAxis = ((c.heading - rw.heading) % 360 + 540) % 360 - 180;
+            c.trackToAxis = ((c.track - rw.heading) % 360 + 540) % 360 - 180;
         }
         return c;
     }
@@ -608,6 +692,10 @@ class Initiation {
         this.guide.update(this.aircraft.position, this._time);
         const step = this.step;
         if (!step) return;
+        // Leçon du registre qui vient d'être placée : rien (consigne, enter, mesures, démonstration) pendant la première
+        // seconde et les trois premières images. Les instruments (cap, vitesse, hauteur) sont calculés au pas de physique
+        // (PlaneControls, 1/120 s) : avant le premier pas, ils datent d'avant la mise en place (cap d'avant, vitesse nulle)
+        if (this.def && (this._time - this._startTime < 1 || (this._settleFrames = (this._settleFrames ?? 0) + 1) <= 3)) return;
         // Au décollage : la piste où l'avion est aligné devient celle de la leçon (cadres, virages), même si la piste
         // en service change ensuite
         if (step.flight && !this._runway && this.atc.s) {
@@ -615,9 +703,24 @@ class Initiation {
             this._runway = this.atc.airport.runways.reduce((a, b) => (headingDiff(h, b.heading) < headingDiff(h, a.heading) ? b : a));
         }
         const c = this._context();
+        // Leçon du registre : virages comptés (tools.track), et accident -> bilan tout de suite (note « Non réussi »)
+        if (this.def) {
+            for (const track of Object.values(this._tracks)) {
+                track.total += ((c.heading - track.last) % 360 + 540) % 360 - 180;
+                track.last = c.heading;
+            }
+            if (this.controls.isCrashed() && !step.end) {
+                this._demo = null;
+                this.voices.stopInstructor();
+                this.index = this.steps.length - 2;
+                this._next();
+                return;
+            }
+        }
         this._updateOwed(c, delta);
-        // En vol (décollage -> atterrissage) : les cadres de tout le tour de piste, devant l'avion aligné
-        if (step.flight && !this.path.shown && c.runway) this.path.set(c.runway, c.along);
+        // En vol (décollage -> atterrissage) : les cadres de tout le tour de piste, devant l'avion aligné (pas dans les
+        // leçons du registre)
+        if (step.flight && !this.def && !this.path.shown && c.runway) this.path.set(c.runway, c.along);
         else if (!step.flight && this.path.shown) this.path.clear();
         this.path.update(this.aircraft.position, this._time);
         // Conditions des étapes : une situation incomplète (avion crashé, hors de l'aérodrome…) vaut « pas encore »
@@ -656,6 +759,8 @@ class Initiation {
             }
         }
         if (step.parts) this._refreshParts(step, c);
+        // Mesures de l'étape (leçons du registre : critères notés)
+        if (step.measure && this.tools) safe(() => step.measure(c, this.tools, delta));
         if (this._state.glanceUntil && this._time > this._state.glanceUntil) {
             this._state.glanceUntil = null;
             if (this.cameraGuide) this.pilotView();
@@ -808,8 +913,10 @@ class Initiation {
 
     // Conseils en vol et au roulage (vitesse, inclinaison…), sans répéter trop souvent
     _adviseFlight(c) {
+        // Leçons du registre : seulement les conseils que la leçon garde (def.advice ; un décrochage voulu n'est pas une faute)
+        const allowed = this.def ? new Set(this.def.advice ?? []) : null;
         const advise = (key, condition, text) => {
-            if (!condition) return;
+            if (!condition || (allowed && !allowed.has(key))) return;
             const last = this._advice.get(key) ?? -1e9;
             if (this._time - last < ADVICE_COOLDOWN) return;
             this._advice.set(key, this._time);
@@ -870,8 +977,172 @@ class Initiation {
         this.ui.hint.hidden = true;
     }
 
+    // --- Leçons du registre (lot 6) ------------------------------------------------------------------
+    // Outils donnés à def.build (voir js/lessons/index.js)
+    _tools() {
+        const EN = this.lang === 'en';
+        const criterion = (key) => this.def?.criteria?.find((c) => c.key === key);
+        const tools = {
+            lang: this.lang, EN, KT, T: (fr, en) => (EN ? en : fr), lesson: this.def, plan: this.plan,
+            wrap: (a) => ((a % 360) + 540) % 360 - 180, headingDiff, cap,
+            capSay: (h) => (EN ? capSpokenEn(h) : capSpoken(h)),
+            // Valeur d'un critère : la pire gardée (max, abs : la plus grande ; min : la plus petite ; bool : toutes vraies).
+            // Pendant une démonstration du moniteur (Montrer, Passer), le critère est noté « démontré »
+            measure: (key, value) => {
+                if (value === null || value === undefined || (typeof value === 'number' && !Number.isFinite(value))) return;
+                const compare = criterion(key)?.compare ?? 'max';
+                const before = this.results[key];
+                const shown = Boolean(this._demo?.shown);
+                let next = value;
+                if (before) {
+                    const b = before.value;
+                    if (compare === 'min') next = Math.min(b, value);
+                    else if (compare === 'abs') next = Math.abs(value) > Math.abs(b) ? value : b;
+                    else if (compare === 'bool') next = Boolean(b) && Boolean(value);
+                    else next = Math.max(b, value);
+                }
+                this.results[key] = { value: next, demonstrated: Boolean(before?.demonstrated) || shown };
+            },
+            set: (key, value) => { this.results[key] = { value, demonstrated: Boolean(this._demo?.shown) }; },
+            get: (key) => this.results[key]?.value,
+            mark: (name) => { this._marks[name] = this._time; },
+            since: (name) => (this._marks[name] === undefined ? Infinity : this._time - this._marks[name]),
+            // Degrés tournés depuis track(nom) (+ = à droite), comptés à chaque image
+            track: (name) => { this._tracks[name] = { last: this.controls.getHeading(), total: 0 }; },
+            turned: (name) => this._tracks[name]?.total ?? 0,
+            failEngine: () => this.setEngineFailure?.(true),
+            restoreEngine: () => this.setEngineFailure?.(false),
+        };
+        return tools;
+    }
+
+    // Étapes de la leçon, plus le bilan (note dite et affichée, progression enregistrée)
+    _buildLesson(def) {
+        const T = this.tools.T;
+        const steps = def.build(this.lang, this.tools).map((step) => ({ phase: def.title?.[this.lang] ?? def.title?.fr ?? '', praise: Boolean(step.done), ...step }));
+        steps.push({ phase: T('Bilan', 'Debrief'), title: T('Bilan de la leçon', 'Lesson debrief'), end: true, camera: 'pilot', urgent: true,
+            enter: () => this._finishLesson(), say: () => this._gradeSpeech() });
+        for (const step of steps) {
+            step.hasWait = Boolean(step.wait);
+            step.wait ??= () => true;
+        }
+        return steps;
+    }
+
+    // Note de la leçon : critères mesurés et écarts du débriefing (FlightReview) retenus par la leçon, crash toujours
+    _finishLesson() {
+        if (this.grade || !this.def) return this.grade;
+        const kinds = new Set([...(this.def.reviewKinds ?? []), 'crash']);
+        let deviations = [];
+        try { deviations = (this.reviewFlight?.() ?? []).filter((d) => kinds.has(d.kind)); } catch (error) { console.warn('Bilan :', error); }
+        // Accident sans écart relevé (vol trop court pour le carnet) : compté quand même
+        if (this.controls.isCrashed() && !deviations.some((d) => d.kind === 'crash')) deviations.push({ kind: 'crash', severity: 'severe', message: this._t('Accident.', 'Crash.'), t: 0 });
+        this.grade = gradeLesson({ criteria: this.def.criteria ?? [], results: this.results, deviations, lang: this.lang });
+        this.grade.lesson = this.def.id;
+        // (mode test : rien n'est écrit, la progression des essais précédents reste en mémoire)
+        const persist = this.persistProgress !== false;
+        this.progress = saveProgress(this.def.id, this.grade, { persist, progress: persist ? undefined : this.progress });
+        this._showGrade(this.grade);
+        return this.grade;
+    }
+
+    _gradeSpeech() {
+        const g = this.grade;
+        if (!g) return '';
+        const missed = g.details.filter((d) => d.ok === false).map((d) => d.label);
+        const shown = g.details.filter((d) => d.demonstrated).length;
+        return this._t(
+            `Leçon terminée : ${g.score} sur 100, ${g.mention}. ${missed.length ? `À travailler : ${missed.join(', ')}.` : g.passed ? 'Tous les critères sont tenus.' : ''}${shown ? ` ${shown} critère${shown > 1 ? 's' : ''} montré${shown > 1 ? 's' : ''} par le moniteur, non noté${shown > 1 ? 's' : ''}.` : ''}${g.penalties.length ? ` ${g.penalties.length} écart${g.penalties.length > 1 ? 's' : ''} relevé${g.penalties.length > 1 ? 's' : ''} au débriefing.` : ''}`,
+            `Lesson complete: ${g.score} out of 100, ${g.mention}. ${missed.length ? `To work on: ${missed.join(', ')}.` : g.passed ? 'All criteria met.' : ''}${shown ? ` ${shown} criteri${shown > 1 ? 'a' : 'on'} shown by the instructor, not graded.` : ''}${g.penalties.length ? ` ${g.penalties.length} deviation${g.penalties.length > 1 ? 's' : ''} found in the debrief.` : ''}`);
+    }
+
+    // Tableau des critères dans le panneau du moniteur (ui.grade, facultatif) ; null : caché
+    _showGrade(g) {
+        const box = this.ui.grade;
+        if (!box) return;
+        box.replaceChildren();
+        box.hidden = !g;
+        if (!g) return;
+        const fmt = (v, unit) => (typeof v === 'number' ? `${Math.round(v * 10) / 10}${unit ? ` ${unit}` : ''}` : v === true ? this._t('oui', 'yes') : v === false ? this._t('non', 'no') : '—');
+        const head = document.createElement('p');
+        head.className = `moniteur-note-total ${g.passed ? 'reussi' : 'echec'}`;
+        head.textContent = `${g.score} / 100 · ${g.mention}`;
+        box.append(head);
+        const table = document.createElement('table');
+        for (const d of g.details) {
+            const row = table.insertRow();
+            row.className = d.demonstrated ? 'montre' : d.ok ? 'tenu' : 'manque';
+            row.insertCell().textContent = d.demonstrated ? '◆' : d.ok ? '✓' : '✗';
+            row.insertCell().textContent = d.label;
+            const sign = { max: '≤', min: '≥', abs: '±', bool: '' }[d.compare] ?? '';
+            row.insertCell().textContent = d.compare === 'bool' ? fmt(d.value) : `${fmt(d.value, d.unit)} (${sign}${fmt(d.limit, d.unit)})`;
+            row.title = d.source;
+        }
+        box.append(table);
+        if (g.penalties.length) {
+            const p = document.createElement('p');
+            p.className = 'moniteur-note-ecarts';
+            p.textContent = g.penalties.map((x) => `−${x.points} : ${x.message}`).join(' · ');
+            box.append(p);
+        }
+    }
+
+    // Le moniteur prend les commandes (démonstration de l'étape) ; auto : il joue la leçon (tests, Passer) ; shown : les
+    // critères mesurés pendant ce temps sont notés « démontré »
+    _startDemo({ auto = false, shown = true } = {}) {
+        this._demo = { index: this.index, auto, shown };
+        this.instructor.reset();
+        if (!auto) this._notice(this._t("J'ai les commandes : regardez, je vous montre.", 'I have control: watch, I will show you.'));
+    }
+
+    _stopDemo(reason = null) {
+        if (!this._demo) return;
+        this._demo = null;
+        this.instructor.reset();
+        if (reason === 'student') this._notice(this._t('Vous avez les commandes.', 'You have control.'));
+        else if (reason === 'end') this._notice(this._t('À vous : vous avez les commandes.', 'Your turn: you have control.'));
+    }
+
+    _notice(text) {
+        const el = this.ui.advice;
+        if (el) {
+            el.textContent = text;
+            el.classList.remove('visible');
+            void el.offsetWidth;
+            el.classList.add('visible');
+        }
+        if (!this._state?.speaking) this.voices.speakInstructor?.(text)?.catch?.(() => {});
+    }
+
+    // Sortie du moniteur pour le canal du pilote automatique (simulator.js, à chaque pas avant la physique) : null quand il
+    // n'a pas les commandes. sensors : ceux du KAP 140 plus side (voir InstructorPilot.js). Les gaz sont posés ici
+    instructorOutput(dt, sensors) {
+        if (!this.active || !this._demo) return null;
+        const step = this.step;
+        if (!step?.demo || this._demo.index !== this.index || this.controls.isCrashed()) return null;
+        // L'élève touche aux commandes : il les reprend
+        if (this.pilotInput?.()) {
+            this._stopDemo('student');
+            return null;
+        }
+        let plan;
+        try { plan = step.demo(this._context(), this.tools); } catch { plan = null; }
+        if (!plan) return null;
+        const out = this.instructor.update(dt, sensors, plan);
+        if (out && out.throttle !== null && out.throttle !== undefined) this.controls.throttle = out.throttle;
+        return out;
+    }
+
+    get demonstrating() {
+        return Boolean(this._demo);
+    }
+
     // Fin : bilan
     summary() {
+        if (this.def) {
+            const g = this.grade;
+            return g ? this._t(`${this.def.title?.fr ?? this.def.id} : ${g.score}/100, ${g.mention}.`, `${this.def.title?.en ?? this.def.id}: ${g.score}/100, ${g.mention}.`) : '';
+        }
         const minutes = Math.round((performance.now() - this.startedAt) / 60000);
         return this._t(`Vol terminé en ${minutes} minute${minutes > 1 ? 's' : ''}, ${this.stats.advice} conseil${this.stats.advice > 1 ? 's' : ''} du moniteur en cours de route.`,
             `Flight completed in ${minutes} minute${minutes > 1 ? 's' : ''}, with ${this.stats.advice} piece${this.stats.advice > 1 ? 's' : ''} of advice from your instructor along the way.`);

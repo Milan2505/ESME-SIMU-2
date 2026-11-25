@@ -8,6 +8,8 @@ const LONG = 240_000;
 const FT = 0.3048;
 
 test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrage', async ({ page }, testInfo) => {
+    // (long : givrage puis arrêt du moteur ; ~5 min sous la charge des tests en parallèle, comme les leçons du lot 6)
+    test.setTimeout(10 * 60_000);
     const errors = [];
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
@@ -84,7 +86,11 @@ test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrag
     expect(iced.rpm, `régime qui baisse avec la glace (${idle.toFixed(0)} -> ${iced.rpm.toFixed(0)})`).toBeLessThan(idle - 40);
     // Réchauffe tirée : la glace fond en une vingtaine de secondes
     await page.keyboard.press('Backquote');
+    // (temps accéléré : même physique, pas de 0,1 s au plus ; 25 s de vol à vitesse réelle dépassaient le délai du test
+    // sous la charge des tests en parallèle)
+    await sim(() => window.__sim.setTimeScale(8));
     await waitSimSeconds(page, 25);
+    await sim(() => window.__sim.setTimeScale(1));
     s = await state();
     expect(s.carbIce, 'glace fondue').toBe(0);
     expect(s.engineRunning).toBe(true);

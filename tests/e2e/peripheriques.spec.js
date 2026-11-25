@@ -89,6 +89,9 @@ test('périphériques simulés : fenêtre Périphériques, puis décollage du C1
     await sim(() => window.__pads.set(0, { 2: -1 }));
     await page.waitForFunction(() => window.__sim.state.throttle > 0.99, null, { timeout: 30_000 });
     await page.waitForFunction(() => { const s = window.__sim.state; return s.crashed || s.indicatedSpeed > 55 * 0.5144; }, null, { timeout: 180_000 });
+    // Rotation et envol en temps réel : en accéléré, sous la charge des tests en parallèle, plusieurs secondes de vol
+    // manche tiré passaient entre l'envol et la main donnée au pilote de test (chandelle, vitesse perdue, avion reposé)
+    await sim(() => window.__sim.setTimeScale(1));
     // Manche tiré au yoke : la gouverne suit tout de suite (entrée directe, sans montée progressive)
     const pull = (0.2 - 0.05) / 0.95;   // zone morte du préréglage
     await sim(() => window.__pads.set(0, { 1: 0.2 }));

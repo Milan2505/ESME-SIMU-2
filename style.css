@@ -1648,6 +1648,71 @@ img{margin: 0px;
 .initiation-option {
   font-size: 13px;
 }
+/* Leçons notées (lot 6) : objectifs et meilleure note ; la fenêtre défile quand la liste est longue */
+#initiation-dialog {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.initiation-titre-lecons {
+  margin: 14px 0 0;
+  color: #114E69;
+}
+.initiation-lecons ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: #333;
+}
+.initiation-lecons em {
+  font-size: 11px;
+  font-style: normal;
+  color: #666;
+}
+.initiation-lecons em.lecon-reussie {
+  color: #1d7a35;
+  font-weight: bold;
+}
+/* Bilan d'une leçon notée, dans le panneau du moniteur */
+#moniteur-note[hidden] {
+  display: none;
+}
+#moniteur-note .moniteur-note-total {
+  font-size: 15px;
+  font-weight: bold;
+}
+#moniteur-note .moniteur-note-total.reussi {
+  color: #7be08f;
+}
+#moniteur-note .moniteur-note-total.echec {
+  color: #ff9b7a;
+}
+#moniteur-note table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+#moniteur-note td {
+  padding: 1px 4px;
+  vertical-align: top;
+}
+#moniteur-note td:first-child {
+  width: 1.2em;
+}
+#moniteur-note tr.tenu td:first-child {
+  color: #7be08f;
+}
+#moniteur-note tr.manque td:first-child {
+  color: #ff9b7a;
+}
+#moniteur-note tr.montre td:first-child {
+  color: #ffd23c;
+}
+#moniteur-note .moniteur-note-ecarts {
+  font-size: 11px;
+  opacity: 0.85;
+}
 .initiation-langues {
   display: flex;
   align-items: center;

@@ -9,7 +9,7 @@
 // Événements (EventTarget) : 'open', 'close', 'replay' (detail { flight, id, t }), 'saved' (detail { id } : vol importé).
 import { TimeChart } from './Charts.js';
 import { toCsv, fromCsv, sampleAt } from './FlightRecorder.js';
-import { THRESHOLDS, episodes } from './FlightReview.js';
+import { THRESHOLDS, finalSegments } from './FlightReview.js';
 
 const AIRCRAFT_LABELS = { c172: 'Cessna 172P', f15: 'F-15C Eagle', r44: 'Robinson R44' };
 const MAP_LABELS = { campagne: 'Campagne', ville: 'Ville', mer: 'Mer' };
@@ -42,7 +42,7 @@ const CHARTS = [
         ],
     },
     {
-        id: 'debrief-vario', title: 'Vitesse verticale', kinds: /^(touchdown-vs|throttle-touchdown)$/,
+        id: 'debrief-vario', title: 'Vitesse verticale', kinds: /^(approach-sink|touchdown-vs|throttle-touchdown)$/,
         series: [ { key: 'vs', label: 'Vario', unit: 'ft/min', color: '#c39bff' } ],
         limits: [ { value: 0, label: '0' } ],
     },
@@ -57,14 +57,14 @@ const CHARTS = [
     },
 ];
 
-// Cessna : finales (entre 500 et 50 ft au-dessus du seuil, en descente : mêmes critères que FlightReview.js) et vitesse
-// visée (65 kt volets ≥ 25°, 70 kt sinon), avec la tolérance +10 / -5 kt : THRESHOLDS.approach, sources dans FlightReview.js
-export function approachGuide(flight) {
+// Cessna : finales repérées par la géométrie (aligné sur l'axe, en descente vers le seuil : finalSegments, les mêmes que
+// FlightReview.js ; sans pistes, pas de finale) et vitesse visée (65 kt volets ≥ 25°, 70 kt sinon), avec la tolérance
+// +10 / -5 kt : THRESHOLDS.approach, sources dans FlightReview.js
+export function approachGuide(flight, runways = []) {
     if ((flight?.meta?.aircraft ?? 'c172') !== 'c172') return { bands: [], limits: [] };
     const A = THRESHOLDS.approach;
     const samples = flight.samples ?? [];
-    const inFinal = (s) => !s.ground && Number.isFinite(s.aal) && s.aal <= A.top && s.aal >= A.bottom && s.vs < A.minDescent;
-    const finals = episodes(samples, inFinal, A.minDuration);
+    const finals = finalSegments(samples, runways);
     if (!finals.length) return { bands: [], limits: [] };
     const targets = new Set();
     for (const ep of finals) {
@@ -133,13 +133,15 @@ const el = (tag, props = {}, ...children) => {
 export class Debriefing extends EventTarget {
     // dialog : <dialog id="debriefing-dialog"> ; store : FlightStore ; createMap(canvas) : MapView du débriefing (relief
     // partagé avec la carte du jeu : shareRelief) ; review(flight) : écarts (FlightReview.js) ; onReplay(flight, id, t)
-    // canReplay(flight) : null si le rejeu 3D est possible, sinon la raison (affichée dans la fenêtre)
-    constructor(dialog, { store, createMap, review = () => [], onReplay = () => {}, canReplay = () => null }) {
+    // canReplay(flight) : null si le rejeu 3D est possible, sinon la raison (affichée dans la fenêtre) ; runways(flight) :
+    // pistes où repérer les finales (celles de la carte du vol, [] sinon : pas de bande « Finale »)
+    constructor(dialog, { store, createMap, review = () => [], onReplay = () => {}, canReplay = () => null, runways = () => [] }) {
         super();
         this.dialog = dialog;
         this.store = store;
         this.createMap = createMap;
         this.review = review;
+        this.runways = runways;
         this.onReplay = onReplay;
         this.canReplay = canReplay;
         this.flight = null;      // vol montré au débriefing
@@ -411,7 +413,9 @@ export class Debriefing extends EventTarget {
             else if (e.kind === 'touchdown') markers.push({ t: e.t, label: 'Toucher', color: '#ffd166' });
             else if (e.kind === 'crash') markers.push({ t: e.t, label: 'Crash', color: '#ff5a4a' });
         }
-        const approach = approachGuide(flight);
+        let runways;
+        try { runways = this.runways(flight) ?? []; } catch { runways = []; }
+        const approach = approachGuide(flight, runways);
         for (const spec of CHARTS) {
             const canvas = this.dialog.querySelector(`#${spec.id}`);
             if (!canvas) continue;

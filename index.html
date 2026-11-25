@@ -519,13 +519,16 @@
 			<button data-niveau="2"><strong>Niveau 2 · Pilotage et radio</strong><span>Vous parlez aux contrôleurs, le moniteur vous souffle quoi dire.</span></button>
 			<button data-niveau="ap"><strong>Pilote automatique</strong><span>En vol : tenir un cap et une altitude avec le KAP 140, monter vers une altitude choisie, le couper.</span></button>
 		</div>
+		<h4 class="initiation-titre-lecons lecons-bloc" hidden>Leçons notées</h4>
+		<p class="reglages-intro initiation-note lecons-bloc" hidden>Chaque leçon part de sa situation (en vol, en finale…), sur le modèle de vol réaliste. Critères chiffrés tirés des épreuves FAA (ACS) et EASA, note sur 100 à la fin ; « Montrer » : le moniteur prend les commandes.</p>
+		<div class="initiation-niveaux initiation-lecons" id="initiation-lecons" hidden></div>
 		<div class="initiation-langues">Langue de la leçon :
 			<button data-langue-lecon="fr" class="actif">Français</button>
 			<button data-langue-lecon="en">English</button>
 		</div>
 		<p class="reglages-intro initiation-note">En anglais, le moniteur et les contrôleurs parlent anglais (phraséologie OACI) pendant toute la leçon.</p>
 		<label class="initiation-option"><input type="checkbox" id="initiation-camera" checked> Caméra guidée vers les commandes</label>
-		<p class="reglages-intro">Le vol part du parking N4, en solo (une partie multijoueur en cours est quittée).</p>
+		<p class="reglages-intro">Le tour de piste part du parking N4, en solo (une partie multijoueur en cours est quittée).</p>
 		<div class="multi-ligne">
 			<button id="initiation-annuler">Annuler</button>
 		</div>
@@ -541,6 +544,7 @@
 		<p id="moniteur-pourquoi" hidden></p>
 		<p id="moniteur-souffle" hidden></p>
 		<p id="moniteur-conseil"></p>
+		<div id="moniteur-note" hidden></div>
 		<span id="moniteur-bravo"></span>
 		<div class="moniteur-boutons">
 			<button id="moniteur-continuer" hidden>Terminer ▸</button>
