@@ -343,8 +343,8 @@ PA.VII.B.S2 ; +3,8 / −1,52 g : 14 CFR 23.337 ; toucher dur 510 ft/min : ancien
 géométrie (`finalSegments` : avant le seuil, dans un cône de 10° autour de l'axe, route à ±30°, en descente, sous
 1 000 ft et à 5 NM au plus) ; écarts ILS relevés en descente seulement (une remise de gaz n'en est plus un).
 **Reste à faire** : seuils encore « non relu » (toucher ferme 300 ft/min, axe 5 m au toucher, inclinaison > 30° sous
-500 ft, gaz au toucher, +3,0 g volets sortis, VFE 110 / 85 kt, réglages de détection de la finale) ; VNE à arbitrer
-(163 kt dans le jeu et le HUD, 158 kt dans la copie remise en page du POH 172P : 163 est la valeur des 172R/S) ; rejeu du
+500 ft, gaz au toucher, +3,0 g volets sortis, réglages de détection de la finale) ; VNE tranchée le 25/11/2026 : 158 kt
+(POH 172P section 2, supplément FAA Air Plains 1987), repères du badin du 172P partout (js/data/C172pSpeeds.js) ; rejeu du
 F-15 et du R44 : pose, commandes et HUD rejoués, mais réacteurs et rotor gardent leur état d'avant le rejeu ; vol d'une
 autre carte : débriefing seulement.
 

@@ -105,7 +105,7 @@ Appareils et physique (`js/`) :
   roulage, toucher, obstacles, dégâts) ; commandes et événements `liftoff` / `touchdown` / `crash`. `random` : tirage
   remplaçable (rafales, aile qui tombe). Propriétés de l'instance : `mass`, `cgOffset`, `mixture`, `temperatureOffset`
   (l'objet des caractéristiques n'est jamais modifié) ; vitesses `airspeed` (TAS), `calibratedSpeed` (CAS),
-  `indicatedSpeed` (IAS), `mach`, régime `rpm`. `Cessna172.js`, `F15.js` : caractéristiques (le Cessna : blocs `engine`,
+  `indicatedSpeed` (IAS), `mach`, régime `rpm`. `data/C172pSpeeds.js` : repères du badin et vitesses limites du 172P (VNE 158, VNO 127, VA 99, VFE 110 / 85), seule source des badins (tableau, HUD) et du débriefing. `Cessna172.js`, `F15.js` : caractéristiques (le Cessna : blocs `engine`,
   `propeller`, `airspeedCalibration` du POH 172P). `Atmosphere.js` : atmosphère type OACI avec écart de température, et
   conversions TAS / CAS / IAS. `Propulsion.js` : moteur à pistons (puissance selon régime, densité, mixture) et hélice à
   pas fixe (Ct, Cp selon le paramètre d'avancement J), régime par équilibre des couples, moulinet moteur coupé.
@@ -170,7 +170,7 @@ tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu)
 `perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
 `keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `straight-flight.test.js` (avion droit manche lâché : effets de l'hélice supprimés), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
-`adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `flight-recorder.test.js`, `replay.test.js`, `flight-review.test.js`, `charts.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
+`adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `flight-recorder.test.js`, `replay.test.js`, `flight-review.test.js`, `c172-speeds.test.js` (repères du badin du 172P), `charts.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
 Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `frame-rate.test.js` (même vol à 60, 30 et 15 images/s),
 `lesson-grade.test.js`, `instructor-pilot.test.js`, `lessons-*.test.js` (chaque leçon du lot 6 jouée au banc réaliste),
 `helpers/modes.js` (modèle linéaire, identification),

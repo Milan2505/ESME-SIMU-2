@@ -17,6 +17,8 @@ const FT = 0.3048;
 //   strict que l'ACS (il est en général plus large : ±150 ft, ±10°, +15 / -5 kt) ;
 // - FSF : Flight Safety Foundation, ALAR Tool Kit, Briefing Note 7.1, « Recommended Elements of a Stabilized Approach » ;
 // - POH 172P : manuel de vol 1985 (D1251-13) ; « non relu sur scan » : valeur lue sur une copie remise en page.
+import { C172P_SPEEDS } from './data/C172pSpeeds.js';
+
 export const THRESHOLDS = {
     approach: {
         // Vitesse visée : 65 kt volets ≥ 25°, 70 kt sinon (js/Initiation.js : « retrimez pour 65 nœuds » en finale
@@ -61,12 +63,11 @@ export const THRESHOLDS = {
     // (conversion). severe 0,75 : « no more than ¾-scale deflection of either the vertical or lateral guidance » de la
     // FAF à la DA (ACS IR IR.VI.B.S12 p. 16). Les messages comptent en points du CDI du jeu (5 par côté)
     ils: { below: 1000, warn: 0.5, severe: 0.75, minDuration: 2 },
-    // VFE du 172P : 110 KIAS jusqu'à 10° de volets, 85 KIAS au-delà (POH 172P fig. 2-1, non relu sur scan ; haut de
-    // l'arc blanc à 85 kt : js/FlightHud.js ARCS, js/InstrumentArt.js)
-    vfe: { upTo10: 110, beyond10: 85, minDuration: 1 },
-    // VNE 163 KIAS (trait rouge, js/FlightHud.js ARCS.vne), non relu : la copie remise en page du POH 172P (fig. 2-1,
-    // 2-2) donne 158 KIAS, 163 étant la valeur des 172R/S ; à arbitrer avec le trait rouge du HUD sur la TCDS 3A12
-    vne: { ias: 163, minDuration: 1 },
+    // VFE du 172P : 110 KIAS jusqu'à 10° de volets, 85 KIAS au-delà (POH 172P fig. 2-1 ; haut de l'arc blanc à 85 kt) ;
+    // VNE 158 KIAS (trait rouge du POH 172P fig. 2-2 et du supplément FAA Air Plains 1987 ; 163 : 172R/S). Valeurs
+    // partagées avec les badins : js/data/C172pSpeeds.js
+    vfe: { upTo10: C172P_SPEEDS.vfe10, beyond10: C172P_SPEEDS.vfe, minDuration: 1 },
+    vne: { ias: C172P_SPEEDS.vne, minDuration: 1 },
     // Décrochage : sévère sous 1 500 ft du sol (« completed no lower than 1,500 feet AGL » : ACS PA.VII.B.S2 et
     // PA.VII.C.S2 p. 43-44)
     stall: { severeBelow: 1500 },

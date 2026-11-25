@@ -4,14 +4,16 @@
 //   (direction d'où il vient, force) dans les cases dessous ;
 // - en bas à gauche : bande de vitesse (kt, arcs de l'anémomètre), vitesse vraie, compte-tours, carburant, incidence ;
 // - en bas à droite : volets, trim (repère de décollage), bande d'altitude (pieds, calage), variomètre (ft/min).
+import { C172P_SPEEDS } from './data/C172pSpeeds.js';
+
 
 const KT = 1.943844;          // m/s -> nœuds
 const FT = 1 / 0.3048;        // m -> pieds
 const REFRESH = 0.05;         // s
 const HUD_GAP = 8;            // écart minimal entre deux jauges (unités de l'écran 1280 × 720)
 const HUD_CENTER_GAP = 40;    // passage minimal entre les jauges de gauche et celles de droite
-// Arcs de l'anémomètre du Cessna 172 (kt) : blanc (volets), vert (normal), jaune (prudence), trait rouge (VNE)
-const ARCS = { white: [33, 85], green: [44, 129], yellow: [129, 163], vne: 163 };
+// Arcs de l'anémomètre du Cessna 172P (kt) : blanc (volets), vert (normal), jaune (prudence), trait rouge (VNE)
+const ARCS = { ...C172P_SPEEDS.arcs, vne: C172P_SPEEDS.vne };
 const RPM_MAX = 3000, RPM_RED = 2700;
 
 const COLORS = {

@@ -75,7 +75,7 @@ test('chaque seuil a sa valeur documentée', () => {
     assert.equal(THRESHOLDS.bankLow.bank, 30);
     assert.equal(THRESHOLDS.aim.aimingPoint, 240);
     assert.equal(THRESHOLDS.touchdown.crashSink, 6);
-    assert.equal(THRESHOLDS.vne.ias, 163);
+    assert.equal(THRESHOLDS.vne.ias, 158);   // POH 172P (163 : 172R/S)
     // Sourcés (lot 6) : ACS FAA-S-ACS-6C, ACS IR FAA-S-ACS-8C, FSF BN 7.1, 14 CFR 23
     assert.deepEqual([THRESHOLDS.approach.above, THRESHOLDS.approach.below], [10, 5]);    // ACS PA.IV.B.S7
     assert.equal(THRESHOLDS.approach.gate, 500);                                           // FSF, VMC

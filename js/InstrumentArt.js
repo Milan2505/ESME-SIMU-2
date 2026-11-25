@@ -7,6 +7,7 @@
 // Angles des cadrans : 0 = midi, sens horaire (radians).
 
 import { TANK_CAPACITY } from './Systems.js';
+import { C172P_SPEEDS } from './data/C172pSpeeds.js';
 
 const FONT = '"Arial Narrow", "Helvetica Neue", Arial, sans-serif';
 const TAU = Math.PI * 2;
@@ -133,10 +134,12 @@ function inCell(ctx, c, draw) {
 function drawAsi(ctx) {
     const cx = R, cy = R;
     dialBack(ctx, cx, cy);
-    band(ctx, cx, cy, R * 0.79, asiAngle(40), asiAngle(85), R * 0.07, '#f4f4f4');
-    band(ctx, cx, cy, R * 0.88, asiAngle(48), asiAngle(129), R * 0.08, '#21b24b');
-    band(ctx, cx, cy, R * 0.88, asiAngle(129), asiAngle(163), R * 0.08, '#f6d32d');
-    tick(ctx, cx, cy, R * 0.74, R * 0.96, asiAngle(163), R * 0.035, '#e5281f');
+    // Repères du 172P (js/data/C172pSpeeds.js : arc blanc 33-85, vert 44-127, jaune 127-158, trait rouge 158)
+    const { arcs, vne } = C172P_SPEEDS;
+    band(ctx, cx, cy, R * 0.79, asiAngle(arcs.white[0]), asiAngle(arcs.white[1]), R * 0.07, '#f4f4f4');
+    band(ctx, cx, cy, R * 0.88, asiAngle(arcs.green[0]), asiAngle(arcs.green[1]), R * 0.08, '#21b24b');
+    band(ctx, cx, cy, R * 0.88, asiAngle(arcs.yellow[0]), asiAngle(arcs.yellow[1]), R * 0.08, '#f6d32d');
+    tick(ctx, cx, cy, R * 0.74, R * 0.96, asiAngle(vne), R * 0.035, '#e5281f');
     for (let v = 40; v <= 200; v += 5) {
         const major = v % 10 === 0;
         tick(ctx, cx, cy, R * (major ? 0.8 : 0.86), R * 0.96, asiAngle(v), major ? 5 : 3);
@@ -815,7 +818,7 @@ function drawFace(layout) {
     for (const [x, y] of [[695, 240], [858, 238], [1020, 232], [1185, 238], [1355, 250], [1505, 232], [1825, 233], [1977, 237],
         [2180, 310], [692, 600], [1015, 595], [1350, 600], [862, 622], [1180, 832], [880, 830], [1767, 822], [440, 225]]) screw(x, y);
     // Inscriptions et plaques
-    t('MANEUVERING SPEED: 105 KIAS', 607, 266, 8.5);
+    t(`MANEUVERING SPEED: ${C172P_SPEEDS.va} KIAS`, 607, 266, 8.5);   // plaque du 172P (105 : 172S)
     t('WARNING', 452, 355, 7, '#f0f0f0', 'left');
     t('ASSURE THAT ALL CONTAMINANTS,\nINCLUDING WATER, ARE REMOVED FROM\nFUEL AND FUEL SYSTEM BEFORE FLIGHT.\nFAILURE TO ASSURE CONTAMINANT FREE\nFUEL AND HEED ALL SAFETY INSTRUCTIONS\nAND OWNER ADVISORIES PRIOR TO FLIGHT\nCAN RESULT IN BODILY INJURY OR DEATH.',
         452, 390, 5.6, '#e6e6e6', 'left', 'normal');
