@@ -1,9 +1,17 @@
 // Tests de bout en bout (npm run test:e2e) : Chromium sans fenêtre, WebGL logiciel (SwiftShader : pas de carte graphique
 // nécessaire), fichiers servis par tests/e2e/server.js sans aucun accès réseau. Lents (quelques minutes) : voir CLAUDE.md
+import { execFileSync } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { defineConfig } from '@playwright/test';
 
-const PORT = 8765;
+// Port du serveur de test : un port libre propre à chaque lancement (choisi par le système : port 0), pour que deux
+// lancements Playwright simultanés ne partagent plus un serveur (avant, port fixe 8765 et reuseExistingServer : la fin
+// du premier lancement coupait le serveur du second). Choisi une fois par le processus principal ; les workers, lancés
+// ensuite, héritent de la variable d'environnement et relisent le même port
+process.env.ESME_E2E_PORT ||= execFileSync(process.execPath, ['-e',
+    "const s = require('net').createServer().listen(0, '127.0.0.1', () => { process.stdout.write(String(s.address().port)); s.close(); });"],
+{ encoding: 'utf8' }).trim();
+const PORT = Number(process.env.ESME_E2E_PORT);
 
 export default defineConfig({
     testDir: 'tests/e2e',
@@ -35,5 +43,5 @@ export default defineConfig({
         },
     },
     projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-    webServer: { command: 'node tests/e2e/server.js', port: PORT, reuseExistingServer: true, timeout: 30_000 },
+    webServer: { command: 'node tests/e2e/server.js', env: { PORT: String(PORT) }, port: PORT, reuseExistingServer: false, timeout: 30_000 },
 });

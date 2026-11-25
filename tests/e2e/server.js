@@ -8,7 +8,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-const PORT = Number(process.env.PORT) || 8765;
+const PORT = Number(process.env.PORT) || 8765;   // (Playwright : port libre de chaque lancement, voir playwright.config.js ; à la main : 8765)
 const PACKAGES = ['three', 'mqtt'];   // (servis depuis node_modules, versions de package.json)
 const MIME = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',

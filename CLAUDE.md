@@ -32,8 +32,8 @@ Règles :
   d'un état du vol passe par `simWait` / `waitSimSeconds` (`tests/e2e/sim-time.js`, horloge `window.__sim.simTime`), jamais
   par un délai en temps réel ; chargement et menus : `waitStarted` / `waitPhase` (délai de chargement). Un pilote de test
   tourne dans la page à chaque pas de physique (crochet `controls.beforeTick`), pas dans un `setInterval`. Le délai
-  Playwright par test (60 min) n'est qu'un filet. Un seul lancement Playwright à la fois : deux lancements partagent le
-  serveur du port 8765 (`reuseExistingServer`), et la fin du premier coupe le serveur du second.
+  Playwright par test (60 min) n'est qu'un filet. Chaque lancement Playwright a son propre serveur de test, sur un port
+  libre choisi au lancement (`playwright.config.js`, `ESME_E2E_PORT`).
 - Ne jamais annoncer une tâche finie sans `npm run check` vert, et dire quels tests couvrent la modification (tests
   existants qui l'exercent, ou tests ajoutés). Pas de test qui la couvre : le dire aussi.
 - `npm run check:full` est obligatoire quand la modification touche au rendu (Graphics, shaders, modèles 3D, cabines),
