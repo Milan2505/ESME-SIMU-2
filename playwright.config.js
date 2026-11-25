@@ -10,8 +10,10 @@ export default defineConfig({
     globalSetup: './tests/e2e/keep-awake.js',   // pas de mise en veille du poste pendant les tests (Windows)
     // Initiation complète (~15 min) : à part, npm run test:initiation (playwright.initiation.config.js)
     testIgnore: '**/initiation.spec.js',
-    timeout: 300_000,            // par test : écran de chargement compris (shaders compilés par le processeur)
-    expect: { timeout: 30_000 },
+    // Délais : les attentes des tests comptent en temps simulé (tests/e2e/sim-time.js, 25/11/2026) ; le délai par test
+    // n'est qu'un filet contre un simulateur figé (sous charge, une image peut prendre plusieurs secondes)
+    timeout: 60 * 60_000,
+    expect: { timeout: 120_000 },     // interface (menus, fenêtres) : suit les images, lentes sous charge
     fullyParallel: true,
     // Un simulateur par cœur physique (décision du 20/11/2026 : e2e en parallèle ; availableParallelism compte les cœurs
     // logiques, deux par cœur physique). Un par cœur logique saturait le processeur depuis les leçons du lot 6 (19 tests) :

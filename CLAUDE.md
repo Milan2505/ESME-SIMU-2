@@ -28,6 +28,12 @@ Règles :
   cœur logique saturait le processeur) et en temps accéléré (`window.__sim.setTimeScale`, mode test seulement : même
   physique, pas de 0,1 s au plus ; radio et moniteur muets et accélérés) : ~5 min pour `test:e2e`, ~2 min pour
   `test:initiation`. Pour une leçon du lot 6 seule : `npx playwright test tests/e2e/lecon-<id>.spec.js`.
+- Attentes des tests e2e en temps SIMULÉ (25/11/2026 : `check:full` passé 5 fois de suite sans relance) : toute attente
+  d'un état du vol passe par `simWait` / `waitSimSeconds` (`tests/e2e/sim-time.js`, horloge `window.__sim.simTime`), jamais
+  par un délai en temps réel ; chargement et menus : `waitStarted` / `waitPhase` (délai de chargement). Un pilote de test
+  tourne dans la page à chaque pas de physique (crochet `controls.beforeTick`), pas dans un `setInterval`. Le délai
+  Playwright par test (60 min) n'est qu'un filet. Un seul lancement Playwright à la fois : deux lancements partagent le
+  serveur du port 8765 (`reuseExistingServer`), et la fin du premier coupe le serveur du second.
 - Ne jamais annoncer une tâche finie sans `npm run check` vert, et dire quels tests couvrent la modification (tests
   existants qui l'exercent, ou tests ajoutés). Pas de test qui la couvre : le dire aussi.
 - `npm run check:full` est obligatoire quand la modification touche au rendu (Graphics, shaders, modèles 3D, cabines),
@@ -59,7 +65,7 @@ enregistrés (`Settings.persist = false`). `window.__sim` : `phase` (chargement,
 vol, crash), `state` (vitesse, altitude, cap, moteur…), `controls`, `model`, `setThrottle`, `setInput`, `setFlapLevel`,
 `errors`, `setMetar(texte)` (météo réelle sans réseau), `setWeather(nom)`, `setThermals(on)` (thermiques, coupées en mode test),
 `recorder`, `flightStore`, `endFlight`, `lastFlight`, `startReplay` / `stopReplay` / `replay` (carnet de vols),
-`setTimeScale(n)` (temps accéléré, 1 à 32, mode test seulement : pas supplémentaires de 0,1 s au plus avant
+`simTime` (temps simulé en s depuis le chargement : base des attentes e2e), `setTimeScale(n)` (temps accéléré, 1 à 32, mode test seulement : pas supplémentaires de 0,1 s au plus avant
 chaque image, `simulateStep` ; attentes de la radio divisées d'autant, `js/TimeScale.js`). `window.esmeDebug` existe aussi, en tout mode. Les tests e2e (`tests/e2e/vol.spec.js`) passent par les vrais
 boutons du menu ; `tests/e2e/server.js` sert `index.html` avec three et mqtt pris dans `node_modules` (versions
 épinglées dans `package.json`, vérifiées par `tests/import-map.test.js`) ; les captures sont dans `test-results/`.

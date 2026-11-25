@@ -4,9 +4,7 @@
 // plein gaz au manche tactile (montée progressive des commandes, InputRamp.js), montée sans crash. Même cadre que
 // vol.spec.js (?test=1, sans réseau).
 import { test, expect } from '@playwright/test';
-import { waitSimSeconds } from './sim-time.js';
-
-const LONG = 240_000;
+import { LOADING, simWait, waitPhase, waitSimSeconds, waitStarted } from './sim-time.js';
 
 async function openSimulator(page) {
     const errors = [];
@@ -14,8 +12,7 @@ async function openSimulator(page) {
     page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
     await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
     await page.goto('/?test=1&carte=campagne');
-    await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
-    await page.waitForFunction(() => window.__sim?.phase === 'menu', null, { timeout: 60_000 });
+    await waitStarted(page);   // chargement jusqu'au menu principal (délai de chargement, sim-time.js)
     // Paramètres > Pilotage > Modèle de vol (Cessna) : Réaliste (valeurs des listes : JSON, voir Settings.js)
     await page.click('#mp-parametres');
     await page.selectOption('#reglages-dialog select[name="flightModel"]', '"realiste"');
@@ -29,7 +26,8 @@ test('modèle réaliste · initiation : départ au parking, avion immobile sur s
     const errors = await openSimulator(page);
     await page.click('#mp-initiation');
     await page.click('#initiation-dialog [data-niveau="1"]');
-    await page.waitForFunction(() => window.__sim.phase === 'vol' && !document.getElementById('moniteur').hidden, null, { timeout: LONG });
+    // Chargement de la carte et départ : pas de temps simulé, délai de chargement (sim-time.js)
+    await page.waitForFunction(() => window.__sim.phase === 'vol' && !document.getElementById('moniteur').hidden, null, { timeout: LOADING, polling: 250 });
     await page.evaluate(() => window.__sim.setTimeScale(8));   // temps accéléré (mode test, voir simulateStep)
     const start = await state(page);
     expect(start.flightModel, 'modèle réaliste branché').toBe('realiste');
@@ -38,7 +36,8 @@ test('modèle réaliste · initiation : départ au parking, avion immobile sur s
     expect(start.onGround).toBe(true);
     // Le moniteur passe la première étape (frein de parc déjà serré) : la leçon avance d'elle-même
     const first = await page.textContent('#moniteur-titre');
-    await page.waitForFunction((t) => document.getElementById('moniteur-titre').textContent !== t, first, { timeout: 60_000 });
+    // Étape de leçon : 480 s de temps simulé (ancien délai de 60 s réelles à ×8)
+    await simWait(page, (t) => document.getElementById('moniteur-titre').textContent !== t, first, { sim: 480 });
     await waitSimSeconds(page, 5);
     const after = await state(page);
     const moved = Math.hypot(after.position.x - start.position.x, after.position.z - start.position.z);
@@ -54,22 +53,23 @@ test('modèle réaliste · vol libre : décollage plein gaz au manche, montée s
     await page.click('#mp-vol-libre');
     await page.click('#carte-liste button[data-carte="campagne"]');
     await page.click('#carte-continuer');
-    await page.waitForFunction(() => window.__sim.phase === 'aerodrome', null, { timeout: LONG });
+    await waitPhase(page, 'aerodrome');
     await page.click('#aerodrome-liste button');
-    await page.waitForFunction(() => window.__sim.phase === 'hangar', null, { timeout: 60_000 });
+    await waitPhase(page, 'hangar');
     await page.click('#hangar-partir');
-    await page.waitForFunction(() => window.__sim.phase === 'depart', null, { timeout: 60_000 });
+    await waitPhase(page, 'depart');
     await page.click('#depart-liste button');
-    await page.waitForFunction(() => window.__sim.phase === 'vol', null, { timeout: 120_000 });
+    await waitPhase(page, 'vol');
     await page.evaluate(() => window.__sim.setTimeScale(4));   // temps accéléré (mode test, voir simulateStep)
     const start = await state(page);
     expect(start.flightModel, 'modèle réaliste branché').toBe('realiste');
     expect(start.engineRunning).toBe(true);
     // Plein gaz ; manche tiré à 30 % dès 55 kt indiqués (le manche tactile passe par la montée progressive)
     await page.evaluate(() => window.__sim.setThrottle(1));
-    await page.waitForFunction(() => { const s = window.__sim.state; return s.crashed || s.indicatedSpeed > 55 * 0.5144; }, null, { timeout: 180_000 });
+    // Délais en temps simulé (sim-time.js) : anciens délais réels à ×4 (180 s -> 720 s, 120 s -> 480 s)
+    await simWait(page, () => { const s = window.__sim.state; return s.crashed || s.indicatedSpeed > 55 * 0.5144; }, null, { sim: 720 });
     await page.evaluate(() => window.__sim.setInput({ pitch: 0.3 }));
-    await page.waitForFunction(() => { const s = window.__sim.state; return s.crashed || !s.onGround; }, null, { timeout: 120_000 });
+    await simWait(page, () => { const s = window.__sim.state; return s.crashed || !s.onGround; }, null, { sim: 480 });
     await page.evaluate(() => window.__sim.setInput({ pitch: 0.1 }));
     const airborne = await state(page);
     await waitSimSeconds(page, 10);

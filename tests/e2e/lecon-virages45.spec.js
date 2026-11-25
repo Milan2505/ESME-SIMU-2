@@ -3,21 +3,20 @@
 // sa démonstration, qui se poursuit d'étape en étape). En fin de leçon : note donnée (critères de l'ACS PA.V.A mesurés,
 // pas « démontrés » : _autoDo hors bouton Passer), progression enregistrée, aucun accident, aucune erreur console
 import { test, expect } from '@playwright/test';
+import { simWait, waitStarted, LOADING } from './sim-time.js';
 
 test.use({ viewport: { width: 960, height: 540 } });
 
 test('leçon virages à 45° : 360° à gauche puis à droite, note et progression', async ({ page }, testInfo) => {
-    test.setTimeout(15 * 60_000);
     const errors = [];
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
     await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
     await page.goto('/?test=1&carte=campagne');
-    await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
-    await page.waitForFunction(() => window.__sim?.phase === 'menu', null, { timeout: 60_000 });
+    await waitStarted(page);
     await page.click('#mp-initiation');
     await page.click('#initiation-dialog [data-niveau="virages45"]');
-    await page.waitForFunction(() => window.__sim.phase === 'vol' && window.__sim.initiation.active, null, { timeout: 240_000 });
+    await page.waitForFunction(() => window.__sim.phase === 'vol' && window.__sim.initiation.active, null, { timeout: LOADING, polling: 250 });
     const start = await page.evaluate(() => window.__sim.state);
     expect(start.flightModel).toBe('realiste');
     expect(start.onGround, 'départ en vol').toBe(false);
@@ -47,7 +46,8 @@ test('leçon virages à 45° : 360° à gauche puis à droite, note et progressi
     });
     await page.evaluate(() => window.__sim.setTimeScale(4));
 
-    await page.waitForFunction(() => { const i = window.__sim.initiation; return !i.active || i.step?.end || window.__sim.state.crashed; }, null, { timeout: 600_000, polling: 250 });
+    // Jusqu'au bilan : 2400 s de temps simulé (l'ancien délai de 600 s réelles à ×4)
+    await simWait(page, () => { const i = window.__sim.initiation; return !i.active || i.step?.end || window.__sim.state.crashed; }, null, { sim: 2400, polling: 250 });
     const result = await page.evaluate(() => {
         const i = window.__sim.initiation;
         return { log: window.__leconLog, state: window.__sim.state, steps: i.steps.map((s) => s.title), end: Boolean(i.step?.end),

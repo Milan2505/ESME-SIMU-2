@@ -2,7 +2,7 @@
 // et server.js), en mode test (?test=1 : voir simulator.js, TEST_MODE). Un scénario par appareil et par carte : menu
 // principal sans erreur console, départ en vol libre par les vrais boutons, 10 s de vol plein gaz, capture d'écran.
 import { test, expect } from '@playwright/test';
-import { waitSimSeconds } from './sim-time.js';
+import { LOADING, simWait, waitPhase, waitSimSeconds, waitStarted } from './sim-time.js';
 
 const SCENARIOS = [
     { carte: 'campagne', avion: 'c172' },                          // modèle réaliste (défaut)
@@ -11,7 +11,6 @@ const SCENARIOS = [
     { carte: 'ville', avion: 'c172', modele: 'simplifie' },        // modèle simplifié, choisi au menu Paramètres
     { carte: 'mer', avion: 'f15' },
 ];
-const LONG = 240_000;   // ms : écran de chargement (shaders compilés par le processeur) et modèles lourds (F-15, R44)
 
 for (const { carte, avion, modele } of SCENARIOS) {
     test(`${carte} · ${avion}${modele ? ` (${modele})` : ''} : menu sans erreur, vol libre, 10 s de vol, capture`, async ({ page }, testInfo) => {
@@ -22,11 +21,9 @@ for (const { carte, avion, modele } of SCENARIOS) {
         await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
         // (argument transmis à la page : sans lui, le R44 recevait le plein collectif au lieu de 0,6, voir setThrottle)
         const sim = (expression, arg) => page.evaluate(expression, arg);
-        const phase = async (name, timeout = 60_000) => page.waitForFunction((p) => window.__sim?.phase === p, name, { timeout });
 
         await page.goto(`/?test=1&carte=${carte}`);
-        await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
-        await phase('menu');
+        await waitStarted(page);   // chargement jusqu'au menu principal (délai de chargement, sim-time.js)
         await expect(page.locator('#menu-principal')).toBeVisible();
         await expect(page.locator('#mp-version')).toContainText('Version 0.');
         expect(await sim(() => window.__sim.test)).toBe(true);
@@ -43,17 +40,18 @@ for (const { carte, avion, modele } of SCENARIOS) {
         await page.click('#mp-vol-libre');
         await page.click(`#carte-liste button[data-carte="${carte}"]`);
         await page.click('#carte-continuer');
-        await phase('aerodrome', LONG);
+        await waitPhase(page, 'aerodrome');
         await page.click('#aerodrome-liste button');
-        await phase('hangar');
+        await waitPhase(page, 'hangar');
         if (avion !== 'c172') {
             await page.click(`#hangar-avions [data-avion="${avion}"]`);
-            await page.waitForFunction((a) => window.__sim.aircraftType === a && !document.querySelector('#hangar-avions button:disabled'), avion, { timeout: LONG });
+            // Chargement du modèle 3D (F-15, R44) : pas de temps simulé, délai de chargement
+            await page.waitForFunction((a) => window.__sim.aircraftType === a && !document.querySelector('#hangar-avions button:disabled'), avion, { timeout: LOADING, polling: 250 });
         }
         await page.click('#hangar-partir');
-        await phase('depart');
+        await waitPhase(page, 'depart');
         await page.click('#depart-liste button');
-        await phase('vol', 120_000);
+        await waitPhase(page, 'vol');
         await sim(() => window.__sim.setTimeScale(4));   // temps accéléré (mode test : même physique, voir simulateStep)
         // Cause d'un éventuel crash, pour le message d'échec
         await sim(() => window.__sim.controls.addEventListener('crash', (e) => { window.__crashReason = `${e.reason} (vitesse ${window.__sim.state.speed.toFixed(1)} m/s, hauteur ${window.__sim.state.altitude.toFixed(1)} m)`; }));
@@ -67,7 +65,8 @@ for (const { carte, avion, modele } of SCENARIOS) {
         // sont lentes et le temps simulé par image est plafonné (PlaneControls : 0,1 s) : on attend que l'appareil
         // roule vraiment (ou que le R44 ait décollé), puis 10 s de vol de plus, en temps simulé (sim-time.js)
         await sim((a) => window.__sim.setThrottle(a === 'r44' ? 0.6 : 1), avion);
-        await page.waitForFunction((a) => { const s = window.__sim.state; return s.crashed || (a === 'r44' ? !s.onGround : s.speed > 10); }, avion, { timeout: 120_000 });
+        // 480 s de temps simulé : ancien délai de 120 s réelles à ×4
+        await simWait(page, (a) => { const s = window.__sim.state; return s.crashed || (a === 'r44' ? !s.onGround : s.speed > 10); }, avion, { sim: 480 });
         await waitSimSeconds(page, 10);
         const after = await sim(() => window.__sim.state);
         expect(after.crashed, `pas de crash (${await sim(() => window.__crashReason)})`).toBe(false);

@@ -5584,6 +5584,9 @@ window.__sim = {
     setThrottle(value) { controls.throttle = Math.min(1, Math.max(0, value)); },
     // Temps accéléré (mode test seulement, 1 à 32) : le jeu avance de scale fois le temps réel (voir simulateStep)
     get timeScale() { return simTimeScale; },
+    // Temps simulé (s) depuis le chargement : ce que le jeu a réellement fait avancer (0,1 s au plus par image, plus les
+    // pas du temps accéléré). Les attentes des tests e2e se comptent dessus, pas en temps réel (tests/e2e/sim-time.js)
+    get simTime() { return simClock; },
     setTimeScale(scale) {
         if (!TEST_MODE) return;
         simTimeScale = gameTimeScale.value = Math.max(1, Math.min(32, Number(scale) || 1));
@@ -6982,6 +6985,7 @@ function updateAirMass() {
 // vent, le modèle de vol, les systèmes, la radio et la leçon ; l'image n'est dessinée qu'une fois. Les attentes en temps
 // réel de la radio sont divisées par le même facteur (TimeScale.js). En jeu, simTimeScale vaut 1 : rien ne change
 let simTimeScale = 1;
+let simClock = 0;   // temps simulé (mode test : window.__sim.simTime)
 // Pas fixe de la simulation (PlaneControls, 1/120 s ; tests/frame-rate.test.js) : ce qui agit sur le vol avance au même
 // pas que la physique, quelle que soit la cadence d'images. Avant chaque pas : horloge du vent (mode test), vent, masse
 // d'air, pilote automatique ou moniteur ; après : systèmes (moteur, carburant, volets) transmis au modèle, masse,
@@ -7021,6 +7025,7 @@ function flightFrame(delta) {
     systemsTick(dt);
 }
 function simulateStep(delta) {
+    simClock += delta;
     flightFrame(delta);
     checkPlaneCollisions();
     if (!choosingSpawn) updateWaterSink( delta );
@@ -7051,6 +7056,7 @@ function drawFrame(time) {
     const frameStart = performance.now();
     freezeFrameStart(frameStart);
     const delta = clock.getDelta();
+    simClock += Math.min(delta, 0.1);   // (la part de l'image ; le temps accéléré : simulateStep)
     try { updateGamepads(delta); } catch (error) { recordError('périphériques', error); }
     // Mode test, temps accéléré : pas supplémentaires avant l'image (la part de l'image elle-même : 0,1 s au plus)
     if (simTimeScale > 1 && !replay) {

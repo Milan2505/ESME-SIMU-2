@@ -2,9 +2,8 @@
 // chargement de la page). Fenêtre Périphériques : préréglages reconnus, fonctions du Cessna, « Assigner ». Puis le C172
 // (modèle réaliste) décolle aux seuls périphériques : gaz au levier, manche au yoke, freins du palonnier relâchés.
 import { test, expect } from '@playwright/test';
-import { waitSimSeconds } from './sim-time.js';
+import { simWait, waitSimSeconds, waitPhase, waitStarted } from './sim-time.js';
 
-const LONG = 240_000;
 const KT = 0.5144;
 
 // Périphériques simulés (axes comme Chrome sous Windows : X 0, Y 1, Z 2, Rz 5, chapeau chinois 9, centre hors plage)
@@ -33,11 +32,9 @@ test('périphériques simulés : fenêtre Périphériques, puis décollage du C1
     await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
     await page.addInitScript(mockGamepads);
     const sim = (expression, arg) => page.evaluate(expression, arg);
-    const phase = (name, timeout = 60_000) => page.waitForFunction((p) => window.__sim?.phase === p, name, { timeout });
 
     await page.goto('/?test=1&carte=campagne');
-    await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
-    await phase('menu');
+    await waitStarted(page);
 
     // Fenêtre Périphériques (menu principal) : les deux périphériques, leur préréglage, les fonctions du Cessna
     await page.click('#mp-peripheriques');
@@ -70,43 +67,51 @@ test('périphériques simulés : fenêtre Périphériques, puis décollage du C1
     await page.click('#mp-vol-libre');
     await page.click('#carte-liste button[data-carte="campagne"]');
     await page.click('#carte-continuer');
-    await phase('aerodrome', LONG);
+    await waitPhase(page, 'aerodrome');
     await page.click('#aerodrome-liste button');
-    await phase('hangar');
+    await waitPhase(page, 'hangar');
     await page.click('#hangar-partir');
-    await phase('depart');
+    await waitPhase(page, 'depart');
     await page.click('#depart-liste button');
-    await phase('vol', 120_000);
+    await waitPhase(page, 'vol');
     await sim(() => window.__sim.setTimeScale(4));
     await sim(() => window.__sim.controls.addEventListener('crash', (e) => { window.__crashReason = `${e.reason} (vitesse ${window.__sim.state.speed.toFixed(1)} m/s)`; }));
     const start = await sim(() => window.__sim.state);
     expect(start.flightModel).toBe('realiste');
     expect(start.throttle, 'levier tiré : rien ne change tant qu\'il ne bouge pas').toBeLessThan(0.5);
     // Freins du palonnier au repos : aucun frein
-    await page.waitForFunction(() => window.__sim.model.controls.brakeLeft === 0 && window.__sim.model.controls.brakeRight === 0);
+    // (délais en temps simulé, sim-time.js : les anciens délais en temps réel × l'échelle de temps du moment, ×4 au sol)
+    await simWait(page, () => window.__sim.model.controls.brakeLeft === 0 && window.__sim.model.controls.brakeRight === 0, null, { sim: 60 });
 
     // Gaz au levier du yoke (aucun appel à setThrottle)
     await sim(() => window.__pads.set(0, { 2: -1 }));
-    await page.waitForFunction(() => window.__sim.state.throttle > 0.99, null, { timeout: 30_000 });
-    await page.waitForFunction(() => { const s = window.__sim.state; return s.crashed || s.indicatedSpeed > 55 * 0.5144; }, null, { timeout: 180_000 });
+    await simWait(page, () => window.__sim.state.throttle > 0.99, null, { sim: 120 });
+    await simWait(page, () => { const s = window.__sim.state; return s.crashed || s.indicatedSpeed > 55 * 0.5144; }, null, { sim: 720 });
     // Rotation et envol en temps réel : en accéléré, sous la charge des tests en parallèle, plusieurs secondes de vol
     // manche tiré passaient entre l'envol et la main donnée au pilote de test (chandelle, vitesse perdue, avion reposé)
     await sim(() => window.__sim.setTimeScale(1));
     // Manche tiré au yoke : la gouverne suit tout de suite (entrée directe, sans montée progressive)
     const pull = (0.2 - 0.05) / 0.95;   // zone morte du préréglage
     await sim(() => window.__pads.set(0, { 1: 0.2 }));
-    await page.waitForFunction((p) => Math.abs(window.__sim.model.controls.pitch - p) < 1e-6, pull, { timeout: 10_000 });
-    // (main passée au pilote de test à 3 m de haut : sous charge, les images sont lentes et il ne doit pas reposer l'avion)
-    await page.waitForFunction((y0) => { const s = window.__sim.state; return s.crashed || (!s.onGround && s.altitude - y0 > 3); }, start.altitude, { timeout: 120_000 });
-    // En l'air : temps réel (le périphérique n'est lu qu'une fois par image) et un pilote simple, au yoke seulement (axes
-    // simulés) : ailes à plat, montée vers 65 kt indiqués, vitesse verticale amortie (phugoïde), rend la main pour garder la vitesse (pas de chandelle après l'envol), jamais en descendant sous 15 m
-    await sim(() => window.__sim.setTimeScale(1));
+    await simWait(page, (p) => Math.abs(window.__sim.model.controls.pitch - p) < 1e-6, pull, { sim: 10 });
+    // Pilote de test DANS la page, à chaque pas de physique (crochet beforeTick de PlaneControls, 1/120 s) : il suit le temps
+    // simulé, quelle que soit la charge (25/11/2026 : piloté par un setInterval en temps réel et une passation de main
+    // depuis Node, il laissait parfois passer plusieurs secondes de vol manche tiré, d'où chandelle et avion reposé).
+    // Au sol puis jusqu'à 3 m : manche tenu à 0,2 ; au-delà, au yoke seulement (axes simulés) : ailes à plat, montée vers
+    // 65 kt indiqués, vitesse verticale amortie (phugoïde), rend la main pour garder la vitesse, jamais en descendant sous 15 m
     await sim((ground) => {
-        window.__pilot = setInterval(() => {
+        const controls = window.__sim.controls, before = controls.beforeTick;
+        const pilot = window.__pilot = { on: true, flying: false, before };
+        controls.beforeTick = (dt) => {
+            before?.(dt);
+            if (!pilot.on) return;
             const st = window.__sim.state, clamp = (v, m) => Math.max(-m, Math.min(m, v));
+            pilot.flying ||= !st.onGround && st.altitude - ground > 3;
+            if (!pilot.flying) return;
             window.__pads.set(0, { 0: clamp(st.roll * 2, 0.5), 1: Math.max(st.altitude - ground < 15 && st.verticalSpeed < 0.5 ? 0.05 : -0.3, Math.min(0.3, 0.1 + (st.indicatedSpeed / 0.5144 - 65) * 0.02 - (st.verticalSpeed - 3) * 0.04)) });
-        }, 50);
+        };
     }, start.altitude);
+    await simWait(page, () => { const s = window.__sim.state; return s.crashed || window.__pilot.flying; }, null, { sim: 120 });
     const airborne = await sim(() => window.__sim.state);
     // Regard libre au chapeau chinois, en l'air : rien ne doit casser
     await sim(() => window.__pads.set(0, { 9: -1 }));
@@ -114,7 +119,7 @@ test('périphériques simulés : fenêtre Périphériques, puis décollage du C1
     await sim(() => window.__pads.set(0, { 9: 1.2857 }));
     await waitSimSeconds(page, 8);
     const after = await sim(() => window.__sim.state);
-    await sim(() => clearInterval(window.__pilot));
+    await sim(() => { window.__pilot.on = false; window.__sim.controls.beforeTick = window.__pilot.before; });
     expect(after.crashed, `pas de crash (${await sim(() => window.__crashReason)})`).toBe(false);
     expect(after.onGround, 'en l\'air').toBe(false);
     expect(after.indicatedSpeed, 'vitesse tenue').toBeGreaterThan(55 * KT);

@@ -4,21 +4,21 @@
 // donnée (tableau du moniteur), progression enregistrée (en mémoire en mode test), note rangée dans le carnet de vols.
 import { writeFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
+import { simWait, waitStarted, LOADING } from './sim-time.js';
 
 test.use({ viewport: { width: 960, height: 540 } });
 
 test('leçon ILS : interception du localizer, capture du glide, descente stabilisée, minimums, remise de gaz', async ({ page }, testInfo) => {
-    test.setTimeout(15 * 60_000);
     const errors = [];
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
     await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
     await page.goto('/?test=1&carte=campagne');
-    await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
-    await page.waitForFunction(() => window.__sim?.phase === 'menu', null, { timeout: 60_000 });
+    await waitStarted(page);
     await page.click('#mp-initiation');
     await page.click('#initiation-dialog [data-niveau="ils"]');
-    await page.waitForFunction(() => window.__sim.phase === 'vol' && window.__sim.initiation.active, null, { timeout: 240_000 });
+    // Chargement de la carte et départ : pas de temps simulé, délai de chargement
+    await page.waitForFunction(() => window.__sim.phase === 'vol' && window.__sim.initiation.active, null, { timeout: LOADING, polling: 250 });
     const start = await page.evaluate(() => ({ state: window.__sim.state, lesson: window.__sim.initiation.lesson }));
     expect(start.lesson).toBe('ils');
     expect(start.state.flightModel).toBe('realiste');
@@ -58,7 +58,8 @@ test('leçon ILS : interception du localizer, capture du glide, descente stabili
     await page.evaluate(() => window.__sim.setTimeScale(8));
 
     // Jusqu'au bilan
-    await page.waitForFunction(() => { const i = window.__sim.initiation; return !i.active || i.step?.end || window.__sim.state.crashed; }, null, { timeout: 12 * 60_000, polling: 500 });
+    // (compté en temps simulé : 5 760 s, l'ancien délai de 12 min réelles à ×8)
+    await simWait(page, () => { const i = window.__sim.initiation; return !i.active || i.step?.end || window.__sim.state.crashed; }, null, { sim: 5760, polling: 500 });
     await page.evaluate(() => window.__sim.setTimeScale(1));
     const result = await page.evaluate(() => {
         const i = window.__sim.initiation;
@@ -88,7 +89,8 @@ test('leçon ILS : interception du localizer, capture du glide, descente stabili
 
     // Terminer : la note est rangée dans le carnet de vols
     await page.click('#moniteur-continuer');
-    await page.waitForFunction(() => window.__sim.lastFlight?.flight?.meta?.lesson === 'ils', null, { timeout: 30_000 });
+    // Rangement au carnet : promesse du flightStore, pas de temps simulé (délai de chargement)
+    await page.waitForFunction(() => window.__sim.lastFlight?.flight?.meta?.lesson === 'ils', null, { timeout: LOADING, polling: 250 });
     const meta = await page.evaluate(() => window.__sim.lastFlight.flight.meta);
     expect(meta.grade).toBe(result.grade.score);
     expect(meta.criteria.length).toBe(9);

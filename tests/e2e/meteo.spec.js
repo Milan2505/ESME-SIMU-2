@@ -2,25 +2,20 @@
 // pas de réseau en test), tirette de réchauffe au clavier (touche ²) et chute de régime, givrage du carburateur par temps
 // froid et humide (régime qui baisse), fonte réchauffe tirée, puis arrêt du moteur si on laisse faire
 import { test, expect } from '@playwright/test';
-import { waitSimSeconds } from './sim-time.js';
+import { simWait, waitSimSeconds, waitPhase, waitStarted } from './sim-time.js';
 
-const LONG = 240_000;
 const FT = 0.3048;
 
 test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrage', async ({ page }, testInfo) => {
-    // (long : givrage puis arrêt du moteur ; ~5 min sous la charge des tests en parallèle, comme les leçons du lot 6)
-    test.setTimeout(10 * 60_000);
     const errors = [];
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     page.on('pageerror', (error) => errors.push(`pageerror : ${error.message}`));
     await page.route('**/*', (route) => (new URL(route.request().url()).hostname === 'localhost' ? route.continue() : route.abort()));
     const sim = (expression, arg) => page.evaluate(expression, arg);
     const state = () => sim(() => window.__sim.state);
-    const phase = (name, timeout = 60_000) => page.waitForFunction((p) => window.__sim?.phase === p, name, { timeout });
 
     await page.goto('/?test=1&carte=campagne');
-    await page.waitForFunction(() => window.esmeStarted === true, null, { timeout: 120_000 });
-    await phase('menu');
+    await waitStarted(page);
     // Effets de l'atmosphère « réaliste » (le défaut, doux, givre trois fois plus lentement)
     await page.click('#mp-parametres');
     await page.selectOption('#reglages-dialog select[name="atmosphere"]', JSON.stringify('realiste'));
@@ -28,13 +23,13 @@ test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrag
     await page.click('#mp-vol-libre');
     await page.click('#carte-liste button[data-carte="campagne"]');
     await page.click('#carte-continuer');
-    await phase('aerodrome', LONG);
+    await waitPhase(page, 'aerodrome');
     await page.click('#aerodrome-liste button');
-    await phase('hangar');
+    await waitPhase(page, 'hangar');
     await page.click('#hangar-partir');
-    await phase('depart');
+    await waitPhase(page, 'depart');
     await page.click('#depart-liste button');
-    await phase('vol', 120_000);
+    await waitPhase(page, 'vol');
 
     // QNH de la partie (graine fixe en mode test), altimètre calé au départ : il lit l'altitude du terrain (0 ft)
     let s = await state();
@@ -78,7 +73,8 @@ test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrag
     await waitSimSeconds(page, 5);
     const idle = (await state()).rpm;
     await sim(() => window.__sim.setTimeScale(32));
-    await page.waitForFunction(() => window.__sim.state.carbIce > 0.55, null, { timeout: 120_000 });
+    // (délais en temps simulé, sim-time.js : les anciens délais en temps réel × 32, temps accéléré du test)
+    await simWait(page, () => window.__sim.state.carbIce > 0.55, null, { sim: 3840 });
     await sim(() => window.__sim.setTimeScale(1));
     await waitSimSeconds(page, 2);
     const iced = await state();
@@ -97,7 +93,7 @@ test('météo : QNH et altimètre, METAR réel, réchauffe carburateur et givrag
     // Réchauffe repoussée et rien fait : le moteur finit par s'arrêter, carburateur givré
     await page.keyboard.press('Backquote');
     await sim(() => window.__sim.setTimeScale(32));
-    await page.waitForFunction(() => !window.__sim.state.engineRunning, null, { timeout: 180_000 });
+    await simWait(page, () => !window.__sim.state.engineRunning, null, { sim: 5760 });
     s = await state();
     expect(s.stopReason).toBe('givrage');
     expect(s.loopErrors, 'aucune erreur dans la boucle d\'images').toBe(0);
