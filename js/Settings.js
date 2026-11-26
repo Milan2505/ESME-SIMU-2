@@ -49,7 +49,7 @@ const OPTIONS = {
                        choices: [[false, 'Désactivé'], [true, 'Activé']] },
     // Palonnier automatique (25/11/2026) : au clavier, sans palonnier, le lacet inverse des ailerons faisait déraper l'avion
     // (15° pour une touche tenue 0,5 s) et osciller l'inclinaison (roulis hollandais) ; activé par défaut
-    autoRudder:      { group: 'Pilotage', label: 'Palonnier automatique', hint: "Modèle réaliste : en vol, sans action sur le palonnier, la direction accompagne les ailerons comme les pieds d'un pilote (virages coordonnés, bille au milieu). Désactivé : lacet inverse et dérapage à corriger au palonnier",
+    autoRudder:      { group: 'Pilotage', label: 'Palonnier automatique', hint: "Modèle réaliste : en vol, sans action sur le palonnier, la direction accompagne les ailerons comme les pieds d'un pilote (virages coordonnés, bille au milieu). Désactivé : lacet inverse et dérapage à corriger au palonnier. Coupé d'office quand un axe de direction est affecté à un périphérique (palonnier, torsion du manche, stick)",
                        choices: [[true, 'Activé'], [false, 'Désactivé']] },
     crosswind:       { group: 'Pilotage', label: 'Correction de dérive', hint: "Vent de travers : après l'envol, le nez se met tout seul face au vent et la trajectoire reste dans l'axe (sinon, au pilote de corriger la dérive)",
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },

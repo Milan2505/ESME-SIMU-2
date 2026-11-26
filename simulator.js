@@ -52,7 +52,7 @@ import { WeightBalance, WB_GALLON, computeLoad } from './js/WeightBalance.js';
 import { Scenery } from './js/Scenery.js';
 import { Avionics, parseFrequency } from './js/Avionics.js';
 import { TouchControls } from './js/TouchControls.js';
-import { GamepadProfiles, brakeCommands, deviceName, presetFor } from './js/GamepadMapping.js';
+import { GamepadProfiles, autoRudderEnabled, brakeCommands, deviceName, presetFor } from './js/GamepadMapping.js';
 import { Gamepads } from './js/Gamepads.js';
 import { DevicesWindow } from './js/DevicesWindow.js';
 import { isTablet, isPhone, isStandalone, isIOS } from './js/Device.js';
@@ -5320,6 +5320,14 @@ if (crashedWhileLoading && lowerPreset) {
 const settingsDialog = document.getElementById('reglages-dialog');
 let fpsLimit = 0;   // 0 = pas de limite (fréquence de l'écran)
 
+// Palonnier automatique : réglage, coupé d'office dès qu'un axe de direction est affecté à un périphérique branché
+// (GamepadMapping.autoRudderEnabled) ; revu à chaque image (branchement à chaud, « Assigner » dans la fenêtre)
+let autoRudderSetting = true;
+let rudderPads = null;   // périphériques (Gamepads), une fois créés plus bas
+function updateAutoRudder() {
+    const enabled = rudderPads ? autoRudderEnabled(autoRudderSetting, rudderPads.pads, (pad) => rudderPads.profiles.bindingsFor(pad)) : autoRudderSetting;
+    for (const model of [planeModel, realisticModel]) model.assists.autoRudder = enabled;
+}
 function applySettings(values) {
     watchNewShaders();
     fpsLimit = values.fps;
@@ -5347,9 +5355,10 @@ function applySettings(values) {
             stallProtection: values.stallProtection,
             smoothLiftoff: values.smoothLiftoff,
             crosswindCorrection: values.crosswind ?? false,
-            autoRudder: values.autoRudder ?? true,
         });
     }
+    autoRudderSetting = values.autoRudder ?? true;   // (appliqué avec les périphériques : updateAutoRudder)
+    updateAutoRudder();
     // Modèle de vol du Cessna : tout de suite au menu, au hangar et au choix du départ ; sinon au prochain départ
     if (inMenu || inHangar || choosingSpawn) syncPlaneModel();
     controls.inputRamp.setScale(values.controlRamp ?? 1);
@@ -5379,6 +5388,7 @@ document.getElementById('reglages-fermer').addEventListener('click', () => setti
 const gamepadProfiles = new GamepadProfiles();
 if (TEST_MODE) gamepadProfiles.persist = false;
 const gamepads = new Gamepads(gamepadProfiles);
+rudderPads = gamepads;
 const devicesWindow = new DevicesWindow(document.getElementById('peripheriques-dialog'), gamepads, gamepadProfiles, () => aircraftType);
 function openDevices() {
     closeMenus();
@@ -5403,6 +5413,7 @@ let padFiring = false;
 function updateGamepads(delta) {
     gamepads.aircraft = aircraftType;
     const state = gamepads.poll();
+    updateAutoRudder();
     const edges = gamepads.takeEdges();
     // Pas de pilotage au menu, au hangar, au choix du départ, ni fenêtre ouverte (« Assigner » : l'axe bougé ne pilote pas)
     const active = gamepads.pads.length > 0 && !inMenu && !inHangar && !choosingSpawn && !document.querySelector('dialog[open]');

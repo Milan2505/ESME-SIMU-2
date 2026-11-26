@@ -122,6 +122,16 @@ export function readControls( pads, bindingsOf, aircraft = null ) {
 	return out;
 }
 
+// Un périphérique branché a-t-il un axe affecté à la fonction (ex. 'yaw' : palonnier, torsion du manche, stick) ?
+export function hasAxisBinding( pads, bindingsOf, functionId ) {
+	return pads.some( ( pad ) => pad && pad.connected !== false && Number.isInteger( ( bindingsOf( pad ) ?? {} )[ functionId ]?.axis ) );
+}
+// Palonnier automatique (aide du modèle réaliste) : coupé d'office quand un axe de direction est affecté à un
+// périphérique branché (les pieds du joueur tiennent la direction ; sinon l'aide et le palonnier se contrarieraient)
+export function autoRudderEnabled( setting, pads, bindingsOf ) {
+	return Boolean( setting ) && ! hasAxisBinding( pads, bindingsOf, 'yaw' );
+}
+
 // Freins : deux axes = freinage différentiel ; un seul axe = les deux roues ; bouton = les deux roues à fond
 export function brakeCommands( axes, buttons ) {
 	const button = buttons.brake ?? 0;
