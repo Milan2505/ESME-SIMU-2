@@ -270,9 +270,11 @@ export class DevicesWindow {
 				} else width = v * 100;
 				text = `${ Math.round( v * 100 ) } %`;
 			}
-			fill.style.left = `${ left }%`;
-			fill.style.width = `${ width }%`;
-			out.textContent = text;
+			// (écrit seulement ce qui change : la même valeur réécrite faisait recalculer les styles à chaque image)
+			const l = `${ left }%`, w = `${ width }%`;
+			if ( fill.style.left !== l ) fill.style.left = l;
+			if ( fill.style.width !== w ) fill.style.width = w;
+			if ( out.textContent !== text ) out.textContent = text;
 		}
 	}
 }

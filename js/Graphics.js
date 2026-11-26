@@ -360,6 +360,9 @@ class Graphics {
     setShadows(size) {
         const enabled = size > 0;
         this.renderer.shadowMap.enabled = enabled;
+        // Sans ombres, la lumière de la carte fine (intensité nulle, elle n'éclaire rien) ne sert plus : retirée du calcul
+        // de chaque pixel. Même image ; le changement de réglage recompile déjà les shaders (ombres dans la clé)
+        if (this.detailLight) this.detailLight.visible = enabled;
         for (const light of [this.sunLight, this.detailLight]) {
             if (!light) continue;
             light.castShadow = enabled;

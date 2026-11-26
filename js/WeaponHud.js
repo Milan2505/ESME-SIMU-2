@@ -35,6 +35,14 @@ class WeaponHud {
         this.canvas = canvas;
         this.view = view;
         this.ctx = canvas.getContext('2d');
+        // Calque vide (F-15 sans armement, la plupart du temps) : pas effacé à chaque image. L'effacer marquait le canvas
+        // plein écran comme modifié, renvoyé au compositeur à chaque image. _painted : quelque chose a été dessiné depuis
+        // le dernier effacement (tout tracé passe par ces fonctions)
+        this._painted = true;
+        for (const name of ['fill', 'stroke', 'fillRect', 'strokeRect', 'fillText', 'strokeText', 'drawImage', 'putImageData']) {
+            const draw = this.ctx[name].bind(this.ctx);
+            this.ctx[name] = (...args) => { this._painted = true; return draw(...args); };
+        }
         this._rect = '';
         this._shown = false;
         this._message = '';
@@ -99,7 +107,10 @@ class WeaponHud {
         this._resize();
         const ctx = this.ctx, W = this._w, H = this._h;
         ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
-        ctx.clearRect(0, 0, W, H);
+        if (this._painted) {
+            ctx.clearRect(0, 0, W, H);
+            this._painted = false;
+        }
 
         // Touché : bords de l'écran rouges
         if (this.flash > 0) {

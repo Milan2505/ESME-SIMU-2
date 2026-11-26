@@ -724,7 +724,8 @@ class Airport {
     }
 
     // Vraies lumières (plafonniers des hangars) : seulement sur l'aérodrome où l'on vole. Le nombre de lumières de la
-    // scène reste le même (pas de recompilation des matériaux) et chacune coûte sur tous les pixels
+    // scène reste le même (pas de recompilation des matériaux) et chacune coûte sur tous les pixels. (Rangées hors du
+    // groupe de l'aérodrome, voir AirportNetwork.build : son masquage ne les retire pas de la scène)
     setLightsEnabled(enabled) {
         for (const hangar of this._hangars) hangar.lights[3].visible = enabled;
     }
@@ -1532,6 +1533,12 @@ class AirportNetwork extends EventTarget {
 
     build(renderer) {
         for (const a of this.list) this.group.add(a.build(renderer));
+        // Plafonniers des hangars (vraies lumières) sortis du groupe de leur aérodrome, à la même place dans le monde :
+        // un aérodrome caché par setVisibleFrom (vue de l'autre terrain, vol loin de lui) ôtait ses lumières de la scène,
+        // et chaque matériau changeait de variante de shader (deux fois plus de programmes compilés, à-coup en vol). Au-delà
+        // de la distance de dessin, ce qu'elles éclairent (30 m autour) n'est pas dessiné : même image
+        this.group.updateMatrixWorld(true);
+        for (const a of this.list) for (const hangar of a._hangars ?? []) this.group.attach(hangar.lights[3]);
         for (const a of this.list) a.setLightsEnabled(a === this.current);
         return this.group;
     }

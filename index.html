@@ -26,7 +26,9 @@
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/geometries/RoundedBoxGeometry.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/GLTFLoader.js">
-	<link rel="preload" href="asset/c172p.glb" as="fetch" crossorigin>
+	<!-- Modèle du Cessna : celui que chargera C172Model (tablettes et téléphones : c172p-mobile.glb, voir Device.isTablet) -->
+	<link rel="preload" href="asset/c172p.glb" as="fetch" crossorigin media="(hover: hover) and (pointer: fine)">
+	<link rel="preload" href="asset/c172p-mobile.glb" as="fetch" crossorigin media="(hover: none), (pointer: coarse)">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/MTLLoader.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/loaders/OBJLoader.js">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/math/ImprovedNoise.js">

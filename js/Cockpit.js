@@ -595,6 +595,22 @@ class Cockpit {
         // Instruments : aiguilles, roses et maquettes bougent ; leurs boîtiers (enfants fixes) restent groupés
         const moving = new Set([...this.clickables, ...this._yokeClickables]);
         mergeStatic(this.group, (node) => dynamic.has(node) || moving.has(node) || node.renderOrder > 0 || this._isInstrument(node));
+        // Puis, instrument par instrument, ses pièces fixes (collerette, vis, cadrans fixes) : 62 pièces, ~46 appels de
+        // dessin en moins. Restent à part tout objet que Panel172 tient dans this.panel._p (aiguilles, cartes, drapeaux,
+        // voyants, touches… : bougent, s'allument ou se cachent), les boutons rotatifs, et les autres boîtiers
+        const roots = new Set(Object.values(this.panel._p).map((part) => part?.root ?? part?.inst?.root).filter(Boolean));
+        const animated = new Set([...this.panel._spin.values()].map((knob) => knob.obj));
+        const collect = (value, depth) => {
+            if (!value || depth > 3) return;
+            if (value.isObject3D) { if (!roots.has(value)) animated.add(value); return; }
+            if (value instanceof Map) { for (const v of value.values()) collect(v, depth + 1); return; }
+            if (typeof value === 'object') for (const [key, v] of Object.entries(value)) if (key !== 'root') collect(v, depth + 1);
+        };
+        collect(this.panel._p, 0);
+        for (const root of roots) {
+            mergeStatic(root, (node) => dynamic.has(node) || moving.has(node) || node.renderOrder > 0 || animated.has(node)
+                || (node !== root && roots.has(node)));
+        }
     }
 
     // Boîtier d'instrument (groupe à part : ses aiguilles et cartes bougent)

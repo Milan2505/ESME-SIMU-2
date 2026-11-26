@@ -884,6 +884,24 @@ function skipWhenHidden(object) {
     };
 }
 for (const object of [airframe, jetFrame, heliFrame, cessnaCockpit.group, jetCockpit.group, heliCockpit.group]) skipWhenHidden(object);
+// L'avion entier caché (menu, choix de la carte, de l'aérodrome, du départ, épave) : seule sa propre matrice est tenue à
+// jour (lue par la cabine, l'œil du pilote, les armes) ; ses ~900 pièces ne sont plus recalculées deux fois par image
+// (ici et au rendu). Redevenu visible : updateMatrix remet matrixWorldNeedsUpdate, toutes les pièces sont recalculées.
+// Un feu allumé (ou interrupteurs pas encore connus) : tout est recalculé comme avant, l'occultation des feux
+// (AircraftLights, rayon contre le modèle) lit les matrices des pièces même avion caché
+{
+    const update = aircraft.updateMatrixWorld;
+    const lightsOn = () => { const s = aircraftLights.switches; return !s || Object.values(s).some(Boolean); };
+    aircraft.updateMatrixWorld = function (force) {
+        if (this.visible || lightsOn()) return update.call(this, force);
+        if (this.matrixAutoUpdate) this.updateMatrix();
+        if (this.matrixWorldNeedsUpdate || force) {
+            if (this.parent) this.matrixWorld.multiplyMatrices(this.parent.matrixWorld, this.matrix);
+            else this.matrixWorld.copy(this.matrix);
+            this.matrixWorldNeedsUpdate = false;
+        }
+    };
+}
 
 // Feux réellement allumés : interrupteurs et alimentation ; phares seulement de nuit (le jour, ils ne se
 // verraient pas et chaque lumière alourdit le rendu)
@@ -2240,7 +2258,16 @@ function updateStallWarning(delta) {
     });
     terrainAlarm.classList.toggle('actif', terrainWarning.level !== null);
     terrainAlarm.classList.toggle('pull-up', terrainWarning.level === 'pull');
-    terrainAlarm.textContent = terrainWarning.level === 'sink' ? 'SINK RATE' : 'PULL UP';
+    setText(terrainAlarm, terrainWarning.level === 'sink' ? 'SINK RATE' : 'PULL UP');
+}
+
+// Écritures du DOM faites à chaque image : seulement quand la valeur change. Réécrire la même valeur (hidden, texte)
+// suffisait à faire recalculer les styles et la mise en page de la page à chaque image, dans toutes les phases
+function setHidden(element, hidden) {
+    if (element.hidden !== hidden) element.hidden = hidden;
+}
+function setText(element, text) {
+    if (element.textContent !== text) element.textContent = text;
 }
 
 // Sol : crissement des pneus au toucher, secousses, crash
@@ -2924,13 +2951,14 @@ for (const field of airport.list) field.spawns.forEach((spawn, i) => {
 });
 
 // Case survolée : plus lumineuse ; les autres pulsent doucement
+const SPAWN_EDGE_HOVER = new THREE.Color(0xffffff), SPAWN_EDGE = new THREE.Color(0xffe14d);   // (pas d'allocation par image)
 function updateSpawnMarkers() {
     if (!spawnMarkers.visible) return;
     const pulse = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 3);
     for (const marker of spawnMarkers.children) {
         const hover = marker.userData.spawn === spawnHover;
         marker.userData.fill.opacity = hover ? 0.55 : 0.16 + 0.12 * pulse;
-        marker.userData.edges.material.color.setScalar(1).multiply(new THREE.Color(hover ? 0xffffff : 0xffe14d));
+        marker.userData.edges.material.color.setScalar(1).multiply(hover ? SPAWN_EDGE_HOVER : SPAWN_EDGE);
         marker.scale.setScalar(hover ? 1.15 : 1);
     }
     for (const button of spawnList.children) button.classList.toggle('survol', button.dataset.spawn === spawnHover?.id);
@@ -3513,7 +3541,7 @@ function installUpdate(force = false) {
     return true;
 }
 function updateWhenCalm() {
-    updateBanner.hidden = !pendingVersion;
+    setHidden(updateBanner, !pendingVersion);
     if (!pendingVersion) return;
     updateBanner.querySelector('span').textContent = `Mise à jour 0.${pendingVersion} prête : installée à la prochaine pause`;
     if (calmMoment() && !installUpdate()) updateBanner.hidden = true;   // (déjà tentée : on réessaiera plus tard)
@@ -4976,7 +5004,7 @@ function updateVor(delta) {
     vor2.update(aircraft.position);
     avionics.update(delta, { airborne: !controls.isOnGround(), vacuum: systems.vacuum });
     updateDme(delta);
-    vorPanel.hidden = !(chaseView && vorShown);
+    setHidden(vorPanel, !(chaseView && vorShown));
     if (vorPanel.hidden || (vorTimer -= delta) > 0) return;
     vorTimer = 0.1;
     const ctx = vorCanvas.getContext('2d');
@@ -5004,11 +5032,11 @@ function updateIls(delta = 0) {
     const state = ils.update(aircraft.position, tuned ?? nearestAirport().ilsFrequency);
     ils.active = state.available && Boolean(tuned) && avionics.powered(systems).navcom1;
     const showButton = chaseView && state.available && !controls.isCrashed();
-    ilsButton.hidden = !showButton;
+    setHidden(ilsButton, !showButton);
     ilsButton.classList.toggle('actif', ils.active);
-    if (showButton) ilsButton.textContent = ils.active ? `ILS ${state.runway} ✓` : `ILS ${state.runway} disponible`;
+    if (showButton) setText(ilsButton, ils.active ? `ILS ${state.runway} ✓` : `ILS ${state.runway} disponible`);
 
-    ilsPanel.hidden = !(chaseView && ils.active && ilsShown);
+    setHidden(ilsPanel, !(chaseView && ils.active && ilsShown));
     if (ilsPanel.hidden || (ilsTimer -= delta) > 0) return;
     ilsTimer = 0.1;
     // Même indicateur que le VOR (touche O), route de la piste en haut, aiguille de pente en plus
@@ -6350,7 +6378,7 @@ function teamPoints(capture) {
 }
 function updateWardog() {
     const show = wardog() && !inMenu && !inHangar;
-    wardogPanel.hidden = !show;
+    setHidden(wardogPanel, !show);
     if (!wardog()) {
         previousCapture = lastCapture = null;
         return;
@@ -6410,7 +6438,7 @@ function flashScore(id) {
 function updateScores() {
     // (en Wardog : toujours, même seul dans la partie, avec les points des équipes et les terrains en tête)
     const show = Boolean(multiplayer.code) && (multiplayer.players.size > 0 || wardog()) && !inMenu && !inHangar;
-    scoresPanel.hidden = !show;
+    setHidden(scoresPanel, !show);
     if (!show) return;
     const rows = [{ id: multiplayer.id, name: multiplayer.name, ...multiplayer.score, me: true },
         ...[...multiplayer.players].map(([id, p]) => ({ id, name: p.name, ...(p.score ?? { kills: 0, deaths: 0 }), me: false }))];
@@ -6575,7 +6603,7 @@ function updateF15Warnings(frameDelta) {
             return span;
         }));
     }
-    f15AlarmPanel.hidden = items.length === 0;
+    setHidden(f15AlarmPanel, items.length === 0);
 }
 
 let lastCombatTargets = [];   // (diagnostic : cibles de la dernière image, voir esmeDebug.cibles)
@@ -6635,8 +6663,12 @@ function updateCombat(frameDelta) {
 // Relevé avant ce changement : 0,8 s figée à l'arrivée au hangar (shaders compilés à leur première image), des à-coups
 // de 130 à 270 ms en vol (vue cabine, décollage), sons (18 Mo) téléchargés seulement au premier clic
 
-// Sons : téléchargés et décodés tout de suite (contexte audio encore suspendu : il démarre au premier geste)
-for (const sound of [stallWarning, bankAngleWarning, terrainWarning, engineSound, sounds]) sound.unlock().catch(() => { /* refait au prochain geste */ });
+// Sons : téléchargés et décodés tout de suite (contexte audio encore suspendu : il démarre au premier geste). Une tâche
+// plus tard : la création du contexte audio bloque la page (jusqu'à 1,6 s au premier lancement du navigateur, service
+// audio à froid) ; faite ici, elle retardait le départ de toutes les requêtes du chargement (modèles, décor, sons)
+setTimeout(() => {
+    for (const sound of [stallWarning, bankAngleWarning, terrainWarning, engineSound, sounds]) sound.unlock().catch(() => { /* refait au prochain geste */ });
+}, 0);
 // Ciel étoilé : chargé d'avance (avant : au premier passage à la nuit, en vol)
 nightSky.preload();
 
@@ -7038,6 +7070,18 @@ function simulateStep(delta) {
     updateLoad();
 }
 
+// État de l'avion envoyé aux autres joueurs (chaque image, et au choix de la carte sous la vidéo, voir drawFrame)
+function sendNetworkState() {
+    const jet = aircraftType === 'f15';
+    guard('réseau', () => multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
+        crashed: controls.isCrashed() || choosingSpawn || Boolean(replay), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
+        jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
+        // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
+        combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed(),
+            lock: weapons.lockId, locked: weapons.locked, shield: shieldLeft() },
+    } ));
+}
+
 function drawFrame(time) {
     lastLoopAt = performance.now();   // (filet de sécurité : la boucle tourne, voir watchFreeze)
     // Écran de chargement : rien n'est dessiné derrière lui (sauf les images du préchauffage, voir warmUpWorld) ; toute
@@ -7058,6 +7102,16 @@ function drawFrame(time) {
     const delta = clock.getDelta();
     simClock += Math.min(delta, 0.1);   // (la part de l'image ; le temps accéléré : simulateStep)
     try { updateGamepads(delta); } catch (error) { recordError('périphériques', error); }
+    // Choix de la carte : la vidéo du fond couvre l'écran, rien n'est dessiné. Seul le réseau continue (on reste joignable) ;
+    // physique, sons, relief, décor, HUD : rien à montrer, ils reprennent à l'image où la vidéo s'efface
+    // (showMapPreview(null) remet mapPreviewCovers à faux tout de suite : cette image-là refait tout avant son dessin)
+    if (mapPreviewCovers && !mapChoicePanel.hidden && !replay) {
+        sendNetworkState();
+        lap('réseau (envoi)');
+        freezeFrameEnd();
+        updatePerf(performance.now() - frameStart);
+        return;
+    }
     // Mode test, temps accéléré : pas supplémentaires avant l'image (la part de l'image elle-même : 0,1 s au plus)
     if (simTimeScale > 1 && !replay) {
         let extra = Math.min(delta, 0.25) * simTimeScale - Math.min(delta, 0.1);
@@ -7149,13 +7203,7 @@ function drawFrame(time) {
     // Envoyé aussi au menu, au hangar et au choix du départ (avion masqué chez les autres, comme une épave) : avant,
     // rien ne partait tant que le joueur n'avait pas choisi son départ, et personne ne pouvait rejoindre sa partie
     // (« Aucune partie avec le code… » alors que le code était bon)
-    guard('réseau', () => multiplayer.update( aircraft, jet ? (systems.running ? controls.getThrottle() : 0) : controls.getThrottle() * systems.power, {
-        crashed: controls.isCrashed() || choosingSpawn || Boolean(replay), crashes: crashCount, spawns: spawnCount, lights: systems.lights, rpm: systems.rpm, weather: weatherName,
-        jet: jet ? { gear: controls.model.gearPosition, speedbrake: controls.model.speedbrake, flaps: controls.getFlaps(), ab: jetSystems.afterburner, canopy: jetCanopy } : null,
-        // (dégâts envoyés comme épaisseur de fumée × 70 : voir RemotePlayers)
-        combat: { firing: weapons.firing, damage: controls.isCrashed() ? 0 : damage.smoke * 70, burning: damage.onFire && !controls.isCrashed(),
-            lock: weapons.lockId, locked: weapons.locked, shield: shieldLeft() },
-    } ));
+    sendNetworkState();
     // Multijoueur : le vent suit la météo du créateur de la partie (tous les joueurs ont le même vent)
     const host = multiplayer.code && !multiplayer.isHost ? [...multiplayer.players.values()].find((p) => p.owner) : null;
     wind.setShared(host?.weather ? METARS[host.weather] ?? null : null);
