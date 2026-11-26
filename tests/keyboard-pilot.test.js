@@ -201,7 +201,7 @@ test('montée progressive de la profondeur plus lente à basse vitesse (InputRam
     assert.equal(ramp.pitchFactor(undefined), 1);
     const v = ramp.update({ pitch: 1, roll: 1 }, 0.4, 50);
     assert.ok(Math.abs(v.pitch - 0.05) < 1e-9, `profondeur à 50 KIAS : ${v.pitch.toFixed(3)} après 0,4 s (fond en 8 s)`);
-    assert.ok(Math.abs(v.roll - 0.4) < 1e-9, `ailerons à 50 KIAS : ${v.roll.toFixed(3)} après 0,4 s (fond en 1 s)`);
+    assert.ok(Math.abs(v.roll - 0.2) < 1e-9, `ailerons à 50 KIAS : ${v.roll.toFixed(3)} après 0,4 s (fond en 2 s, comme la profondeur à 90 KIAS)`);
     const down = new InputRamp().update({ pitch: -1 }, 0.4, 50);
     assert.ok(Math.abs(down.pitch + 0.05) < 1e-9, `à piquer à 50 KIAS : ${down.pitch.toFixed(3)} après 0,4 s (fond en 8 s aussi)`);
 });
@@ -216,5 +216,5 @@ test('montée progressive (InputRamp) : touche tenue -> braquage croissant, touc
     assert.ok(Math.abs(v.pitch) < 1e-9, `relâchée : retour à 0 en 0,2 s depuis la moitié (${v.pitch.toFixed(3)})`);
     ramp.setScale(1.5);
     v = ramp.update({ roll: -1 }, 0.3);
-    assert.ok(Math.abs(v.roll + 0.2) < 1e-9, `douceur 1,5 : ailerons en 1,5 s (${v.roll.toFixed(3)} après 0,3 s)`);
+    assert.ok(Math.abs(v.roll + 0.1) < 1e-9, `douceur 1,5 : ailerons en 3 s (${v.roll.toFixed(3)} après 0,3 s)`);
 });

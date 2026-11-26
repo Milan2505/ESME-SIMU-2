@@ -105,6 +105,10 @@ menu ; `asset/blender/` : scripts et sources Blender), `data/` (CSV du décor), 
 `simulator.js` tient la scène three.js, la boucle d'images (`drawFrame`), les menus (principal, carte, aérodrome, hangar,
 départ), les caméras, les fenêtres (paramètres, météo, carte, tour, en ligne, profil, masse et centrage), le mode test
 (`TEST_MODE`, `window.__sim`), le branchement de tout ce qui suit, et les branches par appareil (`aircraftType`).
+Travail par image évité sans changer l'image : au choix de la carte, sous la vidéo, seul le réseau tourne (physique,
+sons, décor reprennent quand elle s'efface) ; avion caché sans feu allumé, seule sa propre matrice est recalculée ; DOM
+écrit seulement quand la valeur change (`setHidden`, `setText`). Plafonniers des hangars rangés hors du groupe de leur
+aérodrome (`AirportNetwork.build`) : nombre de lumières constant, pas de seconde variante des shaders.
 
 Appareils et physique (`js/`) :
 - `FlightModel.js` : modèle de vol des avions (portance par demi-aile, traînée, poussée, effet de sol, décrochage,
@@ -119,7 +123,7 @@ Appareils et physique (`js/`) :
   forces et moments, train ressort-amortisseur, décrochage et vrille ; données sous GPL-2.0 dans `data/C172pAero.js` (UIUC,
   JSBSim c172p). Choisi par le réglage « Modèle de vol (Cessna) » (`flightModel`, réaliste par défaut depuis le 21/11/2026, simplifié au choix), au départ
   (`syncPlaneModel` dans simulator.js), jamais sur la carte Mer. `InputRamp.js` : montée progressive des commandes
-  clavier et tactiles du modèle réaliste (réglage `controlRamp`). `HeliModel.js` : hélicoptère R44
+  clavier et tactiles du modèle réaliste (réglage `controlRamp`, « Vive » par défaut ; palonnier automatique : aide `autoRudder`). `HeliModel.js` : hélicoptère R44
   (élément de pale, patins), même interface. `PlaneControls.js` : clavier, tactile et axes des périphériques
   (`setAxisInput`, sans montée progressive) -> commandes du modèle, valeurs des instruments ; tout au pas fixe de 1/120 s
   (`update(delta)` rend le nombre de pas ; crochets `beforeTick` : vent, masse d'air, pilote automatique et moniteur ;
@@ -175,7 +179,7 @@ Tests (`tests/`) : `helpers/flight.js` (banc d'essai du modèle de vol : avion s
 tenues en indiqué), `flight-regression.test.js` (comportements réglés en jeu), `atmosphere.test.js`, `propulsion.test.js`,
 `perf-c172.test.js` (performances contre le POH 172P), `*-realiste.test.js` (mêmes tests sur le modèle réaliste),
 `flying-qualities.test.js` (modes propres comparés au modèle linéaire UIUC, spirale, lacet inverse, vrille),
-`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `straight-flight.test.js` (avion droit manche lâché : effets de l'hélice supprimés), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
+`keyboard-pilot.test.js` (joueur au clavier sur le modèle réaliste), `keyboard-feel.test.js` (réglages du jeu au clavier comparés au simplifié : touches tenues, virage d'un joueur qui réagit en 0,25 s), `straight-flight.test.js` (avion droit manche lâché : effets de l'hélice supprimés), `gamepads.test.js` (périphériques), `autopilot.test.js` (KAP 140 sur le modèle réaliste, banc `helpers/autopilot.js`),
 `adf.test.js`, `markers.test.js`, `nav-audio.test.js`, `flight-recorder.test.js`, `replay.test.js`, `flight-review.test.js`, `c172-speeds.test.js` (repères du badin du 172P), `charts.test.js`, `altimeter.test.js`, `meteo.test.js` (QNH, METAR réel, temps chaud,
 Dryden branché), `metar.test.js`, `turbulence.test.js`, `carb-icing.test.js`, `frame-rate.test.js` (même vol à 60, 30 et 15 images/s),
 `lesson-grade.test.js`, `instructor-pilot.test.js`, `lessons-*.test.js` (chaque leçon du lot 6 jouée au banc réaliste),

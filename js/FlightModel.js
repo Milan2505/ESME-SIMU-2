@@ -86,6 +86,7 @@ class FlightModel extends EventDispatcher {
 			stallProtection: false,      // la profondeur seule ne fait pas décrocher
 			smoothLiftoff: false,        // après l'envol, manche relâché, le nez se rend progressivement
 			crosswindCorrection: false,  // vent de travers : après l'envol, le nez se met tout seul face au vent (pas de dérive)
+			autoRudder: false,           // modèle réaliste : en vol, pieds lâchés, la direction suit les ailerons (vol coordonné)
 		};
 
 		// Commandes du pilote

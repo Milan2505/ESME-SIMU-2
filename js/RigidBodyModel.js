@@ -26,6 +26,7 @@ const LIFTOFF_TIME = 0.3;          // s sans aucune roue au sol (et roues à plu
 const LIFTOFF_HEIGHT = 0.1;        // m
 const AID_LIFTOFF_TIME = 6;        // s : durée des aides « envol en douceur » et « correction de dérive » après l'envol
 const AID_CROSSWIND = [ 2, 3 ];     // aide « correction de dérive » : direction par radian de dérapage, et par rad/s de lacet (amortisseur)
+const AID_RUDDER = 1;              // aide « palonnier automatique » : direction par unité d'ailerons (Cnδa / Cnδr ~ 0,8, plus le lacet dû au roulis)
 const MAX_RATE = 8;                // rad/s : borne de sécurité des vitesses de rotation (vrille comprise)
 
 const _right = new Vector3();
@@ -191,12 +192,20 @@ class RigidBodyModel extends FlightModel {
 			yaw = MathUtils.clamp( yaw - kBeta * beta + kRate * r, - 1, 1 );
 			if ( Math.abs( c.roll ) < 0.05 ) roll = MathUtils.clamp( roll - 2 * this.bankAngle - 0.6 * this._angularVelocity.z, - 1, 1 );
 		}
+		// Palonnier automatique : en vol, pieds lâchés (clavier, tactile, manche sans palonnier), la direction suit les
+		// ailerons comme le pied d'un pilote qui coordonne : le lacet inverse des ailerons (Cnδa) est compensé. Sans elle, au
+		// clavier, une touche d'ailerons tenue 0,5 s à 100 kt donnait 15° de dérapage et un roulis hollandais qui faisait
+		// osciller l'inclinaison de 14° crête à crête après le relâchement (mesures du 25/11/2026)
+		if ( this.assists.autoRudder && ! this.onGround && Math.abs( c.yaw ) < 0.05 ) {
+			yaw = MathUtils.clamp( yaw + AID_RUDDER * roll, - 1, 1 );
+		}
 		// Commandes en effort (commandes non assistées) : au-delà d'une pression dynamique, un même effort au manche braque de
 		// moins en moins la gouverne (le moment de charnière croît comme q) ; gains du fichier c172p (option « stick force
-		// per g ») : profondeur à cabrer 15 psf / q, ailerons et direction 30 psf / q. Profondeur à piquer : manche à fond =
-		// gouverne à fond à toute vitesse depuis le 22/11/2026 (6° de braquage seulement à 100 kt : « beaucoup moins de
-		// débattement ») ; à cabrer, le gain reste : le passage de la vrille en spirale du POH (p. 4-18) en dépend
-		const elevatorGain = pitch > 0 ? Math.min( 1, D.forceElevator / Math.max( qbar, 1 ) ) : 1;
+		// per g ») : profondeur 15 psf / q dans les deux sens, ailerons et direction 30 psf / q. (Du 22 au 25/11/2026, la
+		// profondeur à piquer braquait à fond à toute vitesse : une touche tenue 0,5 s à 100 kt piquait le nez à 64°/s et à
+		// -2,2 g, contre 23°/s et -0,2 g au modèle simplifié ; au joueur, le nez « oscillait dans tous les sens ». Avec
+		// l'effort : 15°/s et +0,27 g à la douceur « Vive », tests/keyboard-feel.test.js)
+		const elevatorGain = Math.min( 1, D.forceElevator / Math.max( qbar, 1 ) );
 		const lateralGain = Math.min( 1, D.forceLateral / Math.max( qbar, 1 ) );
 		pitch = MathUtils.clamp( pitch, - 1, 1 ) * damage * elevatorGain;
 		const stick = pitch >= 0 ? - pitch * D.elevatorUp : - pitch * D.elevatorDown;

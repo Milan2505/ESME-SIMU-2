@@ -161,6 +161,13 @@ montée progressive des commandes (`js/InputRamp.js`, `tests/keyboard-pilot.test
   Reste, signalé par la recherche du 20/11/2026 : le 172P n'a pas de pompe électrique (alimentation par gravité et
   amorceur manuel, POH p. 7-20), alors que la cabine et la leçon en ont une ; et l'étape « 900 pieds » (volets rentrés,
   phare éteint) n'a pas de source (POH p. 4-14 : volets rentrés à 60 KIAS, obstacles franchis).
+- Jeu au clavier (25/11/2026, « le Cessna oscille dans tous les sens ») : les modes propres étaient conformes (UIUC),
+  les oscillations venaient des réglages du jeu. Corrigé : profondeur en effort (15 psf / q) à piquer comme à cabrer,
+  douceur « Vive » par défaut (profondeur et ailerons à fond en 1 s), palonnier automatique activé par défaut (aide
+  `autoRudder`, Paramètres > Pilotage) ; `tests/keyboard-feel.test.js`, bornes prises sur le modèle simplifié. Reste :
+  joueur qui réagit en 0,35 s, dépassement de l'inclinaison de 15° (9° au simplifié) ; manche lâché dans la turbulence
+  des nuages, l'inclinaison dérive jusqu'à ~12° (spirale lente conforme UIUC, laissée telle quelle) ; les leçons et le
+  pilote automatique sont testés au banc sans le palonnier automatique (aides coupées), en jeu il est actif.
 - Joueur naïf au clavier (tient la touche jusqu'à l'assiette visée, sans anticiper) : depuis le 20/11/2026, la montée de
   la profondeur est 4 fois plus lente sous 60 KIAS (normale à 90 KIAS, `js/InputRamp.js`) : rotation à 17°/s, arrondi
   dans les limites (tests). Virage à 30° (93 KIAS) : 2,37 g, le joueur laisse descendre puis tire jusqu'à l'assiette
@@ -429,6 +436,14 @@ Réduis le poids de ce qui est publié sans perte visible ni audible :
    temps jusqu'au menu (test e2e avec réseau limité).
 6. Propose-moi (sans l'exécuter) une stratégie pour alléger l'historique git de 148 Mo (Git LFS ou réécriture).
 ```
+
+**Fait hors lot (26/11/2026, image identique au pixel)** : préchargement du seul modèle du Cessna utile (`media` dans
+`index.html` : 7,4 -> 3,4 Mo sur tablette) ; sons chargés une tâche après le démarrage ; côté rendu, plafonniers des
+hangars hors du groupe de leur aérodrome (programmes de shaders 130 -> 66), pièces fixes des boîtiers d'instruments
+fusionnées (~46 appels de dessin en moins), rien de calculé sous la vidéo du choix de la carte, DOM écrit seulement
+quand la valeur change. Écartés faute de gain mesuré ou d'image garantie : `mergeStatic` sur tout le Cessna, envoi des
+textures du F-15 et du R44 par tranches (à mesurer texture par texture), afficheurs du tableau redessinés par zone.
+Aucun test ne verrouille ces gains (appels de dessin, identité au pixel).
 
 ---
 

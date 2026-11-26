@@ -2,8 +2,8 @@
 // mémorisés dans le navigateur (localStorage) d'une visite à l'autre.
 
 const STORAGE_KEY = 'esme-fs-reglages';
-const VERSION = 4;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte ») ; 3 : modèle de vol réaliste par défaut ;
-                     // 4 : douceur des commandes « Très vive » par défaut
+const VERSION = 5;   // 2 : style du décor « Réaliste » / « Anciens assets » (plus de « Mixte ») ; 3 : modèle de vol réaliste par défaut ;
+                     // 4 : douceur des commandes « Très vive » par défaut ; 5 : douceur « Vive » par défaut
 
 // Chaque réglage : libellé, explication courte et choix possibles [valeur, libellé]
 const OPTIONS = {
@@ -31,10 +31,10 @@ const OPTIONS = {
                   choices: [[false, 'Désactivé'], [true, 'Activé']] },
     perf:       { label: 'Afficher la fluidité', hint: 'Images par seconde et résolution, en haut à gauche de l\'écran (touche P)',
                   choices: [[false, 'Non'], [true, 'Oui']] },
-    // Modèle de vol du Cessna (feuille de route, lot 1) : simplifié par défaut, le temps de comparer en vol
-    flightModel:     { group: 'Pilotage', label: 'Modèle de vol (Cessna)', hint: "Réaliste (par défaut) : avion à 6 axes par forces et moments (oscillations amorties, lacet inverse aux ailerons, décrochage avec aile qui tombe, vrais effets du moteur). Simplifié : le modèle d'origine, très stable. Pris en compte au prochain départ ; la carte Mer garde le simplifié",
+    // Modèle de vol du Cessna (feuille de route, lot 1) : réaliste par défaut depuis le 21/11/2026 (version 3), simplifié au choix
+    flightModel:     { group: 'Pilotage', label: 'Modèle de vol (Cessna)', hint: "Réaliste (par défaut) : avion à 6 axes par forces et moments (oscillations amorties, lacet inverse aux ailerons, décrochage avec aile qui tombe). Simplifié : le modèle d'origine, très stable. Pris en compte au prochain départ ; la carte Mer garde le simplifié",
                        choices: [['realiste', 'Réaliste'], ['simplifie', 'Simplifié']] },
-    controlRamp:     { group: 'Pilotage', label: 'Douceur des commandes (clavier, tactile)', hint: "Modèle réaliste : une touche braque la gouverne progressivement, comme une main qui tire de plus en plus sur le manche (quatre fois plus lentement à basse vitesse, sous 60 kt). Très vive (par défaut) : profondeur à fond en 0,5 s ; vive : 1 s ; normale : 2 s ; douce : 3 s",
+    controlRamp:     { group: 'Pilotage', label: 'Douceur des commandes (clavier, tactile)', hint: "Modèle réaliste : une touche braque la gouverne progressivement, comme une main qui tire de plus en plus sur le manche (profondeur quatre fois plus lentement à basse vitesse, sous 60 kt). Vive (par défaut) : profondeur et ailerons à fond en 1 s ; très vive : 0,5 s ; normale : 2 s ; douce : 3 s",
                        choices: [[0.25, 'Très vive'], [0.5, 'Vive'], [1, 'Normale'], [1.5, 'Douce']] },
     // Effets de l'atmosphère et du moteur ajoutés au lot 3 (turbulence de Dryden, thermiques, givrage du carburateur) :
     // doux par défaut (demande du 21/11/2026 : l'avion était trop secoué)
@@ -47,6 +47,10 @@ const OPTIONS = {
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
     smoothLiftoff:   { group: 'Pilotage', label: 'Envol en douceur', hint: 'Après l\'envol, manche relâché, le nez se rend progressivement',
                        choices: [[false, 'Désactivé'], [true, 'Activé']] },
+    // Palonnier automatique (25/11/2026) : au clavier, sans palonnier, le lacet inverse des ailerons faisait déraper l'avion
+    // (15° pour une touche tenue 0,5 s) et osciller l'inclinaison (roulis hollandais) ; activé par défaut
+    autoRudder:      { group: 'Pilotage', label: 'Palonnier automatique', hint: "Modèle réaliste : en vol, sans action sur le palonnier, la direction accompagne les ailerons comme les pieds d'un pilote (virages coordonnés, bille au milieu). Désactivé : lacet inverse et dérapage à corriger au palonnier",
+                       choices: [[true, 'Activé'], [false, 'Désactivé']] },
     crosswind:       { group: 'Pilotage', label: 'Correction de dérive', hint: "Vent de travers : après l'envol, le nez se met tout seul face au vent et la trajectoire reste dans l'axe (sinon, au pilote de corriger la dérive)",
                        choices: [[false, 'Désactivée'], [true, 'Activée']] },
     heliStability:   { group: 'Pilotage', label: 'Hélicoptère : aide au stationnaire', hint: "R44 : le cyclique commande l'assiette (tenue manche lâché, glissade arrêtée près du stationnaire) et les palonniers la rotation (cap tenu). Désactivée : commandes directes, comme le vrai (très difficile au clavier)",
@@ -59,7 +63,7 @@ const OPTIONS = {
     radioVolume:     { group: 'Multijoueur', label: 'Volume de la radio', hint: 'Voix des autres joueurs (parler : maintenir N)',
                        choices: [[0, 'Coupée'], [0.5, '50 %'], [1, '100 %'], [1.5, '150 %']] },
 };
-const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 0.25, atmosphere: 'doux', hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
+const FLIGHT_DEFAULTS = { flightModel: 'realiste', controlRamp: 0.5, atmosphere: 'doux', hud: true, rotationAuto: false, stallProtection: false, smoothLiftoff: false, autoRudder: true, crosswind: false, heliStability: true, labels: true, radioVolume: 1 };
 
 const PRESETS = {
     // Très bas : pour les téléphones qui ferment la page (mémoire dépassée) : décor d'origine (pas de forêts ni de villages
@@ -166,7 +170,10 @@ class Settings extends EventTarget {
             if (key === 'flightModel' && (saved.version ?? 1) < 3) continue;
             // Sauvegarde d'avant la version 4 (22/11/2026) : douceur des commandes enregistrée avec les autres réglages
             // (« Normale » était le défaut) -> « Très vive », le nouveau défaut ; les autres se choisissent exprès
-            if (key === 'controlRamp' && (saved.version ?? 1) < 4) continue;
+            // Sauvegarde d'avant la version 5 (25/11/2026) : « Très vive », défaut des versions 4, enregistré sans être forcément
+            // choisi -> « Vive », le nouveau défaut (avec « Très vive », touche tenue 0,5 s à 100 kt : 2,9 g, inclinaison
+            // dépassée de 10 à 20° au joueur ; mesures du 25/11/2026)
+            if (key === 'controlRamp' && (saved.version ?? 1) < 5) continue;
             const value = saved.values[key];
             if (option.choices.some(([choice]) => choice === value)) this.values[key] = value;
         }

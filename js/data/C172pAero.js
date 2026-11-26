@@ -41,7 +41,7 @@ const C172P_AERO = {
 	aileronMax: deg( 17.5 ),
 	rudderMax: deg( 16 ),
 	// Commandes en effort [C172P, option « stick-force-per-g »] : gain = min(1, seuil / q), q en Pa (15 et 30 psf ; la
-	// profondeur à piquer n'en a plus depuis le 22/11/2026, voir RigidBodyModel)
+	// profondeur à piquer n'en a pas eu du 22 au 25/11/2026, voir RigidBodyModel)
 	forceElevator: 15 * 47.880,
 	forceLateral: 30 * 47.880,
 

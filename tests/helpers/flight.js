@@ -184,8 +184,8 @@ function speedHoldByPitch(fixture, target, { indicated = false, gain = 0.4, inte
         const pitchRate = previousPitch === null ? 0 : (pitch - previousPitch) / DT;
         previousPitch = pitch;
         const command = inner * (pitchTarget - pitch * 180 / Math.PI) - 0.05 * pitchRate * 180 / Math.PI;
-        // (profondeur à cabrer en effort, voir RigidBodyModel : gain compensé ; à piquer, gouverne à fond à toute vitesse)
-        const elevatorGain = command > 0 ? Math.min(1, 15 * 47.88 / Math.max(1, 0.5 * 1.225 * model.calibratedSpeed ** 2)) : 1;
+        // (profondeur en effort dans les deux sens, voir RigidBodyModel : gain compensé)
+        const elevatorGain = Math.min(1, 15 * 47.88 / Math.max(1, 0.5 * 1.225 * model.calibratedSpeed ** 2));
         model.controls.pitch = Math.max(-1, Math.min(1, command / elevatorGain));
     };
 }

@@ -14,7 +14,10 @@ const LOW_SPEED = { factor: 4, slow: 60, normal: 90 };
 
 const AXES = [ 'pitch', 'roll', 'yaw' ];
 const DEFAULTS = {
-	rise: { pitch: 2.0, roll: 1.0, yaw: 1.0 },   // s de 0 à fond
+	// s de 0 à fond. Ailerons aussi lents que la profondeur depuis le 25/11/2026 (1 s avant) : à 100 kt, ailerons à fond, le
+	// 172 roule à ~55°/s (dérivées UIUC) contre 40°/s au modèle simplifié ; un joueur qui tient la touche jusqu'à 30°
+	// d'inclinaison (0,25 s de réaction) la dépassait de 15° et l'inclinaison oscillait (écart type 10°), 8° avec 2 s
+	rise: { pitch: 2.0, roll: 2.0, yaw: 1.0 },
 	fall: { pitch: 0.4, roll: 0.3, yaw: 0.3 },   // s de fond à 0
 };
 

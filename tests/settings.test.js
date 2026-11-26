@@ -23,14 +23,27 @@ test('sauvegarde d\'avant la version 3 (simplifié, ancien défaut) : réaliste 
     assert.equal(settings.values.hud, false);
 });
 
-test('sauvegarde d\'avant la version 4 (douceur « Normale », ancien défaut) : « Très vive » ; choisie depuis : gardée', () => {
+test('douceur des commandes : « Vive » par défaut ; sauvegardes d\'avant la version 5 (« Normale » puis « Très vive », anciens défauts) : « Vive » ; choisie depuis : gardée', () => {
+    storage(null);
+    assert.equal(new Settings().values.controlRamp, 0.5);
     storage({ version: 3, preset: 'haut', values: { controlRamp: 1, hud: false } });
     let settings = new Settings();
-    assert.equal(settings.values.controlRamp, 0.25);
+    assert.equal(settings.values.controlRamp, 0.5);
     assert.equal(settings.values.hud, false);
-    storage({ version: 4, preset: 'haut', values: { controlRamp: 1 } });
+    storage({ version: 4, preset: 'haut', values: { controlRamp: 0.25 } });
+    assert.equal(new Settings().values.controlRamp, 0.5);
+    storage({ version: 5, preset: 'haut', values: { controlRamp: 0.25 } });
     settings = new Settings();
-    assert.equal(settings.values.controlRamp, 1);
+    assert.equal(settings.values.controlRamp, 0.25);
+});
+
+test('palonnier automatique : activé par défaut, y compris pour une sauvegarde d\'avant son ajout ; désactivé exprès : gardé', () => {
+    storage(null);
+    assert.equal(new Settings().values.autoRudder, true);
+    storage({ version: 4, preset: 'haut', values: { hud: false } });
+    assert.equal(new Settings().values.autoRudder, true);
+    storage({ version: 5, preset: 'haut', values: { autoRudder: false } });
+    assert.equal(new Settings().values.autoRudder, false);
 });
 
 test('simplifié choisi depuis la version 3 : gardé', () => {
